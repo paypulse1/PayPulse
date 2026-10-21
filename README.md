@@ -13,9 +13,9 @@ Set these secrets directly in Render when prompted:
 - `DRPAY_PASSWORD_SALT`: random salt with at least 32 characters.
 - `DRPAY_JWT_SECRET`: random signing secret with at least 32 characters.
 - `SWIFTPAY_ACCESS_KEY` and `SWIFTPAY_SECRET_KEY`: credentials for the selected SwiftPay environment.
-- `VITE_ANDROID_APK_URL`: URL of the signed Android APK artifact. No APK or Android project is included, so the download remains unavailable until a release file is uploaded.
+- `VITE_ANDROID_APK_URL`: URL of the signed Android APK artifact. The Android wrapper and release workflow are included, but the link stays disabled until CI publishes the first signed release.
 
-The API starts in `sandbox` mode. Verify the full flow against SwiftPay sandbox first. Only after reviewing the integration, explicitly set `SWIFTPAY_ENV=production` and provide live credentials in the API service's Render secret environment. Never put SwiftPay credentials in any `VITE_*` variable; Vite bundles those values into public browser code.
+The API starts in `sandbox` mode. Verify the full flow against SwiftPay sandbox first. For live mode, explicitly set `SWIFTPAY_ENV=production`, add `SWIFTPAY_LIVE_MONEY_ACKNOWLEDGED=I_UNDERSTAND_REAL_MONEY`, and use live credentials in the API service's Render secret environment. The API refuses to start in production mode without that explicit acknowledgement. Never put SwiftPay credentials in any `VITE_*` variable; Vite bundles those values into public browser code.
 
 ## Payment behavior
 
@@ -26,3 +26,7 @@ The current implementation uses provider polling for reconciliation. It does not
 ## Local API configuration
 
 Start the API with `pnpm start:api` after setting the server environment variables above and a PostgreSQL `DATABASE_URL`. Keep the API credentials out of source control and local `.env` files that may be shared.
+
+## Android release
+
+The Android wrapper is generated with Capacitor. Android Studio plus Android SDK build tools are required for local APK builds. A signed release is prepared by `.github/workflows/android-release.yml` when a tag matching `android-v*` is pushed. Add these GitHub Actions secrets first: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`. The workflow publishes `drpay.apk` to the GitHub Release; set Render's `VITE_ANDROID_APK_URL` to that public release download URL. Never commit the keystore.

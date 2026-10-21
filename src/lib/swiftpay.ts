@@ -29,6 +29,7 @@ export type DashboardData = {
   averageTransaction: string;
   accountNumber?: string;
   walletMode: "internal" | "pooled" | "customer";
+  paymentEnvironment: "sandbox" | "production";
   transactions: Transaction[];
 };
 
@@ -72,6 +73,7 @@ type WalletBalanceResponse = {
   adjustedBalance?: number;
   accountNumber?: string;
   walletMode?: string;
+  paymentEnvironment?: "sandbox" | "production";
 };
 
 type WalletActivityResponse = {
@@ -87,6 +89,7 @@ type WalletActivityResponse = {
 
 const apiBaseUrl = import.meta.env.VITE_DRPAY_BACKEND_URL || "";
 const SESSION_KEY = "drpay_session";
+const PAYMENT_LINK_KEY = "drpay_pending_payment_link_key";
 
 export function isBackendConfigured() {
   return Boolean(apiBaseUrl);
@@ -114,6 +117,23 @@ export function saveSession(session: Session) {
 
 export function clearSession() {
   sessionStorage.removeItem(SESSION_KEY);
+}
+
+export function getPaymentLinkIdempotencyKey() {
+  const existing = sessionStorage.getItem(PAYMENT_LINK_KEY);
+  if (existing) return existing;
+  const key = crypto.randomUUID();
+  sessionStorage.setItem(PAYMENT_LINK_KEY, key);
+  return key;
+}
+
+export function resetPaymentLinkIdempotencyKey() {
+  sessionStorage.removeItem(PAYMENT_LINK_KEY);
+  return getPaymentLinkIdempotencyKey();
+}
+
+export function clearPaymentLinkIdempotencyKey() {
+  sessionStorage.removeItem(PAYMENT_LINK_KEY);
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {
@@ -219,6 +239,7 @@ export async function getMerchantDashboard(): Promise<DashboardData> {
     averageTransaction: formatMoney(settledCredits.length ? volume / settledCredits.length : 0),
     accountNumber: wallet.accountNumber,
     walletMode: wallet.walletMode === "pooled" ? "pooled" : "internal",
+    paymentEnvironment: wallet.paymentEnvironment === "production" ? "production" : "sandbox",
     transactions,
   };
 }
@@ -252,11 +273,15 @@ export async function createTransfer(input: {
 
 export async function createPaymentLink(
   input: { amount: number; description: string },
-  idempotencyKey = crypto.randomUUID(),
+  idempotencyKey: string = crypto.randomUUID(),
 ): Promise<PaymentLinkResult> {
   return backendRequest<PaymentLinkResult>("/v1/payment-links", {
     method: "POST",
     headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify({ amount: input.amount, currency: "PHP", description: input.description, referenceNo: `LINK-${Date.now()}` }),
   });
+}
+
+export async function getPaymentLinkStatus(code: string): Promise<PaymentLinkResult> {
+  return backendRequest<PaymentLinkResult>(`/v1/payment-links/${encodeURIComponent(code)}`);
 }

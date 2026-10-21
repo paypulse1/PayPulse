@@ -38,11 +38,15 @@ import {
   clearSession,
   createPaymentLink,
   createTransfer,
+  clearPaymentLinkIdempotencyKey,
   getInstitutions,
   getMerchantDashboard,
+  getPaymentLinkIdempotencyKey,
+  getPaymentLinkStatus,
   getSession,
   isBackendConfigured,
   login,
+  resetPaymentLinkIdempotencyKey,
   type DashboardData,
   type Institution,
   type PaymentLinkResult,
@@ -223,7 +227,25 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
   const [result, setResult] = useState<PaymentLinkResult | "error" | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [idempotencyKey, setIdempotencyKey] = useState(() => getPaymentLinkIdempotencyKey());
+  const [paymentStatus, setPaymentStatus] = useState("");
+
+  useEffect(() => {
+    if (!result || result === "error") return;
+    setPaymentStatus(result.status || "ACTIVE");
+    if (["PAID", "INACTIVE"].includes((result.status || "").toUpperCase())) return;
+    const timer = window.setInterval(async () => {
+      try {
+        const latest = await getPaymentLinkStatus(result.code);
+        const status = latest.status || "ACTIVE";
+        setPaymentStatus(status);
+        if (["PAID", "INACTIVE"].includes(status.toUpperCase())) window.clearInterval(timer);
+      } catch {
+        // Keep the checkout usable if a temporary status request fails.
+      }
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [result]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -232,8 +254,13 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
     try {
       const response = await createPaymentLink({ amount: Number(amount), description: name }, idempotencyKey);
       setResult(response);
+      clearPaymentLinkIdempotencyKey();
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Could not create payment link.");
+      const message = requestError instanceof Error ? requestError.message : "Could not create payment link.";
+      setError(message);
+      if (!message.toLowerCase().includes("unknown") && !message.toLowerCase().includes("reconcil")) {
+        setIdempotencyKey(resetPaymentLinkIdempotencyKey());
+      }
       setResult("error");
     } finally {
       setSubmitting(false);
@@ -283,7 +310,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
                 {error.toLowerCase().includes("outcome is unknown") ? (
                   <Button variant="secondary" onClick={onClose}>Close and check activity</Button>
                 ) : (
-                  <Button onClick={() => { setResult(null); setIdempotencyKey(crypto.randomUUID()); }}>Try again</Button>
+                  <Button onClick={() => setResult(null)}>Try again</Button>
                 )}
               </>
             ) : (
@@ -293,7 +320,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
                 <p>
                   Collect {result.currency || "PHP"} {Number(result.amount || amount).toLocaleString("en-PH", { minimumFractionDigits: 2 })}. Settlement status is confirmed by SwiftPay, not by opening the link.
                 </p>
-                <span className={`payment-state state-${(result.status || "ACTIVE").toLowerCase()}`}>Link status: {result.status || "ACTIVE"}</span>
+                <span className={`payment-state state-${paymentStatus.toLowerCase()}`}>{paymentStatus === "PAID" ? "Payment confirmed by SwiftPay" : `Link status: ${paymentStatus || result.status || "ACTIVE"}`}</span>
                 <button className="copy-link" onClick={copyLink}>
                   <span>{result.paymentUrl}</span>
                   <Copy size={17} />
@@ -392,7 +419,7 @@ function TransferSheet({ balance, onClose, onComplete }: { balance: number; onCl
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<TransferResult | null>(null);
-  const [idempotencyKey] = useState(() => crypto.randomUUID());
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
   useEffect(() => {
     getInstitutions().then((items) => {
@@ -417,7 +444,11 @@ function TransferSheet({ balance, onClose, onComplete }: { balance: number; onCl
       setResult(response);
       onComplete();
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Transfer failed");
+      const message = requestError instanceof Error ? requestError.message : "Transfer failed";
+      setError(message);
+      if (!message.toLowerCase().includes("unknown") && !message.toLowerCase().includes("already") && !message.toLowerCase().includes("reconcil")) {
+        setIdempotencyKey(crypto.randomUUID());
+      }
     } finally {
       setBusy(false);
     }
@@ -425,6 +456,19 @@ function TransferSheet({ balance, onClose, onComplete }: { balance: number; onCl
 
   const selectedBank = institutions.find((item) => item.code === bank);
   const invalidAmount = Number(amount) <= 0 || Number(amount) > balance;
+  const channelAvailable = channel === "INSTAPAY"
+    ? selectedBank?.instapayEnabled !== false
+    : selectedBank?.pesonetEnabled !== false;
+
+  function selectBank(code: string) {
+    const institution = institutions.find((item) => item.code === code);
+    setBank(code);
+    if (channel === "INSTAPAY" && institution?.instapayEnabled === false && institution.pesonetEnabled) {
+      setChannel("PESONET");
+    } else if (channel === "PESONET" && institution?.pesonetEnabled === false && institution.instapayEnabled) {
+      setChannel("INSTAPAY");
+    }
+  }
 
   return (
     <div className="sheet-backdrop" role="presentation" onMouseDown={onClose}>
@@ -437,8 +481,8 @@ function TransferSheet({ balance, onClose, onComplete }: { balance: number; onCl
         {result ? (
           <div className="link-result">
             <div className="result-icon"><Send size={23} /></div>
-            <strong>{result.outcomeUnknown ? "Outcome needs review" : ["REJECTED", "ERROR"].includes(result.status.toUpperCase()) ? "Transfer not sent" : "Transfer accepted for processing"}</strong>
-            <p>{result.outcomeUnknown ? "The provider response was ambiguous. Do not retry until the transfer is reconciled." : ["REJECTED", "ERROR"].includes(result.status.toUpperCase()) ? result.message || "SwiftPay rejected the transfer." : "Provider acceptance is not final settlement. Track the terminal status in Wallet activity."}</p>
+            <strong>{result.outcomeUnknown ? "Outcome needs review" : ["REJECTED", "ERROR", "FAILED", "CANCELED", "CANCELLED"].includes(result.status.toUpperCase()) ? "Transfer not sent" : ["EXECUTED", "SUCCESS", "COMPLETED"].includes(result.status.toUpperCase()) ? "Transfer settled" : "Transfer accepted for processing"}</strong>
+            <p>{result.outcomeUnknown ? "The provider response was ambiguous. Do not retry until the transfer is reconciled." : ["REJECTED", "ERROR", "FAILED", "CANCELED", "CANCELLED"].includes(result.status.toUpperCase()) ? result.message || "SwiftPay rejected the transfer." : ["EXECUTED", "SUCCESS", "COMPLETED"].includes(result.status.toUpperCase()) ? result.message || "SwiftPay confirmed settlement." : result.message || "Provider acceptance is not final settlement. Track the terminal status in Wallet activity."}</p>
             <span className="payment-state">Status: {result.status}</span>
             <Button onClick={onClose}>Done</Button>
           </div>
@@ -459,7 +503,7 @@ function TransferSheet({ balance, onClose, onComplete }: { balance: number; onCl
           </div>
         ) : (
           <form onSubmit={(event) => { event.preventDefault(); setReviewing(true); }}>
-            <label><span>Bank or wallet</span><select value={bank} onChange={(event) => setBank(event.target.value)} required>{institutions.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label>
+            <label><span>Bank or wallet</span><select value={bank} onChange={(event) => selectBank(event.target.value)} required>{institutions.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label>
             <div className="rail-selector">
               {(["INSTAPAY", "PESONET"] as const).map((item) => <button key={item} type="button" className={channel === item ? "active" : ""} onClick={() => setChannel(item)} disabled={item === "INSTAPAY" ? selectedBank?.instapayEnabled === false : selectedBank?.pesonetEnabled === false}>{item}</button>)}
             </div>
@@ -468,7 +512,7 @@ function TransferSheet({ balance, onClose, onComplete }: { balance: number; onCl
             <label><span>Amount · Available ₱{balance.toLocaleString("en-PH", { minimumFractionDigits: 2 })}</span><div className="amount-field"><span>₱</span><input type="number" min="1" step=".01" value={amount} onChange={(event) => setAmount(event.target.value)} required /><small>PHP</small></div></label>
             <label><span>Remarks</span><input value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Optional" /></label>
             {invalidAmount && amount && <div className="inline-error"><AlertCircle size={15} />Enter an amount within your available balance.</div>}
-            <Button type="submit" disabled={invalidAmount || !bank || !account || !name}>Review transfer</Button>
+            <Button type="submit" disabled={invalidAmount || !bank || !channelAvailable || !account || !name}>Review transfer</Button>
           </form>
         )}
       </section>
@@ -521,15 +565,40 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [idempotencyKey] = useState(() => crypto.randomUUID());
+  const [code, setCode] = useState("");
+  const [paymentStatus, setPaymentStatus] = useState("");
+  const [idempotencyKey, setIdempotencyKey] = useState(() => getPaymentLinkIdempotencyKey());
+
+  useEffect(() => {
+    if (!code) return;
+    const timer = window.setInterval(async () => {
+      try {
+        const latest = await getPaymentLinkStatus(code);
+        const status = latest.status || "ACTIVE";
+        setPaymentStatus(status);
+        if (["PAID", "INACTIVE"].includes(status.toUpperCase())) window.clearInterval(timer);
+      } catch {
+        // Leave the hosted link available while a status request is unavailable.
+      }
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [code]);
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError("");
     try {
-      setUrl((await createPaymentLink({ amount: Number(amount), description }, idempotencyKey)).paymentUrl);
+      const result = await createPaymentLink({ amount: Number(amount), description }, idempotencyKey);
+      setUrl(result.paymentUrl);
+      setCode(result.code);
+      setPaymentStatus(result.status || "ACTIVE");
+      clearPaymentLinkIdempotencyKey();
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Could not create payment link");
+      const message = requestError instanceof Error ? requestError.message : "Could not create payment link";
+      setError(message);
+      if (!message.toLowerCase().includes("unknown") && !message.toLowerCase().includes("reconcil")) {
+        setIdempotencyKey(resetPaymentLinkIdempotencyKey());
+      }
     } finally {
       setBusy(false);
     }
@@ -539,7 +608,7 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
       <section className="payment-sheet" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
         <span className="sheet-handle" />
         <header className="sheet-header"><div><span className="eyebrow">POOLED MERCHANT TOOL</span><h2>Payment link</h2></div><IconButton label="Close" onClick={onClose}><X size={19} /></IconButton></header>
-        {url ? <div className="link-result"><div className="result-icon"><Link2 size={23} /></div><strong>Hosted link created</strong><p>Share this SwiftPay checkout with your customer.</p><button className="copy-link" onClick={() => navigator.clipboard?.writeText(url)}><span>{url}</span><Copy size={17} /></button><Button onClick={() => void openHostedCheckout(url)} icon={<ArrowUpRight size={16} />}>Open checkout</Button><Button variant="quiet" onClick={onClose}>Done</Button></div> :
+        {url ? <div className="link-result"><div className="result-icon"><Link2 size={23} /></div><strong>Hosted link created</strong><p>Share this SwiftPay checkout with your customer.</p><span className={`payment-state state-${paymentStatus.toLowerCase()}`}>{paymentStatus === "PAID" ? "Payment confirmed by SwiftPay" : `Link status: ${paymentStatus || "ACTIVE"}`}</span><button className="copy-link" onClick={() => navigator.clipboard?.writeText(url)}><span>{url}</span><Copy size={17} /></button><Button onClick={() => void openHostedCheckout(url)} icon={<ArrowUpRight size={16} />}>Open checkout</Button><Button variant="quiet" onClick={onClose}>Done</Button></div> :
           <form onSubmit={submit}><label><span>Description</span><input value={description} onChange={(event) => setDescription(event.target.value)} required /></label><label><span>Fixed amount</span><div className="amount-field"><span>₱</span><input type="number" min="1" step=".01" value={amount} onChange={(event) => setAmount(event.target.value)} required /><small>PHP</small></div></label>{error && <div className="inline-error"><AlertCircle size={15} />{error}</div>}<Button type="submit" disabled={busy}>{busy ? "Creating…" : "Create link"}</Button></form>}
       </section>
     </div>
@@ -553,6 +622,7 @@ function HomeView({
   onScan,
   onActivity,
   onTransaction,
+  onWalletDetails,
 }: {
   data: DashboardData;
   onRequestPayment: () => void;
@@ -560,6 +630,7 @@ function HomeView({
   onScan: () => void;
   onActivity: () => void;
   onTransaction: (transaction: Transaction) => void;
+  onWalletDetails: () => void;
 }) {
   const [balanceVisible, setBalanceVisible] = useState(true);
 
@@ -578,7 +649,7 @@ function HomeView({
             <i />
             SwiftPay account connected
           </span>
-          <button>
+          <button onClick={onWalletDetails}>
             Wallet details <ChevronRight size={14} />
           </button>
         </div>
@@ -874,7 +945,7 @@ export default function App() {
             </div>
           </div>
           <div className="header-actions">
-            <span className="live-pill"><i /> Connected</span>
+            <span className={`live-pill environment-${data.paymentEnvironment}`}><i />{data.paymentEnvironment === "production" ? "Live" : "Sandbox"}</span>
             <IconButton label="Refresh wallet" onClick={loadDashboard}>
               <RefreshCw className={loading ? "spin" : ""} size={18} />
             </IconButton>
@@ -894,6 +965,7 @@ export default function App() {
               onScan={() => setShowScanner(true)}
               onActivity={() => setActiveTab("Wallet")}
               onTransaction={setSelectedTransaction}
+              onWalletDetails={() => setInfoTool("Merchant profile")}
             />
           )}
           {activeTab === "Wallet" && <ActivityView data={data} onTransaction={setSelectedTransaction} />}
@@ -925,10 +997,10 @@ export default function App() {
         </nav>
       </main>
 
-      {showPayment && <PaymentSheet onClose={() => setShowPayment(false)} />}
+      {showPayment && <PaymentSheet onClose={() => { setShowPayment(false); void loadDashboard(); }} />}
       {showTransfer && <TransferSheet balance={data.balance} onClose={() => setShowTransfer(false)} onComplete={loadDashboard} />}
       {showScanner && <ScannerSheet onClose={() => setShowScanner(false)} />}
-      {showPaymentLink && <PaymentLinkSheet onClose={() => setShowPaymentLink(false)} />}
+      {showPaymentLink && <PaymentLinkSheet onClose={() => { setShowPaymentLink(false); void loadDashboard(); }} />}
       {selectedTransaction && <TransactionSheet transaction={selectedTransaction} onClose={() => setSelectedTransaction(null)} />}
       {infoTool && (
         <div className="sheet-backdrop" role="presentation" onMouseDown={() => setInfoTool("")}>

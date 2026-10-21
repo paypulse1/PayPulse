@@ -17,12 +17,16 @@ const allowedOrigins = new Set([
   frontendOrigin,
   "http://localhost:5173",
   "http://127.0.0.1:5173",
+  "https://localhost",
+  "capacitor://localhost",
 ].filter(Boolean));
 
 app.use(cors({
   origin(origin, callback) {
     if (!origin || allowedOrigins.has(origin)) return callback(null, true);
-    return callback(new Error("Origin is not allowed"));
+    const error = new Error("Origin is not allowed");
+    error.status = 403;
+    return callback(error);
   },
   methods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"],
@@ -45,11 +49,14 @@ const jwtSecret = jwtSecretValue ? new TextEncoder().encode(jwtSecretValue) : nu
 const swiftPayAccessKey = process.env.SWIFTPAY_ACCESS_KEY;
 const swiftPaySecretKey = process.env.SWIFTPAY_SECRET_KEY;
 const swiftPayEnvironment = process.env.SWIFTPAY_ENV || "sandbox";
+const liveMoneyAcknowledgement = process.env.SWIFTPAY_LIVE_MONEY_ACKNOWLEDGED;
 const swiftPayBaseUrl = swiftPayEnvironment === "production"
   ? "https://api.pay.live.swiftpay.ph/api"
   : "https://api.pay.sandbox.live.swiftpay.ph/api";
 const maxTransferAmount = Number(process.env.DRPAY_MAX_TRANSFER_PHP || "100000");
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false });
+const paymentLinkLimiter = rateLimit({ windowMs: 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false });
+const transferLimiter = rateLimit({ windowMs: 60 * 1000, limit: 5, standardHeaders: "draft-8", legacyHeaders: false });
 const institutionCache = new Map();
 
 function requiredEnvironment() {
@@ -64,6 +71,9 @@ function requiredEnvironment() {
   if (!frontendOrigin) missing.push("DRPAY_FRONTEND_ORIGIN");
   if (!Number.isFinite(maxTransferAmount) || maxTransferAmount <= 0) missing.push("DRPAY_MAX_TRANSFER_PHP");
   if (!["sandbox", "production"].includes(swiftPayEnvironment)) missing.push("SWIFTPAY_ENV (sandbox or production)");
+  if (swiftPayEnvironment === "production" && liveMoneyAcknowledgement !== "I_UNDERSTAND_REAL_MONEY") {
+    missing.push("SWIFTPAY_LIVE_MONEY_ACKNOWLEDGED=I_UNDERSTAND_REAL_MONEY");
+  }
   return missing;
 }
 
@@ -182,7 +192,7 @@ app.use("/v1", requireMerchant);
 app.get("/v1/wallet/balance", async (_req, res) => {
   try {
     const { data } = await swiftPayRequest("/disbursements/account");
-    return res.json({ balance: Number(data.balance), accountNumber: data.number, walletMode: "pooled" });
+    return res.json({ balance: Number(data.balance), accountNumber: data.number, walletMode: "pooled", paymentEnvironment: swiftPayEnvironment });
   } catch (error) {
     console.error("Wallet balance lookup failed", error.status || "network error");
     return res.status(error.status === 401 ? 502 : 503).json({ error: "Merchant wallet is temporarily unavailable." });
@@ -209,7 +219,7 @@ app.get("/v1/disbursement-institutions", async (req, res) => {
 async function reconcilePending() {
   const [links, transfers] = await Promise.all([
     pool.query("SELECT id, code FROM payment_links WHERE status IN ('CREATING', 'ACTIVE') AND code IS NOT NULL ORDER BY created_at DESC LIMIT 10"),
-    pool.query("SELECT id, swiftpay_id FROM disbursements WHERE status IN ('REQUESTING', 'PENDING', 'OUTCOME_UNKNOWN') AND swiftpay_id IS NOT NULL ORDER BY created_at DESC LIMIT 10"),
+    pool.query("SELECT id, swiftpay_id, merchant_reference_no FROM disbursements WHERE status IN ('REQUESTING', 'PENDING', 'OUTCOME_UNKNOWN') ORDER BY created_at DESC LIMIT 10"),
   ]);
   await Promise.allSettled([
     ...links.rows.map(async (row) => {
@@ -218,8 +228,16 @@ async function reconcilePending() {
       await pool.query("UPDATE payment_links SET status = $1, updated_at = NOW() WHERE id = $2", [status, row.id]);
     }),
     ...transfers.rows.map(async (row) => {
-      const { data } = await swiftPayRequest(`/disbursements/${encodeURIComponent(row.swiftpay_id)}`);
-      await pool.query("UPDATE disbursements SET status = $1, error_message = $2, updated_at = NOW() WHERE id = $3", [data.status, data.errorMessage || null, row.id]);
+      let data;
+      if (row.swiftpay_id) {
+        ({ data } = await swiftPayRequest(`/disbursements/${encodeURIComponent(row.swiftpay_id)}`));
+      } else {
+        const query = new URLSearchParams({ merchantReferenceNo: row.merchant_reference_no, pageSize: "1" });
+        const result = await swiftPayRequest(`/disbursements?${query}`);
+        data = result.data?.result?.find((item) => item.merchantReferenceNo === row.merchant_reference_no);
+        if (!data) return;
+      }
+      await pool.query("UPDATE disbursements SET swiftpay_id = $1, status = $2, error_message = $3, updated_at = NOW() WHERE id = $4", [data.id, data.status, data.errorMessage || null, row.id]);
     }),
   ]);
 }
@@ -252,7 +270,7 @@ function validIdempotencyKey(value) {
   return typeof value === "string" && value.length >= 16 && value.length <= 100 && /^[a-zA-Z0-9._:-]+$/.test(value);
 }
 
-app.post("/v1/payment-links", async (req, res) => {
+app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
   const submittedAmount = Number(req.body?.amount);
   const amount = Number.isFinite(submittedAmount) ? Math.round(submittedAmount * 100) / 100 : Number.NaN;
   const title = typeof req.body?.description === "string" ? req.body.description.trim().slice(0, 100) : "";
@@ -264,7 +282,7 @@ app.post("/v1/payment-links", async (req, res) => {
   if (existing.rowCount) {
     const row = existing.rows[0];
     if (row.payment_url) return res.json({ id: row.id, code: row.code, paymentUrl: row.payment_url, status: row.status, amount: Number(row.amount), currency: row.currency });
-    return res.status(409).json({ error: "This request is still being reconciled. Check wallet activity before retrying." });
+    return res.status(409).json({ error: "The payment-link outcome is unknown. Check wallet activity before retrying." });
   }
 
   const id = randomUUID();
@@ -273,7 +291,7 @@ app.post("/v1/payment-links", async (req, res) => {
     await pool.query(`INSERT INTO payment_links (id, idempotency_key, reference_no, title, amount, status)
       VALUES ($1, $2, $3, $4, $5, 'CREATING')`, [id, idempotencyKey, referenceNo, title, amount]);
   } catch (error) {
-    if (error.code === "23505") return res.status(409).json({ error: "This request is already being processed." });
+    if (error.code === "23505") return res.status(409).json({ error: "The payment-link outcome is unknown. Check wallet activity before retrying." });
     throw error;
   }
 
@@ -309,7 +327,7 @@ app.get("/v1/payment-links/:code", async (req, res) => {
   }
 });
 
-app.post("/v1/disbursements", async (req, res) => {
+app.post("/v1/disbursements", transferLimiter, async (req, res) => {
   const submittedAmount = Number(req.body?.amount);
   const amount = Number.isFinite(submittedAmount) ? Math.round(submittedAmount * 100) / 100 : Number.NaN;
   const channel = req.body?.channel;
@@ -326,7 +344,8 @@ app.post("/v1/disbursements", async (req, res) => {
   const existing = await pool.query("SELECT * FROM disbursements WHERE idempotency_key = $1", [idempotencyKey]);
   if (existing.rowCount) {
     const row = existing.rows[0];
-    return res.json({ id: row.swiftpay_id, referenceNo: row.merchant_reference_no, status: row.status, outcomeUnknown: row.status === "OUTCOME_UNKNOWN", message: row.error_message });
+    const outcomeUnknown = ["REQUESTING", "OUTCOME_UNKNOWN"].includes(row.status);
+    return res.json({ id: row.swiftpay_id, referenceNo: row.merchant_reference_no, status: outcomeUnknown ? "OUTCOME_UNKNOWN" : row.status, outcomeUnknown, message: row.error_message });
   }
 
   const institutions = institutionCache.get(channel);
@@ -355,7 +374,7 @@ app.post("/v1/disbursements", async (req, res) => {
     await pool.query(`INSERT INTO disbursements (id, idempotency_key, merchant_reference_no, amount, channel, institution_code, request_fingerprint, status)
       VALUES ($1, $2, $3, $4, $5, $6, $7, 'REQUESTING')`, [id, idempotencyKey, merchantReferenceNo, amount, channel, institutionCode, requestFingerprint]);
   } catch (error) {
-    if (error.code === "23505") return res.status(409).json({ error: "This transfer is already being processed." });
+    if (error.code === "23505") return res.status(409).json({ error: "A matching transfer is already being processed. Check wallet activity before retrying." });
     throw error;
   }
 
@@ -372,8 +391,16 @@ app.post("/v1/disbursements", async (req, res) => {
       },
     });
     if (!data?.id) throw new Error("SwiftPay returned no disbursement id.");
-    await pool.query("UPDATE disbursements SET swiftpay_id = $1, status = 'PENDING', updated_at = NOW() WHERE id = $2", [data.id, id]);
-    return res.status(202).json({ id: data.id, referenceNo: merchantReferenceNo, status: "PENDING", message: "Provider accepted the transfer; settlement is not yet confirmed." });
+    const status = typeof data.status === "string" ? data.status.toUpperCase() : "PENDING";
+    const failed = ["REJECTED", "ERROR", "FAILED", "CANCELED", "CANCELLED"].includes(status);
+    const settled = ["EXECUTED", "SUCCESS", "COMPLETED"].includes(status);
+    const message = failed
+      ? data.errorMessage || "SwiftPay rejected the transfer."
+      : settled
+        ? "SwiftPay confirmed the transfer as settled."
+        : "Provider accepted the transfer; settlement is not yet confirmed.";
+    await pool.query("UPDATE disbursements SET swiftpay_id = $1, status = $2, error_message = $3, updated_at = NOW() WHERE id = $4", [data.id, status, failed ? message : null, id]);
+    return res.status(202).json({ id: data.id, referenceNo: merchantReferenceNo, status, message });
   } catch (error) {
     const isAmbiguous = !error.status || error.status >= 500;
     const status = isAmbiguous ? "OUTCOME_UNKNOWN" : "REJECTED";
