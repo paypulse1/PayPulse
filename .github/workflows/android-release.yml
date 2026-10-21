@@ -40,7 +40,7 @@ jobs:
 
       - name: Verify and build web assets
         env:
-          VITE_DRPAY_BACKEND_URL: ${{ vars.DRPAY_API_URL || 'https://drpay-api.onrender.com' }}
+          VITE_DRPAY_BACKEND_URL: ${{ vars.DRPAY_API_URL || 'https://swiftpay-merchant.onrender.com' }}
           VITE_ANDROID_APK_URL: https://github.com/${{ github.repository }}/releases/latest/download/drpay.apk
         run: |
           pnpm typecheck
@@ -68,9 +68,15 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          ANDROID_VERSION_CODE: ${{ github.run_number }}
-          ANDROID_VERSION_NAME: 1.0.${{ github.run_number }}
         run: |
+          version="${GITHUB_REF_NAME#android-v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must use android-vMAJOR.MINOR.PATCH." >&2
+            exit 1
+          fi
+          IFS=. read -r major minor patch <<< "$version"
+          export ANDROID_VERSION_CODE=$((major * 1000000 + minor * 1000 + patch))
+          export ANDROID_VERSION_NAME="$version"
           cd android
           ./gradlew --no-daemon assembleRelease
 
