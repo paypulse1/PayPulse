@@ -88,6 +88,9 @@ jobs:
           cd android
           ./gradlew --no-daemon assembleRelease
 
+      - name: Verify APK signature
+        run: "$ANDROID_HOME/build-tools/36.0.0/apksigner verify --verbose android/app/build/outputs/apk/release/app-release.apk"
+
       - name: Prepare direct-download artifact
         run: |
           mkdir -p release
