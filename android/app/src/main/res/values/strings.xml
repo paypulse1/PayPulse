@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">DRPAY</string>
+    <string name="title_activity_main">DRPAY</string>
+    <string name="package_name">ph.drpays.merchant</string>
+    <string name="custom_url_scheme">ph.drpays.merchant</string>
+</resources>
