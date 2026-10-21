@@ -84,6 +84,7 @@ jobs:
           IFS=. read -r major minor patch <<< "$version"
           export ANDROID_VERSION_CODE=$((major * 1000000 + minor * 1000 + patch))
           export ANDROID_VERSION_NAME="$version"
+          echo "Building Android version $ANDROID_VERSION_NAME ($ANDROID_VERSION_CODE)"
           cd android
           ./gradlew --no-daemon assembleRelease
 
