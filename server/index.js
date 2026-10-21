@@ -1,4 +1,6 @@
 import { createHmac, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import cors from "cors";
 import express from "express";
 import { rateLimit } from "express-rate-limit";
@@ -8,6 +10,7 @@ import pg from "pg";
 
 const { Pool } = pg;
 const app = express();
+const clientBuildDirectory = fileURLToPath(new URL("../dist", import.meta.url));
 app.set("trust proxy", 1);
 app.use(helmet());
 app.use(express.json({ limit: "24kb" }));
@@ -409,6 +412,14 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
     console.error("SwiftPay disbursement request failed", error.status || "network error");
     return res.status(isAmbiguous ? 503 : 502).json({ referenceNo: merchantReferenceNo, status, outcomeUnknown: isAmbiguous, message });
   }
+});
+
+app.use(express.static(clientBuildDirectory));
+app.use((req, res, next) => {
+  if (req.method !== "GET" || req.path === "/v1" || req.path.startsWith("/v1/") || req.path === "/healthz") return next();
+  return res.sendFile(join(clientBuildDirectory, "index.html"), (error) => {
+    if (error) next(error);
+  });
 });
 
 app.use((error, _req, res, _next) => {
