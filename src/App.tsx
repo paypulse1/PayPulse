@@ -410,6 +410,8 @@ function TransactionSheet({ transaction, onClose }: { transaction: Transaction; 
 function TransferSheet({ balance, onClose, onComplete }: { balance: number; onClose: () => void; onComplete: () => void }) {
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [bank, setBank] = useState("");
+  const [bankSearch, setBankSearch] = useState("");
+  const [bankPickerOpen, setBankPickerOpen] = useState(false);
   const [channel, setChannel] = useState<"INSTAPAY" | "PESONET">("INSTAPAY");
   const [name, setName] = useState("");
   const [account, setAccount] = useState("");
@@ -455,6 +457,13 @@ function TransferSheet({ balance, onClose, onComplete }: { balance: number; onCl
   }
 
   const selectedBank = institutions.find((item) => item.code === bank);
+  const filteredInstitutions = useMemo(() => {
+    const query = bankSearch.trim().toLowerCase();
+    if (!query) return institutions;
+    return institutions.filter((item) =>
+      `${item.name} ${item.code}`.toLowerCase().includes(query),
+    );
+  }, [bankSearch, institutions]);
   const invalidAmount = Number(amount) <= 0 || Number(amount) > balance;
   const channelAvailable = channel === "INSTAPAY"
     ? selectedBank?.instapayEnabled !== false
@@ -463,6 +472,8 @@ function TransferSheet({ balance, onClose, onComplete }: { balance: number; onCl
   function selectBank(code: string) {
     const institution = institutions.find((item) => item.code === code);
     setBank(code);
+    setBankSearch("");
+    setBankPickerOpen(false);
     if (channel === "INSTAPAY" && institution?.instapayEnabled === false && institution.pesonetEnabled) {
       setChannel("PESONET");
     } else if (channel === "PESONET" && institution?.pesonetEnabled === false && institution.instapayEnabled) {
@@ -503,7 +514,56 @@ function TransferSheet({ balance, onClose, onComplete }: { balance: number; onCl
           </div>
         ) : (
           <form onSubmit={(event) => { event.preventDefault(); setReviewing(true); }}>
-            <label><span>Bank or wallet</span><select value={bank} onChange={(event) => selectBank(event.target.value)} required>{institutions.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label>
+            <div className="bank-picker">
+              <span className="bank-picker-label" id="transfer-bank-label">Bank or wallet</span>
+              <button
+                type="button"
+                className="bank-picker-trigger"
+                aria-labelledby="transfer-bank-label"
+                aria-haspopup="listbox"
+                aria-expanded={bankPickerOpen}
+                disabled={institutions.length === 0}
+                onClick={() => setBankPickerOpen((open) => !open)}
+              >
+                <span>{selectedBank?.name || "Loading banks…"}</span>
+                <ChevronDown size={17} />
+              </button>
+              {bankPickerOpen && (
+                <div className="bank-picker-menu">
+                  <label className="bank-picker-search">
+                    <Search size={16} aria-hidden="true" />
+                    <input
+                      type="search"
+                      value={bankSearch}
+                      onChange={(event) => setBankSearch(event.target.value)}
+                      placeholder="Search banks or wallets"
+                      aria-label="Search banks or wallets"
+                      autoFocus
+                    />
+                  </label>
+                  <div className="bank-picker-options" role="listbox" aria-label="Banks and wallets">
+                    {filteredInstitutions.length > 0 ? filteredInstitutions.map((item) => (
+                      <button
+                        key={item.code}
+                        type="button"
+                        role="option"
+                        aria-selected={item.code === bank}
+                        className="bank-picker-option"
+                        onClick={() => selectBank(item.code)}
+                      >
+                        <span>{item.name}</span>
+                        <small>
+                          {[
+                            item.instapayEnabled && "InstaPay",
+                            item.pesonetEnabled && "PESONet",
+                          ].filter(Boolean).join(" · ") || "Unavailable"}
+                        </small>
+                      </button>
+                    )) : <p className="bank-picker-empty">No matching banks or wallets.</p>}
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="rail-selector">
               {(["INSTAPAY", "PESONET"] as const).map((item) => <button key={item} type="button" className={channel === item ? "active" : ""} onClick={() => setChannel(item)} disabled={item === "INSTAPAY" ? selectedBank?.instapayEnabled === false : selectedBank?.pesonetEnabled === false}>{item}</button>)}
             </div>
