@@ -63,6 +63,7 @@ const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHe
 const paymentLinkLimiter = rateLimit({ windowMs: 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false });
 const transferLimiter = rateLimit({ windowMs: 60 * 1000, limit: 5, standardHeaders: "draft-8", legacyHeaders: false });
 const institutionCache = new Map();
+let liveKrwPhpRateCache = null;
 
 function requiredEnvironment() {
   const missing = [];
@@ -428,17 +429,58 @@ app.get("/v1/exchange-rates/krw-php", async (_req, res) => {
   const result = await pool.query(
     "SELECT setting_value FROM system_settings WHERE setting_key = 'krw_to_php_rate'",
   );
-  const rate = Number(result.rows[0]?.setting_value);
-  if (!Number.isFinite(rate) || rate <= 0) {
-    return res.status(503).json({ error: "KRW collection is unavailable until a super-admin configures the KRW/PHP rate." });
+  const configuredRate = result.rows[0]?.setting_value;
+  if (configuredRate !== undefined) {
+    const rate = Number(configuredRate);
+    if (!Number.isFinite(rate) || rate <= 0) {
+      return res.status(503).json({ error: "The configured KRW/PHP exchange-rate override is invalid." });
+    }
+    return res.json({
+      baseCurrency: "KRW",
+      quoteCurrency: "PHP",
+      rate,
+      date: new Date().toISOString().slice(0, 10),
+      updatedAt: new Date().toISOString(),
+      source: "Super-admin configured rate",
+    });
   }
-  return res.json({
-    baseCurrency: "KRW",
-    quoteCurrency: "PHP",
-    rate,
-    date: new Date().toISOString().slice(0, 10),
-    source: "Merchant-configured rate",
-  });
+
+  if (liveKrwPhpRateCache && Date.now() - liveKrwPhpRateCache.fetchedAt < 60 * 60 * 1000) {
+    return res.json(liveKrwPhpRateCache.quote);
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8_000);
+  try {
+    const response = await fetch("https://open.er-api.com/v6/latest/KRW", {
+      signal: controller.signal,
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error(`Exchange-rate service returned ${response.status}.`);
+    const data = await response.json();
+    const rate = Number(data?.rates?.PHP);
+    const updatedAt = typeof data?.time_last_update_utc === "string"
+      ? new Date(data.time_last_update_utc)
+      : null;
+    if (data?.result !== "success" || data?.base_code !== "KRW" || !Number.isFinite(rate) || rate <= 0 || !updatedAt || Number.isNaN(updatedAt.getTime())) {
+      throw new Error("Exchange-rate service returned invalid KRW/PHP data.");
+    }
+    const quote = {
+      baseCurrency: "KRW",
+      quoteCurrency: "PHP",
+      rate,
+      date: updatedAt.toISOString().slice(0, 10),
+      updatedAt: updatedAt.toISOString(),
+      source: "ExchangeRate-API reference rate",
+    };
+    liveKrwPhpRateCache = { quote, fetchedAt: Date.now() };
+    return res.json(quote);
+  } catch (error) {
+    console.error("KRW/PHP live exchange-rate lookup failed", error.name === "AbortError" ? "timeout" : error.message);
+    return res.status(503).json({ error: "The live KRW/PHP reference rate is temporarily unavailable." });
+  } finally {
+    clearTimeout(timeout);
+  }
 });
 
 app.get("/v1/wallet/balance", async (_req, res) => {

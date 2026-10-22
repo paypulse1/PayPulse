@@ -73,6 +73,7 @@ export type CurrencyQuote = {
   quoteCurrency: "PHP";
   rate: number;
   date: string;
+  updatedAt: string;
   source: string;
 };
 

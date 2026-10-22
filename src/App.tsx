@@ -395,9 +395,9 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
               <div className="admin-card-heading"><span className="setting-icon"><Settings size={19} /></span><div><h2>Collection configuration</h2><p>Provider secrets are not displayed or editable here.</p></div></div>
               <form onSubmit={saveSettings}>
                 <label>
-                  <span>Manual KRW → PHP rate</span>
-                  <input type="number" min="0.000001" max="1000" step="0.000001" value={settings.krwToPhpRate ?? ""} onChange={(event) => setSettings({ ...settings, krwToPhpRate: event.target.value ? Number(event.target.value) : null })} placeholder="Required to enable KRW collection" />
-                  <small>KRW collection stays unavailable until an admin-set rate is saved.</small>
+                  <span>Optional manual KRW → PHP rate</span>
+                  <input type="number" min="0.000001" max="1000" step="0.000001" value={settings.krwToPhpRate ?? ""} onChange={(event) => setSettings({ ...settings, krwToPhpRate: event.target.value ? Number(event.target.value) : null })} placeholder="Optional override" />
+                  <small>Leave blank to use the live reference-rate API. A configured rate overrides it; neither rate guarantees the payer’s final SwiftPay conversion.</small>
                 </label>
                 <label>
                   <span>USDT receiving network</span>
@@ -627,16 +627,16 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
             </label>
             {currency === "KRW" && (
               <div className="currency-quote" aria-live="polite">
-                {quoteLoading ? <span>Loading KRW/PHP reference rate…</span> : krwPhpQuote ? (
+                {quoteLoading ?                 <span>Loading live KRW/PHP reference rate…</span> : krwPhpQuote ? (
                   <>
                     <strong>
                       {amount && Number(amount) > 0
                         ? `≈ PHP ${(Number(amount) * krwPhpQuote.rate).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                         : `1 KRW = PHP ${krwPhpQuote.rate.toFixed(5)}`}
                     </strong>
-                    <span>{krwPhpQuote.source} · rate dated {krwPhpQuote.date}. SwiftPay checkout and settlement are in PHP.</span>
+                    <span>{krwPhpQuote.source} · published {new Date(krwPhpQuote.updatedAt).toLocaleString()}. This is a reference rate, not a guaranteed real-time SwiftPay rate. Checkout and settlement are in PHP; the payer’s final conversion may differ.</span>
                   </>
-                ) : <span>{error || "KRW collection is unavailable until an exchange rate can be loaded."}</span>}
+                ) : <span>{error || "KRW collection is unavailable until a live exchange rate can be loaded."}</span>}
               </div>
             )}
             <div className="accepted-channels">
