@@ -63,6 +63,8 @@ export type PaymentLinkResult = {
   id?: string;
   code: string;
   paymentUrl: string;
+  qrCode?: string;
+  qrImageUrl?: string;
   status?: string;
   amount?: number;
   currency?: string;

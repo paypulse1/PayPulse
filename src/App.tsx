@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { Browser } from "@capacitor/browser";
 import { Capacitor } from "@capacitor/core";
+import QRCode from "qrcode";
 import {
   AlertCircle,
   ArrowDownLeft,
@@ -26,7 +26,6 @@ import {
   ReceiptText,
   Search,
   Send,
-  Share2,
   Settings,
   ShieldCheck,
   Store,
@@ -66,20 +65,42 @@ import {
 import Checkout from "./Checkout";
 import MarketingHome from "./MarketingHome";
 
-async function openCustomerCheckout(url: string) {
-  if (Capacitor.isNativePlatform()) {
-    await Browser.open({ url });
-    return;
-  }
-  window.open(url, "_blank", "noopener,noreferrer");
-}
-
 function isTerminalPaymentStatus(status: string) {
   return ["PAID", "EXECUTED", "INACTIVE", "CANCELED", "REJECTED", "EXPIRED", "FAILED"].includes(status.toUpperCase());
 }
 
 function isConfirmedPaymentStatus(status: string) {
   return ["PAID", "EXECUTED"].includes(status.toUpperCase());
+}
+
+function PaymentQrCode({ value }: { value?: string }) {
+  const [image, setImage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    setImage("");
+    setError("");
+    if (!value) {
+      setError("The QR payload is unavailable for this checkout.");
+      return () => { active = false; };
+    }
+    QRCode.toString(value, {
+      type: "svg",
+      errorCorrectionLevel: "Q",
+      margin: 4,
+      color: { dark: "#071429", light: "#ffffff" },
+    }).then((svg) => {
+      if (active) setImage(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`);
+    }).catch(() => {
+      if (active) setError("The QR could not be rendered. Create a new checkout.");
+    });
+    return () => { active = false; };
+  }, [value]);
+
+  if (error) return <p className="checkout-qr-error" role="alert">{error}</p>;
+  if (!image) return <p className="checkout-qr-loading">Preparing scannable QR…</p>;
+  return <img className="qr-preview" src={image} alt="Scan this QR Ph payment code" />;
 }
 
 type ButtonProps = {
@@ -519,7 +540,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
       setResult(response);
       clearPaymentLinkIdempotencyKey();
     } catch (requestError) {
-      const message = requestError instanceof Error ? requestError.message : "Could not create payment link.";
+      const message = requestError instanceof Error ? requestError.message : "Could not create QR checkout.";
       setError(message);
       if (!message.toLowerCase().includes("unknown") && !message.toLowerCase().includes("reconcil")) {
         setIdempotencyKey(resetPaymentLinkIdempotencyKey());
@@ -528,22 +549,6 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
     } finally {
       setSubmitting(false);
     }
-  }
-
-  async function copyLink() {
-    if (result && result !== "error") {
-      await navigator.clipboard?.writeText(result.paymentUrl);
-    }
-  }
-
-  async function sharePayment() {
-    if (!result || result === "error") return;
-    const url = result.paymentUrl;
-    const paymentText = currency === "KRW"
-      ? `Pay approximately KRW ${Number(amount).toLocaleString("en-US")} (PHP ${Number(result.amount ?? amount).toFixed(2)} at the displayed reference rate)`
-      : `Pay ${result.currency || "PHP"} ${Number(result.amount ?? amount).toFixed(2)}`;
-    if (navigator.share) await navigator.share({ title: "DRPAY payment request", text: paymentText, url });
-    else await navigator.clipboard?.writeText(url);
   }
 
   return (
@@ -571,7 +576,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
             {result === "error" ? (
               <>
                 <div className="result-icon result-error"><X size={23} /></div>
-                <strong>Couldn’t create your link</strong>
+                <strong>Couldn’t create this checkout</strong>
                 <p>{error}</p>
                 {error.toLowerCase().includes("outcome is unknown") ? (
                   <Button variant="secondary" onClick={onClose}>Close and check activity</Button>
@@ -581,22 +586,15 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
               </>
             ) : (
               <>
-                <div className="result-icon"><Link2 size={25} /></div>
-                <strong>Self-hosted checkout created</strong>
+                <div className="result-icon"><QrCode size={25} /></div>
+                <strong>Scan to collect payment</strong>
                 <p>
                   {currency === "KRW"
-                    ? `Collect KRW ${Number(amount).toLocaleString("en-US")} (about PHP ${Number(result.amount || 0).toLocaleString("en-PH", { minimumFractionDigits: 2 })} at the reference rate). The customer scans a PHP QR Ph checkout on your DRPAY page; SwiftPay confirms settlement.`
-                    : `Collect ${result.currency || "PHP"} ${Number(result.amount || amount).toLocaleString("en-PH", { minimumFractionDigits: 2 })} using a QR Ph checkout on your DRPAY page.`}
+                    ? `Collect KRW ${Number(amount).toLocaleString("en-US")} (about PHP ${Number(result.amount || 0).toLocaleString("en-PH", { minimumFractionDigits: 2 })} at the reference rate). Show this QR to the customer to scan.`
+                    : `Show this QR to collect PHP ${Number(result.amount || amount).toLocaleString("en-PH", { minimumFractionDigits: 2 })}.`}
                 </p>
                 <span className={`payment-state state-${paymentStatus.toLowerCase()}`}>{isConfirmedPaymentStatus(paymentStatus) ? "Payment confirmed by SwiftPay" : `Checkout status: ${paymentStatus || result.status || "PENDING"}`}</span>
-                <button className="copy-link" onClick={copyLink}>
-                  <span>{result.paymentUrl}</span>
-                  <Copy size={17} />
-                </button>
-                <div className="result-actions">
-                  <Button variant="secondary" icon={<Share2 size={16} />} onClick={sharePayment}>Share</Button>
-                  <Button icon={<ArrowUpRight size={16} />} onClick={() => void openCustomerCheckout(result.paymentUrl)}>Open checkout</Button>
-                </div>
+                <PaymentQrCode value={result.qrCode} />
                 <Button onClick={onClose}>Done</Button>
               </>
             )}
@@ -910,6 +908,7 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [url, setUrl] = useState("");
+  const [qrCode, setQrCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [code, setCode] = useState("");
@@ -925,7 +924,7 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
         setPaymentStatus(status);
         if (isTerminalPaymentStatus(status)) window.clearInterval(timer);
       } catch {
-        // Keep the DRPAY checkout URL available while a status request is unavailable.
+        // Keep the QR visible while a temporary status request is unavailable.
       }
     }, 10_000);
     return () => window.clearInterval(timer);
@@ -937,11 +936,12 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
     try {
       const result = await createPaymentLink({ amount: Number(amount), description }, idempotencyKey);
       setUrl(result.paymentUrl);
+      setQrCode(result.qrCode || "");
       setCode(result.code);
       setPaymentStatus(result.status || "PENDING");
       clearPaymentLinkIdempotencyKey();
     } catch (requestError) {
-      const message = requestError instanceof Error ? requestError.message : "Could not create payment link";
+      const message = requestError instanceof Error ? requestError.message : "Could not create QR checkout";
       setError(message);
       if (!message.toLowerCase().includes("unknown") && !message.toLowerCase().includes("reconcil")) {
         setIdempotencyKey(resetPaymentLinkIdempotencyKey());
@@ -955,7 +955,7 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
       <section className="payment-sheet" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
         <span className="sheet-handle" />
         <header className="sheet-header"><div><span className="eyebrow">POOLED MERCHANT TOOL</span><h2>QR checkout</h2></div><IconButton label="Close" onClick={onClose}><X size={19} /></IconButton></header>
-        {url ? <div className="link-result"><div className="result-icon"><QrCode size={23} /></div><strong>Self-hosted checkout created</strong><p>Share this DRPAY checkout page with your customer.</p><span className={`payment-state state-${paymentStatus.toLowerCase()}`}>{isConfirmedPaymentStatus(paymentStatus) ? "Payment confirmed by SwiftPay" : `Checkout status: ${paymentStatus || "PENDING"}`}</span><button className="copy-link" onClick={() => navigator.clipboard?.writeText(url)}><span>{url}</span><Copy size={17} /></button><Button onClick={() => void openCustomerCheckout(url)} icon={<ArrowUpRight size={16} />}>Open checkout</Button><Button variant="quiet" onClick={onClose}>Done</Button></div> :
+        {url ? <div className="link-result"><div className="result-icon"><QrCode size={23} /></div><strong>Scan to collect payment</strong><p>Show this QR to your customer to scan.</p><span className={`payment-state state-${paymentStatus.toLowerCase()}`}>{isConfirmedPaymentStatus(paymentStatus) ? "Payment confirmed by SwiftPay" : `Checkout status: ${paymentStatus || "PENDING"}`}</span><PaymentQrCode value={qrCode} /><Button variant="quiet" onClick={onClose}>Done</Button></div> :
           <form onSubmit={submit}><label><span>Description</span><input value={description} onChange={(event) => setDescription(event.target.value)} required /></label><label><span>Fixed amount</span><div className="amount-field"><span>₱</span><input type="number" min="1" step=".01" value={amount} onChange={(event) => setAmount(event.target.value)} required /><small>PHP</small></div></label>{error && <div className="inline-error"><AlertCircle size={15} />{error}</div>}<Button type="submit" disabled={busy}>{busy ? "Creating…" : "Create QR checkout"}</Button></form>}
       </section>
     </div>

@@ -219,7 +219,8 @@ h1, h2, p { margin-top: 0; }
 .sheet-submit { width: 100%; min-height: 48px; margin-top: 4px; }
 .link-result { padding: 8px 0 2px; text-align: center; }
 .result-icon { width: 52px; height: 52px; margin: 0 auto 16px; display: grid; place-items: center; border-radius: 17px; background: #e6eef8; color: #1b4f9c; }
-.qr-preview { width: 184px; height: 184px; object-fit: contain; margin: 0 auto 16px; padding: 10px; border: 1px solid var(--line); border-radius: 18px; background: white; }
+.qr-preview { width: min(272px, 100%); aspect-ratio: 1; height: auto; display: block; object-fit: contain; margin: 0 auto 16px; padding: 10px; border: 1px solid var(--line); border-radius: 18px; background: white; }
+.checkout-qr-loading { margin: 10px auto 16px; color: var(--muted); font-size: 9px; }
 .result-error { background: var(--danger-soft); color: var(--danger); }
 .link-result > strong { display: block; font-size: 17px; }
 .link-result > p { max-width: 320px; margin: 7px auto 20px; color: var(--muted); font-size: 9px; line-height: 1.6; }

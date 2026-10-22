@@ -129,6 +129,7 @@ async function initializeDatabase() {
       payment_url TEXT,
       checkout_type TEXT NOT NULL DEFAULT 'PAYMENT_LINK',
       payment_token TEXT,
+      qr_payload TEXT,
       status TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -151,6 +152,7 @@ async function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS disbursements_created_at_idx ON disbursements (created_at DESC);
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS checkout_type TEXT NOT NULL DEFAULT 'PAYMENT_LINK';
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_token TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS qr_payload TEXT;
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS request_fingerprint TEXT;
     CREATE UNIQUE INDEX IF NOT EXISTS disbursements_active_fingerprint_idx
       ON disbursements (request_fingerprint)
@@ -470,7 +472,7 @@ app.get("/v1/public/checkout/:code/qr.png", publicQrImageLimiter, async (req, re
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8_000);
   try {
-    const response = await fetch(`${swiftPayBaseUrl}/payments/qrph/image`, {
+    const response = await fetch(`${swiftPayBaseUrl}/payments/qrph/image?type=P2M`, {
       signal: controller.signal,
       headers: { Accept: "image/png", "X-Swiftpay-Payment-Token": paymentToken },
     });
@@ -690,7 +692,28 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
   const existing = await pool.query("SELECT * FROM payment_links WHERE idempotency_key = $1", [idempotencyKey]);
   if (existing.rowCount) {
     const row = existing.rows[0];
-    if (row.payment_url) return res.json({ id: row.id, code: row.code, paymentUrl: row.payment_url, status: row.status, amount: Number(row.amount), currency: row.currency });
+    let qrPayload = row.qr_payload;
+    if (row.payment_token && !qrPayload) {
+      try {
+        const { data } = await swiftPayPaymentRequest("/payments/transfers/instruction", row.payment_token);
+        if (typeof data?.qrCode !== "string" || !data.qrCode) throw new Error("SwiftPay returned no QR payload.");
+        qrPayload = data.qrCode;
+        await pool.query("UPDATE payment_links SET qr_payload = $1 WHERE id = $2", [qrPayload, row.id]);
+      } catch (error) {
+        console.error("SwiftPay QR payload lookup failed", error.status || "network error");
+        return res.status(503).json({ error: "The payment QR is temporarily unavailable." });
+      }
+    }
+    if (row.payment_url) return res.json({
+      id: row.id,
+      code: row.code,
+      paymentUrl: row.payment_url,
+      qrCode: qrPayload,
+      qrImageUrl: row.payment_token ? new URL(`/v1/public/checkout/${row.code}/qr.png`, frontendOrigin).toString() : undefined,
+      status: row.status,
+      amount: Number(row.amount),
+      currency: row.currency,
+    });
     return res.status(409).json({ error: "The checkout outcome is unknown. Check wallet activity before retrying." });
   }
 
@@ -722,10 +745,11 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
     const actualAmount = Number(data.amount ?? amount);
     if (!Number.isFinite(actualAmount) || actualAmount <= 0) throw new Error("SwiftPay returned an invalid payment amount.");
     await pool.query(
-      "UPDATE payment_links SET payment_token = $1, payment_url = $2, status = $3, amount = $4, updated_at = NOW() WHERE id = $5",
-      [data.paymentId, checkoutUrl, status, actualAmount, id],
+      "UPDATE payment_links SET payment_token = $1, qr_payload = $2, payment_url = $3, status = $4, amount = $5, updated_at = NOW() WHERE id = $6",
+      [data.paymentId, data.qrCode, checkoutUrl, status, actualAmount, id],
     );
-    return res.status(201).json({ id, code, paymentUrl: checkoutUrl, status, amount: actualAmount, currency: "PHP" });
+    const qrImageUrl = new URL(`/v1/public/checkout/${code}/qr.png`, frontendOrigin).toString();
+    return res.status(201).json({ id, code, paymentUrl: checkoutUrl, qrCode: data.qrCode, qrImageUrl, status, amount: actualAmount, currency: "PHP" });
   } catch (error) {
     const isAmbiguous = !error.status || error.status >= 500;
     await pool.query("UPDATE payment_links SET status = $1, updated_at = NOW() WHERE id = $2", [isAmbiguous ? "OUTCOME_UNKNOWN" : "FAILED", id]);
