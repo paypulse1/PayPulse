@@ -609,7 +609,7 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
         {loading ? <div className="admin-loading" role="status"><LoaderCircle className="spin" size={20} />Loading console…</div> : (
           <>
             <section className="admin-card">
-              <div className="admin-card-heading"><span className="setting-icon"><WalletCards size={19} /></span><div><h2>Floated Amount</h2><p>Manual PHP ledger for records only. It is not a SwiftPay balance and cannot be withdrawn or transferred.</p></div></div>
+              <div className="admin-card-heading"><span className="setting-icon"><WalletCards size={19} /></span><div><h2>Internal ledger balance</h2><p>Manual PHP ledger for records only. It is not a SwiftPay balance and cannot be withdrawn or transferred.</p></div></div>
               {merchants.length === 0 ? <p className="admin-empty">Create a merchant account before recording ledger adjustments.</p> : (
                 <>
                   <label className="admin-wallet-select">
@@ -619,7 +619,7 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
                     </select>
                   </label>
                   <div className="internal-ledger-balance">
-                    <span>Floated Amount · PHP</span>
+                    <span>Internal ledger balance · PHP</span>
                     <strong>{selectedWallet ? `₱${selectedWallet.balance.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "Loading…"}</strong>
                     <small>Bookkeeping only — not transferable</small>
                   </div>
@@ -1035,7 +1035,7 @@ function TransferSheet({
               <div><dt>Recipient</dt><dd>{name}</dd></div>
               <div><dt>Bank</dt><dd>{selectedBank?.name}</dd></div>
               <div><dt>Account</dt><dd>•••• {account.slice(-4)}</dd></div>
-              <div><dt>Rail</dt><dd>{channel}</dd></div>
+              <div><dt>Transfer network</dt><dd>{channel === "INSTAPAY" ? "InstaPay" : "PESONet"}</dd></div>
               {remarks.trim() && <div><dt>Remarks</dt><dd>{remarks.trim()}</dd></div>}
             </dl>
             {error && <div className="inline-error"><AlertCircle size={15} />{error}</div>}
@@ -1117,11 +1117,11 @@ function TransferSheet({
               )}
             </div>
             <div className="rail-selector">
-              {(["INSTAPAY", "PESONET"] as const).map((item) => <button key={item} type="button" className={channel === item ? "active" : ""} onClick={() => setChannel(item)} disabled={item === "INSTAPAY" ? selectedBank?.instapayEnabled === false : selectedBank?.pesonetEnabled === false}>{item}</button>)}
+              {(["INSTAPAY", "PESONET"] as const).map((item) => <button key={item} type="button" className={channel === item ? "active" : ""} onClick={() => setChannel(item)} disabled={item === "INSTAPAY" ? selectedBank?.instapayEnabled === false : selectedBank?.pesonetEnabled === false}>{item === "INSTAPAY" ? "InstaPay" : "PESONet"}</button>)}
             </div>
             <label><span>Recipient full name</span><input value={name} onChange={(event) => setName(event.target.value)} required /></label>
             <label><span>Account number</span><input inputMode="numeric" value={account} onChange={(event) => setAccount(event.target.value.replace(/\D/g, ""))} required /></label>
-            <label><span>Amount · Available ₱{balance.toLocaleString("en-PH", { minimumFractionDigits: 2 })}</span><div className="amount-field"><span>₱</span><input type="number" min="1" step=".01" value={amount} onChange={(event) => setAmount(event.target.value)} required /><small>PHP</small></div></label>
+            <label><span>Amount · Available balance ₱{balance.toLocaleString("en-PH", { minimumFractionDigits: 2 })}</span><div className="amount-field"><span>₱</span><input type="number" min="1" step=".01" value={amount} onChange={(event) => setAmount(event.target.value)} required /><small>PHP</small></div></label>
             <label><span>Remarks (required)</span><input value={remarks} onChange={(event) => setRemarks(event.target.value.slice(0, 80))} maxLength={80} required placeholder="Enter transfer remarks" /></label>
             {invalidAmount && amount && <div className="inline-error"><AlertCircle size={15} />Enter an amount within your available balance.</div>}
             {!remarks.trim() && <div className="inline-error"><AlertCircle size={15} />Enter remarks for this transfer.</div>}
@@ -1378,7 +1378,7 @@ function HomeView({
     <>
       <section className="balance-card">
         <div className="balance-top">
-          <span>DISBURSEMENT WALLET AVAILABLE</span>
+          <span>AVAILABLE BALANCE</span>
           <button onClick={() => setBalanceVisible(!balanceVisible)} aria-label="Toggle balance visibility">
             <Eye size={15} /> PHP
           </button>
@@ -1414,18 +1414,18 @@ function HomeView({
         </header>
         <div className="summary-grid">
           <div>
-            <span>Money received</span>
+            <span>Incoming payments</span>
             <strong>{data.grossVolume}</strong>
             <small>Confirmed credits</small>
           </div>
           <div>
-            <span>Settled</span>
+            <span>Completed payments</span>
             <strong>{data.successfulPayments}</strong>
             <small>Provider-confirmed collections</small>
           </div>
         </div>
         <div className="average-row">
-          <span>Average confirmed credit</span>
+          <span>Average completed payment</span>
           <strong>{data.averageTransaction}</strong>
         </div>
       </section>
@@ -1435,9 +1435,9 @@ function HomeView({
           <WalletCards size={21} />
         </div>
         <div>
-          <span>SwiftPay disbursement wallet</span>
-          <strong>Available payout balance</strong>
-          <small>Balance and transfer status are fetched from SwiftPay</small>
+          <span>SwiftPay payout account</span>
+          <strong>Available balance</strong>
+          <small>Balance and transfer status are provided by SwiftPay</small>
         </div>
         <ChevronRight size={18} />
       </section>
@@ -1445,7 +1445,7 @@ function HomeView({
       <section className="internal-wallet-card">
         <div className="internal-wallet-heading">
           <WalletCards size={18} />
-          <span>Floated Amount</span>
+          <span>Internal ledger balance</span>
           <strong>{data.internalWalletBalance}</strong>
         </div>
         <p>For internal records only. This balance is separate from SwiftPay funds and is not available for transfer or withdrawal.</p>
@@ -1469,16 +1469,16 @@ function HomeView({
   );
 }
 
-function ActivityView({ data, onTransaction }: { data: DashboardData; onTransaction: (transaction: Transaction) => void }) {
-  const [filter, setFilter] = useState("All");
+function WalletView({ data, onTransaction }: { data: DashboardData; onTransaction: (transaction: Transaction) => void }) {
+  const [filter, setFilter] = useState("All activity");
   const [query, setQuery] = useState("");
+  const [balanceVisible, setBalanceVisible] = useState(true);
   const transactions = useMemo(
     () => data.transactions.filter((item) => {
       const matchesFilter =
-        filter === "All" ||
-        (filter === "Income" && item.numericAmount > 0) ||
-        (filter === "Expense" && item.numericAmount < 0) ||
-        (filter === "Deposits" && item.channel === "Bank") ||
+        filter === "All activity" ||
+        (filter === "Money in" && item.numericAmount > 0) ||
+        (filter === "Money out" && item.numericAmount < 0) ||
         item.status === filter;
       const matchesQuery = `${item.reference} ${item.customer} ${item.description}`.toLowerCase().includes(query.toLowerCase());
       return matchesFilter && matchesQuery;
@@ -1487,25 +1487,118 @@ function ActivityView({ data, onTransaction }: { data: DashboardData; onTransact
   );
 
   return (
-    <section className="activity-page">
+    <section className="wallet-page">
       <div className="page-title">
-        <span className="eyebrow">MONEY MOVEMENT</span>
-        <h1>Activity</h1>
-        <p>Collections and payouts with status from SwiftPay.</p>
+        <span className="eyebrow">ACCOUNT BALANCE</span>
+        <h1>Wallet</h1>
+        <p>View your available balance and track incoming payments and outgoing transfers.</p>
       </div>
-      <label className="activity-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search reference or description" /></label>
+      <section className="wallet-balance-panel">
+        <div className="wallet-balance-heading">
+          <span>Available balance</span>
+          <button type="button" onClick={() => setBalanceVisible((visible) => !visible)} aria-label={balanceVisible ? "Hide available balance" : "Show available balance"} aria-pressed={!balanceVisible}>
+            <Eye size={15} /> {balanceVisible ? "Hide" : "Show"}
+          </button>
+        </div>
+        <strong className="wallet-balance-value">{balanceVisible ? data.availableBalance : "₱ ••••••"}</strong>
+        <div className="wallet-balance-foot">
+          <span><i /> SwiftPay payout account</span>
+          <span>{data.paymentEnvironment === "production" ? "Live" : "Sandbox"}</span>
+        </div>
+      </section>
+      <section className="wallet-ledger-card">
+        <span className="wallet-ledger-icon"><WalletCards size={18} /></span>
+        <div><strong>Internal ledger balance</strong><p>For record-keeping only. This is separate from your available balance and cannot be transferred or withdrawn.</p></div>
+        <b>{data.internalWalletBalance}</b>
+      </section>
+      <header className="wallet-activity-heading">
+        <div><span className="eyebrow">LATEST 50 RECORDS</span><h2>Wallet activity</h2></div>
+        <span>{transactions.length} shown</span>
+      </header>
+      <label className="activity-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search description or reference" aria-label="Search wallet activity" /></label>
       <div className="filter-row">
-        {["All", "Income", "Expense", "Deposits", "Pending", "Failed"].map((item) => (
-          <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>
+        {["All activity", "Money in", "Money out", "Completed", "Pending", "Failed"].map((item) => (
+          <button key={item} type="button" aria-pressed={filter === item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>
             {item}
           </button>
         ))}
       </div>
       <div className="transaction-list full-list">
-        {transactions.map((transaction) => (
+        {transactions.length > 0 ? transactions.map((transaction) => (
           <TransactionRow key={transaction.id} transaction={transaction} onClick={() => onTransaction(transaction)} />
-        ))}
+        )) : (
+          <div className="wallet-empty-state">
+            <WalletCards size={23} />
+            <strong>{data.transactions.length ? "No matching activity" : "No wallet activity yet"}</strong>
+            <p>{data.transactions.length ? "Try a different filter or search term." : "Incoming payments and outgoing transfers will appear here."}</p>
+          </div>
+        )}
       </div>
+    </section>
+  );
+}
+
+function TransfersView({
+  data,
+  onTransfer,
+  onTransaction,
+}: {
+  data: DashboardData;
+  onTransfer: () => void;
+  onTransaction: (transaction: Transaction) => void;
+}) {
+  const recentTransfers = data.transactions.filter((transaction) => transaction.numericAmount < 0).slice(0, 4);
+
+  return (
+    <section className="transfers-page">
+      <div className="page-title">
+        <span className="eyebrow">BANK PAYOUTS</span>
+        <h1>Transfer money</h1>
+        <p>Send money from your available balance to a supported bank or wallet.</p>
+      </div>
+      <section className="transfer-balance-panel">
+        <div>
+          <span>Available balance</span>
+          <strong>{data.availableBalance}</strong>
+          <small>Provided by your SwiftPay payout account</small>
+        </div>
+        <Button icon={<Send size={17} />} onClick={onTransfer}>New transfer</Button>
+      </section>
+      <section className="transfer-methods-card">
+        <h2>Choose a transfer network</h2>
+        <div className="transfer-method-row">
+          <span className="transfer-method-icon"><ArrowUpRight size={17} /></span>
+          <div><strong>InstaPay</strong><p>Real-time network for eligible banks and wallets.</p></div>
+        </div>
+        <div className="transfer-method-row">
+          <span className="transfer-method-icon"><ArrowUpRight size={17} /></span>
+          <div><strong>PESONet</strong><p>Batch network for eligible bank transfers.</p></div>
+        </div>
+      </section>
+      <aside className="transfer-security-note">
+        <ShieldCheck size={17} />
+        <p><strong>Review before sending</strong> Check the recipient and account details carefully. Approve every transfer with your MPIN, then track its provider-confirmed status in Wallet.</p>
+      </aside>
+      <section className="transfer-activity-section">
+        <header className="wallet-activity-heading">
+          <div><span className="eyebrow">MONEY OUT</span><h2>Recent transfers</h2></div>
+          <span>{recentTransfers.length} shown</span>
+        </header>
+        {recentTransfers.length ? (
+          <div className="transaction-list full-list">
+            {recentTransfers.map((transaction) => (
+              <TransactionRow key={transaction.id} transaction={transaction} onClick={() => onTransaction(transaction)} />
+            ))}
+          </div>
+        ) : (
+          <div className="wallet-empty-state transfer-empty-state">
+            <Send size={22} />
+            <strong>No transfers yet</strong>
+            <p>Your outgoing transfers will appear here after you submit one.</p>
+            <Button variant="secondary" onClick={onTransfer}>Start a transfer</Button>
+          </div>
+        )}
+      </section>
     </section>
   );
 }
@@ -1526,7 +1619,7 @@ function MoreView({
   const items = [
     { label: "Merchant profile", description: "Business and account details", icon: Store, action: () => onInfo("Merchant profile") },
     ...(data.walletMode === "pooled" ? [{ label: "QR checkouts", description: "Create a self-hosted QR Ph checkout", icon: QrCode, action: onPaymentLink }] : []),
-    { label: "Transfer banks", description: "InstaPay and PESONET", icon: CreditCard, action: () => onInfo("Transfer banks") },
+    { label: "Transfer banks", description: "InstaPay and PESONet", icon: CreditCard, action: () => onInfo("Transfer banks") },
     { label: "Statements", description: "View and download wallet activity", icon: ReceiptText, action: () => onInfo("Statements") },
     { label: "Notifications", description: "Email and push alerts", icon: Bell, action: () => onInfo("Notifications") },
     { label: "Security", description: "Session and device protection", icon: ShieldCheck, action: () => onInfo("Security") },
@@ -1611,7 +1704,7 @@ function ProfileInfoPage({
     return () => { active = false; };
   }, [title, retryInstitutions]);
 
-  const successfulTransactions = data.transactions.filter((transaction) => transaction.status === "Paid");
+  const successfulTransactions = data.transactions.filter((transaction) => transaction.status === "Completed");
   const pendingTransactions = data.transactions.filter((transaction) => transaction.status === "Pending");
   const failedTransactions = data.transactions.filter((transaction) => transaction.status === "Failed");
 
@@ -1639,7 +1732,7 @@ function ProfileInfoPage({
 
         {title === "Transfer banks" && (
           <>
-            <div className="profile-info-intro"><strong>Supported transfer destinations</strong><p>Availability is provided by SwiftPay. Each bank may support InstaPay, PESONET, or both.</p></div>
+            <div className="profile-info-intro"><strong>Supported transfer destinations</strong><p>Availability is provided by SwiftPay. Each bank may support InstaPay, PESONet, or both.</p></div>
             {institutionsLoading ? <div className="profile-sheet-state" role="status"><LoaderCircle className="spin" size={17} />Loading supported banks…</div> : institutionsError ? (
               <div className="inline-error" role="alert"><AlertCircle size={15} />{institutionsError}<button className="profile-inline-action" onClick={() => setRetryInstitutions((attempt) => attempt + 1)}>Retry</button></div>
             ) : institutions.length === 0 ? <p className="profile-sheet-state">No transfer banks are currently available.</p> : (
@@ -1650,7 +1743,7 @@ function ProfileInfoPage({
                     <strong>{institution.name}</strong>
                     <span className="profile-rails">
                       {institution.instapayEnabled && <small>InstaPay</small>}
-                      {institution.pesonetEnabled && <small>PESONET</small>}
+                      {institution.pesonetEnabled && <small>PESONet</small>}
                     </span>
                   </div>
                 ))}
@@ -1663,7 +1756,7 @@ function ProfileInfoPage({
           <>
             <div className="profile-statement-summary">
               <div><strong>{data.transactions.length}</strong><span>Transactions</span></div>
-              <div><strong>{successfulTransactions.length}</strong><span>Paid</span></div>
+              <div><strong>{successfulTransactions.length}</strong><span>Completed</span></div>
               <div><strong>{pendingTransactions.length}</strong><span>Pending</span></div>
               <div><strong>{failedTransactions.length}</strong><span>Failed</span></div>
             </div>
@@ -2003,14 +2096,9 @@ export default function App() {
                 }}
               />
             )}
-            {activeTab === "Wallet" && <ActivityView data={data} onTransaction={setSelectedTransaction} />}
+            {activeTab === "Wallet" && <WalletView data={data} onTransaction={setSelectedTransaction} />}
             {activeTab === "Transfer" && (
-              <section className="empty-page">
-                <span className="empty-icon"><Send size={25} /></span>
-                <h1>Send money</h1>
-                <p>Transfer from your PHP ledger through InstaPay or PESONET. Provider acceptance is not final settlement.</p>
-                <Button icon={<Send size={18} />} onClick={() => setShowTransfer(true)}>Start transfer</Button>
-              </section>
+              <TransfersView data={data} onTransfer={() => setShowTransfer(true)} onTransaction={setSelectedTransaction} />
             )}
             {activeTab === "Profile" && (profileSection ? (
               <ProfileInfoPage
@@ -2078,7 +2166,7 @@ export default function App() {
                 <div key={transaction.id}>
                   <span className="notification-icon">{transaction.numericAmount >= 0 ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />}</span>
                   <div>
-                    <strong>{transaction.status === "Paid" ? "Transaction settled" : `Transaction ${transaction.status.toLowerCase()}`}</strong>
+                    <strong>{transaction.status === "Completed" ? "Transaction completed" : `Transaction ${transaction.status.toLowerCase()}`}</strong>
                     <p>{transaction.customer} · {transaction.amount}</p>
                     <small>{transaction.date} · {transaction.reference}</small>
                   </div>

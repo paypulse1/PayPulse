@@ -17,7 +17,7 @@ export type Transaction = {
   institutionName?: string;
   institutionLogoUrl?: string;
   date: string;
-  status: "Paid" | "Pending" | "Failed";
+  status: "Completed" | "Pending" | "Failed";
   rawStatus: string;
   amount: string;
   numericAmount: number;
@@ -369,7 +369,7 @@ function formatMoney(amount: number, showSign = false) {
 
 function toStatus(status: string): Transaction["status"] {
   const normalized = status.toUpperCase();
-  if (["EXECUTED", "SUCCESS", "COMPLETED", "PAID"].includes(normalized)) return "Paid";
+  if (["EXECUTED", "SUCCESS", "COMPLETED", "PAID"].includes(normalized)) return "Completed";
   if (["FAILED", "ERROR", "REJECTED", "CANCELED", "CANCELLED", "EXPIRED", "REVERSED"].includes(normalized)) return "Failed";
   return "Pending";
 }
@@ -406,7 +406,7 @@ export async function getMerchantDashboard(): Promise<DashboardData> {
     backendRequest<InternalWalletResponse>("/v1/internal-wallet"),
   ]);
   const transactions = activity.map(toTransaction);
-  const settledCredits = transactions.filter((item) => item.status === "Paid" && item.numericAmount > 0);
+  const settledCredits = transactions.filter((item) => item.status === "Completed" && item.numericAmount > 0);
   const volume = settledCredits.reduce((sum, item) => sum + item.numericAmount, 0);
   return {
     availableBalance: formatMoney(wallet.adjustedBalance ?? wallet.balance),
