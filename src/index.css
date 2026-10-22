@@ -333,8 +333,51 @@ h1, h2, p { margin-top: 0; }
 .admin-loading { min-height: 120px; display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--muted); font-size: 10px; }
 .admin-empty { padding: 10px 0; color: var(--muted); font-size: 9px; }
 
+.checkout-screen { min-height: 100vh; padding: 32px 16px; display: grid; align-content: center; justify-items: center; gap: 14px; background: radial-gradient(circle at 50% 0%, #eaf3ff 0%, var(--paper) 48%); }
+.checkout-card { width: min(100%, 470px); padding: 24px; border: 1px solid var(--line); border-radius: 24px; background: var(--surface); box-shadow: var(--shadow); }
+.checkout-brand { min-height: 38px; display: flex; align-items: center; gap: 9px; }
+.checkout-brand > img { width: 34px; height: 34px; object-fit: contain; }
+.checkout-brand > span:nth-child(2) { font-size: 13px; font-weight: 800; letter-spacing: .06em; }
+.checkout-secure { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 8px; font-weight: 700; }
+.checkout-summary { padding: 25px 0 20px; text-align: center; }
+.checkout-label { color: var(--muted); font-size: 8px; font-weight: 800; letter-spacing: .16em; }
+.checkout-summary h1 { margin: 8px 0 15px; font-size: 17px; letter-spacing: -.03em; overflow-wrap: anywhere; }
+.checkout-amount { display: block; font-size: clamp(27px, 8vw, 36px); letter-spacing: -.06em; }
+.checkout-currency-note { display: block; margin-top: 6px; color: var(--muted); font-size: 9px; }
+.checkout-status { min-height: 42px; padding: 10px 12px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 11px; font-size: 9px; font-weight: 800; }
+.checkout-status-paid { background: var(--success-soft); color: var(--success); }
+.checkout-status-pending { background: #eef4ff; color: #1b4f9c; }
+.checkout-status-warning { background: var(--warning-soft); color: var(--warning); }
+.checkout-status-terminal { background: var(--danger-soft); color: var(--danger); }
+.checkout-status-note { margin: 9px 0 0; color: var(--warning); font-size: 8px; line-height: 1.5; text-align: center; }
+.checkout-qr-frame { width: min(100%, 292px); aspect-ratio: 1; margin: 20px auto; padding: 13px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 18px; background: #fff; }
+.checkout-qr-frame img { width: 100%; height: 100%; object-fit: contain; }
+.checkout-instructions { margin-top: 17px; padding: 15px; border-radius: 14px; background: var(--surface-soft); }
+.checkout-instructions strong { font-size: 10px; }
+.checkout-instructions ol { margin: 10px 0; padding-left: 18px; color: var(--ink); font-size: 9px; line-height: 1.8; }
+.checkout-instructions p { margin: 0; color: var(--muted); font-size: 8px; line-height: 1.5; }
+.checkout-reference { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.checkout-reference > span { display: block; margin-bottom: 7px; color: var(--muted); font-size: 8px; font-weight: 700; }
+.checkout-reference button { width: 100%; min-height: 38px; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--ink); font-size: 8px; }
+.checkout-reference code { min-width: 0; overflow-wrap: anywhere; font: 500 8px "DM Mono", monospace; text-align: left; }
+.checkout-complete { min-height: 180px; padding: 32px 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; color: var(--success); text-align: center; }
+.checkout-complete strong { font-size: 12px; }
+.checkout-complete span, .checkout-expired { color: var(--muted); font-size: 9px; text-align: center; }
+.checkout-expired { padding: 24px 10px; line-height: 1.6; }
+.checkout-qr-error, .checkout-error { padding: 25px 12px; color: var(--danger); text-align: center; }
+.checkout-qr-error { font-size: 9px; line-height: 1.6; }
+.checkout-error h1 { margin: 10px 0 6px; font-size: 17px; }
+.checkout-error p { color: var(--muted); font-size: 9px; line-height: 1.6; }
+.checkout-error button { min-height: 38px; padding: 0 14px; border: 0; border-radius: 9px; background: var(--ink); color: #fff; font-size: 9px; font-weight: 700; }
+.checkout-loading { min-height: 230px; display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--muted); font-size: 10px; }
+.checkout-spinner { animation: spin 1s linear infinite; }
+.checkout-inline-error { margin: 10px 0 0; color: var(--danger); font-size: 8px; }
+.checkout-footer { margin: 0; color: var(--muted); font-size: 8px; text-align: center; }
+
 @media (max-width: 520px) {
   :root { background: var(--paper); }
+  .checkout-screen { min-height: 100dvh; padding: max(20px, env(safe-area-inset-top)) 14px max(20px, env(safe-area-inset-bottom)); }
+  .checkout-card { padding: 19px; border-radius: 20px; }
   .app-stage { display: block; min-height: 100dvh; padding: 0; }
   .mobile-app { width: 100%; height: 100dvh; min-height: 600px; border: 0; border-radius: 0; box-shadow: none; }
   .app-header { padding-top: max(18px, env(safe-area-inset-top)); height: calc(82px + env(safe-area-inset-top)); }

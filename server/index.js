@@ -62,6 +62,8 @@ const maxTransferAmount = Number(process.env.DRPAY_MAX_TRANSFER_PHP || "100000")
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false });
 const paymentLinkLimiter = rateLimit({ windowMs: 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false });
 const transferLimiter = rateLimit({ windowMs: 60 * 1000, limit: 5, standardHeaders: "draft-8", legacyHeaders: false });
+const publicCheckoutLimiter = rateLimit({ windowMs: 60 * 1000, limit: 60, standardHeaders: "draft-8", legacyHeaders: false });
+const publicQrImageLimiter = rateLimit({ windowMs: 60 * 1000, limit: 30, standardHeaders: "draft-8", legacyHeaders: false });
 const institutionCache = new Map();
 let liveKrwPhpRateCache = null;
 
@@ -125,6 +127,8 @@ async function initializeDatabase() {
       amount NUMERIC(18, 2) NOT NULL CHECK (amount > 0),
       currency TEXT NOT NULL DEFAULT 'PHP',
       payment_url TEXT,
+      checkout_type TEXT NOT NULL DEFAULT 'PAYMENT_LINK',
+      payment_token TEXT,
       status TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -145,6 +149,8 @@ async function initializeDatabase() {
     );
     CREATE INDEX IF NOT EXISTS payment_links_created_at_idx ON payment_links (created_at DESC);
     CREATE INDEX IF NOT EXISTS disbursements_created_at_idx ON disbursements (created_at DESC);
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS checkout_type TEXT NOT NULL DEFAULT 'PAYMENT_LINK';
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_token TEXT;
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS request_fingerprint TEXT;
     CREATE UNIQUE INDEX IF NOT EXISTS disbursements_active_fingerprint_idx
       ON disbursements (request_fingerprint)
@@ -172,17 +178,16 @@ async function initializeDatabase() {
   }
 }
 
-async function swiftPayRequest(path, { method = "GET", body, timeoutMs = 12_000 } = {}) {
+async function swiftPayFetch(path, { method = "GET", body, headers = {}, timeoutMs = 12_000 } = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  const authorization = Buffer.from(`${swiftPayAccessKey}:${swiftPaySecretKey}`).toString("base64");
   try {
     const response = await fetch(`${swiftPayBaseUrl}${path}`, {
       method,
       signal: controller.signal,
       headers: {
-        Authorization: `Basic ${authorization}`,
         Accept: "application/json",
+        ...headers,
         ...(body ? { "Content-Type": "application/json" } : {}),
       },
       ...(body ? { body: JSON.stringify(body) } : {}),
@@ -199,6 +204,38 @@ async function swiftPayRequest(path, { method = "GET", body, timeoutMs = 12_000 
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function swiftPayRequest(path, options = {}) {
+  const authorization = Buffer.from(`${swiftPayAccessKey}:${swiftPaySecretKey}`).toString("base64");
+  return swiftPayFetch(path, {
+    ...options,
+    headers: { Authorization: `Basic ${authorization}`, ...options.headers },
+  });
+}
+
+async function swiftPayPaymentRequest(path, paymentToken) {
+  return swiftPayFetch(path, { headers: { "X-Swiftpay-Payment-Token": paymentToken } });
+}
+
+async function swiftPaySignedRequest(path, payload) {
+  const canonicalPayload = Object.entries(payload)
+    .filter(([key, value]) => key.startsWith("x_") && value !== null && value !== undefined)
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .map(([key, value]) => `${key}${value}`)
+    .join("");
+  const signature = createHmac("sha256", swiftPaySecretKey).update(canonicalPayload, "utf8").digest("hex");
+  return swiftPayFetch(path, { method: "POST", body: { ...payload, signature } });
+}
+
+function validPaymentStatus(value) {
+  return ["PENDING", "EXECUTED", "CANCELED", "REJECTED", "EXPIRED"].includes(value);
+}
+
+function paymentStatusFromResponse(data) {
+  const status = typeof data === "string" ? data : data?.status || data?.paymentStatus;
+  if (!validPaymentStatus(status)) throw new Error("SwiftPay returned an invalid payment status.");
+  return status;
 }
 
 async function requireMerchant(req, res, next) {
@@ -423,6 +460,77 @@ app.patch("/v1/admin/merchants/:email", async (req, res) => {
   }
 });
 
+app.get("/v1/public/checkout/:code/qr.png", publicQrImageLimiter, async (req, res) => {
+  const code = req.params.code;
+  if (!/^[A-Za-z0-9_-]{40,50}$/.test(code)) return res.status(404).json({ error: "Checkout not found." });
+  const record = await pool.query("SELECT payment_token FROM payment_links WHERE code = $1 AND checkout_type = 'DIRECT_QRPH'", [code]);
+  const paymentToken = record.rows[0]?.payment_token;
+  if (!paymentToken) return res.status(404).json({ error: "Checkout not found." });
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8_000);
+  try {
+    const response = await fetch(`${swiftPayBaseUrl}/payments/qrph/image`, {
+      signal: controller.signal,
+      headers: { Accept: "image/png", "X-Swiftpay-Payment-Token": paymentToken },
+    });
+    if (!response.ok || !response.headers.get("content-type")?.startsWith("image/png")) {
+      console.error("SwiftPay QR image request failed", response.status);
+      return res.status(503).json({ error: "The payment QR is temporarily unavailable." });
+    }
+    const image = Buffer.from(await response.arrayBuffer());
+    if (!image.length || image.length > 5 * 1024 * 1024) {
+      console.error("SwiftPay returned an invalid QR image.");
+      return res.status(503).json({ error: "The payment QR is temporarily unavailable." });
+    }
+    return res.set({
+      "Content-Type": "image/png",
+      "Cache-Control": "private, max-age=30",
+      "X-Content-Type-Options": "nosniff",
+    }).send(image);
+  } catch (error) {
+    console.error("SwiftPay QR image request failed", error.name === "AbortError" ? "timeout" : error.message);
+    return res.status(503).json({ error: "The payment QR is temporarily unavailable." });
+  } finally {
+    clearTimeout(timeout);
+  }
+});
+
+app.get("/v1/public/checkout/:code", publicCheckoutLimiter, async (req, res) => {
+  const code = req.params.code;
+  if (!/^[A-Za-z0-9_-]{40,50}$/.test(code)) return res.status(404).json({ error: "Checkout not found." });
+  const record = await pool.query(
+    `SELECT code, title, reference_no, amount::float8 AS amount, currency, status, payment_token
+     FROM payment_links WHERE code = $1 AND checkout_type = 'DIRECT_QRPH'`,
+    [code],
+  );
+  const row = record.rows[0];
+  if (!row?.payment_token) return res.status(404).json({ error: "Checkout not found." });
+
+  let status = row.status;
+  let statusCheckUnavailable = false;
+  if (!["EXECUTED", "CANCELED", "REJECTED", "EXPIRED"].includes(status)) {
+    try {
+      const { data } = await swiftPayPaymentRequest("/payments/status", row.payment_token);
+      status = paymentStatusFromResponse(data);
+      await pool.query("UPDATE payment_links SET status = $1, updated_at = NOW() WHERE code = $2", [status, code]);
+    } catch (error) {
+      statusCheckUnavailable = true;
+      console.error("Checkout payment status lookup failed", error.status || "network error");
+    }
+  }
+
+  return res.set("Cache-Control", "no-store").json({
+    title: row.title,
+    referenceNo: row.reference_no,
+    amount: row.amount,
+    currency: row.currency,
+    status,
+    statusCheckUnavailable,
+    qrImageUrl: new URL(`/v1/public/checkout/${code}/qr.png`, frontendOrigin).toString(),
+  });
+});
+
 app.use("/v1", requireMerchant);
 
 app.get("/v1/exchange-rates/krw-php", async (_req, res) => {
@@ -512,13 +620,19 @@ app.get("/v1/disbursement-institutions", async (req, res) => {
 
 async function reconcilePending() {
   const [links, transfers] = await Promise.all([
-    pool.query("SELECT id, code FROM payment_links WHERE status IN ('CREATING', 'ACTIVE') AND code IS NOT NULL ORDER BY created_at DESC LIMIT 10"),
+    pool.query("SELECT id, code, payment_token FROM payment_links WHERE status IN ('CREATING', 'ACTIVE', 'PENDING') AND code IS NOT NULL ORDER BY created_at DESC LIMIT 10"),
     pool.query("SELECT id, swiftpay_id, merchant_reference_no FROM disbursements WHERE status IN ('REQUESTING', 'PENDING', 'OUTCOME_UNKNOWN') ORDER BY created_at DESC LIMIT 10"),
   ]);
   await Promise.allSettled([
     ...links.rows.map(async (row) => {
-      const { data } = await swiftPayRequest(`/payments/links/${encodeURIComponent(row.code)}`);
-      const status = data.linkStatus || "ACTIVE";
+      let status;
+      if (row.payment_token) {
+        const { data } = await swiftPayPaymentRequest("/payments/status", row.payment_token);
+        status = paymentStatusFromResponse(data);
+      } else {
+        const { data } = await swiftPayRequest(`/payments/links/${encodeURIComponent(row.code)}`);
+        status = data.linkStatus || "ACTIVE";
+      }
       await pool.query("UPDATE payment_links SET status = $1, updated_at = NOW() WHERE id = $2", [status, row.id]);
     }),
     ...transfers.rows.map(async (row) => {
@@ -543,7 +657,8 @@ app.get("/v1/wallet/activity", async (req, res) => {
     await reconcilePending();
     const { rows } = await pool.query(`
       SELECT id::text, reference_no AS "referenceNo", title AS description,
-        'Payment link' AS channel, status, amount::float8 AS amount,
+        CASE WHEN payment_token IS NULL THEN 'Payment link' ELSE 'QR Ph checkout' END AS channel,
+        status, amount::float8 AS amount,
         created_at AS "createdAt", 'PAYMENT_LINK' AS "transactionType"
       FROM payment_links
       UNION ALL
@@ -576,34 +691,46 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
   if (existing.rowCount) {
     const row = existing.rows[0];
     if (row.payment_url) return res.json({ id: row.id, code: row.code, paymentUrl: row.payment_url, status: row.status, amount: Number(row.amount), currency: row.currency });
-    return res.status(409).json({ error: "The payment-link outcome is unknown. Check wallet activity before retrying." });
+    return res.status(409).json({ error: "The checkout outcome is unknown. Check wallet activity before retrying." });
   }
 
   const id = randomUUID();
   const referenceNo = `DRP-${randomUUID()}`;
+  const code = randomBytes(32).toString("base64url");
   try {
-    await pool.query(`INSERT INTO payment_links (id, idempotency_key, reference_no, title, amount, status)
-      VALUES ($1, $2, $3, $4, $5, 'CREATING')`, [id, idempotencyKey, referenceNo, title, amount]);
+    await pool.query(`INSERT INTO payment_links (id, idempotency_key, reference_no, code, title, amount, checkout_type, status)
+      VALUES ($1, $2, $3, $4, $5, $6, 'DIRECT_QRPH', 'CREATING')`, [id, idempotencyKey, referenceNo, code, title, amount]);
   } catch (error) {
-    if (error.code === "23505") return res.status(409).json({ error: "The payment-link outcome is unknown. Check wallet activity before retrying." });
+    if (error.code === "23505") return res.status(409).json({ error: "The checkout outcome is unknown. Check wallet activity before retrying." });
     throw error;
   }
 
   try {
-    const { data } = await swiftPayRequest("/payments/links", {
-      method: "POST",
-      body: { amount, currency: "PHP", title, description: title, referenceNo },
+    const { data } = await swiftPaySignedRequest("/bootstrap/qrph?type=P2M", {
+      x_access_key: swiftPayAccessKey,
+      x_amount: amount.toFixed(2),
+      x_currency: "PHP",
+      x_reference_no: referenceNo,
+      reject_qrph_duplicated_payments: true,
     });
-    if (!data?.code || !data?.paymentUrl) throw new Error("SwiftPay returned an incomplete payment link.");
-    if (swiftPayEnvironment === "production" && data.environmentType !== "PRODUCTION") throw new Error("SwiftPay environment did not match production configuration.");
-    const status = data.linkStatus || "ACTIVE";
-    await pool.query("UPDATE payment_links SET code = $1, payment_url = $2, status = $3, updated_at = NOW() WHERE id = $4", [data.code, data.paymentUrl, status, id]);
-    return res.status(201).json({ id, code: data.code, paymentUrl: data.paymentUrl, status, amount: Number(data.amount ?? amount), currency: data.currency || "PHP" });
+    if (typeof data?.paymentId !== "string" || !data.paymentId || typeof data.qrCode !== "string" || !data.qrCode) {
+      throw new Error("SwiftPay returned an incomplete QR payment.");
+    }
+    const status = data.paymentStatus || "PENDING";
+    if (!validPaymentStatus(status)) throw new Error("SwiftPay returned an invalid initial payment status.");
+    const checkoutUrl = new URL(`/checkout/${code}`, frontendOrigin).toString();
+    const actualAmount = Number(data.amount ?? amount);
+    if (!Number.isFinite(actualAmount) || actualAmount <= 0) throw new Error("SwiftPay returned an invalid payment amount.");
+    await pool.query(
+      "UPDATE payment_links SET payment_token = $1, payment_url = $2, status = $3, amount = $4, updated_at = NOW() WHERE id = $5",
+      [data.paymentId, checkoutUrl, status, actualAmount, id],
+    );
+    return res.status(201).json({ id, code, paymentUrl: checkoutUrl, status, amount: actualAmount, currency: "PHP" });
   } catch (error) {
     const isAmbiguous = !error.status || error.status >= 500;
     await pool.query("UPDATE payment_links SET status = $1, updated_at = NOW() WHERE id = $2", [isAmbiguous ? "OUTCOME_UNKNOWN" : "FAILED", id]);
-    console.error("SwiftPay payment-link creation failed", error.status || "network error");
-    return res.status(isAmbiguous ? 503 : 502).json({ error: isAmbiguous ? "The payment-link outcome is unknown. Check wallet activity before retrying." : "SwiftPay could not create the payment link." });
+    console.error("SwiftPay QR checkout creation failed", error.status || "network error");
+    return res.status(isAmbiguous ? 503 : 502).json({ error: isAmbiguous ? "The checkout outcome is unknown. Check wallet activity before retrying." : "SwiftPay could not create the QR checkout." });
   }
 });
 
@@ -611,6 +738,19 @@ app.get("/v1/payment-links/:code", async (req, res) => {
   const record = await pool.query("SELECT * FROM payment_links WHERE code = $1", [req.params.code]);
   if (!record.rowCount) return res.status(404).json({ error: "Payment link not found." });
   try {
+    if (record.rows[0].payment_token) {
+      const { data } = await swiftPayPaymentRequest("/payments/status", record.rows[0].payment_token);
+      const status = paymentStatusFromResponse(data);
+      await pool.query("UPDATE payment_links SET status = $1, updated_at = NOW() WHERE id = $2", [status, record.rows[0].id]);
+      return res.json({
+        code: record.rows[0].code,
+        paymentUrl: record.rows[0].payment_url,
+        status,
+        amount: Number(record.rows[0].amount),
+        currency: record.rows[0].currency,
+        referenceNo: record.rows[0].reference_no,
+      });
+    }
     const { data } = await swiftPayRequest(`/payments/links/${encodeURIComponent(req.params.code)}`);
     const status = data.linkStatus || record.rows[0].status;
     await pool.query("UPDATE payment_links SET status = $1, updated_at = NOW() WHERE id = $2", [status, record.rows[0].id]);

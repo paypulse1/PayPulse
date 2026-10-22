@@ -63,14 +63,23 @@ import {
   type Transaction,
   type TransferResult,
 } from "./lib/swiftpay";
+import Checkout from "./Checkout";
 import MarketingHome from "./MarketingHome";
 
-async function openHostedCheckout(url: string) {
+async function openCustomerCheckout(url: string) {
   if (Capacitor.isNativePlatform()) {
     await Browser.open({ url });
     return;
   }
   window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function isTerminalPaymentStatus(status: string) {
+  return ["PAID", "EXECUTED", "INACTIVE", "CANCELED", "REJECTED", "EXPIRED", "FAILED"].includes(status.toUpperCase());
+}
+
+function isConfirmedPaymentStatus(status: string) {
+  return ["PAID", "EXECUTED"].includes(status.toUpperCase());
 }
 
 type ButtonProps = {
@@ -478,18 +487,18 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     if (!result || result === "error") return;
-    setPaymentStatus(result.status || "ACTIVE");
-    if (["PAID", "INACTIVE"].includes((result.status || "").toUpperCase())) return;
+    setPaymentStatus(result.status || "PENDING");
+    if (isTerminalPaymentStatus(result.status || "")) return;
     const timer = window.setInterval(async () => {
       try {
         const latest = await getPaymentLinkStatus(result.code);
-        const status = latest.status || "ACTIVE";
+        const status = latest.status || "PENDING";
         setPaymentStatus(status);
-        if (["PAID", "INACTIVE"].includes(status.toUpperCase())) window.clearInterval(timer);
+        if (isTerminalPaymentStatus(status)) window.clearInterval(timer);
       } catch {
         // Keep the checkout usable if a temporary status request fails.
       }
-    }, 5000);
+    }, 10_000);
     return () => window.clearInterval(timer);
   }, [result]);
 
@@ -549,7 +558,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
         <span className="sheet-handle" />
         <header className="sheet-header">
           <div>
-            <span className="eyebrow">SWIFTPAY · HOSTED CHECKOUT</span>
+            <span className="eyebrow">DRPAY · SELF-HOSTED QR CHECKOUT</span>
             <h2 id="sheet-title">{result ? "Collection ready" : "Collect payment"}</h2>
           </div>
           <IconButton label="Close" onClick={onClose}>
@@ -573,20 +582,20 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
             ) : (
               <>
                 <div className="result-icon"><Link2 size={25} /></div>
-                <strong>Hosted payment link created</strong>
+                <strong>Self-hosted checkout created</strong>
                 <p>
                   {currency === "KRW"
-                    ? `Collect KRW ${Number(amount).toLocaleString("en-US")} (about PHP ${Number(result.amount || 0).toLocaleString("en-PH", { minimumFractionDigits: 2 })} at the reference rate). SwiftPay checkout is created in PHP; its final settlement status is confirmed by SwiftPay.`
-                    : `Collect ${result.currency || "PHP"} ${Number(result.amount || amount).toLocaleString("en-PH", { minimumFractionDigits: 2 })}. Settlement status is confirmed by SwiftPay, not by opening the link.`}
+                    ? `Collect KRW ${Number(amount).toLocaleString("en-US")} (about PHP ${Number(result.amount || 0).toLocaleString("en-PH", { minimumFractionDigits: 2 })} at the reference rate). The customer scans a PHP QR Ph checkout on your DRPAY page; SwiftPay confirms settlement.`
+                    : `Collect ${result.currency || "PHP"} ${Number(result.amount || amount).toLocaleString("en-PH", { minimumFractionDigits: 2 })} using a QR Ph checkout on your DRPAY page.`}
                 </p>
-                <span className={`payment-state state-${paymentStatus.toLowerCase()}`}>{paymentStatus === "PAID" ? "Payment confirmed by SwiftPay" : `Link status: ${paymentStatus || result.status || "ACTIVE"}`}</span>
+                <span className={`payment-state state-${paymentStatus.toLowerCase()}`}>{isConfirmedPaymentStatus(paymentStatus) ? "Payment confirmed by SwiftPay" : `Checkout status: ${paymentStatus || result.status || "PENDING"}`}</span>
                 <button className="copy-link" onClick={copyLink}>
                   <span>{result.paymentUrl}</span>
                   <Copy size={17} />
                 </button>
                 <div className="result-actions">
                   <Button variant="secondary" icon={<Share2 size={16} />} onClick={sharePayment}>Share</Button>
-                  <Button icon={<ArrowUpRight size={16} />} onClick={() => void openHostedCheckout(result.paymentUrl)}>Open checkout</Button>
+                  <Button icon={<ArrowUpRight size={16} />} onClick={() => void openCustomerCheckout(result.paymentUrl)}>Open checkout</Button>
                 </div>
                 <Button onClick={onClose}>Done</Button>
               </>
@@ -640,7 +649,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
               </div>
             )}
             <div className="accepted-channels">
-              <span>SwiftPay securely presents the payment methods enabled for your merchant account on its hosted checkout. KRW amounts are converted to a PHP checkout amount using the displayed reference rate.</span>
+              <span>Customers scan a QR Ph code on your DRPAY checkout page using a supported banking or payment app. KRW amounts are converted to PHP using the displayed reference rate.</span>
             </div>
             <Button
               type="submit"
@@ -648,7 +657,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
               disabled={submitting || currency === "USDT" || (currency === "KRW" && (!krwPhpQuote || quoteLoading))}
               icon={<Link2 size={18} />}
             >
-              {submitting ? "Creating checkout…" : "Create hosted checkout"}
+              {submitting ? "Creating checkout…" : "Create self-hosted checkout"}
             </Button>
           </form>
         )}
@@ -912,13 +921,13 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
     const timer = window.setInterval(async () => {
       try {
         const latest = await getPaymentLinkStatus(code);
-        const status = latest.status || "ACTIVE";
+        const status = latest.status || "PENDING";
         setPaymentStatus(status);
-        if (["PAID", "INACTIVE"].includes(status.toUpperCase())) window.clearInterval(timer);
+        if (isTerminalPaymentStatus(status)) window.clearInterval(timer);
       } catch {
-        // Leave the hosted link available while a status request is unavailable.
+        // Keep the DRPAY checkout URL available while a status request is unavailable.
       }
-    }, 5000);
+    }, 10_000);
     return () => window.clearInterval(timer);
   }, [code]);
   async function submit(event: FormEvent) {
@@ -929,7 +938,7 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
       const result = await createPaymentLink({ amount: Number(amount), description }, idempotencyKey);
       setUrl(result.paymentUrl);
       setCode(result.code);
-      setPaymentStatus(result.status || "ACTIVE");
+      setPaymentStatus(result.status || "PENDING");
       clearPaymentLinkIdempotencyKey();
     } catch (requestError) {
       const message = requestError instanceof Error ? requestError.message : "Could not create payment link";
@@ -945,9 +954,9 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
     <div className="sheet-backdrop" role="presentation" onMouseDown={onClose}>
       <section className="payment-sheet" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
         <span className="sheet-handle" />
-        <header className="sheet-header"><div><span className="eyebrow">POOLED MERCHANT TOOL</span><h2>Payment link</h2></div><IconButton label="Close" onClick={onClose}><X size={19} /></IconButton></header>
-        {url ? <div className="link-result"><div className="result-icon"><Link2 size={23} /></div><strong>Hosted link created</strong><p>Share this SwiftPay checkout with your customer.</p><span className={`payment-state state-${paymentStatus.toLowerCase()}`}>{paymentStatus === "PAID" ? "Payment confirmed by SwiftPay" : `Link status: ${paymentStatus || "ACTIVE"}`}</span><button className="copy-link" onClick={() => navigator.clipboard?.writeText(url)}><span>{url}</span><Copy size={17} /></button><Button onClick={() => void openHostedCheckout(url)} icon={<ArrowUpRight size={16} />}>Open checkout</Button><Button variant="quiet" onClick={onClose}>Done</Button></div> :
-          <form onSubmit={submit}><label><span>Description</span><input value={description} onChange={(event) => setDescription(event.target.value)} required /></label><label><span>Fixed amount</span><div className="amount-field"><span>₱</span><input type="number" min="1" step=".01" value={amount} onChange={(event) => setAmount(event.target.value)} required /><small>PHP</small></div></label>{error && <div className="inline-error"><AlertCircle size={15} />{error}</div>}<Button type="submit" disabled={busy}>{busy ? "Creating…" : "Create link"}</Button></form>}
+        <header className="sheet-header"><div><span className="eyebrow">POOLED MERCHANT TOOL</span><h2>QR checkout</h2></div><IconButton label="Close" onClick={onClose}><X size={19} /></IconButton></header>
+        {url ? <div className="link-result"><div className="result-icon"><QrCode size={23} /></div><strong>Self-hosted checkout created</strong><p>Share this DRPAY checkout page with your customer.</p><span className={`payment-state state-${paymentStatus.toLowerCase()}`}>{isConfirmedPaymentStatus(paymentStatus) ? "Payment confirmed by SwiftPay" : `Checkout status: ${paymentStatus || "PENDING"}`}</span><button className="copy-link" onClick={() => navigator.clipboard?.writeText(url)}><span>{url}</span><Copy size={17} /></button><Button onClick={() => void openCustomerCheckout(url)} icon={<ArrowUpRight size={16} />}>Open checkout</Button><Button variant="quiet" onClick={onClose}>Done</Button></div> :
+          <form onSubmit={submit}><label><span>Description</span><input value={description} onChange={(event) => setDescription(event.target.value)} required /></label><label><span>Fixed amount</span><div className="amount-field"><span>₱</span><input type="number" min="1" step=".01" value={amount} onChange={(event) => setAmount(event.target.value)} required /><small>PHP</small></div></label>{error && <div className="inline-error"><AlertCircle size={15} />{error}</div>}<Button type="submit" disabled={busy}>{busy ? "Creating…" : "Create QR checkout"}</Button></form>}
       </section>
     </div>
   );
@@ -1116,7 +1125,7 @@ function MoreView({
 }) {
   const items = [
     { label: "Merchant profile", description: "Business and account details", icon: Store, action: () => onInfo("Merchant profile") },
-    ...(data.walletMode === "pooled" ? [{ label: "Payment links", description: "Create a fixed-amount checkout", icon: Link2, action: onPaymentLink }] : []),
+    ...(data.walletMode === "pooled" ? [{ label: "QR checkouts", description: "Create a self-hosted QR Ph checkout", icon: QrCode, action: onPaymentLink }] : []),
     { label: "Transfer banks", description: "InstaPay and PESONET", icon: CreditCard, action: () => onInfo("Transfer banks") },
     { label: "Statements", description: "Download wallet activity", icon: ReceiptText, action: onExport },
     { label: "Security", description: "Session and device protection", icon: ShieldCheck, action: () => onInfo("Security") },
@@ -1169,6 +1178,7 @@ const tabs = [
 ];
 
 export default function App() {
+  const checkoutCode = /^\/checkout\/([A-Za-z0-9_-]{40,50})\/?$/.exec(window.location.pathname)?.[1] || "";
   const isAdminConsole = window.location.pathname === "/admin" || window.location.pathname.startsWith("/admin/");
   const isDashboard = Capacitor.isNativePlatform() || window.location.pathname === "/app" || window.location.pathname.startsWith("/app/");
   const [session, setSession] = useState<Session | null>(() => isDashboard || isAdminConsole ? getSession() : null);
@@ -1230,6 +1240,7 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
+  if (checkoutCode) return <Checkout code={checkoutCode} />;
   if (!isDashboard && !isAdminConsole) return <MarketingHome />;
 
   if (!isBackendConfigured()) {

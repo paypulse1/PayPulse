@@ -68,6 +68,16 @@ export type PaymentLinkResult = {
   currency?: string;
 };
 
+export type PublicCheckout = {
+  title: string;
+  referenceNo: string;
+  amount: number;
+  currency: string;
+  status: string;
+  statusCheckUnavailable: boolean;
+  qrImageUrl: string;
+};
+
 export type CurrencyQuote = {
   baseCurrency: "KRW";
   quoteCurrency: "PHP";
@@ -232,10 +242,10 @@ function toTransaction(item: WalletActivityResponse, index: number): Transaction
     id: item.id,
     customer: item.description || (isCredit ? "Payment link collection" : "Bank transfer"),
     email: isCredit ? "Money received" : "Money sent",
-    initials: type.includes("DISBURSEMENT") ? "TX" : type.includes("DEPOSIT") ? "DP" : "PL",
+    initials: type.includes("DISBURSEMENT") ? "TX" : type.includes("DEPOSIT") ? "DP" : item.channel === "QR Ph checkout" ? "QR" : "PL",
     color: ["lime", "blue", "peach", "violet", "mint"][index % 5] as Transaction["color"],
     reference: item.referenceNo,
-    channel: type.includes("DISBURSEMENT") ? item.channel : type.includes("DEPOSIT") ? "Bank" : "Payment link",
+    channel: type.includes("DISBURSEMENT") ? item.channel : type.includes("DEPOSIT") ? "Bank" : item.channel,
     date: new Date(item.createdAt).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
     status: toStatus(item.status),
     rawStatus: item.status,
@@ -342,4 +352,8 @@ export async function createPaymentLink(
 
 export async function getPaymentLinkStatus(code: string): Promise<PaymentLinkResult> {
   return backendRequest<PaymentLinkResult>(`/v1/payment-links/${encodeURIComponent(code)}`);
+}
+
+export async function getPublicCheckout(code: string): Promise<PublicCheckout> {
+  return publicRequest<PublicCheckout>(`/v1/public/checkout/${encodeURIComponent(code)}`);
 }

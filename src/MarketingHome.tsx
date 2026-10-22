@@ -99,7 +99,7 @@ export default function MarketingHome() {
           <article className="feature-item">
             <span className="feature-icon feature-coral"><QrCode size={21} /></span>
             <h3>Collect with confidence</h3>
-            <p>Create payment requests and share a hosted checkout with your customers.</p>
+            <p>Create payment requests and share a DRPAY checkout page with a scannable QR Ph code.</p>
             <a href="/app">Payment collection <ChevronRight size={15} /></a>
           </article>
           <article className="feature-item">
