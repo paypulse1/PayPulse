@@ -389,7 +389,6 @@ function SignIn({ onAuthenticated }: { onAuthenticated: (session: Session) => vo
     <main className="auth-screen auth-screen-with-footer">
       <div className="auth-brand"><Brand /></div>
       <section className="auth-card">
-        <span className="auth-mark"><img src="/drpay-mark.png" alt="" /></span>
         <span className="eyebrow">MERCHANT ACCESS</span>
         <h1>Welcome to DRPAY</h1>
         <p>{stage === "otp" ? "Enter the six-digit code sent to your merchant email to verify this device." : stage === "pin" ? "Enter your MPIN on this verified device." : "Use your MPIN on a verified device, or verify a new device by email."}</p>
@@ -1732,6 +1731,16 @@ function HomeView({
             Wallet details <ChevronRight size={14} />
           </button>
         </div>
+        <div className="balance-floating">
+          <div>
+            <span>Floating balance</span>
+            <strong>{balanceVisible ? data.internalWalletBalance : "₱ ••••••"}</strong>
+          </div>
+          <div>
+            <span>Available to request</span>
+            <strong>{balanceVisible ? formatPeso(data.availableFloatingBalance) : "₱ ••••••"}</strong>
+          </div>
+        </div>
       </section>
 
       <section className="quick-actions" aria-label="Quick actions">
@@ -1770,27 +1779,6 @@ function HomeView({
       </section>
 
       <MerchantActivityChart />
-
-      <section className="settlement-card">
-        <div className="settlement-icon">
-          <WalletCards size={21} />
-        </div>
-        <div>
-          <span>SwiftPay payout account</span>
-          <strong>Available balance</strong>
-          <small>Balance and transfer status are provided by SwiftPay</small>
-        </div>
-        <ChevronRight size={18} />
-      </section>
-
-      <section className="internal-wallet-card">
-        <div className="internal-wallet-heading">
-          <WalletCards size={18} />
-          <span>Floating balance</span>
-          <strong>{balanceVisible ? data.internalWalletBalance : "₱ ••••••"}</strong>
-        </div>
-        <p>Available to request for transfer to your saved bank account. Pending requests reserve the requested amount.</p>
-      </section>
 
       <section className="activity-section">
         <header className="section-header">
@@ -1994,11 +1982,6 @@ function WalletView({
 
   return (
     <section className="wallet-page">
-      <div className="page-title">
-        <span className="eyebrow">ACCOUNT BALANCE</span>
-        <h1>Wallet</h1>
-        <p>View your available balance and track incoming payments and outgoing transfers.</p>
-      </div>
       <section className="wallet-balance-panel">
         <div className="wallet-balance-heading">
           <span>Available balance</span>
@@ -2082,11 +2065,6 @@ function TransfersView({
 
   return (
     <section className="transfers-page">
-      <div className="page-title">
-        <span className="eyebrow">BANK PAYOUTS</span>
-        <h1>Transfer money</h1>
-        <p>Send money from your available balance to a supported bank or wallet.</p>
-      </div>
       <section className="transfer-balance-panel">
         <div>
           <span>Available balance</span>
@@ -2160,11 +2138,6 @@ function MoreView({
 
   return (
     <section className="more-page">
-      <div className="page-title">
-        <span className="eyebrow">YOUR BUSINESS</span>
-        <h1>Profile</h1>
-        <p>Manage your merchant wallet and security.</p>
-      </div>
       <div className="profile-card">
         <span className="profile-avatar">DV</span>
         <div>
@@ -2290,11 +2263,9 @@ function ProfileInfoPage({
   const failedTransactions = data.transactions.filter((transaction) => transaction.status === "Failed");
 
   return (
-    <section className="profile-info-page" aria-labelledby="profile-info-title">
+    <section className="profile-info-page" aria-label={title}>
       <header className="profile-info-page-header">
         <button className="profile-back-button" onClick={onClose}><ChevronLeft size={16} /> Profile</button>
-        <span className="eyebrow">DRPAY MERCHANT</span>
-        <h1 id="profile-info-title">{title}</h1>
       </header>
 
         {title === "Merchant profile" && (
