@@ -123,6 +123,12 @@ function isConfirmedPaymentStatus(status: string) {
   return ["PAID", "EXECUTED"].includes(status.toUpperCase());
 }
 
+function isQrNotFoundError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  return error.name === "NotFoundException"
+    || /no (?:multi.?format )?readers? (?:were )?able to detect/i.test(error.message);
+}
+
 function formatPeso(amount: number) {
   return `₱${amount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -1479,15 +1485,15 @@ function ScannerSheet({
     if (mode !== "scan" || decodingUpload || !videoRef.current) return;
     let active = true;
     let stopScanner: (() => void) | undefined;
-    void import("@zxing/browser").then(({ BrowserMultiFormatReader }) => {
+    void import("@zxing/browser").then(({ BrowserQRCodeReader }) => {
       if (!active || !videoRef.current) return;
-      return new BrowserMultiFormatReader().decodeFromVideoDevice(undefined, videoRef.current, (result, error) => {
+      return new BrowserQRCodeReader().decodeFromVideoDevice(undefined, videoRef.current, (result, error) => {
         if (!active) return;
         if (result) {
           active = false;
           stopScanner?.();
           handlePayload(result.getText());
-        } else if (error && error.name !== "NotFoundException") {
+        } else if (error && !isQrNotFoundError(error)) {
           setCameraError(error.message || "Could not read the camera QR code.");
         }
       });
@@ -1535,13 +1541,13 @@ function ScannerSheet({
       if (!image.naturalWidth || !image.naturalHeight || image.naturalWidth * image.naturalHeight > 24_000_000) {
         throw new Error("This image is too large to scan safely. Choose an image under 24 megapixels.");
       }
-      const { BrowserMultiFormatReader } = await import("@zxing/browser");
-      const result = await new BrowserMultiFormatReader().decodeFromImageUrl(imageUrl);
+      const { BrowserQRCodeReader } = await import("@zxing/browser");
+      const result = await new BrowserQRCodeReader().decodeFromImageUrl(imageUrl);
       handlePayload(result.getText());
     } catch (error) {
-      setCameraError(error instanceof Error && error.name === "NotFoundException"
+      setCameraError(isQrNotFoundError(error)
         ? "No QR code was found in that image."
-        : error instanceof Error ? error.message : "Could not read the uploaded QR.");
+        : error instanceof Error ? `Could not read the uploaded QR: ${error.message}` : "Could not read the uploaded QR.");
     } finally {
       URL.revokeObjectURL(imageUrl);
       setDecodingUpload(false);
@@ -2758,15 +2764,9 @@ export default function App() {
     <div className="app-stage">
       <main className="mobile-app">
         <header className="app-header">
-          <div className="merchant-greeting">
-            <span className="merchant-avatar">
-              <img src="/drpay-mark.png" alt="" />
-            </span>
-            <div>
-              <span>Welcome back</span>
-              <strong>Merchant account</strong>
-            </div>
-          </div>
+          <h1 className="app-header-title">
+            {activeTab === "Home" ? "Dashboard" : activeTab === "Transfer" ? "Transfers" : activeTab === "Profile" ? profileSection || "Profile" : activeTab}
+          </h1>
           <div className="header-actions">
             <span className={`live-pill environment-${data.paymentEnvironment}`}><i />{data.paymentEnvironment === "production" ? "Live" : "Sandbox"}</span>
             <IconButton label="Refresh wallet" onClick={loadDashboard}>
