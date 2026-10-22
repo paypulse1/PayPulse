@@ -268,7 +268,7 @@ app.post("/v1/auth/login", loginLimiter, async (req, res) => {
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(email)
     .setIssuedAt()
-    .setExpirationTime(expiresInSeconds)
+    .setExpirationTime(role === "super_admin" ? "1h" : "8h")
     .sign(jwtSecret);
   return res.json({ accessToken, expiresInSeconds, email, role });
 });
