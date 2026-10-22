@@ -6,16 +6,6 @@ import { getInstitutionLogoAsset } from "./lib/institutionLogos";
 
 export function InstitutionLogo({ institution, className = "" }: { institution: InstitutionBrand; className?: string }) {
   const [imageFailed, setImageFailed] = useState(false);
-  if (institution.code === "CARD_MAYA") {
-    return (
-      <span className={`${className} institution-card-network-logos`} role="img" aria-label="Visa, Mastercard, and JCB">
-        <img src="/bank-logos/visa.png" alt="" />
-        <img src="/bank-logos/mastercard.png" alt="" />
-        <img src="/bank-logos/jcb.png" alt="" />
-      </span>
-    );
-  }
-
   const logoUrl = getInstitutionLogoAsset(institution.code, institution.name) || institution.logoUrl;
   if (logoUrl && !imageFailed) {
     return <img className={className} src={logoUrl} alt={`${institution.name} logo`} onError={() => setImageFailed(true)} />;
@@ -67,7 +57,7 @@ export default function QrPaymentDisplay({ value, institution }: { value?: strin
       <img className="qr-preview" src={image} alt="Scan this QR Ph payment code" />
       {institution && (
         <p className="qr-brand-note">
-          The selected app and logo are for display only. QR Ph routing and app support are determined by SwiftPay.
+          The selected institution is shown for display; the QR Ph payment details remain unchanged.
         </p>
       )}
     </div>

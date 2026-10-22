@@ -3,6 +3,12 @@ import { AlertCircle, ArrowLeft, ChevronRight, LoaderCircle, Search } from "luci
 import { getPaymentInstitutions, type PaymentInstitution } from "./lib/swiftpay";
 import { InstitutionLogo } from "./QrPaymentDisplay";
 
+const koreanQrApps: PaymentInstitution[] = [
+  { code: "KR_KAKAOPAY", name: "Kakao Pay", category: "QR" },
+  { code: "KR_NAVERPAY", name: "Naver Pay", category: "QR" },
+  { code: "KR_TOSS", name: "Toss Pay", category: "QR" },
+];
+
 function categoryLabel(category: string) {
   const labels: Record<string, string> = {
     UNIVERSAL: "Bank",
@@ -19,11 +25,13 @@ function categoryLabel(category: string) {
 export default function InstitutionSelectionScreen({
   onBack,
   onConfirm,
+  showKoreanQrApps = false,
   busy = false,
   submissionError = "",
 }: {
   onBack: () => void;
   onConfirm: (institution: PaymentInstitution) => void;
+  showKoreanQrApps?: boolean;
   busy?: boolean;
   submissionError?: string;
 }) {
@@ -51,13 +59,36 @@ export default function InstitutionSelectionScreen({
 
   const filteredInstitutions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return institutions;
-    return institutions.filter((institution) =>
+    const options = [...(showKoreanQrApps ? koreanQrApps : []), ...institutions];
+    if (!normalizedQuery) return options;
+    return options.filter((institution) =>
       `${institution.name} ${institution.code}`.toLowerCase().includes(normalizedQuery),
     );
-  }, [institutions, query]);
+  }, [institutions, query, showKoreanQrApps]);
 
-  const selectedInstitution = institutions.find((institution) => institution.code === selectedCode);
+  const selectedInstitution = [...(showKoreanQrApps ? koreanQrApps : []), ...institutions].find((institution) => institution.code === selectedCode);
+  const filteredKoreanApps = filteredInstitutions.filter((institution) => institution.code.startsWith("KR_"));
+  const filteredSwiftPayInstitutions = filteredInstitutions.filter((institution) => !institution.code.startsWith("KR_"));
+
+  function renderOptions(options: PaymentInstitution[]) {
+    return options.map((institution) => (
+      <button
+        type="button"
+        role="option"
+        aria-selected={institution.code === selectedCode}
+        className="institution-selection-option"
+        key={institution.code}
+        onClick={() => setSelectedCode(institution.code)}
+      >
+        <InstitutionLogo institution={institution} className="institution-selection-logo" />
+        <span className="institution-option-copy">
+          <strong>{institution.name}</strong>
+          <small>{institution.code.startsWith("KR_") ? "Korean QR payment app" : categoryLabel(institution.category)}</small>
+        </span>
+        <span className="institution-option-check">{institution.code === selectedCode ? "Selected" : <ChevronRight size={16} />}</span>
+      </button>
+    ));
+  }
 
   return (
     <section className="institution-selection" aria-labelledby="institution-selection-title">
@@ -65,10 +96,9 @@ export default function InstitutionSelectionScreen({
         <ArrowLeft size={16} /> Back
       </button>
       <span className="eyebrow">PAYMENT APP</span>
-      <h3 id="institution-selection-title">Which bank or wallet will the customer use?</h3>
+      <h3 id="institution-selection-title">Which bank or wallet should appear with the QR?</h3>
       <p className="institution-selection-note">
-        Choose a logo to show with the QR. The list comes from SwiftPay’s institution directory.
-        This selection is for display only; SwiftPay routes the QR Ph payment, and app support can vary.
+        Choose the institution logo to display with the QR.
       </p>
       {submissionError && <div className="inline-error" role="alert"><AlertCircle size={15} />{submissionError}</div>}
       <label className="institution-search">
@@ -77,38 +107,54 @@ export default function InstitutionSelectionScreen({
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search banks and wallets"
-          aria-label="Search SwiftPay institutions"
+          placeholder="Search banks, wallets, and apps"
+          aria-label="Search payment institutions and apps"
         />
       </label>
-      {loading ? (
+      {loading && !showKoreanQrApps ? (
         <div className="institution-list-state" role="status"><LoaderCircle className="spin" size={18} />Loading institutions…</div>
       ) : error ? (
-        <div className="institution-list-state institution-list-error" role="alert">
-          <AlertCircle size={17} />
-          <span>{error}</span>
-          <button type="button" onClick={() => void loadInstitutions()}>Retry</button>
-        </div>
+        <>
+          <div className="institution-list-state institution-list-error" role="alert">
+            <AlertCircle size={17} />
+            <span>{error}</span>
+            <button type="button" onClick={() => void loadInstitutions()}>Retry</button>
+          </div>
+          {showKoreanQrApps && filteredKoreanApps.length > 0 && (
+            <div className="institution-selection-list" role="listbox" aria-label="Korean QR payment apps">
+              <div role="group" aria-label="Korean QR payment apps">
+                <p className="institution-group-title">Korean QR payment apps</p>
+                {renderOptions(filteredKoreanApps)}
+              </div>
+            </div>
+          )}
+        </>
       ) : (
-        <div className="institution-selection-list" role="listbox" aria-label="SwiftPay institutions">
-          {filteredInstitutions.length ? filteredInstitutions.map((institution) => (
-            <button
-              type="button"
-              role="option"
-              aria-selected={institution.code === selectedCode}
-              className="institution-selection-option"
-              key={institution.code}
-              onClick={() => setSelectedCode(institution.code)}
-            >
-              <InstitutionLogo institution={institution} className="institution-selection-logo" />
-              <span className="institution-option-copy">
-                <strong>{institution.name}</strong>
-                <small>{categoryLabel(institution.category)}</small>
-              </span>
-              <span className="institution-option-check">{institution.code === selectedCode ? "Selected" : <ChevronRight size={16} />}</span>
-            </button>
-          )) : <p className="institution-list-state">No institutions match that search.</p>}
-        </div>
+        <>
+          {loading && <div className="institution-list-state" role="status"><LoaderCircle className="spin" size={18} />Loading SwiftPay institutions…</div>}
+          <div
+            className="institution-selection-list"
+            role="listbox"
+            aria-label={showKoreanQrApps ? "Korean QR apps and SwiftPay institutions" : "SwiftPay institutions"}
+          >
+            {filteredInstitutions.length ? (
+              <>
+                {filteredKoreanApps.length > 0 && (
+                  <div role="group" aria-label="Korean QR payment apps">
+                    <p className="institution-group-title">Korean QR payment apps</p>
+                    {renderOptions(filteredKoreanApps)}
+                  </div>
+                )}
+                {filteredSwiftPayInstitutions.length > 0 && (
+                  <div role="group" aria-label="SwiftPay institutions">
+                    <p className="institution-group-title">SwiftPay institutions</p>
+                    {renderOptions(filteredSwiftPayInstitutions)}
+                  </div>
+                )}
+              </>
+            ) : <p className="institution-list-state">No institutions match that search.</p>}
+          </div>
+        </>
       )}
       <button
         type="button"

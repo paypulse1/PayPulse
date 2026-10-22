@@ -17,9 +17,11 @@ Set these secrets directly in Render when prompted:
 
 The API starts in `sandbox` mode. Verify the full flow against SwiftPay sandbox first. For live mode, explicitly set `SWIFTPAY_ENV=production`, add `SWIFTPAY_LIVE_MONEY_ACKNOWLEDGED=I_UNDERSTAND_REAL_MONEY`, and use live credentials in the API service's Render secret environment. The API refuses to start in production mode without that explicit acknowledgement. Never put SwiftPay credentials in any `VITE_*` variable; Vite bundles those values into public browser code.
 
+Merchant sign-in supports device passkeys with user verification (such as fingerprint, face unlock, or device screen lock). The relying-party ID defaults to the hostname in `DRPAY_FRONTEND_ORIGIN`; set `DRPAY_WEBAUTHN_RP_ID` when the production frontend uses a different passkey domain. `DRPAY_WEBAUTHN_ORIGINS` can override the allowed origin list with comma-separated exact origins for approved web clients. Passkeys require a secure browser origin and an authenticator that supports platform credentials. Merchants must enroll both a four-digit MPIN and a passkey; either can authorize each outgoing transfer.
+
 ## Payment behavior
 
-The API uses SwiftPay hosted payment links and checks link status server-side. It submits InstaPay/PESONet disbursements with a unique reference and idempotency key; accepted transfers remain pending until SwiftPay reports a terminal status. Payment and payout records are stored in PostgreSQL. The server never accepts card data.
+The API uses SwiftPay hosted payment links and checks link status server-side. It submits InstaPay/PESONet disbursements using SwiftPay's HTTP Basic-authenticated `POST /api/disbursements/send` endpoint, with a unique `merchantReferenceNo`; accepted transfers remain pending until SwiftPay reports a terminal status. InstaPay is limited to PHP 50,000 per transfer, and transfer remarks are limited to 80 characters. Provider validation errors are returned to the merchant instead of being mislabeled as gateway failures. Payment and payout records are stored in PostgreSQL. The server never accepts card data.
 
 The current implementation uses provider polling for reconciliation. It does not claim or depend on an unverified webhook signature format. A payment link timeout is recorded as an unknown outcome and must be reconciled before a new request is attempted.
 

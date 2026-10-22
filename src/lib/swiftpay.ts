@@ -1,3 +1,5 @@
+import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
+
 export type Session = {
   accessToken: string;
   expiresAt: number;
@@ -13,6 +15,9 @@ export type Transaction = {
   color: "lime" | "blue" | "peach" | "violet" | "mint";
   reference: string;
   channel: string;
+  institutionCode?: string;
+  institutionName?: string;
+  institutionLogoUrl?: string;
   date: string;
   status: "Paid" | "Pending" | "Failed";
   rawStatus: string;
@@ -65,6 +70,21 @@ export type TransferResult = {
   status: string;
   outcomeUnknown?: boolean;
   message?: string;
+};
+
+export type MerchantSecurityStatus = {
+  pinConfigured: boolean;
+  biometricConfigured: boolean;
+};
+
+export type TransferAuthorizationInput = {
+  amount: number;
+  channel: "INSTAPAY" | "PESONET";
+  institutionCode: string;
+  accountNumber: string;
+  fullName: string;
+  remarks: string;
+  idempotencyKey: string;
 };
 
 export type PaymentLinkResult = {
@@ -151,6 +171,9 @@ type InternalWalletResponse = {
 type WalletActivityResponse = {
   id: string;
   referenceNo: string;
+  institutionCode?: string;
+  institutionName?: string;
+  institutionLogoUrl?: string;
   amount: number;
   status: string;
   channel: string;
@@ -263,6 +286,74 @@ export async function login(email: string, password: string): Promise<Session> {
   return session;
 }
 
+export async function loginWithBiometric(email: string): Promise<Session> {
+  const { challengeId, options } = await publicRequest<{
+    challengeId: string;
+    options: Parameters<typeof startAuthentication>[0]["optionsJSON"];
+  }>("/v1/auth/biometric/options", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+  const response = await startAuthentication({ optionsJSON: options });
+  const session = await publicRequest<Omit<Session, "expiresAt"> & { expiresInSeconds: number }>("/v1/auth/biometric/verify", {
+    method: "POST",
+    body: JSON.stringify({ email, challengeId, response }),
+  });
+  const authenticatedSession: Session = {
+    accessToken: session.accessToken,
+    expiresAt: Date.now() + session.expiresInSeconds * 1000,
+    email: session.email,
+    role: session.role,
+  };
+  saveSession(authenticatedSession);
+  return authenticatedSession;
+}
+
+export function getMerchantSecurityStatus() {
+  return backendRequest<MerchantSecurityStatus>("/v1/security/status");
+}
+
+export async function setMerchantPin(pin: string) {
+  return backendRequest<{ pinConfigured: true }>("/v1/security/pin", {
+    method: "POST",
+    body: JSON.stringify({ pin }),
+  });
+}
+
+export async function registerMerchantBiometric() {
+  const { challengeId, options } = await backendRequest<{
+    challengeId: string;
+    options: Parameters<typeof startRegistration>[0]["optionsJSON"];
+  }>("/v1/security/biometric/register/options", { method: "POST" });
+  const response = await startRegistration({ optionsJSON: options });
+  return backendRequest<{ biometricConfigured: true }>("/v1/security/biometric/register/verify", {
+    method: "POST",
+    body: JSON.stringify({ challengeId, response }),
+  });
+}
+
+export async function authorizeTransferWithPin(input: TransferAuthorizationInput, pin: string) {
+  return backendRequest<{ stepUpToken: string }>("/v1/security/transfer/pin", {
+    method: "POST",
+    body: JSON.stringify({ ...input, pin }),
+  });
+}
+
+export async function authorizeTransferWithBiometric(input: TransferAuthorizationInput) {
+  const { challengeId, options } = await backendRequest<{
+    challengeId: string;
+    options: Parameters<typeof startAuthentication>[0]["optionsJSON"];
+  }>("/v1/security/transfer/biometric/options", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  const response = await startAuthentication({ optionsJSON: options });
+  return backendRequest<{ stepUpToken: string }>("/v1/security/transfer/biometric/verify", {
+    method: "POST",
+    body: JSON.stringify({ challengeId, response }),
+  });
+}
+
 function formatMoney(amount: number, showSign = false) {
   const sign = amount < 0 ? "−" : showSign ? "+" : "";
   return `${sign}₱${Math.abs(amount).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -280,12 +371,17 @@ function toTransaction(item: WalletActivityResponse, index: number): Transaction
   const type = item.transactionType.toUpperCase();
   return {
     id: item.id,
-    customer: item.description || (isCredit ? "Payment link collection" : "Bank transfer"),
+    customer: type.includes("DISBURSEMENT")
+      ? item.institutionName || item.description || "Bank transfer"
+      : item.description || (isCredit ? "Payment link collection" : "Bank transfer"),
     email: isCredit ? "Money received" : "Money sent",
     initials: type.includes("DISBURSEMENT") ? "TX" : type.includes("DEPOSIT") ? "DP" : item.channel === "QR Ph checkout" ? "QR" : "PL",
     color: ["lime", "blue", "peach", "violet", "mint"][index % 5] as Transaction["color"],
     reference: item.referenceNo,
     channel: type.includes("DISBURSEMENT") ? item.channel : type.includes("DEPOSIT") ? "Bank" : item.channel,
+    institutionCode: item.institutionCode,
+    institutionName: item.institutionName,
+    institutionLogoUrl: item.institutionLogoUrl,
     date: new Date(item.createdAt).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
     status: toStatus(item.status),
     rawStatus: item.status,
@@ -388,10 +484,11 @@ export async function createTransfer(input: {
   fullName: string;
   remarks: string;
   idempotencyKey: string;
+  stepUpToken: string;
 }): Promise<TransferResult> {
   return backendRequest<TransferResult>("/v1/disbursements", {
     method: "POST",
-    headers: { "Idempotency-Key": input.idempotencyKey },
+    headers: { "Idempotency-Key": input.idempotencyKey, "X-Step-Up-Token": input.stepUpToken },
     body: JSON.stringify({
       amount: input.amount,
       channel: input.channel,

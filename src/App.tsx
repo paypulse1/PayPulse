@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Capacitor } from "@capacitor/core";
 import {
   AlertCircle,
   ArrowDownLeft,
   ArrowUpRight,
   Bell,
-  Camera,
   ChevronDown,
   ChevronRight,
   CircleHelp,
@@ -13,7 +12,9 @@ import {
   CreditCard,
   Download,
   Eye,
+  Fingerprint,
   Home,
+  KeyRound,
   Link2,
   LoaderCircle,
   Lock,
@@ -34,6 +35,8 @@ import {
 } from "lucide-react";
 import {
   clearSession,
+  authorizeTransferWithBiometric,
+  authorizeTransferWithPin,
   createPaymentLink,
   createAdminMerchantAccount,
   createTransfer,
@@ -46,12 +49,16 @@ import {
   getAdminMerchantAccounts,
   getAdminSettings,
   getMerchantDashboard,
+  getMerchantSecurityStatus,
   getPaymentLinkIdempotencyKey,
   getPaymentLinkStatus,
   getSession,
   isBackendConfigured,
   login,
+  loginWithBiometric,
+  registerMerchantBiometric,
   resetPaymentLinkIdempotencyKey,
+  setMerchantPin,
   updateAdminMerchantAccount,
   updateAdminSettings,
   type AdminMerchantAccount,
@@ -59,6 +66,7 @@ import {
   type AdminInternalWalletSummary,
   type AdminSettings,
   type DashboardData,
+  type MerchantSecurityStatus,
   type CurrencyQuote,
   type Institution,
   type PaymentInstitution,
@@ -66,7 +74,10 @@ import {
   type Session,
   type Transaction,
   type TransferResult,
+  type TransferAuthorizationInput,
 } from "./lib/swiftpay";
+import type { MerchantQrDetails, TransferQrDetails } from "./lib/transferQr";
+import { parseScannedQr } from "./lib/transferQr";
 import Checkout from "./Checkout";
 import MarketingHome from "./MarketingHome";
 import QrPaymentDisplay, { InstitutionLogo } from "./QrPaymentDisplay";
@@ -199,9 +210,16 @@ function DashboardLoading() {
 function TransactionRow({ transaction, onClick }: { transaction: Transaction; onClick?: () => void }) {
   return (
     <button className="transaction-row" onClick={onClick}>
-      <span className={`transaction-avatar avatar-${transaction.color}`}>
-        {transaction.initials}
-      </span>
+      {transaction.institutionCode
+        ? <InstitutionLogo
+            institution={{
+              code: transaction.institutionCode,
+              name: transaction.institutionName || transaction.customer,
+              logoUrl: transaction.institutionLogoUrl,
+            }}
+            className="transaction-institution-logo"
+          />
+        : <span className={`transaction-avatar avatar-${transaction.color}`}>{transaction.initials}</span>}
       <span className="transaction-copy">
         <strong>{transaction.customer}</strong>
         <small>{transaction.channel} · {transaction.date.split(",")[0]}</small>
@@ -219,6 +237,7 @@ function SignIn({ onAuthenticated }: { onAuthenticated: (session: Session) => vo
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [biometricBusy, setBiometricBusy] = useState(false);
   const [error, setError] = useState("");
 
   async function submit(event: FormEvent) {
@@ -231,6 +250,18 @@ function SignIn({ onAuthenticated }: { onAuthenticated: (session: Session) => vo
       setError(requestError instanceof Error ? requestError.message : "Sign-in failed");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function biometricSubmit() {
+    setBiometricBusy(true);
+    setError("");
+    try {
+      onAuthenticated(await loginWithBiometric(email.trim().toLowerCase()));
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Biometric sign-in failed.");
+    } finally {
+      setBiometricBusy(false);
     }
   }
 
@@ -252,11 +283,110 @@ function SignIn({ onAuthenticated }: { onAuthenticated: (session: Session) => vo
             <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required autoComplete="current-password" />
           </label>
           {error && <div className="inline-error"><AlertCircle size={15} />{error}</div>}
-          <Button type="submit" disabled={busy || !email || !password} icon={busy ? <LoaderCircle className="spin" size={17} /> : <Lock size={17} />}>
+          <Button type="submit" disabled={busy || biometricBusy || !email || !password} icon={busy ? <LoaderCircle className="spin" size={17} /> : <Lock size={17} />}>
             {busy ? "Signing in…" : "Sign in securely"}
           </Button>
+          <Button type="button" variant="secondary" disabled={busy || biometricBusy || !email} onClick={() => void biometricSubmit()} icon={biometricBusy ? <LoaderCircle className="spin" size={17} /> : <Fingerprint size={17} />}>
+            {biometricBusy ? "Verifying…" : "Sign in with biometrics"}
+          </Button>
         </form>
-        <div className="auth-trust"><ShieldCheck size={16} /><span>Eight-hour signed session. Password verification stays on the DRPAY backend.</span></div>
+        <div className="auth-trust"><ShieldCheck size={16} /><span>Eight-hour signed session. Password verification stays on DRPAY; passkey biometrics remain on your device.</span></div>
+      </section>
+    </main>
+  );
+}
+
+function SecuritySetupScreen({
+  initialStatus,
+  onComplete,
+  onSignOut,
+}: {
+  initialStatus: MerchantSecurityStatus;
+  onComplete: (status: MerchantSecurityStatus) => void;
+  onSignOut: () => void;
+}) {
+  const [pin, setPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [status, setStatus] = useState(initialStatus);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function savePin(event: FormEvent) {
+    event.preventDefault();
+    if (pin !== confirmPin) {
+      setError("The MPINs do not match.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await setMerchantPin(pin);
+      const nextStatus = { ...status, pinConfigured: true };
+      setStatus(nextStatus);
+      setPin("");
+      setConfirmPin("");
+      if (nextStatus.biometricConfigured) onComplete(nextStatus);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not save your MPIN.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setupBiometric() {
+    setBusy(true);
+    setError("");
+    try {
+      await registerMerchantBiometric();
+      const nextStatus = { ...status, biometricConfigured: true };
+      setStatus(nextStatus);
+      if (nextStatus.pinConfigured) onComplete(nextStatus);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not set up biometric sign-in.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="auth-screen">
+      <div className="auth-brand"><Brand /></div>
+      <section className="auth-card security-setup-card">
+        <span className="auth-mark"><ShieldCheck size={26} /></span>
+        <span className="eyebrow">SECURE YOUR ACCOUNT</span>
+        <h1>Set up transfer verification</h1>
+        <p>Create a four-digit MPIN and enroll this device’s biometric passkey. You’ll verify with either method before each transfer.</p>
+        {!status.pinConfigured ? (
+          <form onSubmit={(event) => void savePin(event)}>
+            <label>
+              <span>Four-digit MPIN</span>
+              <input type="password" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} autoComplete="new-password" value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 4))} required />
+            </label>
+            <label>
+              <span>Confirm MPIN</span>
+              <input type="password" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} autoComplete="new-password" value={confirmPin} onChange={(event) => setConfirmPin(event.target.value.replace(/\D/g, "").slice(0, 4))} required />
+            </label>
+            {error && <div className="inline-error"><AlertCircle size={15} />{error}</div>}
+            <Button type="submit" disabled={busy || pin.length !== 4 || confirmPin.length !== 4} icon={busy ? <LoaderCircle className="spin" size={17} /> : <KeyRound size={17} />}>
+              {busy ? "Saving MPIN…" : "Save MPIN"}
+            </Button>
+          </form>
+        ) : (
+          <div className="security-setup-complete"><ShieldCheck size={16} /> MPIN is set</div>
+        )}
+        {!status.biometricConfigured ? (
+          <div className="security-biometric-setup">
+            <p>Biometric passkeys use your device’s fingerprint, face unlock, or secure screen lock.</p>
+            <Button type="button" variant="secondary" disabled={busy} onClick={() => void setupBiometric()} icon={busy ? <LoaderCircle className="spin" size={17} /> : <Fingerprint size={17} />}>
+              {busy ? "Setting up…" : "Set up biometric sign-in"}
+            </Button>
+          </div>
+        ) : (
+          <div className="security-setup-complete"><Fingerprint size={16} /> Biometric sign-in is set</div>
+        )}
+        {error && status.pinConfigured && <div className="inline-error"><AlertCircle size={15} />{error}</div>}
+        <div className="auth-trust"><Lock size={15} /><span>Your MPIN is hashed on the backend. Biometric data stays with your device; DRPAY stores only the public passkey credential.</span></div>
+        <Button type="button" variant="quiet" onClick={onSignOut}>Sign out</Button>
       </section>
     </main>
   );
@@ -696,6 +826,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
           <InstitutionSelectionScreen
             onBack={() => setSelectingInstitution(false)}
             onConfirm={(institution) => void createCheckout(institution)}
+            showKoreanQrApps={currency === "KRW"}
             busy={submitting}
             submissionError={error}
           />
@@ -747,7 +878,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
               </div>
             )}
             <div className="accepted-channels">
-              <span>Customers scan a QR Ph code on your DRPAY checkout page using a supported banking or payment app. KRW amounts are converted to PHP using the displayed reference rate.</span>
+              <span>Customers scan the QR Ph code on your DRPAY checkout page. KRW amounts are converted to PHP using the displayed reference rate.</span>
             </div>
             <Button
               type="submit"
@@ -792,17 +923,29 @@ function TransactionSheet({ transaction, onClose }: { transaction: Transaction; 
   );
 }
 
-function TransferSheet({ balance, onClose, onComplete }: { balance: number; onClose: () => void; onComplete: () => void }) {
+function TransferSheet({
+  balance,
+  onClose,
+  onComplete,
+  initialValues,
+}: {
+  balance: number;
+  onClose: () => void;
+  onComplete: () => void;
+  initialValues?: TransferQrDetails;
+}) {
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [bank, setBank] = useState("");
   const [bankSearch, setBankSearch] = useState("");
   const [bankPickerOpen, setBankPickerOpen] = useState(false);
-  const [channel, setChannel] = useState<"INSTAPAY" | "PESONET">("INSTAPAY");
-  const [name, setName] = useState("");
-  const [account, setAccount] = useState("");
-  const [amount, setAmount] = useState("");
+  const [channel, setChannel] = useState<"INSTAPAY" | "PESONET">(initialValues?.channel || "INSTAPAY");
+  const [name, setName] = useState(initialValues?.fullName || "");
+  const [account, setAccount] = useState(initialValues?.accountNumber || "");
+  const [amount, setAmount] = useState(initialValues?.amount ? String(initialValues.amount) : "");
   const [remarks, setRemarks] = useState("");
   const [reviewing, setReviewing] = useState(false);
+  const [authorizing, setAuthorizing] = useState(false);
+  const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<TransferResult | null>(null);
@@ -811,23 +954,33 @@ function TransferSheet({ balance, onClose, onComplete }: { balance: number; onCl
   useEffect(() => {
     getInstitutions().then((items) => {
       setInstitutions(items);
-      setBank(items[0]?.code || "");
+      const requestedBank = initialValues?.bank.trim().toLowerCase();
+      const matchedBank = requestedBank
+        ? items.find((item) => item.code.toLowerCase() === requestedBank || item.name.trim().toLowerCase() === requestedBank)
+        : undefined;
+      setBank(matchedBank?.code || (initialValues ? "" : items[0]?.code || ""));
+      if (initialValues && !matchedBank) setError(`The QR bank “${initialValues.bank}” is not supported for transfers. Choose a bank to continue.`);
     }).catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Could not load banks"));
-  }, []);
+  }, [initialValues]);
 
-  async function submit() {
+  const transferAuthorization: TransferAuthorizationInput = {
+    amount: Number(amount),
+    channel,
+    institutionCode: bank,
+    accountNumber: account,
+    fullName: name,
+    remarks,
+    idempotencyKey,
+  };
+
+  async function submitWithAuthorization(method: "pin" | "biometric") {
     setBusy(true);
     setError("");
     try {
-      const response = await createTransfer({
-        amount: Number(amount),
-        channel,
-        institutionCode: bank,
-        accountNumber: account,
-        fullName: name,
-        remarks,
-        idempotencyKey,
-      });
+      const authorization = method === "pin"
+        ? await authorizeTransferWithPin(transferAuthorization, pin)
+        : await authorizeTransferWithBiometric(transferAuthorization);
+      const response = await createTransfer({ ...transferAuthorization, stepUpToken: authorization.stepUpToken });
       setResult(response);
       onComplete();
     } catch (requestError) {
@@ -890,12 +1043,30 @@ function TransferSheet({ balance, onClose, onComplete }: { balance: number; onCl
               <div><dt>Bank</dt><dd>{selectedBank?.name}</dd></div>
               <div><dt>Account</dt><dd>•••• {account.slice(-4)}</dd></div>
               <div><dt>Rail</dt><dd>{channel}</dd></div>
+              {remarks.trim() && <div><dt>Remarks</dt><dd>{remarks.trim()}</dd></div>}
             </dl>
             {error && <div className="inline-error"><AlertCircle size={15} />{error}</div>}
-            <div className="result-actions">
-              <Button variant="secondary" onClick={() => setReviewing(false)}>Back</Button>
-              <Button disabled={busy} onClick={submit} icon={busy ? <LoaderCircle className="spin" size={16} /> : <ShieldCheck size={16} />}>{busy ? "Submitting…" : "Confirm transfer"}</Button>
-            </div>
+            {!authorizing ? (
+              <div className="result-actions">
+                <Button variant="secondary" onClick={() => setReviewing(false)}>Back</Button>
+                <Button disabled={busy} onClick={() => { setAuthorizing(true); setError(""); }} icon={<ShieldCheck size={16} />}>Verify and send</Button>
+              </div>
+            ) : (
+              <div className="transfer-authorization">
+                <p>Verify this transfer with your MPIN or device biometric before it is sent.</p>
+                <label>
+                  <span>Four-digit MPIN</span>
+                  <input type="password" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{4}" maxLength={4} value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 4))} />
+                </label>
+                <Button disabled={busy || pin.length !== 4} onClick={() => void submitWithAuthorization("pin")} icon={busy ? <LoaderCircle className="spin" size={16} /> : <KeyRound size={16} />}>
+                  {busy ? "Verifying…" : "Verify MPIN and send"}
+                </Button>
+                <Button variant="secondary" disabled={busy} onClick={() => void submitWithAuthorization("biometric")} icon={busy ? <LoaderCircle className="spin" size={16} /> : <Fingerprint size={16} />}>
+                  {busy ? "Verifying…" : "Verify with biometrics"}
+                </Button>
+                <button type="button" className="authorization-back" disabled={busy} onClick={() => { setAuthorizing(false); setPin(""); setError(""); }}>Back to transfer details</button>
+              </div>
+            )}
           </div>
         ) : (
           <form onSubmit={(event) => { event.preventDefault(); setReviewing(true); }}>
@@ -961,7 +1132,7 @@ function TransferSheet({ balance, onClose, onComplete }: { balance: number; onCl
             <label><span>Recipient full name</span><input value={name} onChange={(event) => setName(event.target.value)} required /></label>
             <label><span>Account number</span><input inputMode="numeric" value={account} onChange={(event) => setAccount(event.target.value.replace(/\D/g, ""))} required /></label>
             <label><span>Amount · Available ₱{balance.toLocaleString("en-PH", { minimumFractionDigits: 2 })}</span><div className="amount-field"><span>₱</span><input type="number" min="1" step=".01" value={amount} onChange={(event) => setAmount(event.target.value)} required /><small>PHP</small></div></label>
-            <label><span>Remarks</span><input value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Optional" /></label>
+            <label><span>Remarks</span><input value={remarks} onChange={(event) => setRemarks(event.target.value.slice(0, 80))} maxLength={80} placeholder="Optional (up to 80 characters)" /></label>
             {invalidAmount && amount && <div className="inline-error"><AlertCircle size={15} />Enter an amount within your available balance.</div>}
             <Button type="submit" disabled={invalidAmount || !bank || !channelAvailable || !account || !name}>Review transfer</Button>
           </form>
@@ -971,40 +1142,142 @@ function TransferSheet({ balance, onClose, onComplete }: { balance: number; onCl
   );
 }
 
-function ScannerSheet({ onClose }: { onClose: () => void }) {
-  const [value, setValue] = useState("");
+function ScannerSheet({
+  onClose,
+  onTransferQr,
+}: {
+  onClose: () => void;
+  onTransferQr: (details: TransferQrDetails) => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const uploadRef = useRef<HTMLInputElement>(null);
+  const [mode, setMode] = useState<"scan" | "collect" | "merchant">("scan");
   const [cameraError, setCameraError] = useState("");
+  const [decodingUpload, setDecodingUpload] = useState(false);
+  const [merchantQr, setMerchantQr] = useState<MerchantQrDetails | null>(null);
+
+  function handlePayload(payload: string) {
+    const scannedQr = parseScannedQr(payload);
+    if (!scannedQr) {
+      setCameraError("This QR format is not recognized. Scan a QR Ph P2P recipient code or QR Ph P2M merchant code.");
+      return;
+    }
+    if (scannedQr.type === "p2p") {
+      onTransferQr(scannedQr.transfer);
+      return;
+    }
+    setMerchantQr(scannedQr.merchant);
+    setMode("merchant");
+  }
+
+  useEffect(() => {
+    if (mode !== "scan" || decodingUpload || !videoRef.current) return;
+    let active = true;
+    let stopScanner: (() => void) | undefined;
+    void import("@zxing/browser").then(({ BrowserMultiFormatReader }) => {
+      if (!active || !videoRef.current) return;
+      return new BrowserMultiFormatReader().decodeFromVideoDevice(undefined, videoRef.current, (result, error) => {
+        if (!active) return;
+        if (result) {
+          active = false;
+          stopScanner?.();
+          handlePayload(result.getText());
+        } else if (error && error.name !== "NotFoundException") {
+          setCameraError(error.message || "Could not read the camera QR code.");
+        }
+      });
+    }).then((controls) => {
+      if (!controls) return;
+      if (active) stopScanner = () => controls.stop();
+      else controls.stop();
+    }).catch((error: unknown) => {
+      if (active) setCameraError(error instanceof Error ? error.message : "Camera access is unavailable.");
+    });
+    return () => {
+      active = false;
+      stopScanner?.();
+    };
+  }, [mode, decodingUpload]);
 
   async function scanImage(file?: File) {
     if (!file) return;
+    setCameraError("");
+    setDecodingUpload(true);
+    const imageUrl = URL.createObjectURL(file);
     try {
-      const Detector = (window as unknown as { BarcodeDetector?: new (options: { formats: string[] }) => { detect: (source: ImageBitmap) => Promise<Array<{ rawValue: string }>> } }).BarcodeDetector;
-      if (!Detector) throw new Error("QR image scanning is not supported by this browser.");
-      const bitmap = await createImageBitmap(file);
-      const codes = await new Detector({ formats: ["qr_code"] }).detect(bitmap);
-      if (!codes[0]) throw new Error("No QR code was found in that image.");
-      setValue(codes[0].rawValue);
-    } catch (requestError) {
-      setCameraError(requestError instanceof Error ? requestError.message : "Could not scan QR");
+      const { BrowserMultiFormatReader } = await import("@zxing/browser");
+      const result = await new BrowserMultiFormatReader().decodeFromImageUrl(imageUrl);
+      handlePayload(result.getText());
+    } catch (error) {
+      setCameraError(error instanceof Error && error.name === "NotFoundException"
+        ? "No QR code was found in that image."
+        : error instanceof Error ? error.message : "Could not read the uploaded QR.");
+    } finally {
+      URL.revokeObjectURL(imageUrl);
+      setDecodingUpload(false);
+      if (uploadRef.current) uploadRef.current.value = "";
     }
   }
 
   return (
     <div className="sheet-backdrop" role="presentation" onMouseDown={onClose}>
-      <section className="payment-sheet" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+      <section className="payment-sheet scanner-sheet" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
         <span className="sheet-handle" />
-        <header className="sheet-header"><div><span className="eyebrow">QR READER</span><h2>Read QR payload</h2></div><IconButton label="Close" onClick={onClose}><X size={19} /></IconButton></header>
-        <label className="camera-drop">
-          <Camera size={27} />
-          <strong>Open camera or choose QR image</strong>
-          <span>Your browser processes the image on this device.</span>
-          <input type="file" accept="image/*" capture="environment" onChange={(event) => scanImage(event.target.files?.[0])} />
-        </label>
-        <div className="divider"><span>or paste payload</span></div>
-        <label><span>QR payload</span><textarea value={value} onChange={(event) => setValue(event.target.value)} placeholder="Paste the QR Ph payload here" /></label>
-        {cameraError && <div className="inline-error"><AlertCircle size={15} />{cameraError}</div>}
-        {value && <div className="scan-result"><ShieldCheck size={18} /><div><strong>QR captured</strong><span>{value.slice(0, 48)}{value.length > 48 ? "…" : ""}</span></div></div>}
-        <Button disabled={!value} onClick={() => navigator.clipboard?.writeText(value)} icon={<Copy size={16} />}>Copy QR text</Button>
+        <header className="sheet-header">
+          <div><span className="eyebrow">QR SCANNER</span><h2>{mode === "scan" ? "Scan a QR" : mode === "collect" ? "Open-amount QR Ph" : "Merchant QR details"}</h2></div>
+          <IconButton label="Close" onClick={onClose}><X size={19} /></IconButton>
+        </header>
+        {mode === "scan" ? (
+          <>
+            <div className="scanner-camera">
+              <video ref={videoRef} muted playsInline aria-label="Live QR scanner" />
+              <span className="scanner-frame" aria-hidden="true" />
+              <span className="scanner-hint">Scan a QR Ph recipient or merchant code</span>
+            </div>
+            {cameraError && <div className="inline-error" role="alert"><AlertCircle size={15} />{cameraError}</div>}
+            {decodingUpload && <p className="institution-list-state" role="status"><LoaderCircle className="spin" size={16} />Reading uploaded QR…</p>}
+            <input
+              ref={uploadRef}
+              className="scanner-file-input"
+              type="file"
+              accept="image/*"
+              onChange={(event) => void scanImage(event.target.files?.[0])}
+            />
+            <div className="scanner-actions">
+              <Button variant="secondary" disabled={decodingUpload} onClick={() => uploadRef.current?.click()} icon={<Download size={17} />}>
+                Upload a QR
+              </Button>
+              <Button onClick={() => { setCameraError(""); setMode("collect"); }} icon={<QrCode size={17} />}>
+                Generate QR
+              </Button>
+            </div>
+          </>
+        ) : mode === "collect" ? (
+          <div className="static-qr-collection">
+            <p>Customer enters the amount in their QR Ph payment app.</p>
+            <img src="/static-qrph.jpg" alt="SwiftPay static QR Ph merchant code" />
+            <a className="button button-secondary" href="/static-qrph.jpg" download="swiftpay-static-qrph.jpg">
+              <Download size={16} /> Download QR
+            </a>
+            <Button variant="quiet" onClick={() => setMode("scan")}>Back to scanner</Button>
+          </div>
+        ) : (
+          <div className="merchant-qr-details">
+            <span className="merchant-qr-icon"><QrCode size={24} /></span>
+            <strong>QR Ph merchant code</strong>
+            <dl className="detail-list">
+              <div><dt>Merchant</dt><dd>{merchantQr?.merchantName || "Not provided"}</dd></div>
+              <div><dt>Merchant ID</dt><dd>{merchantQr?.merchantId || "Not provided"}</dd></div>
+              <div><dt>Amount</dt><dd>{merchantQr?.amount
+                ? `${merchantQr.currency || "PHP"} ${merchantQr.amount.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`
+                : "Open amount"}</dd></div>
+              {merchantQr?.city && <div><dt>City</dt><dd>{merchantQr.city}</dd></div>}
+              {merchantQr?.reference && <div><dt>Reference</dt><dd>{merchantQr.reference}</dd></div>}
+            </dl>
+            <p>This QR is a merchant payment code. Use it in a payer app to complete the payment.</p>
+            <Button onClick={() => { setMerchantQr(null); setCameraError(""); setMode("scan"); }}>Scan another QR</Button>
+          </div>
+        )}
       </section>
     </div>
   );
@@ -1116,9 +1389,9 @@ function HomeView({
       </section>
 
       <section className="quick-actions" aria-label="Quick actions">
-        <QuickAction icon={<QrCode size={22} />} label="Collect" onClick={onRequestPayment} />
+        <QuickAction icon={<CreditCard size={22} />} label="Collect" onClick={onRequestPayment} />
         <QuickAction icon={<Send size={21} />} label="Transfer" onClick={onTransfer} />
-        <QuickAction icon={<CreditCard size={21} />} label="Scan QR" onClick={onScan} />
+        <QuickAction icon={<QrCode size={21} />} label="Scan QR" onClick={onScan} />
         <QuickAction icon={<ReceiptText size={21} />} label="Activity" onClick={onActivity} />
       </section>
 
@@ -1305,10 +1578,12 @@ export default function App() {
   const isDashboard = Capacitor.isNativePlatform() || window.location.pathname === "/app" || window.location.pathname.startsWith("/app/");
   const [session, setSession] = useState<Session | null>(() => isDashboard || isAdminConsole ? getSession() : null);
   const [data, setData] = useState<DashboardData | null>(null);
+  const [securityStatus, setSecurityStatus] = useState<MerchantSecurityStatus | null>(null);
   const [activeTab, setActiveTab] = useState("Home");
   const [showPayment, setShowPayment] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
+  const [transferQrPrefill, setTransferQrPrefill] = useState<TransferQrDetails | undefined>();
   const [showPaymentLink, setShowPaymentLink] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [infoTool, setInfoTool] = useState("");
@@ -1321,7 +1596,9 @@ export default function App() {
     setLoading(true);
     setError("");
     try {
-      setData(await getMerchantDashboard());
+      const [dashboard, security] = await Promise.all([getMerchantDashboard(), getMerchantSecurityStatus()]);
+      setData(dashboard);
+      setSecurityStatus(security);
     } catch (requestError) {
       const message = requestError instanceof Error ? requestError.message : "Could not load your wallet";
       setError(message);
@@ -1342,6 +1619,7 @@ export default function App() {
     clearSession();
     setSession(null);
     setData(null);
+    setSecurityStatus(null);
     setActiveTab("Home");
   }
 
@@ -1400,6 +1678,10 @@ export default function App() {
   }
 
   if (!session) return <SignIn onAuthenticated={setSession} />;
+
+  if (session.role === "merchant" && securityStatus && (!securityStatus.pinConfigured || !securityStatus.biometricConfigured)) {
+    return <SecuritySetupScreen initialStatus={securityStatus} onComplete={setSecurityStatus} onSignOut={signOut} />;
+  }
 
   if (!data && loading) {
     return <DashboardLoading />;
@@ -1486,8 +1768,24 @@ export default function App() {
       </main>
 
       {showPayment && <PaymentSheet onClose={() => { setShowPayment(false); void loadDashboard(); }} />}
-      {showTransfer && <TransferSheet balance={data.balance} onClose={() => setShowTransfer(false)} onComplete={loadDashboard} />}
-      {showScanner && <ScannerSheet onClose={() => setShowScanner(false)} />}
+      {showTransfer && (
+        <TransferSheet
+          balance={data.balance}
+          initialValues={transferQrPrefill}
+          onClose={() => { setShowTransfer(false); setTransferQrPrefill(undefined); }}
+          onComplete={loadDashboard}
+        />
+      )}
+      {showScanner && (
+        <ScannerSheet
+          onClose={() => setShowScanner(false)}
+          onTransferQr={(details) => {
+            setTransferQrPrefill(details);
+            setShowScanner(false);
+            setShowTransfer(true);
+          }}
+        />
+      )}
       {showPaymentLink && <PaymentLinkSheet onClose={() => { setShowPaymentLink(false); void loadDashboard(); }} />}
       {selectedTransaction && <TransactionSheet transaction={selectedTransaction} onClose={() => setSelectedTransaction(null)} />}
       {infoTool && (
@@ -1498,7 +1796,7 @@ export default function App() {
             <div className="tool-info">
               {infoTool === "Merchant profile" && <><strong>{session.email}</strong><p>Role: {session.role.replace("_", " ")}<br />Wallet mode: {data.walletMode}<br />Account: {data.accountNumber ? `•••• ${data.accountNumber.slice(-4)}` : "Internal merchant ledger"}</p></>}
               {infoTool === "Transfer banks" && <><strong>Supported rails</strong><p>Eligible institutions are loaded directly from SwiftPay. InstaPay and PESONET availability is enforced per institution during transfer setup.</p></>}
-              {infoTool === "Security" && <><strong>Verified session</strong><p>This browser session expires automatically after eight hours. Signing out clears the bearer token. SwiftPay credentials remain on the DRPAY server.</p></>}
+              {infoTool === "Security" && <><strong>Transfer verification</strong><p>Every outgoing transfer requires your four-digit MPIN or device passkey. Biometric sign-in uses a secure platform credential; biometric data stays on your device. Sessions expire automatically after eight hours.</p></>}
               {infoTool === "API documentation" && <><strong>Trusted backend boundary</strong><p>Collections use SwiftPay hosted payment links, wallet data comes from the disbursement account API, and transfers use SwiftPay disbursements. SwiftPay secret keys never belong in this client.</p></>}
               {infoTool === "Help center" && <><strong>Need assistance?</strong><p>Keep the payment or transfer reference available when contacting your payment support team. Never send a password, access token, or secret key.</p></>}
             </div>

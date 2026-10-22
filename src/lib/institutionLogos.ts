@@ -1,13 +1,12 @@
 const institutionLogoAssets: Record<string, string> = {
+  KR_KAKAOPAY: "/bank-logos/kakaopay.png",
+  KR_NAVERPAY: "/bank-logos/naverpay.png",
+  KR_TOSS: "/bank-logos/toss.png",
   BDO: "/bank-logos/bdo.png",
   MAYA_WALLET: "/bank-logos/maya.png",
   BPI: "/bank-logos/bpi.png",
-  BILLEASE: "/bank-logos/billease.png",
-  JCB_MAYA: "/bank-logos/jcb.png",
-  MASTERCARD_MAYA: "/bank-logos/mastercard.png",
   QRPH: "/bank-logos/qrph.svg",
   VBANK: "/bank-logos/vbank.png",
-  VISA_MAYA: "/bank-logos/visa.png",
   BPISAMILYSAVINGS: "/bank-logos/bpi-family-savings.png",
   DISKARTECH: "/bank-logos/diskartech.png",
   GCASH: "/bank-logos/gcash.png",
@@ -17,15 +16,30 @@ const institutionLogoAssets: Record<string, string> = {
   RCBC: "/bank-logos/rcbc.png",
   UNIONBANK: "/bank-logos/unionbank.png",
   NETIZEN: "/bank-logos/netizen.png",
-  PALAWAN: "/bank-logos/palawan-pawnshop.jpg",
   "BDO UNIBANK": "/bank-logos/bdo.png",
   "BANK OF THE PHILIPPINE ISLANDS": "/bank-logos/bpi.png",
   "BPI FAMILY SAVINGS BANK": "/bank-logos/bpi-family-savings.png",
   "LAND BANK": "/bank-logos/landbank.png",
   "UNION BANK OF THE PHILIPPINES": "/bank-logos/unionbank.png",
-  "PALAWAN PAWNSHOP": "/bank-logos/palawan-pawnshop.jpg",
+  BNORPHMM: "/bank-logos/bdo.png",
+  BNORPHMMXXX: "/bank-logos/bdo.png",
+  BOPIPHMM: "/bank-logos/bpi.png",
+  BOPIPHMMXXX: "/bank-logos/bpi.png",
+  BPIBPHMM: "/bank-logos/bpi-family-savings.png",
+  BPIBPHMMXXX: "/bank-logos/bpi-family-savings.png",
+  TLBPPHMM: "/bank-logos/landbank.png",
+  TLBPPHMMXXX: "/bank-logos/landbank.png",
+  MBTCPHMM: "/bank-logos/metrobank.png",
+  MBTCPHMMXXX: "/bank-logos/metrobank.png",
+  NBRMPHMM: "/bank-logos/netbank.png",
+  NBRMPHMMXXX: "/bank-logos/netbank.png",
+  RCBCPHMM: "/bank-logos/rcbc.png",
+  RCBCPHMMXXX: "/bank-logos/rcbc.png",
+  UBPHPHMM: "/bank-logos/unionbank.png",
+  UBPHPHMMXXX: "/bank-logos/unionbank.png",
 };
 
 export function getInstitutionLogoAsset(code: string, name: string) {
-  return institutionLogoAssets[code] || institutionLogoAssets[name.trim().toUpperCase()];
+  return institutionLogoAssets[code.trim().toUpperCase()]
+    || institutionLogoAssets[name.trim().toUpperCase()];
 }

@@ -6,6 +6,12 @@ import express from "express";
 import { rateLimit } from "express-rate-limit";
 import helmet from "helmet";
 import { SignJWT, jwtVerify } from "jose";
+import {
+  generateAuthenticationOptions,
+  generateRegistrationOptions,
+  verifyAuthenticationResponse,
+  verifyRegistrationResponse,
+} from "@simplewebauthn/server";
 import pg from "pg";
 
 const { Pool } = pg;
@@ -32,7 +38,7 @@ app.use(cors({
     return callback(error);
   },
   methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"],
+  allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key", "X-Step-Up-Token"],
   maxAge: 600,
 }));
 
@@ -59,7 +65,15 @@ const swiftPayBaseUrl = swiftPayEnvironment === "production"
   ? "https://api.pay.live.swiftpay.ph/api"
   : "https://api.pay.sandbox.live.swiftpay.ph/api";
 const maxTransferAmount = Number(process.env.DRPAY_MAX_TRANSFER_PHP || "100000");
+const maxInstapayAmount = 50_000;
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false });
+const pinAttemptLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  keyGenerator: (req) => req.merchantEmail || "merchant-pin",
+});
 const paymentLinkLimiter = rateLimit({ windowMs: 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false });
 const transferLimiter = rateLimit({ windowMs: 60 * 1000, limit: 5, standardHeaders: "draft-8", legacyHeaders: false });
 const publicCheckoutLimiter = rateLimit({ windowMs: 60 * 1000, limit: 60, standardHeaders: "draft-8", legacyHeaders: false });
@@ -85,7 +99,56 @@ function requiredEnvironment() {
   if (swiftPayEnvironment === "production" && liveMoneyAcknowledgement !== "I_UNDERSTAND_REAL_MONEY") {
     missing.push("SWIFTPAY_LIVE_MONEY_ACKNOWLEDGED=I_UNDERSTAND_REAL_MONEY");
   }
+
   return missing;
+}
+
+function webAuthnConfig() {
+  if (!frontendOrigin || !jwtSecret || !jwtSecretValue) {
+    throw new Error("WebAuthn sign-in is not configured.");
+  }
+  const rpID = process.env.DRPAY_WEBAUTHN_RP_ID || new URL(frontendOrigin).hostname;
+  const expectedOrigins = (process.env.DRPAY_WEBAUTHN_ORIGINS || frontendOrigin)
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+    .map((origin) => new URL(origin).origin);
+  return { rpID, expectedOrigins };
+}
+
+function transferSecurityFingerprint(email, body, idempotencyKey) {
+  const amount = Math.round(Number(body?.amount) * 100) / 100;
+  const channel = typeof body?.channel === "string" ? body.channel : "";
+  const institutionCode = typeof body?.institutionCode === "string" ? body.institutionCode.trim() : "";
+  const accountNumber = typeof body?.accountNumber === "string" ? body.accountNumber.replace(/\s/g, "") : "";
+  const fullName = typeof body?.fullName === "string" ? body.fullName.trim() : "";
+  const remarks = typeof body?.remarks === "string" ? body.remarks.trim().slice(0, 80) : "";
+  return createHmac("sha256", jwtSecretValue)
+    .update(JSON.stringify([email, amount.toFixed(2), channel, institutionCode, accountNumber, fullName.toLowerCase(), remarks, idempotencyKey]))
+    .digest("hex");
+}
+
+async function issueMerchantSession(email) {
+  const accessToken = await new SignJWT({ role: "merchant" })
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject(email)
+    .setIssuedAt()
+    .setExpirationTime("8h")
+    .sign(jwtSecret);
+  return { accessToken, expiresInSeconds: 8 * 60 * 60, email, role: "merchant" };
+}
+
+async function createWebAuthnChallenge(email, challenge, purpose, transferFingerprint = null) {
+  await pool.query(
+    "DELETE FROM webauthn_challenges WHERE expires_at <= NOW() OR consumed_at < NOW() - INTERVAL '1 day'",
+  );
+  const id = randomUUID();
+  await pool.query(
+    `INSERT INTO webauthn_challenges (id, email, challenge, purpose, transfer_fingerprint, expires_at)
+     VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '5 minutes')`,
+    [id, email, challenge, purpose, transferFingerprint],
+  );
+  return id;
 }
 
 function passwordMatchesWithSalt(candidate, expectedPassword, salt) {
@@ -114,6 +177,41 @@ async function initializeDatabase() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS merchant_security (
+      email TEXT PRIMARY KEY REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      pin_salt TEXT,
+      pin_hash TEXT,
+      credential_id TEXT UNIQUE,
+      credential_public_key BYTEA,
+      credential_counter BIGINT NOT NULL DEFAULT 0,
+      credential_transports JSONB NOT NULL DEFAULT '[]'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CHECK ((pin_salt IS NULL) = (pin_hash IS NULL)),
+      CHECK ((credential_id IS NULL) = (credential_public_key IS NULL))
+    );
+    CREATE TABLE IF NOT EXISTS webauthn_challenges (
+      id UUID PRIMARY KEY,
+      email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      challenge TEXT NOT NULL,
+      purpose TEXT NOT NULL CHECK (purpose IN ('REGISTER', 'LOGIN', 'TRANSFER')),
+      transfer_fingerprint TEXT,
+      expires_at TIMESTAMPTZ NOT NULL,
+      consumed_at TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS webauthn_challenges_email_purpose_idx
+      ON webauthn_challenges (email, purpose, expires_at DESC);
+    CREATE TABLE IF NOT EXISTS used_step_up_tokens (
+      jti TEXT PRIMARY KEY,
+      merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      expires_at TIMESTAMPTZ NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS merchant_pin_attempts (
+      id BIGSERIAL PRIMARY KEY,
+      merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS merchant_pin_attempts_email_created_idx
+      ON merchant_pin_attempts (merchant_email, created_at DESC);
     CREATE TABLE IF NOT EXISTS system_settings (
       setting_key TEXT PRIMARY KEY,
       setting_value TEXT NOT NULL,
@@ -211,12 +309,28 @@ async function swiftPayFetch(path, { method = "GET", body, headers = {}, timeout
     if (!response.ok) {
       const error = new Error(`SwiftPay request failed (${response.status})`);
       error.status = response.status;
+      error.providerMessage = providerErrorMessage(data);
       throw error;
     }
     return { data, status: response.status };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function providerErrorMessage(data) {
+  const candidates = [
+    data?.message,
+    data?.error,
+    data?.detail,
+    data?.description,
+    data?.errors?.[0]?.message,
+    data?.errors?.[0],
+  ];
+  const value = candidates.find((candidate) => typeof candidate === "string" && candidate.trim());
+  return typeof value === "string"
+    ? value.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 300)
+    : null;
 }
 
 async function swiftPayRequest(path, options = {}) {
@@ -314,14 +428,97 @@ app.post("/v1/auth/login", loginLimiter, async (req, res) => {
     }
     role = "merchant";
   }
-  const expiresInSeconds = role === "super_admin" ? 60 * 60 : 8 * 60 * 60;
+  if (role === "merchant") return res.set("Cache-Control", "no-store").json(await issueMerchantSession(email));
+  const expiresInSeconds = 60 * 60;
   const accessToken = await new SignJWT({ role })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(email)
     .setIssuedAt()
     .setExpirationTime(role === "super_admin" ? "1h" : "8h")
     .sign(jwtSecret);
-  return res.json({ accessToken, expiresInSeconds, email, role });
+  return res.set("Cache-Control", "no-store").json({ accessToken, expiresInSeconds, email, role });
+});
+
+app.post("/v1/auth/biometric/options", loginLimiter, async (req, res) => {
+  const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+  if (!email || email.length > 254) return res.status(400).json({ error: "Enter your merchant email first." });
+  try {
+    const { rpID } = webAuthnConfig();
+    const { rows } = await pool.query(
+      `SELECT s.credential_id, s.credential_transports
+       FROM merchant_accounts a JOIN merchant_security s ON s.email = a.email
+       WHERE a.email = $1 AND a.active = TRUE AND s.credential_id IS NOT NULL`,
+      [email],
+    );
+    if (!rows[0]) return res.status(404).json({ error: "No biometric sign-in is enrolled for this merchant account." });
+    const options = await generateAuthenticationOptions({
+      rpID,
+      allowCredentials: [{ id: rows[0].credential_id, transports: rows[0].credential_transports }],
+      userVerification: "required",
+    });
+    const challengeId = await createWebAuthnChallenge(email, options.challenge, "LOGIN");
+    return res.set("Cache-Control", "no-store").json({ challengeId, options });
+  } catch (error) {
+    console.error("Biometric sign-in options failed", error.message);
+    return res.status(503).json({ error: "Biometric sign-in is unavailable. Use your merchant password." });
+  }
+});
+
+app.post("/v1/auth/biometric/verify", loginLimiter, async (req, res) => {
+  const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+  const challengeId = typeof req.body?.challengeId === "string" ? req.body.challengeId : "";
+  if (!email || !challengeId || !req.body?.response) return res.status(400).json({ error: "Biometric sign-in could not be verified." });
+  try {
+    const { rpID, expectedOrigins } = webAuthnConfig();
+    const [{ rows: challenges }, { rows: credentials }] = await Promise.all([
+      pool.query(
+        `SELECT challenge FROM webauthn_challenges
+         WHERE id = $1 AND email = $2 AND purpose = 'LOGIN' AND consumed_at IS NULL AND expires_at > NOW()`,
+        [challengeId, email],
+      ),
+      pool.query(
+        `SELECT s.credential_id, s.credential_public_key, s.credential_counter, s.credential_transports
+         FROM merchant_accounts a JOIN merchant_security s ON s.email = a.email
+         WHERE a.email = $1 AND a.active = TRUE`,
+        [email],
+      ),
+    ]);
+    const challenge = challenges[0];
+    const credential = credentials[0];
+    if (!challenge || !credential?.credential_id || req.body.response.id !== credential.credential_id) {
+      return res.status(401).json({ error: "Biometric sign-in failed. Try again or use your password." });
+    }
+    const verification = await verifyAuthenticationResponse({
+      response: req.body.response,
+      expectedChallenge: challenge.challenge,
+      expectedOrigin: expectedOrigins,
+      expectedRPID: rpID,
+      credential: {
+        id: credential.credential_id,
+        publicKey: new Uint8Array(credential.credential_public_key),
+        counter: Number(credential.credential_counter),
+        transports: credential.credential_transports,
+      },
+      requireUserVerification: true,
+    });
+    if (!verification.verified || !verification.authenticationInfo.userVerified) {
+      return res.status(401).json({ error: "Biometric sign-in failed. Try again or use your password." });
+    }
+    const consumed = await pool.query(
+      `UPDATE webauthn_challenges SET consumed_at = NOW()
+       WHERE id = $1 AND consumed_at IS NULL AND expires_at > NOW() RETURNING id`,
+      [challengeId],
+    );
+    if (!consumed.rowCount) return res.status(401).json({ error: "That biometric challenge has expired. Try again." });
+    await pool.query(
+      "UPDATE merchant_security SET credential_counter = $1, updated_at = NOW() WHERE email = $2",
+      [verification.authenticationInfo.newCounter, email],
+    );
+    return res.set("Cache-Control", "no-store").json(await issueMerchantSession(email));
+  } catch (error) {
+    console.error("Biometric sign-in verification failed", error.message);
+    return res.status(401).json({ error: "Biometric sign-in failed. Try again or use your password." });
+  }
 });
 
 app.use("/v1/admin", requireSuperAdmin);
@@ -606,6 +803,241 @@ app.get("/v1/public/checkout/:code", publicCheckoutLimiter, async (req, res) => 
 
 app.use("/v1", requireMerchant);
 
+app.get("/v1/security/status", async (req, res) => {
+  const { rows } = await pool.query(
+    "SELECT pin_hash IS NOT NULL AS pin_configured, credential_id IS NOT NULL AS biometric_configured FROM merchant_security WHERE email = $1",
+    [req.merchantEmail],
+  );
+  return res.set("Cache-Control", "no-store").json({
+    pinConfigured: rows[0]?.pin_configured === true,
+    biometricConfigured: rows[0]?.biometric_configured === true,
+  });
+});
+
+app.post("/v1/security/pin", async (req, res) => {
+  const pin = typeof req.body?.pin === "string" ? req.body.pin : "";
+  if (!/^\d{4}$/.test(pin)) return res.status(400).json({ error: "MPIN must contain exactly four digits." });
+  const salt = randomBytes(32).toString("hex");
+  const hash = scryptSync(pin, salt, 64).toString("hex");
+  await pool.query("INSERT INTO merchant_security (email) VALUES ($1) ON CONFLICT (email) DO NOTHING", [req.merchantEmail]);
+  const result = await pool.query(
+    `UPDATE merchant_security SET pin_salt = $1, pin_hash = $2, updated_at = NOW()
+     WHERE email = $3 AND pin_hash IS NULL RETURNING email`,
+    [salt, hash, req.merchantEmail],
+  );
+  if (!result.rowCount) return res.status(409).json({ error: "An MPIN is already configured for this account." });
+  return res.set("Cache-Control", "no-store").json({ pinConfigured: true });
+});
+
+app.post("/v1/security/biometric/register/options", async (req, res) => {
+  try {
+    const { rpID } = webAuthnConfig();
+    const { rows } = await pool.query(
+      "SELECT credential_id FROM merchant_security WHERE email = $1",
+      [req.merchantEmail],
+    );
+    if (rows[0]?.credential_id) return res.status(409).json({ error: "Biometric sign-in is already configured." });
+    const options = await generateRegistrationOptions({
+      rpName: "DRPAY Merchant",
+      rpID,
+      userID: new TextEncoder().encode(req.merchantEmail),
+      userName: req.merchantEmail,
+      userDisplayName: req.merchantEmail,
+      attestationType: "none",
+      authenticatorSelection: {
+        authenticatorAttachment: "platform",
+        residentKey: "preferred",
+        userVerification: "required",
+      },
+    });
+    const challengeId = await createWebAuthnChallenge(req.merchantEmail, options.challenge, "REGISTER");
+    return res.set("Cache-Control", "no-store").json({ challengeId, options });
+  } catch (error) {
+    console.error("Biometric registration options failed", error.message);
+    return res.status(503).json({ error: "Biometric setup is unavailable on this device or origin." });
+  }
+});
+
+app.post("/v1/security/biometric/register/verify", async (req, res) => {
+  const challengeId = typeof req.body?.challengeId === "string" ? req.body.challengeId : "";
+  if (!challengeId || !req.body?.response) return res.status(400).json({ error: "Biometric setup could not be verified." });
+  try {
+    const { rpID, expectedOrigins } = webAuthnConfig();
+    const { rows } = await pool.query(
+      `SELECT challenge FROM webauthn_challenges
+       WHERE id = $1 AND email = $2 AND purpose = 'REGISTER' AND consumed_at IS NULL AND expires_at > NOW()`,
+      [challengeId, req.merchantEmail],
+    );
+    if (!rows[0]) return res.status(400).json({ error: "That biometric setup challenge has expired. Try again." });
+    const verification = await verifyRegistrationResponse({
+      response: req.body.response,
+      expectedChallenge: rows[0].challenge,
+      expectedOrigin: expectedOrigins,
+      expectedRPID: rpID,
+      requireUserVerification: true,
+    });
+    if (!verification.verified || !verification.registrationInfo.userVerified) {
+      return res.status(400).json({ error: "Your device could not verify biometric enrollment." });
+    }
+    const { credential } = verification.registrationInfo;
+    await pool.query("INSERT INTO merchant_security (email) VALUES ($1) ON CONFLICT (email) DO NOTHING", [req.merchantEmail]);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const consumed = await client.query(
+        `UPDATE webauthn_challenges SET consumed_at = NOW()
+         WHERE id = $1 AND consumed_at IS NULL AND expires_at > NOW() RETURNING id`,
+        [challengeId],
+      );
+      if (!consumed.rowCount) throw new Error("That biometric setup challenge has already been used.");
+      const saved = await client.query(
+        `UPDATE merchant_security
+         SET credential_id = $1, credential_public_key = $2, credential_counter = $3,
+             credential_transports = $4, updated_at = NOW()
+         WHERE email = $5 AND credential_id IS NULL RETURNING email`,
+        [credential.id, Buffer.from(credential.publicKey), credential.counter, JSON.stringify(req.body.response.response?.transports || []), req.merchantEmail],
+      );
+      if (!saved.rowCount) throw new Error("Biometric sign-in is already configured.");
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+    return res.set("Cache-Control", "no-store").json({ biometricConfigured: true });
+  } catch (error) {
+    console.error("Biometric registration verification failed", error.message);
+    return res.status(400).json({ error: error.message || "Biometric setup could not be verified." });
+  }
+});
+
+app.post("/v1/security/transfer/pin", pinAttemptLimiter, async (req, res) => {
+  const pin = typeof req.body?.pin === "string" ? req.body.pin : "";
+  const idempotencyKey = typeof req.body?.idempotencyKey === "string" ? req.body.idempotencyKey : "";
+  if (!/^\d{4}$/.test(pin) || !validIdempotencyKey(idempotencyKey)) {
+    return res.status(400).json({ error: "Enter your four-digit MPIN to authorize this transfer." });
+  }
+  const { rows } = await pool.query(
+    "SELECT pin_salt, pin_hash, credential_id FROM merchant_security WHERE email = $1",
+    [req.merchantEmail],
+  );
+  const security = rows[0];
+  if (!security?.pin_hash || !security.credential_id) {
+    return res.status(403).json({ error: "Set up both your MPIN and biometric sign-in before transferring." });
+  }
+  await pool.query("DELETE FROM merchant_pin_attempts WHERE created_at <= NOW() - INTERVAL '1 day'");
+  const attempts = await pool.query(
+    "SELECT COUNT(*)::int AS count FROM merchant_pin_attempts WHERE merchant_email = $1 AND created_at > NOW() - INTERVAL '15 minutes'",
+    [req.merchantEmail],
+  );
+  if (attempts.rows[0].count >= 5) {
+    return res.status(429).json({ error: "Too many incorrect MPIN attempts. Try again in 15 minutes." });
+  }
+  if (!matchesPasswordHash(pin, security.pin_salt, security.pin_hash)) {
+    await pool.query("INSERT INTO merchant_pin_attempts (merchant_email) VALUES ($1)", [req.merchantEmail]);
+    return res.status(403).json({ error: "The MPIN is incorrect." });
+  }
+  await pool.query("DELETE FROM merchant_pin_attempts WHERE merchant_email = $1", [req.merchantEmail]);
+  const fingerprint = transferSecurityFingerprint(req.merchantEmail, req.body, idempotencyKey);
+  const jti = randomUUID();
+  const stepUpToken = await new SignJWT({ purpose: "transfer_step_up", fingerprint })
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject(req.merchantEmail)
+    .setJti(jti)
+    .setIssuedAt()
+    .setExpirationTime("2m")
+    .sign(jwtSecret);
+  return res.set("Cache-Control", "no-store").json({ stepUpToken });
+});
+
+app.post("/v1/security/transfer/biometric/options", async (req, res) => {
+  const idempotencyKey = typeof req.body?.idempotencyKey === "string" ? req.body.idempotencyKey : "";
+  if (!validIdempotencyKey(idempotencyKey)) return res.status(400).json({ error: "A valid transfer confirmation is required." });
+  try {
+    const { rpID } = webAuthnConfig();
+    const { rows } = await pool.query(
+      "SELECT credential_id, credential_transports FROM merchant_security WHERE email = $1 AND pin_hash IS NOT NULL",
+      [req.merchantEmail],
+    );
+    if (!rows[0]?.credential_id) return res.status(403).json({ error: "Set up biometric sign-in before transferring." });
+    const options = await generateAuthenticationOptions({
+      rpID,
+      allowCredentials: [{ id: rows[0].credential_id, transports: rows[0].credential_transports }],
+      userVerification: "required",
+    });
+    const fingerprint = transferSecurityFingerprint(req.merchantEmail, req.body, idempotencyKey);
+    const challengeId = await createWebAuthnChallenge(req.merchantEmail, options.challenge, "TRANSFER", fingerprint);
+    return res.set("Cache-Control", "no-store").json({ challengeId, options });
+  } catch (error) {
+    console.error("Transfer biometric options failed", error.message);
+    return res.status(503).json({ error: "Biometric verification is unavailable. Authorize with your MPIN." });
+  }
+});
+
+app.post("/v1/security/transfer/biometric/verify", async (req, res) => {
+  const challengeId = typeof req.body?.challengeId === "string" ? req.body.challengeId : "";
+  if (!challengeId || !req.body?.response) return res.status(400).json({ error: "Biometric verification could not be completed." });
+  try {
+    const { rpID, expectedOrigins } = webAuthnConfig();
+    const [{ rows: challenges }, { rows: credentials }] = await Promise.all([
+      pool.query(
+        `SELECT challenge, transfer_fingerprint FROM webauthn_challenges
+         WHERE id = $1 AND email = $2 AND purpose = 'TRANSFER' AND consumed_at IS NULL AND expires_at > NOW()`,
+        [challengeId, req.merchantEmail],
+      ),
+      pool.query(
+        `SELECT credential_id, credential_public_key, credential_counter, credential_transports
+         FROM merchant_security WHERE email = $1 AND pin_hash IS NOT NULL`,
+        [req.merchantEmail],
+      ),
+    ]);
+    const challenge = challenges[0];
+    const credential = credentials[0];
+    if (!challenge || !credential?.credential_id || req.body.response.id !== credential.credential_id) {
+      return res.status(403).json({ error: "Biometric verification failed. Try again." });
+    }
+    const verification = await verifyAuthenticationResponse({
+      response: req.body.response,
+      expectedChallenge: challenge.challenge,
+      expectedOrigin: expectedOrigins,
+      expectedRPID: rpID,
+      credential: {
+        id: credential.credential_id,
+        publicKey: new Uint8Array(credential.credential_public_key),
+        counter: Number(credential.credential_counter),
+        transports: credential.credential_transports,
+      },
+      requireUserVerification: true,
+    });
+    if (!verification.verified || !verification.authenticationInfo.userVerified) {
+      return res.status(403).json({ error: "Biometric verification failed. Try again." });
+    }
+    const consumed = await pool.query(
+      `UPDATE webauthn_challenges SET consumed_at = NOW()
+       WHERE id = $1 AND consumed_at IS NULL AND expires_at > NOW() RETURNING id`,
+      [challengeId],
+    );
+    if (!consumed.rowCount) return res.status(403).json({ error: "That biometric challenge has expired. Try again." });
+    await pool.query(
+      "UPDATE merchant_security SET credential_counter = $1, updated_at = NOW() WHERE email = $2",
+      [verification.authenticationInfo.newCounter, req.merchantEmail],
+    );
+    const jti = randomUUID();
+    const stepUpToken = await new SignJWT({ purpose: "transfer_step_up", fingerprint: challenge.transfer_fingerprint })
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject(req.merchantEmail)
+      .setJti(jti)
+      .setIssuedAt()
+      .setExpirationTime("2m")
+      .sign(jwtSecret);
+    return res.set("Cache-Control", "no-store").json({ stepUpToken });
+  } catch (error) {
+    console.error("Transfer biometric verification failed", error.message);
+    return res.status(403).json({ error: "Biometric verification failed. Try again." });
+  }
+});
+
 app.get("/v1/internal-wallet", async (req, res) => {
   const result = await pool.query(
     "SELECT COALESCE(SUM(amount), 0)::float8 AS balance FROM internal_wallet_adjustments WHERE merchant_email = $1",
@@ -696,6 +1128,7 @@ app.get("/v1/disbursement-institutions", async (req, res) => {
   try {
     const query = channel ? `?channel=${encodeURIComponent(channel)}` : "";
     const { data } = await swiftPayRequest(`/disbursements/institutions${query}`);
+    if (!Array.isArray(data)) throw new Error("SwiftPay returned an invalid disbursement institution list.");
     institutionCache.set(cacheKey, { items: data, expiresAt: Date.now() + 6 * 60 * 60 * 1000 });
     return res.json(data);
   } catch (error) {
@@ -712,7 +1145,11 @@ app.get("/v1/payment-institutions", async (_req, res) => {
     const { data } = await swiftPayFetch("/institutions");
     if (!Array.isArray(data)) throw new Error("SwiftPay returned an invalid payment institution list.");
     const items = data
-      .filter((item) => item?.enabled === true && (swiftPayEnvironment !== "production" || item.live === true))
+      .filter((item) =>
+        item?.enabled === true
+        && (swiftPayEnvironment !== "production" || item.live === true)
+        && !["PALAWAN", "JCB_MAYA", "VISA_MAYA", "MASTERCARD_MAYA", "BILLEASE", "CARD_MAYA"].includes(item.code),
+      )
       .map(({ code, name, category }) => ({ code, name, category }));
     paymentInstitutionCache = { items, expiresAt: Date.now() + 60 * 60 * 1000 };
     return res.json(items);
@@ -760,19 +1197,43 @@ app.get("/v1/wallet/activity", async (req, res) => {
   try {
     await reconcilePending();
     const { rows } = await pool.query(`
-      SELECT id::text, reference_no AS "referenceNo", title AS description,
+      SELECT id::text, reference_no AS "referenceNo", NULL::text AS "institutionCode", title AS description,
+        NULL::text AS "institutionName", NULL::text AS "institutionLogoUrl",
         CASE WHEN payment_token IS NULL THEN 'Payment link' ELSE 'QR Ph checkout' END AS channel,
         status, amount::float8 AS amount,
         created_at AS "createdAt", 'PAYMENT_LINK' AS "transactionType"
       FROM payment_links
       UNION ALL
-      SELECT id::text, merchant_reference_no AS "referenceNo", institution_code AS description,
+      SELECT id::text, merchant_reference_no AS "referenceNo", institution_code AS "institutionCode", institution_code AS description,
+        NULL::text AS "institutionName", NULL::text AS "institutionLogoUrl",
         channel, status, -amount::float8 AS amount,
         created_at AS "createdAt", 'DISBURSEMENT' AS "transactionType"
       FROM disbursements
       ORDER BY "createdAt" DESC LIMIT $1 OFFSET $2
     `, [limit, offset]);
-    return res.json(rows);
+    let institutions = institutionCache.get("all")?.items;
+    if (!institutions || institutionCache.get("all").expiresAt <= Date.now()) {
+      try {
+        const { data } = await swiftPayRequest("/disbursements/institutions");
+        if (!Array.isArray(data)) throw new Error("SwiftPay returned an invalid disbursement institution list.");
+        institutions = data;
+        institutionCache.set("all", { items: data, expiresAt: Date.now() + 6 * 60 * 60 * 1000 });
+      } catch (error) {
+        console.error("Wallet activity institution logos unavailable", error.status || "network error");
+        institutions = [];
+      }
+    }
+    const institutionsByCode = new Map(institutions.map((item) => [String(item.code || "").trim().toUpperCase(), item]));
+    const enrichedRows = rows.map((row) => {
+      if (row.transactionType !== "DISBURSEMENT") return row;
+      const institution = institutionsByCode.get(String(row.institutionCode || "").trim().toUpperCase());
+      return institution ? {
+        ...row,
+        institutionName: typeof institution.name === "string" ? institution.name : null,
+        institutionLogoUrl: typeof institution.logoUrl === "string" ? institution.logoUrl : null,
+      } : row;
+    });
+    return res.json(enrichedRows);
   } catch (error) {
     console.error("Wallet activity lookup failed", error.status || "database error");
     return res.status(503).json({ error: "Wallet activity is temporarily unavailable." });
@@ -894,10 +1355,14 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
   const institutionCode = typeof req.body?.institutionCode === "string" ? req.body.institutionCode.trim() : "";
   const accountNumber = typeof req.body?.accountNumber === "string" ? req.body.accountNumber.replace(/\s/g, "") : "";
   const fullName = typeof req.body?.fullName === "string" ? req.body.fullName.trim() : "";
-  const remarks = typeof req.body?.remarks === "string" ? req.body.remarks.trim().slice(0, 200) : "";
+  const remarks = typeof req.body?.remarks === "string" ? req.body.remarks.trim() : "";
   const idempotencyKey = req.get("Idempotency-Key");
   if (!validIdempotencyKey(idempotencyKey)) return res.status(400).json({ error: "A valid Idempotency-Key header is required." });
   if (!Number.isFinite(amount) || Math.abs(submittedAmount - amount) > 1e-7 || amount <= 0 || amount > maxTransferAmount) return res.status(400).json({ error: `Transfer amount must be greater than zero, no more than PHP ${maxTransferAmount.toLocaleString("en-PH")}, and have no more than two decimal places.` });
+  if (channel === "INSTAPAY" && amount > maxInstapayAmount) {
+    return res.status(400).json({ error: "InstaPay transfers are limited to PHP 50,000 per transfer. Choose PESONET for a larger amount." });
+  }
+  if (remarks.length > 80) return res.status(400).json({ error: "Transfer remarks must be 80 characters or fewer." });
   if (!["INSTAPAY", "PESONET"].includes(channel) || !institutionCode || institutionCode.length > 16) return res.status(400).json({ error: "Choose a valid bank and transfer rail." });
   if (!/^[0-9]{5,64}$/.test(accountNumber) || !fullName || fullName.length > 128) return res.status(400).json({ error: "Check the recipient name and account number." });
 
@@ -908,6 +1373,29 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
     return res.json({ id: row.swiftpay_id, referenceNo: row.merchant_reference_no, status: outcomeUnknown ? "OUTCOME_UNKNOWN" : row.status, outcomeUnknown, message: row.error_message });
   }
 
+  const security = await pool.query(
+    "SELECT pin_hash, credential_id FROM merchant_security WHERE email = $1",
+    [req.merchantEmail],
+  );
+  if (!security.rows[0]?.pin_hash || !security.rows[0]?.credential_id) {
+    return res.status(403).json({ error: "Set up both your MPIN and biometric sign-in before transferring." });
+  }
+  const stepUpToken = req.get("X-Step-Up-Token") || "";
+  const expectedFingerprint = transferSecurityFingerprint(req.merchantEmail, req.body, idempotencyKey);
+  let stepUpPayload;
+  try {
+    ({ payload: stepUpPayload } = await jwtVerify(stepUpToken, jwtSecret, { algorithms: ["HS256"] }));
+  } catch {
+    return res.status(403).json({ error: "Confirm this transfer with your MPIN or biometric sign-in." });
+  }
+  if (
+    stepUpPayload.sub !== req.merchantEmail
+    || stepUpPayload.purpose !== "transfer_step_up"
+    || stepUpPayload.fingerprint !== expectedFingerprint
+    || typeof stepUpPayload.jti !== "string"
+  ) {
+    return res.status(403).json({ error: "The security confirmation does not match this transfer. Verify again." });
+  }
   const institutions = institutionCache.get(channel);
   let selectedInstitution = institutions?.expiresAt > Date.now() ? institutions.items.find((item) => item.code === institutionCode) : null;
   if (!selectedInstitution) {
@@ -927,6 +1415,15 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
   const activeRequest = await pool.query(`SELECT merchant_reference_no, status FROM disbursements
     WHERE request_fingerprint = $1 AND status IN ('REQUESTING', 'PENDING', 'OUTCOME_UNKNOWN') LIMIT 1`, [requestFingerprint]);
   if (activeRequest.rowCount) return res.status(409).json({ error: `A matching transfer is already ${activeRequest.rows[0].status.toLowerCase()}. Check wallet activity before creating another.` });
+
+  await pool.query("DELETE FROM used_step_up_tokens WHERE expires_at <= NOW()");
+  const consumedStepUp = await pool.query(
+    `INSERT INTO used_step_up_tokens (jti, merchant_email, expires_at)
+     VALUES ($1, $2, to_timestamp($3))
+     ON CONFLICT (jti) DO NOTHING RETURNING jti`,
+    [stepUpPayload.jti, req.merchantEmail, stepUpPayload.exp],
+  );
+  if (!consumedStepUp.rowCount) return res.status(403).json({ error: "This security confirmation has already been used. Verify again." });
 
   const id = randomUUID();
   const merchantReferenceNo = `DRP-${randomUUID()}`;
@@ -964,10 +1461,13 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
   } catch (error) {
     const isAmbiguous = !error.status || error.status >= 500;
     const status = isAmbiguous ? "OUTCOME_UNKNOWN" : "REJECTED";
-    const message = isAmbiguous ? "Transfer outcome is unknown. Do not retry until it is reconciled." : "SwiftPay rejected the transfer request.";
+    const message = isAmbiguous
+      ? "Transfer outcome is unknown. Do not retry until it is reconciled."
+      : error.providerMessage || `SwiftPay rejected the transfer request (${error.status}).`;
     await pool.query("UPDATE disbursements SET status = $1, error_message = $2, updated_at = NOW() WHERE id = $3", [status, message, id]);
     console.error("SwiftPay disbursement request failed", error.status || "network error");
-    return res.status(isAmbiguous ? 503 : 502).json({ referenceNo: merchantReferenceNo, status, outcomeUnknown: isAmbiguous, message });
+    const responseStatus = isAmbiguous ? 503 : error.status === 400 ? 400 : 502;
+    return res.status(responseStatus).json({ referenceNo: merchantReferenceNo, status, outcomeUnknown: isAmbiguous, message });
   }
 });
 
