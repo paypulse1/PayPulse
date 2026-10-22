@@ -299,6 +299,39 @@ h1, h2, p { margin-top: 0; }
 .error-screen { text-align: center; }
 .error-screen h1 { margin: 0; font-size: 22px; }
 .error-screen p { max-width: 320px; margin: 0; color: #b9c5d5; font-size: 9px; line-height: 1.5; }
+.admin-screen { min-height: 100vh; padding: 22px; background: var(--paper); }
+.admin-header { width: min(100%, 900px); margin: 0 auto; display: flex; align-items: center; gap: 18px; }
+.admin-header > div { min-width: 0; margin-left: auto; text-align: right; }
+.admin-header > div span, .admin-header > div strong { display: block; }
+.admin-header > div span { color: var(--muted); font-size: 7px; font-weight: 800; letter-spacing: .14em; }
+.admin-header > div strong { margin-top: 3px; font-size: 9px; overflow-wrap: anywhere; }
+.admin-header > .button { min-height: 36px; font-size: 8px; }
+.admin-content { width: min(100%, 760px); margin: 38px auto; }
+.admin-content > .page-title h1 { font-size: 30px; }
+.admin-content > .page-title p { font-size: 10px; }
+.admin-card { margin-top: 16px; padding: 20px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); box-shadow: 0 8px 24px rgba(21,33,29,.04); }
+.admin-card-heading { margin-bottom: 18px; display: flex; align-items: center; gap: 11px; }
+.admin-card-heading h2 { margin: 0; font-size: 13px; }
+.admin-card-heading p { margin: 3px 0 0; color: var(--muted); font-size: 8px; }
+.admin-card form { display: grid; gap: 12px; }
+.admin-card form label > span { display: block; margin-bottom: 6px; color: var(--muted); font-size: 9px; font-weight: 700; }
+.admin-card form label > small { display: block; margin-top: 6px; color: var(--muted); font-size: 8px; }
+.admin-card form input { width: 100%; height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; outline: 0; background: var(--surface-soft); font-size: 10px; }
+.admin-card form input:focus { border-color: #1b4f9c; box-shadow: 0 0 0 3px #e6eef8; }
+.admin-card form > .button { justify-self: start; }
+.admin-account-list { margin-bottom: 17px; border-top: 1px solid var(--line); }
+.admin-account-row { min-height: 57px; padding: 9px 0; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); }
+.admin-account-row > div { min-width: 0; flex: 1; }
+.admin-account-row strong, .admin-account-row small { display: block; }
+.admin-account-row strong { overflow-wrap: anywhere; font-size: 9px; }
+.admin-account-row small { margin-top: 4px; color: var(--muted); font-size: 7px; }
+.admin-text-action { padding: 6px; border: 0; border-radius: 7px; background: transparent; color: #1b4f9c; font-size: 8px; font-weight: 800; white-space: nowrap; }
+.admin-text-action:hover { background: #e6eef8; }
+.admin-reset-form { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.admin-reset-form .result-actions { margin: 0; }
+.admin-notice { margin-bottom: 12px; padding: 10px 12px; display: flex; gap: 8px; border-radius: 10px; background: var(--success-soft); color: var(--success); font-size: 9px; }
+.admin-loading { min-height: 120px; display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--muted); font-size: 10px; }
+.admin-empty { padding: 10px 0; color: var(--muted); font-size: 9px; }
 
 @media (max-width: 520px) {
   :root { background: var(--paper); }
@@ -308,4 +341,11 @@ h1, h2, p { margin-top: 0; }
   .app-scroll { top: calc(82px + env(safe-area-inset-top)); bottom: calc(76px + env(safe-area-inset-bottom)); }
   .bottom-nav { height: calc(76px + env(safe-area-inset-bottom)); padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
   .payment-sheet { padding-bottom: calc(26px + env(safe-area-inset-bottom)); }
+  .admin-screen { padding: 16px; }
+  .admin-header { gap: 8px; }
+  .admin-header > .button { padding: 0 9px; }
+  .admin-content { margin-top: 28px; }
+  .admin-card { padding: 15px; }
+  .admin-account-row { flex-wrap: wrap; }
+  .admin-account-row > div { flex-basis: 100%; }
 }

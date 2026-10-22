@@ -37,10 +37,13 @@ import {
 import {
   clearSession,
   createPaymentLink,
+  createAdminMerchantAccount,
   createTransfer,
   clearPaymentLinkIdempotencyKey,
   getInstitutions,
   getKrwPhpQuote,
+  getAdminMerchantAccounts,
+  getAdminSettings,
   getMerchantDashboard,
   getPaymentLinkIdempotencyKey,
   getPaymentLinkStatus,
@@ -48,6 +51,10 @@ import {
   isBackendConfigured,
   login,
   resetPaymentLinkIdempotencyKey,
+  updateAdminMerchantAccount,
+  updateAdminSettings,
+  type AdminMerchantAccount,
+  type AdminSettings,
   type DashboardData,
   type CurrencyQuote,
   type Institution,
@@ -219,6 +226,218 @@ function SignIn({ onAuthenticated }: { onAuthenticated: (session: Session) => vo
         </form>
         <div className="auth-trust"><ShieldCheck size={16} /><span>Eight-hour signed session. Password verification stays on the DRPAY backend.</span></div>
       </section>
+    </main>
+  );
+}
+
+function SuperAdminSignIn({ onAuthenticated }: { onAuthenticated: (session: Session) => void }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const session = await login(email.trim().toLowerCase(), password);
+      if (session.role !== "super_admin") {
+        clearSession();
+        throw new Error("This account is not authorized for the super-admin console.");
+      }
+      onAuthenticated(session);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Admin sign-in failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="auth-screen">
+      <div className="auth-brand"><Brand /></div>
+      <section className="auth-card">
+        <span className="auth-mark"><ShieldCheck size={27} /></span>
+        <span className="eyebrow">RESTRICTED ACCESS</span>
+        <h1>Super-admin sign in</h1>
+        <p>Use the separately configured DRPAY super-admin account.</p>
+        <form onSubmit={submit}>
+          <label>
+            <span>Admin email</span>
+            <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="username" autoFocus />
+          </label>
+          <label>
+            <span>Password</span>
+            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required autoComplete="current-password" />
+          </label>
+          {error && <div className="inline-error"><AlertCircle size={15} />{error}</div>}
+          <Button type="submit" disabled={busy || !email || !password} icon={busy ? <LoaderCircle className="spin" size={17} /> : <Lock size={17} />}>
+            {busy ? "Signing in…" : "Open admin console"}
+          </Button>
+        </form>
+        <div className="auth-trust"><ShieldCheck size={16} /><span>Separate one-hour admin session. Provider secrets and payment execution are not exposed here.</span></div>
+      </section>
+    </main>
+  );
+}
+
+function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
+  const [settings, setSettings] = useState<AdminSettings>({ krwToPhpRate: null, usdtAddress: "", usdtNetwork: "" });
+  const [merchants, setMerchants] = useState<AdminMerchantAccount[]>([]);
+  const [newEmail, setNewEmail] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetPassword, setResetPassword] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [savingMerchant, setSavingMerchant] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  async function loadConsole() {
+    setLoading(true);
+    setError("");
+    try {
+      const [nextSettings, nextMerchants] = await Promise.all([
+        getAdminSettings(),
+        getAdminMerchantAccounts(),
+      ]);
+      setSettings(nextSettings);
+      setMerchants(nextMerchants);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not load admin console data.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void loadConsole(); }, []);
+
+  async function saveSettings(event: FormEvent) {
+    event.preventDefault();
+    setSavingSettings(true);
+    setError("");
+    setNotice("");
+    try {
+      const saved = await updateAdminSettings(settings);
+      setSettings(saved);
+      setNotice("Settings saved. KRW collection uses this configured rate.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not save settings.");
+    } finally {
+      setSavingSettings(false);
+    }
+  }
+
+  async function addMerchant(event: FormEvent) {
+    event.preventDefault();
+    setSavingMerchant(true);
+    setError("");
+    setNotice("");
+    try {
+      await createAdminMerchantAccount({ email: newEmail, password: newPassword });
+      setNewEmail("");
+      setNewPassword("");
+      setNotice("Merchant account created.");
+      await loadConsole();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not create merchant account.");
+    } finally {
+      setSavingMerchant(false);
+    }
+  }
+
+  async function setMerchantActive(account: AdminMerchantAccount) {
+    setError("");
+    setNotice("");
+    try {
+      await updateAdminMerchantAccount(account.email, { active: !account.active });
+      setMerchants((current) => current.map((item) => item.email === account.email ? { ...item, active: !account.active } : item));
+      setNotice(`Merchant account ${account.active ? "disabled" : "enabled"}.`);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not update merchant account.");
+    }
+  }
+
+  async function resetMerchantPassword(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    setNotice("");
+    try {
+      await updateAdminMerchantAccount(resetEmail, { password: resetPassword });
+      setResetEmail("");
+      setResetPassword("");
+      setNotice(`Password reset for ${resetEmail}. Share the new password with its owner securely.`);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not reset merchant password.");
+    }
+  }
+
+  return (
+    <main className="admin-screen">
+      <header className="admin-header">
+        <Brand />
+        <div><span>SUPER ADMIN</span><strong>{session.email}</strong></div>
+        <Button variant="secondary" icon={<LogOut size={15} />} onClick={onSignOut}>Sign out</Button>
+      </header>
+      <div className="admin-content">
+        <div className="page-title">
+          <span className="eyebrow">CONTROL PLANE</span>
+          <h1>Super-admin console</h1>
+          <p>Manage collection configuration and merchant access.</p>
+        </div>
+        {error && <div className="inline-error"><AlertCircle size={15} />{error}</div>}
+        {notice && <div className="admin-notice"><ShieldCheck size={15} />{notice}</div>}
+        {loading ? <div className="admin-loading"><LoaderCircle className="spin" size={20} />Loading console…</div> : (
+          <>
+            <section className="admin-card">
+              <div className="admin-card-heading"><span className="setting-icon"><Settings size={19} /></span><div><h2>Collection configuration</h2><p>Provider secrets are not displayed or editable here.</p></div></div>
+              <form onSubmit={saveSettings}>
+                <label>
+                  <span>Manual KRW → PHP rate</span>
+                  <input type="number" min="0.000001" max="1000" step="0.000001" value={settings.krwToPhpRate ?? ""} onChange={(event) => setSettings({ ...settings, krwToPhpRate: event.target.value ? Number(event.target.value) : null })} placeholder="Required to enable KRW collection" />
+                  <small>KRW collection stays unavailable until an admin-set rate is saved.</small>
+                </label>
+                <label>
+                  <span>USDT receiving network</span>
+                  <input value={settings.usdtNetwork} onChange={(event) => setSettings({ ...settings, usdtNetwork: event.target.value })} placeholder="For example: TRON (TRC20)" />
+                </label>
+                <label>
+                  <span>USDT receiving address</span>
+                  <input value={settings.usdtAddress} onChange={(event) => setSettings({ ...settings, usdtAddress: event.target.value })} placeholder="Leave both USDT fields empty until configured" autoComplete="off" />
+                </label>
+                <Button type="submit" disabled={savingSettings}>{savingSettings ? "Saving…" : "Save configuration"}</Button>
+              </form>
+            </section>
+
+            <section className="admin-card">
+              <div className="admin-card-heading"><span className="setting-icon"><Users size={19} /></span><div><h2>Merchant accounts</h2><p>Create accounts, reset passwords, or disable access.</p></div></div>
+              <div className="admin-account-list">
+                {merchants.map((account) => (
+                  <div className="admin-account-row" key={account.email}>
+                    <div><strong>{account.email}</strong><small>{account.active ? "Active" : "Disabled"} · added {new Date(account.createdAt).toLocaleDateString()}</small></div>
+                    <button type="button" className="admin-text-action" onClick={() => void setMerchantActive(account)}>{account.active ? "Disable" : "Enable"}</button>
+                    <button type="button" className="admin-text-action" onClick={() => { setResetEmail(account.email); setResetPassword(""); }}>Reset password</button>
+                  </div>
+                ))}
+                {merchants.length === 0 && <p className="admin-empty">No merchant accounts yet.</p>}
+              </div>
+              <form onSubmit={addMerchant}>
+                <label><span>New merchant email</span><input type="email" value={newEmail} onChange={(event) => setNewEmail(event.target.value)} required autoComplete="off" /></label>
+                <label><span>Temporary password (16+ characters)</span><input type="password" minLength={16} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required autoComplete="new-password" /></label>
+                <Button type="submit" disabled={savingMerchant || newPassword.length < 16}>{savingMerchant ? "Creating…" : "Create merchant account"}</Button>
+              </form>
+              {resetEmail && (
+                <form className="admin-reset-form" onSubmit={resetMerchantPassword}>
+                  <label><span>New password for {resetEmail}</span><input type="password" minLength={16} value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} required autoComplete="new-password" /></label>
+                  <div className="result-actions"><Button variant="secondary" onClick={() => setResetEmail("")}>Cancel</Button><Button type="submit" disabled={resetPassword.length < 16}>Reset password</Button></div>
+                </form>
+              )}
+            </section>
+          </>
+        )}
+      </div>
     </main>
   );
 }
@@ -950,8 +1169,9 @@ const tabs = [
 ];
 
 export default function App() {
+  const isAdminConsole = window.location.pathname === "/admin" || window.location.pathname.startsWith("/admin/");
   const isDashboard = Capacitor.isNativePlatform() || window.location.pathname === "/app" || window.location.pathname.startsWith("/app/");
-  const [session, setSession] = useState<Session | null>(() => isDashboard ? getSession() : null);
+  const [session, setSession] = useState<Session | null>(() => isDashboard || isAdminConsole ? getSession() : null);
   const [data, setData] = useState<DashboardData | null>(null);
   const [activeTab, setActiveTab] = useState("Home");
   const [showPayment, setShowPayment] = useState(false);
@@ -1010,7 +1230,7 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
-  if (!isDashboard) return <MarketingHome />;
+  if (!isDashboard && !isAdminConsole) return <MarketingHome />;
 
   if (!isBackendConfigured()) {
     return (
@@ -1025,6 +1245,25 @@ export default function App() {
         </section>
       </main>
     );
+  }
+
+  if (isAdminConsole) {
+    if (!session) return <SuperAdminSignIn onAuthenticated={setSession} />;
+    if (session.role !== "super_admin") {
+      return (
+        <main className="auth-screen">
+          <div className="auth-brand"><Brand /></div>
+          <section className="auth-card">
+            <span className="auth-mark"><Lock size={25} /></span>
+            <span className="eyebrow">ACCESS DENIED</span>
+            <h1>Admin role required</h1>
+            <p>This account cannot access the super-admin console.</p>
+            <Button variant="secondary" onClick={signOut}>Sign out</Button>
+          </section>
+        </main>
+      );
+    }
+    return <SuperAdminConsole session={session} onSignOut={signOut} />;
   }
 
   if (!session) return <SignIn onAuthenticated={setSession} />;

@@ -76,6 +76,19 @@ export type CurrencyQuote = {
   source: string;
 };
 
+export type AdminSettings = {
+  krwToPhpRate: number | null;
+  usdtAddress: string;
+  usdtNetwork: string;
+};
+
+export type AdminMerchantAccount = {
+  email: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type WalletBalanceResponse = {
   balance: number;
   adjustedBalance?: number;
@@ -258,6 +271,38 @@ export async function getInstitutions(): Promise<Institution[]> {
 
 export async function getKrwPhpQuote(): Promise<CurrencyQuote> {
   return backendRequest<CurrencyQuote>("/v1/exchange-rates/krw-php");
+}
+
+export async function getAdminSettings(): Promise<AdminSettings> {
+  return backendRequest<AdminSettings>("/v1/admin/settings");
+}
+
+export async function updateAdminSettings(settings: AdminSettings): Promise<AdminSettings> {
+  return backendRequest<AdminSettings>("/v1/admin/settings", {
+    method: "PUT",
+    body: JSON.stringify(settings),
+  });
+}
+
+export async function getAdminMerchantAccounts(): Promise<AdminMerchantAccount[]> {
+  return backendRequest<AdminMerchantAccount[]>("/v1/admin/merchants");
+}
+
+export async function createAdminMerchantAccount(input: { email: string; password: string }): Promise<AdminMerchantAccount> {
+  return backendRequest<AdminMerchantAccount>("/v1/admin/merchants", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateAdminMerchantAccount(
+  email: string,
+  input: { active?: boolean; password?: string },
+): Promise<AdminMerchantAccount> {
+  return backendRequest<AdminMerchantAccount>(`/v1/admin/merchants/${encodeURIComponent(email)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
 }
 
 export async function createTransfer(input: {

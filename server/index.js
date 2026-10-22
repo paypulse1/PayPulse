@@ -1,4 +1,4 @@
-import { createHmac, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import cors from "cors";
@@ -46,6 +46,8 @@ const pool = new Pool({
 
 const authEmail = process.env.DRPAY_MERCHANT_EMAIL?.trim().toLowerCase();
 const authPassword = process.env.DRPAY_MERCHANT_PASSWORD;
+const superAdminEmail = process.env.DRPAY_SUPER_ADMIN_EMAIL?.trim().toLowerCase();
+const superAdminPassword = process.env.DRPAY_SUPER_ADMIN_PASSWORD;
 const passwordSalt = process.env.DRPAY_PASSWORD_SALT;
 const jwtSecretValue = process.env.DRPAY_JWT_SECRET;
 const jwtSecret = jwtSecretValue ? new TextEncoder().encode(jwtSecretValue) : null;
@@ -61,13 +63,14 @@ const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHe
 const paymentLinkLimiter = rateLimit({ windowMs: 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false });
 const transferLimiter = rateLimit({ windowMs: 60 * 1000, limit: 5, standardHeaders: "draft-8", legacyHeaders: false });
 const institutionCache = new Map();
-let krwPhpRateCache = null;
 
 function requiredEnvironment() {
   const missing = [];
   if (!process.env.DATABASE_URL) missing.push("DATABASE_URL");
   if (!authEmail) missing.push("DRPAY_MERCHANT_EMAIL");
   if (!authPassword || authPassword.length < 16) missing.push("DRPAY_MERCHANT_PASSWORD (16+ characters)");
+  if (!superAdminEmail) missing.push("DRPAY_SUPER_ADMIN_EMAIL");
+  if (!superAdminPassword || superAdminPassword.length < 16) missing.push("DRPAY_SUPER_ADMIN_PASSWORD (16+ characters)");
   if (!passwordSalt || passwordSalt.length < 32) missing.push("DRPAY_PASSWORD_SALT (32+ characters)");
   if (!jwtSecretValue || jwtSecretValue.length < 32) missing.push("DRPAY_JWT_SECRET (32+ characters)");
   if (!swiftPayAccessKey) missing.push("SWIFTPAY_ACCESS_KEY");
@@ -81,14 +84,37 @@ function requiredEnvironment() {
   return missing;
 }
 
-function passwordMatches(candidate) {
-  const expected = scryptSync(authPassword, passwordSalt, 64);
-  const actual = scryptSync(candidate, passwordSalt, 64);
+function passwordMatchesWithSalt(candidate, expectedPassword, salt) {
+  const expected = scryptSync(expectedPassword, salt, 64);
+  const actual = scryptSync(candidate, salt, 64);
   return timingSafeEqual(expected, actual);
+}
+
+function passwordHash(password, salt = randomBytes(32).toString("hex")) {
+  return { passwordSalt: salt, passwordHash: scryptSync(password, salt, 64).toString("hex") };
+}
+
+function matchesPasswordHash(candidate, salt, expectedHash) {
+  const expected = Buffer.from(expectedHash, "hex");
+  const actual = scryptSync(candidate, salt, expected.length);
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
 async function initializeDatabase() {
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS merchant_accounts (
+      email TEXT PRIMARY KEY,
+      password_salt TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS system_settings (
+      setting_key TEXT PRIMARY KEY,
+      setting_value TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
     CREATE TABLE IF NOT EXISTS payment_links (
       id UUID PRIMARY KEY,
       idempotency_key TEXT NOT NULL UNIQUE,
@@ -123,6 +149,26 @@ async function initializeDatabase() {
       ON disbursements (request_fingerprint)
       WHERE status IN ('REQUESTING', 'PENDING', 'OUTCOME_UNKNOWN');
   `);
+  if (authEmail && authPassword && passwordSalt) {
+    const seededPassword = passwordHash(authPassword, passwordSalt);
+    await pool.query(
+      `INSERT INTO merchant_accounts (email, password_salt, password_hash)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (email) DO NOTHING`,
+      [authEmail, seededPassword.passwordSalt, seededPassword.passwordHash],
+    );
+  }
+  if (process.env.DRPAY_KRW_TO_PHP_RATE !== undefined) {
+    const configuredRate = Number(process.env.DRPAY_KRW_TO_PHP_RATE);
+    if (Number.isFinite(configuredRate) && configuredRate > 0) {
+      await pool.query(
+        `INSERT INTO system_settings (setting_key, setting_value)
+         VALUES ('krw_to_php_rate', $1)
+         ON CONFLICT (setting_key) DO NOTHING`,
+        [String(configuredRate)],
+      );
+    }
+  }
 }
 
 async function swiftPayRequest(path, { method = "GET", body, timeoutMs = 12_000 } = {}) {
@@ -157,13 +203,34 @@ async function swiftPayRequest(path, { method = "GET", body, timeoutMs = 12_000 
 async function requireMerchant(req, res, next) {
   const match = /^Bearer (.+)$/.exec(req.get("authorization") || "");
   if (!match || !jwtSecret) return res.status(401).json({ error: "Sign in is required." });
+  let payload;
   try {
-    const { payload } = await jwtVerify(match[1], jwtSecret, { algorithms: ["HS256"] });
-    if (payload.sub !== authEmail || payload.role !== "merchant") throw new Error("Invalid session");
-    req.merchantEmail = payload.sub;
-    return next();
+    ({ payload } = await jwtVerify(match[1], jwtSecret, { algorithms: ["HS256"] }));
   } catch {
     return res.status(401).json({ error: "Your session has expired. Sign in again." });
+  }
+  if (typeof payload.sub !== "string" || payload.role !== "merchant") {
+    return res.status(401).json({ error: "Your session has expired. Sign in again." });
+  }
+  const account = await pool.query(
+    "SELECT active FROM merchant_accounts WHERE email = $1",
+    [payload.sub],
+  );
+  if (!account.rows[0]?.active) return res.status(401).json({ error: "This merchant account is disabled." });
+  req.merchantEmail = payload.sub;
+  return next();
+}
+
+async function requireSuperAdmin(req, res, next) {
+  const match = /^Bearer\s+(.+)$/i.exec(req.get("authorization") || "");
+  if (!match || !jwtSecret) return res.status(401).json({ error: "Super-admin sign-in is required." });
+  try {
+    const { payload } = await jwtVerify(match[1], jwtSecret, { algorithms: ["HS256"] });
+    if (payload.sub !== superAdminEmail || payload.role !== "super_admin") throw new Error("Invalid admin session");
+    req.adminEmail = payload.sub;
+    return next();
+  } catch {
+    return res.status(401).json({ error: "Your admin session has expired. Sign in again." });
   }
 }
 
@@ -179,67 +246,199 @@ app.get("/healthz", async (_req, res) => {
 app.post("/v1/auth/login", loginLimiter, async (req, res) => {
   const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
   const password = typeof req.body?.password === "string" ? req.body.password : "";
-  if (email !== authEmail || password.length < 1 || password.length > 256 || !passwordMatches(password)) {
+  if (password.length < 1 || password.length > 256) {
     return res.status(401).json({ error: "Email or password is incorrect." });
   }
-  const accessToken = await new SignJWT({ role: "merchant" })
+  let role;
+  if (email === superAdminEmail && superAdminPassword && passwordSalt && passwordMatchesWithSalt(password, superAdminPassword, passwordSalt)) {
+    role = "super_admin";
+  } else {
+    const account = await pool.query(
+      "SELECT email, password_salt, password_hash FROM merchant_accounts WHERE email = $1 AND active = TRUE",
+      [email],
+    );
+    const user = account.rows[0];
+    if (!user || !matchesPasswordHash(password, user.password_salt, user.password_hash)) {
+      return res.status(401).json({ error: "Email or password is incorrect." });
+    }
+    role = "merchant";
+  }
+  const expiresInSeconds = role === "super_admin" ? 60 * 60 : 8 * 60 * 60;
+  const accessToken = await new SignJWT({ role })
     .setProtectedHeader({ alg: "HS256" })
-    .setSubject(authEmail)
+    .setSubject(email)
     .setIssuedAt()
-    .setExpirationTime("8h")
+    .setExpirationTime(expiresInSeconds)
     .sign(jwtSecret);
-  return res.json({ accessToken, expiresInSeconds: 8 * 60 * 60, email: authEmail, role: "merchant" });
+  return res.json({ accessToken, expiresInSeconds, email, role });
+});
+
+app.use("/v1/admin", requireSuperAdmin);
+
+app.get("/v1/admin/settings", async (_req, res) => {
+  const result = await pool.query(
+    "SELECT setting_key, setting_value FROM system_settings WHERE setting_key = ANY($1)",
+    [["krw_to_php_rate", "usdt_address", "usdt_network"]],
+  );
+  const settings = Object.fromEntries(result.rows.map((row) => [row.setting_key, row.setting_value]));
+  const rate = settings.krw_to_php_rate === undefined ? null : Number(settings.krw_to_php_rate);
+  if (rate !== null && (!Number.isFinite(rate) || rate <= 0)) {
+    return res.status(503).json({ error: "The configured KRW/PHP exchange rate is invalid." });
+  }
+  return res.json({
+    krwToPhpRate: rate,
+    usdtAddress: settings.usdt_address || "",
+    usdtNetwork: settings.usdt_network || "",
+  });
+});
+
+app.put("/v1/admin/settings", async (req, res) => {
+  const rawRate = req.body?.krwToPhpRate;
+  const rate = rawRate === null || rawRate === "" ? null : Number(rawRate);
+  const usdtAddress = typeof req.body?.usdtAddress === "string" ? req.body.usdtAddress.trim() : "";
+  const usdtNetwork = typeof req.body?.usdtNetwork === "string" ? req.body.usdtNetwork.trim() : "";
+  if (rate !== null && (!Number.isFinite(rate) || rate <= 0 || rate > 1000)) {
+    return res.status(400).json({ error: "KRW/PHP rate must be greater than zero and no more than 1000." });
+  }
+  if ((usdtAddress && !usdtNetwork) || (!usdtAddress && usdtNetwork)) {
+    return res.status(400).json({ error: "Set both the USDT address and its network, or leave both empty." });
+  }
+  if (usdtAddress.length > 256 || usdtNetwork.length > 64) {
+    return res.status(400).json({ error: "USDT address or network is too long." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const entries = [
+      ["krw_to_php_rate", rate === null ? null : String(rate)],
+      ["usdt_address", usdtAddress || null],
+      ["usdt_network", usdtNetwork || null],
+    ];
+    for (const [key, value] of entries) {
+      if (value === null) {
+        await client.query("DELETE FROM system_settings WHERE setting_key = $1", [key]);
+      } else {
+        await client.query(
+          `INSERT INTO system_settings (setting_key, setting_value)
+           VALUES ($1, $2)
+           ON CONFLICT (setting_key) DO UPDATE
+           SET setting_value = EXCLUDED.setting_value, updated_at = NOW()`,
+          [key, value],
+        );
+      }
+    }
+    await client.query("COMMIT");
+    return res.json({
+      krwToPhpRate: rate,
+      usdtAddress,
+      usdtNetwork,
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+});
+
+app.get("/v1/admin/merchants", async (_req, res) => {
+  const result = await pool.query(
+    `SELECT email, active, created_at AS "createdAt", updated_at AS "updatedAt"
+     FROM merchant_accounts ORDER BY created_at ASC`,
+  );
+  return res.json(result.rows);
+});
+
+app.post("/v1/admin/merchants", async (req, res) => {
+  const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+  const password = typeof req.body?.password === "string" ? req.body.password : "";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+    return res.status(400).json({ error: "Enter a valid merchant email address." });
+  }
+  if (password.length < 16 || password.length > 256) {
+    return res.status(400).json({ error: "Merchant passwords must be 16–256 characters." });
+  }
+  const credentials = passwordHash(password);
+  try {
+    const result = await pool.query(
+      `INSERT INTO merchant_accounts (email, password_salt, password_hash)
+       VALUES ($1, $2, $3)
+       RETURNING email, active, created_at AS "createdAt", updated_at AS "updatedAt"`,
+      [email, credentials.passwordSalt, credentials.passwordHash],
+    );
+    return res.status(201).json(result.rows[0]);
+  } catch (error) {
+    if (error.code === "23505") return res.status(409).json({ error: "A merchant account with that email already exists." });
+    throw error;
+  }
+});
+
+app.patch("/v1/admin/merchants/:email", async (req, res) => {
+  const email = typeof req.params.email === "string" ? req.params.email.trim().toLowerCase() : "";
+  const hasActive = typeof req.body?.active === "boolean";
+  const hasPassword = typeof req.body?.password === "string";
+  if (!hasActive && !hasPassword) return res.status(400).json({ error: "Provide an active state or a replacement password." });
+  if (hasPassword && (req.body.password.length < 16 || req.body.password.length > 256)) {
+    return res.status(400).json({ error: "Merchant passwords must be 16–256 characters." });
+  }
+  const credentials = hasPassword ? passwordHash(req.body.password) : null;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(84172031)");
+    const account = await client.query("SELECT email FROM merchant_accounts WHERE email = $1", [email]);
+    if (!account.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Merchant account not found." });
+    }
+    if (req.body.active === false) {
+      const remaining = await client.query(
+        "SELECT COUNT(*)::int AS count FROM merchant_accounts WHERE active = TRUE AND email <> $1",
+        [email],
+      );
+      if (remaining.rows[0].count === 0) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "The last active merchant account cannot be disabled." });
+      }
+    }
+    const result = await client.query(
+      `UPDATE merchant_accounts SET
+         active = CASE WHEN $2::boolean IS NULL THEN active ELSE $2 END,
+         password_salt = COALESCE($3, password_salt),
+         password_hash = COALESCE($4, password_hash),
+         updated_at = NOW()
+       WHERE email = $1
+       RETURNING email, active, created_at AS "createdAt", updated_at AS "updatedAt"`,
+      [email, hasActive ? req.body.active : null, credentials?.passwordSalt || null, credentials?.passwordHash || null],
+    );
+    await client.query("COMMIT");
+    return res.json(result.rows[0]);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 });
 
 app.use("/v1", requireMerchant);
 
 app.get("/v1/exchange-rates/krw-php", async (_req, res) => {
-  if (process.env.DRPAY_KRW_TO_PHP_RATE !== undefined) {
-    const rate = Number(process.env.DRPAY_KRW_TO_PHP_RATE);
-    if (!Number.isFinite(rate) || rate <= 0) {
-      return res.status(503).json({ error: "The configured KRW/PHP exchange rate is invalid." });
-    }
-    return res.json({
-      baseCurrency: "KRW",
-      quoteCurrency: "PHP",
-      rate,
-      date: new Date().toISOString().slice(0, 10),
-      source: "Merchant-configured rate",
-    });
+  const result = await pool.query(
+    "SELECT setting_value FROM system_settings WHERE setting_key = 'krw_to_php_rate'",
+  );
+  const rate = Number(result.rows[0]?.setting_value);
+  if (!Number.isFinite(rate) || rate <= 0) {
+    return res.status(503).json({ error: "KRW collection is unavailable until a super-admin configures the KRW/PHP rate." });
   }
-
-  if (krwPhpRateCache && Date.now() - krwPhpRateCache.fetchedAt < 60 * 60 * 1000) {
-    return res.json(krwPhpRateCache.quote);
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8_000);
-  try {
-    const response = await fetch("https://api.frankfurter.dev/v1/latest?base=KRW&symbols=PHP", {
-      signal: controller.signal,
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) throw new Error(`Exchange-rate service returned ${response.status}.`);
-    const data = await response.json();
-    const rate = Number(data?.rates?.PHP);
-    if (data?.base !== "KRW" || !Number.isFinite(rate) || rate <= 0 || typeof data?.date !== "string") {
-      throw new Error("Exchange-rate service returned invalid KRW/PHP data.");
-    }
-    const quote = {
-      baseCurrency: "KRW",
-      quoteCurrency: "PHP",
-      rate,
-      date: data.date,
-      source: "Frankfurter reference rate",
-    };
-    krwPhpRateCache = { quote, fetchedAt: Date.now() };
-    return res.json(quote);
-  } catch (error) {
-    console.error("KRW/PHP exchange-rate lookup failed", error.name === "AbortError" ? "timeout" : error.message);
-    return res.status(503).json({ error: "The KRW/PHP reference rate is temporarily unavailable." });
-  } finally {
-    clearTimeout(timeout);
-  }
+  return res.json({
+    baseCurrency: "KRW",
+    quoteCurrency: "PHP",
+    rate,
+    date: new Date().toISOString().slice(0, 10),
+    source: "Merchant-configured rate",
+  });
 });
 
 app.get("/v1/wallet/balance", async (_req, res) => {
