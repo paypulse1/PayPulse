@@ -61,6 +61,7 @@ const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHe
 const paymentLinkLimiter = rateLimit({ windowMs: 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false });
 const transferLimiter = rateLimit({ windowMs: 60 * 1000, limit: 5, standardHeaders: "draft-8", legacyHeaders: false });
 const institutionCache = new Map();
+let krwPhpRateCache = null;
 
 function requiredEnvironment() {
   const missing = [];
@@ -191,6 +192,55 @@ app.post("/v1/auth/login", loginLimiter, async (req, res) => {
 });
 
 app.use("/v1", requireMerchant);
+
+app.get("/v1/exchange-rates/krw-php", async (_req, res) => {
+  if (process.env.DRPAY_KRW_TO_PHP_RATE !== undefined) {
+    const rate = Number(process.env.DRPAY_KRW_TO_PHP_RATE);
+    if (!Number.isFinite(rate) || rate <= 0) {
+      return res.status(503).json({ error: "The configured KRW/PHP exchange rate is invalid." });
+    }
+    return res.json({
+      baseCurrency: "KRW",
+      quoteCurrency: "PHP",
+      rate,
+      date: new Date().toISOString().slice(0, 10),
+      source: "Merchant-configured rate",
+    });
+  }
+
+  if (krwPhpRateCache && Date.now() - krwPhpRateCache.fetchedAt < 60 * 60 * 1000) {
+    return res.json(krwPhpRateCache.quote);
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8_000);
+  try {
+    const response = await fetch("https://api.frankfurter.dev/v1/latest?base=KRW&symbols=PHP", {
+      signal: controller.signal,
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error(`Exchange-rate service returned ${response.status}.`);
+    const data = await response.json();
+    const rate = Number(data?.rates?.PHP);
+    if (data?.base !== "KRW" || !Number.isFinite(rate) || rate <= 0 || typeof data?.date !== "string") {
+      throw new Error("Exchange-rate service returned invalid KRW/PHP data.");
+    }
+    const quote = {
+      baseCurrency: "KRW",
+      quoteCurrency: "PHP",
+      rate,
+      date: data.date,
+      source: "Frankfurter reference rate",
+    };
+    krwPhpRateCache = { quote, fetchedAt: Date.now() };
+    return res.json(quote);
+  } catch (error) {
+    console.error("KRW/PHP exchange-rate lookup failed", error.name === "AbortError" ? "timeout" : error.message);
+    return res.status(503).json({ error: "The KRW/PHP reference rate is temporarily unavailable." });
+  } finally {
+    clearTimeout(timeout);
+  }
+});
 
 app.get("/v1/wallet/balance", async (_req, res) => {
   try {

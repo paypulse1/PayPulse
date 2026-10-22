@@ -180,6 +180,15 @@ h1, h2, p { margin-top: 0; }
 .sheet-header h2 { margin-bottom: 0; font-size: 21px; letter-spacing: -.04em; }
 .payment-sheet form { display: grid; gap: 18px; }
 .payment-sheet label > span, .accepted-channels > span { display: block; margin-bottom: 7px; color: var(--muted); font-size: 9px; font-weight: 600; }
+.collection-currencies { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+.collection-currencies button { min-height: 42px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--muted); font-size: 10px; font-weight: 800; }
+.collection-currencies button.active { border-color: var(--ink); background: var(--ink); color: white; }
+.collection-currencies .currency-unavailable { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; cursor: not-allowed; opacity: .55; }
+.collection-currencies .currency-unavailable small { font-size: 6px; font-weight: 600; }
+.currency-quote { margin-top: -10px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
+.currency-quote strong, .currency-quote span { display: block; }
+.currency-quote strong { font-size: 10px; }
+.currency-quote span { margin-top: 4px; color: var(--muted); font-size: 8px; line-height: 1.5; }
 .payment-sheet input { width: 100%; height: 48px; padding: 0 13px; border: 1px solid var(--line); border-radius: 11px; outline: 0; font-size: 11px; background: var(--surface-soft); }
 .payment-sheet select, .payment-sheet textarea { width: 100%; border: 1px solid var(--line); border-radius: 11px; outline: 0; font-size: 11px; background: var(--surface-soft); }
 .payment-sheet select { height: 48px; padding: 0 13px; }

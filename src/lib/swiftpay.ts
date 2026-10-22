@@ -68,6 +68,14 @@ export type PaymentLinkResult = {
   currency?: string;
 };
 
+export type CurrencyQuote = {
+  baseCurrency: "KRW";
+  quoteCurrency: "PHP";
+  rate: number;
+  date: string;
+  source: string;
+};
+
 type WalletBalanceResponse = {
   balance: number;
   adjustedBalance?: number;
@@ -246,6 +254,10 @@ export async function getMerchantDashboard(): Promise<DashboardData> {
 
 export async function getInstitutions(): Promise<Institution[]> {
   return backendRequest<Institution[]>("/v1/disbursement-institutions");
+}
+
+export async function getKrwPhpQuote(): Promise<CurrencyQuote> {
+  return backendRequest<CurrencyQuote>("/v1/exchange-rates/krw-php");
 }
 
 export async function createTransfer(input: {

@@ -40,6 +40,7 @@ import {
   createTransfer,
   clearPaymentLinkIdempotencyKey,
   getInstitutions,
+  getKrwPhpQuote,
   getMerchantDashboard,
   getPaymentLinkIdempotencyKey,
   getPaymentLinkStatus,
@@ -48,6 +49,7 @@ import {
   login,
   resetPaymentLinkIdempotencyKey,
   type DashboardData,
+  type CurrencyQuote,
   type Institution,
   type PaymentLinkResult,
   type Session,
@@ -224,11 +226,36 @@ function SignIn({ onAuthenticated }: { onAuthenticated: (session: Session) => vo
 function PaymentSheet({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
+  const [currency, setCurrency] = useState<"PHP" | "KRW" | "USDT">("PHP");
+  const [krwPhpQuote, setKrwPhpQuote] = useState<CurrencyQuote | null>(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
   const [result, setResult] = useState<PaymentLinkResult | "error" | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [idempotencyKey, setIdempotencyKey] = useState(() => getPaymentLinkIdempotencyKey());
   const [paymentStatus, setPaymentStatus] = useState("");
+
+  useEffect(() => {
+    if (currency !== "KRW") {
+      setKrwPhpQuote(null);
+      setQuoteLoading(false);
+      return;
+    }
+    let active = true;
+    setQuoteLoading(true);
+    setError("");
+    getKrwPhpQuote().then((quote) => {
+      if (active) setKrwPhpQuote(quote);
+    }).catch((requestError) => {
+      if (active) {
+        setKrwPhpQuote(null);
+        setError(requestError instanceof Error ? requestError.message : "Could not load the KRW/PHP rate.");
+      }
+    }).finally(() => {
+      if (active) setQuoteLoading(false);
+    });
+    return () => { active = false; };
+  }, [currency]);
 
   useEffect(() => {
     if (!result || result === "error") return;
@@ -249,10 +276,18 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    const enteredAmount = Number(amount);
+    const phpAmount = currency === "KRW" && krwPhpQuote
+      ? Math.round(enteredAmount * krwPhpQuote.rate * 100) / 100
+      : enteredAmount;
+    if (currency === "USDT" || (currency === "KRW" && !krwPhpQuote)) return;
     setSubmitting(true);
     setError("");
     try {
-      const response = await createPaymentLink({ amount: Number(amount), description: name }, idempotencyKey);
+      const description = currency === "KRW" && krwPhpQuote
+        ? `${name} · ${enteredAmount.toLocaleString("en-US")} KRW @ ${krwPhpQuote.rate} PHP/KRW`
+        : name;
+      const response = await createPaymentLink({ amount: phpAmount, description }, idempotencyKey);
       setResult(response);
       clearPaymentLinkIdempotencyKey();
     } catch (requestError) {
@@ -276,7 +311,10 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
   async function sharePayment() {
     if (!result || result === "error") return;
     const url = result.paymentUrl;
-    if (navigator.share) await navigator.share({ title: "DRPAY payment request", text: `Pay ${result.currency || "PHP"} ${Number(result.amount ?? amount).toFixed(2)}`, url });
+    const paymentText = currency === "KRW"
+      ? `Pay approximately KRW ${Number(amount).toLocaleString("en-US")} (PHP ${Number(result.amount ?? amount).toFixed(2)} at the displayed reference rate)`
+      : `Pay ${result.currency || "PHP"} ${Number(result.amount ?? amount).toFixed(2)}`;
+    if (navigator.share) await navigator.share({ title: "DRPAY payment request", text: paymentText, url });
     else await navigator.clipboard?.writeText(url);
   }
 
@@ -318,7 +356,9 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
                 <div className="result-icon"><Link2 size={25} /></div>
                 <strong>Hosted payment link created</strong>
                 <p>
-                  Collect {result.currency || "PHP"} {Number(result.amount || amount).toLocaleString("en-PH", { minimumFractionDigits: 2 })}. Settlement status is confirmed by SwiftPay, not by opening the link.
+                  {currency === "KRW"
+                    ? `Collect KRW ${Number(amount).toLocaleString("en-US")} (about PHP ${Number(result.amount || 0).toLocaleString("en-PH", { minimumFractionDigits: 2 })} at the reference rate). SwiftPay checkout is created in PHP; its final settlement status is confirmed by SwiftPay.`
+                    : `Collect ${result.currency || "PHP"} ${Number(result.amount || amount).toLocaleString("en-PH", { minimumFractionDigits: 2 })}. Settlement status is confirmed by SwiftPay, not by opening the link.`}
                 </p>
                 <span className={`payment-state state-${paymentStatus.toLowerCase()}`}>{paymentStatus === "PAID" ? "Payment confirmed by SwiftPay" : `Link status: ${paymentStatus || result.status || "ACTIVE"}`}</span>
                 <button className="copy-link" onClick={copyLink}>
@@ -335,6 +375,11 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
           </div>
         ) : (
           <form onSubmit={submit}>
+            <div className="collection-currencies" role="group" aria-label="Collection currency">
+              <button type="button" className={currency === "PHP" ? "active" : ""} aria-pressed={currency === "PHP"} onClick={() => setCurrency("PHP")}>PHP</button>
+              <button type="button" className={currency === "KRW" ? "active" : ""} aria-pressed={currency === "KRW"} onClick={() => setCurrency("KRW")}>KRW</button>
+              <button type="button" className="currency-unavailable" aria-disabled="true" title="USDT collection is not configured">USDT <small>Unavailable</small></button>
+            </div>
             <label>
               <span>Reference or note</span>
               <input
@@ -345,29 +390,43 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
               />
             </label>
             <label>
-              <span>Amount</span>
+              <span>Amount in {currency}</span>
               <div className="amount-field">
-                <span>₱</span>
+                <span>{currency === "KRW" ? "₩" : currency === "USDT" ? "₮" : "₱"}</span>
                 <input
                   type="number"
                   min="1"
-                  step="0.01"
+                  step={currency === "KRW" ? "1" : "0.01"}
                   inputMode="decimal"
                   value={amount}
                   onChange={(event) => setAmount(event.target.value)}
                   placeholder="0.00"
                   required
                 />
-                <small>PHP</small>
+                <small>{currency}</small>
               </div>
             </label>
+            {currency === "KRW" && (
+              <div className="currency-quote" aria-live="polite">
+                {quoteLoading ? <span>Loading KRW/PHP reference rate…</span> : krwPhpQuote ? (
+                  <>
+                    <strong>
+                      {amount && Number(amount) > 0
+                        ? `≈ PHP ${(Number(amount) * krwPhpQuote.rate).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        : `1 KRW = PHP ${krwPhpQuote.rate.toFixed(5)}`}
+                    </strong>
+                    <span>{krwPhpQuote.source} · rate dated {krwPhpQuote.date}. SwiftPay checkout and settlement are in PHP.</span>
+                  </>
+                ) : <span>{error || "KRW collection is unavailable until an exchange rate can be loaded."}</span>}
+              </div>
+            )}
             <div className="accepted-channels">
-              <span>Available payment methods are shown securely on the SwiftPay-hosted checkout.</span>
+              <span>SwiftPay securely presents the payment methods enabled for your merchant account on its hosted checkout. KRW amounts are converted to a PHP checkout amount using the displayed reference rate.</span>
             </div>
             <Button
               type="submit"
               className="sheet-submit"
-              disabled={submitting}
+              disabled={submitting || currency === "USDT" || (currency === "KRW" && (!krwPhpQuote || quoteLoading))}
               icon={<Link2 size={18} />}
             >
               {submitting ? "Creating checkout…" : "Create hosted checkout"}
