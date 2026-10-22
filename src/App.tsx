@@ -378,7 +378,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
             <div className="collection-currencies" role="group" aria-label="Collection currency">
               <button type="button" className={currency === "PHP" ? "active" : ""} aria-pressed={currency === "PHP"} onClick={() => setCurrency("PHP")}>PHP</button>
               <button type="button" className={currency === "KRW" ? "active" : ""} aria-pressed={currency === "KRW"} onClick={() => setCurrency("KRW")}>KRW</button>
-              <button type="button" className="currency-unavailable" aria-disabled="true" title="USDT collection is not configured">USDT <small>Unavailable</small></button>
+              <button type="button" className="currency-unavailable" aria-disabled="true" disabled title="USDT collection is not configured">USDT <small>Unavailable</small></button>
             </div>
             <label>
               <span>Reference or note</span>
