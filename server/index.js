@@ -118,6 +118,14 @@ async function initializeDatabase() {
       setting_value TEXT NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS internal_wallet_adjustments (
+      id UUID PRIMARY KEY,
+      merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email),
+      amount NUMERIC(18, 2) NOT NULL CHECK (amount <> 0),
+      reason TEXT NOT NULL,
+      adjusted_by TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
     CREATE TABLE IF NOT EXISTS payment_links (
       id UUID PRIMARY KEY,
       idempotency_key TEXT NOT NULL UNIQUE,
@@ -150,6 +158,8 @@ async function initializeDatabase() {
     );
     CREATE INDEX IF NOT EXISTS payment_links_created_at_idx ON payment_links (created_at DESC);
     CREATE INDEX IF NOT EXISTS disbursements_created_at_idx ON disbursements (created_at DESC);
+    CREATE INDEX IF NOT EXISTS internal_wallet_adjustments_merchant_created_idx
+      ON internal_wallet_adjustments (merchant_email, created_at DESC);
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS checkout_type TEXT NOT NULL DEFAULT 'PAYMENT_LINK';
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_token TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS qr_payload TEXT;
@@ -390,6 +400,66 @@ app.get("/v1/admin/merchants", async (_req, res) => {
   return res.json(result.rows);
 });
 
+app.get("/v1/admin/internal-wallets", async (_req, res) => {
+  const result = await pool.query(
+    `SELECT m.email, m.active,
+       COALESCE(SUM(a.amount), 0)::float8 AS balance,
+       MAX(a.created_at) AS "lastAdjustedAt"
+     FROM merchant_accounts m
+     LEFT JOIN internal_wallet_adjustments a ON a.merchant_email = m.email
+     GROUP BY m.email, m.active
+     ORDER BY m.email ASC`,
+  );
+  return res.set("Cache-Control", "no-store").json(result.rows);
+});
+
+app.get("/v1/admin/internal-wallets/:email", async (req, res) => {
+  const email = typeof req.params.email === "string" ? req.params.email.trim().toLowerCase() : "";
+  const account = await pool.query("SELECT email FROM merchant_accounts WHERE email = $1", [email]);
+  if (!account.rowCount) return res.status(404).json({ error: "Merchant account not found." });
+  const [balanceResult, adjustmentResult] = await Promise.all([
+    pool.query(
+      "SELECT COALESCE(SUM(amount), 0)::float8 AS balance FROM internal_wallet_adjustments WHERE merchant_email = $1",
+      [email],
+    ),
+    pool.query(
+      `SELECT id, amount::float8 AS amount, reason, adjusted_by AS "adjustedBy", created_at AS "createdAt"
+       FROM internal_wallet_adjustments WHERE merchant_email = $1
+       ORDER BY created_at DESC LIMIT 50`,
+      [email],
+    ),
+  ]);
+  return res.set("Cache-Control", "no-store").json({
+    merchantEmail: email,
+    currency: "PHP",
+    balance: balanceResult.rows[0].balance,
+    transferable: false,
+    adjustments: adjustmentResult.rows,
+  });
+});
+
+app.post("/v1/admin/internal-wallets/:email/adjustments", async (req, res) => {
+  const email = typeof req.params.email === "string" ? req.params.email.trim().toLowerCase() : "";
+  const submittedAmount = Number(req.body?.amount);
+  const amount = Number.isFinite(submittedAmount) ? Math.round(submittedAmount * 100) / 100 : Number.NaN;
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+  if (!Number.isFinite(amount) || amount === 0 || Math.abs(submittedAmount - amount) > 1e-7 || Math.abs(amount) > 1_000_000_000) {
+    return res.status(400).json({ error: "Enter a non-zero PHP adjustment with no more than two decimal places." });
+  }
+  if (!reason || reason.length > 250) {
+    return res.status(400).json({ error: "Enter an adjustment reason of 1–250 characters." });
+  }
+  const account = await pool.query("SELECT email FROM merchant_accounts WHERE email = $1", [email]);
+  if (!account.rowCount) return res.status(404).json({ error: "Merchant account not found." });
+  const result = await pool.query(
+    `INSERT INTO internal_wallet_adjustments (id, merchant_email, amount, reason, adjusted_by)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING id, amount::float8 AS amount, reason, adjusted_by AS "adjustedBy", created_at AS "createdAt"`,
+    [randomUUID(), email, amount.toFixed(2), reason, req.adminEmail],
+  );
+  return res.status(201).json(result.rows[0]);
+});
+
 app.post("/v1/admin/merchants", async (req, res) => {
   const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
   const password = typeof req.body?.password === "string" ? req.body.password : "";
@@ -534,6 +604,19 @@ app.get("/v1/public/checkout/:code", publicCheckoutLimiter, async (req, res) => 
 });
 
 app.use("/v1", requireMerchant);
+
+app.get("/v1/internal-wallet", async (req, res) => {
+  const result = await pool.query(
+    "SELECT COALESCE(SUM(amount), 0)::float8 AS balance FROM internal_wallet_adjustments WHERE merchant_email = $1",
+    [req.merchantEmail],
+  );
+  return res.set("Cache-Control", "no-store").json({
+    currency: "PHP",
+    balance: result.rows[0].balance,
+    transferable: false,
+    label: "DRPAY internal bookkeeping balance",
+  });
+});
 
 app.get("/v1/exchange-rates/krw-php", async (_req, res) => {
   const result = await pool.query(

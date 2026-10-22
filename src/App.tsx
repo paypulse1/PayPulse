@@ -39,8 +39,11 @@ import {
   createAdminMerchantAccount,
   createTransfer,
   clearPaymentLinkIdempotencyKey,
+  createAdminInternalWalletAdjustment,
   getInstitutions,
   getKrwPhpQuote,
+  getAdminInternalWallet,
+  getAdminInternalWallets,
   getAdminMerchantAccounts,
   getAdminSettings,
   getMerchantDashboard,
@@ -53,6 +56,8 @@ import {
   updateAdminMerchantAccount,
   updateAdminSettings,
   type AdminMerchantAccount,
+  type AdminInternalWallet,
+  type AdminInternalWalletSummary,
   type AdminSettings,
   type DashboardData,
   type CurrencyQuote,
@@ -315,6 +320,11 @@ function SuperAdminSignIn({ onAuthenticated }: { onAuthenticated: (session: Sess
 function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
   const [settings, setSettings] = useState<AdminSettings>({ krwToPhpRate: null, usdtAddress: "", usdtNetwork: "" });
   const [merchants, setMerchants] = useState<AdminMerchantAccount[]>([]);
+  const [internalWallets, setInternalWallets] = useState<AdminInternalWalletSummary[]>([]);
+  const [selectedWalletEmail, setSelectedWalletEmail] = useState("");
+  const [selectedWallet, setSelectedWallet] = useState<AdminInternalWallet | null>(null);
+  const [adjustmentAmount, setAdjustmentAmount] = useState("");
+  const [adjustmentReason, setAdjustmentReason] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [resetEmail, setResetEmail] = useState("");
@@ -322,6 +332,7 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [savingMerchant, setSavingMerchant] = useState(false);
+  const [savingAdjustment, setSavingAdjustment] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -329,12 +340,17 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
     setLoading(true);
     setError("");
     try {
-      const [nextSettings, nextMerchants] = await Promise.all([
+      const [nextSettings, nextMerchants, nextWallets] = await Promise.all([
         getAdminSettings(),
         getAdminMerchantAccounts(),
+        getAdminInternalWallets(),
       ]);
       setSettings(nextSettings);
       setMerchants(nextMerchants);
+      setInternalWallets(nextWallets);
+      setSelectedWalletEmail((current) => nextWallets.some((wallet) => wallet.email === current)
+        ? current
+        : nextWallets[0]?.email || "");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not load admin console data.");
     } finally {
@@ -343,6 +359,20 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
   }
 
   useEffect(() => { void loadConsole(); }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!selectedWalletEmail) {
+      setSelectedWallet(null);
+      return () => { active = false; };
+    }
+    getAdminInternalWallet(selectedWalletEmail).then((wallet) => {
+      if (active) setSelectedWallet(wallet);
+    }).catch((requestError) => {
+      if (active) setError(requestError instanceof Error ? requestError.message : "Could not load internal ledger.");
+    });
+    return () => { active = false; };
+  }, [selectedWalletEmail]);
 
   async function saveSettings(event: FormEvent) {
     event.preventDefault();
@@ -404,6 +434,33 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
     }
   }
 
+  async function adjustInternalWallet(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedWalletEmail) return;
+    setSavingAdjustment(true);
+    setError("");
+    setNotice("");
+    try {
+      await createAdminInternalWalletAdjustment(selectedWalletEmail, {
+        amount: Number(adjustmentAmount),
+        reason: adjustmentReason,
+      });
+      setAdjustmentAmount("");
+      setAdjustmentReason("");
+      const [wallet, wallets] = await Promise.all([
+        getAdminInternalWallet(selectedWalletEmail),
+        getAdminInternalWallets(),
+      ]);
+      setSelectedWallet(wallet);
+      setInternalWallets(wallets);
+      setNotice("Bookkeeping entry recorded. It does not change SwiftPay funds and cannot be transferred.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not record internal adjustment.");
+    } finally {
+      setSavingAdjustment(false);
+    }
+  }
+
   return (
     <main className="admin-screen">
       <header className="admin-header">
@@ -421,6 +478,38 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
         {notice && <div className="admin-notice"><ShieldCheck size={15} />{notice}</div>}
         {loading ? <div className="admin-loading"><LoaderCircle className="spin" size={20} />Loading console…</div> : (
           <>
+            <section className="admin-card">
+              <div className="admin-card-heading"><span className="setting-icon"><WalletCards size={19} /></span><div><h2>Internal bookkeeping wallet</h2><p>Manual PHP ledger for records only. It is not a SwiftPay balance and cannot be withdrawn or transferred.</p></div></div>
+              {merchants.length === 0 ? <p className="admin-empty">Create a merchant account before recording ledger adjustments.</p> : (
+                <>
+                  <label className="admin-wallet-select">
+                    <span>Merchant account</span>
+                    <select value={selectedWalletEmail} onChange={(event) => setSelectedWalletEmail(event.target.value)}>
+                      {merchants.map((merchant) => <option key={merchant.email} value={merchant.email}>{merchant.email}</option>)}
+                    </select>
+                  </label>
+                  <div className="internal-ledger-balance">
+                    <span>DRPAY internal ledger · PHP</span>
+                    <strong>{selectedWallet ? `₱${selectedWallet.balance.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "Loading…"}</strong>
+                    <small>Bookkeeping only — not transferable</small>
+                  </div>
+                  <form className="admin-ledger-form" onSubmit={adjustInternalWallet}>
+                    <label><span>Adjustment amount (PHP)</span><input type="number" step="0.01" min="-1000000000" max="1000000000" value={adjustmentAmount} onChange={(event) => setAdjustmentAmount(event.target.value)} placeholder="Positive adds; negative subtracts" required /></label>
+                    <label><span>Reason for audit record</span><input maxLength={250} value={adjustmentReason} onChange={(event) => setAdjustmentReason(event.target.value)} required placeholder="Internal bookkeeping reason" /></label>
+                    <Button type="submit" disabled={savingAdjustment || !selectedWalletEmail || !adjustmentAmount || Number(adjustmentAmount) === 0 || !adjustmentReason.trim()}>{savingAdjustment ? "Recording…" : "Record ledger adjustment"}</Button>
+                  </form>
+                  <div className="admin-adjustment-list">
+                    <strong>Recent audit entries</strong>
+                    {!selectedWallet?.adjustments.length ? <p className="admin-empty">No internal adjustments recorded.</p> : selectedWallet.adjustments.map((adjustment) => (
+                      <div className="admin-adjustment-row" key={adjustment.id}>
+                        <span className={adjustment.amount < 0 ? "debit" : "credit"}>{adjustment.amount < 0 ? "−" : "+"}₱{Math.abs(adjustment.amount).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        <div><strong>{adjustment.reason}</strong><small>By {adjustment.adjustedBy} · {new Date(adjustment.createdAt).toLocaleString()}</small></div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </section>
             <section className="admin-card">
               <div className="admin-card-heading"><span className="setting-icon"><Settings size={19} /></span><div><h2>Collection configuration</h2><p>Provider secrets are not displayed or editable here.</p></div></div>
               <form onSubmit={saveSettings}>
@@ -1047,6 +1136,15 @@ function HomeView({
           <small>Balance and transfer status are fetched from SwiftPay</small>
         </div>
         <ChevronRight size={18} />
+      </section>
+
+      <section className="internal-wallet-card">
+        <div className="internal-wallet-heading">
+          <WalletCards size={18} />
+          <span>DRPAY internal bookkeeping balance</span>
+          <strong>{data.internalWalletBalance}</strong>
+        </div>
+        <p>For internal records only. This balance is separate from SwiftPay funds and is not available for transfer or withdrawal.</p>
       </section>
 
       <section className="activity-section">

@@ -24,6 +24,7 @@ export type Transaction = {
 export type DashboardData = {
   availableBalance: string;
   balance: number;
+  internalWalletBalance: string;
   grossVolume: string;
   successfulPayments: string;
   averageTransaction: string;
@@ -102,12 +103,42 @@ export type AdminMerchantAccount = {
   updatedAt: string;
 };
 
+export type AdminInternalWalletSummary = {
+  email: string;
+  active: boolean;
+  balance: number;
+  lastAdjustedAt: string | null;
+};
+
+export type InternalWalletAdjustment = {
+  id: string;
+  amount: number;
+  reason: string;
+  adjustedBy: string;
+  createdAt: string;
+};
+
+export type AdminInternalWallet = {
+  merchantEmail: string;
+  currency: "PHP";
+  balance: number;
+  transferable: false;
+  adjustments: InternalWalletAdjustment[];
+};
+
 type WalletBalanceResponse = {
   balance: number;
   adjustedBalance?: number;
   accountNumber?: string;
   walletMode?: string;
   paymentEnvironment?: "sandbox" | "production";
+};
+
+type InternalWalletResponse = {
+  currency: "PHP";
+  balance: number;
+  transferable: false;
+  label: string;
 };
 
 type WalletActivityResponse = {
@@ -226,7 +257,7 @@ export async function login(email: string, password: string): Promise<Session> {
 }
 
 function formatMoney(amount: number, showSign = false) {
-  const sign = showSign ? (amount >= 0 ? "+" : "−") : "";
+  const sign = amount < 0 ? "−" : showSign ? "+" : "";
   return `${sign}₱${Math.abs(amount).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
@@ -258,9 +289,10 @@ function toTransaction(item: WalletActivityResponse, index: number): Transaction
 }
 
 export async function getMerchantDashboard(): Promise<DashboardData> {
-  const [wallet, activity] = await Promise.all([
+  const [wallet, activity, internalWallet] = await Promise.all([
     backendRequest<WalletBalanceResponse>("/v1/wallet/balance"),
     backendRequest<WalletActivityResponse[]>("/v1/wallet/activity?limit=50&offset=0"),
+    backendRequest<InternalWalletResponse>("/v1/internal-wallet"),
   ]);
   const transactions = activity.map(toTransaction);
   const settledCredits = transactions.filter((item) => item.status === "Paid" && item.numericAmount > 0);
@@ -268,6 +300,7 @@ export async function getMerchantDashboard(): Promise<DashboardData> {
   return {
     availableBalance: formatMoney(wallet.adjustedBalance ?? wallet.balance),
     balance: wallet.adjustedBalance ?? wallet.balance,
+    internalWalletBalance: formatMoney(internalWallet.balance),
     grossVolume: formatMoney(volume),
     successfulPayments: String(settledCredits.length),
     averageTransaction: formatMoney(settledCredits.length ? volume / settledCredits.length : 0),
@@ -299,6 +332,24 @@ export async function updateAdminSettings(settings: AdminSettings): Promise<Admi
 
 export async function getAdminMerchantAccounts(): Promise<AdminMerchantAccount[]> {
   return backendRequest<AdminMerchantAccount[]>("/v1/admin/merchants");
+}
+
+export async function getAdminInternalWallets(): Promise<AdminInternalWalletSummary[]> {
+  return backendRequest<AdminInternalWalletSummary[]>("/v1/admin/internal-wallets");
+}
+
+export async function getAdminInternalWallet(email: string): Promise<AdminInternalWallet> {
+  return backendRequest<AdminInternalWallet>(`/v1/admin/internal-wallets/${encodeURIComponent(email)}`);
+}
+
+export async function createAdminInternalWalletAdjustment(
+  email: string,
+  input: { amount: number; reason: string },
+): Promise<InternalWalletAdjustment> {
+  return backendRequest<InternalWalletAdjustment>(
+    `/v1/admin/internal-wallets/${encodeURIComponent(email)}/adjustments`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
 }
 
 export async function createAdminMerchantAccount(input: { email: string; password: string }): Promise<AdminMerchantAccount> {
