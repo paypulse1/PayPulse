@@ -59,6 +59,24 @@ services:
       - type: rewrite
         source: /app/*
         destination: /index.html
+      - type: rewrite
+        source: /privacy
+        destination: /index.html
+      - type: rewrite
+        source: /privacy-policy
+        destination: /index.html
+      - type: rewrite
+        source: /terms
+        destination: /index.html
+      - type: rewrite
+        source: /terms-of-service
+        destination: /index.html
+      - type: rewrite
+        source: /contact
+        destination: /index.html
+      - type: rewrite
+        source: /contact-us
+        destination: /index.html
 
 databases:
   - name: drpay-postgres

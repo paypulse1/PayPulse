@@ -12,6 +12,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import "./marketing-home.css";
+import LegalPage, { getLegalPage } from "./LegalPages";
 
 const apkUrl = import.meta.env.VITE_ANDROID_APK_URL?.trim()
   || "https://github.com/blackhorsecn/drpay-merchant/releases/latest/download/drpay.apk";
@@ -63,6 +64,9 @@ function ProductPreview() {
 }
 
 export default function MarketingHome() {
+  const legalPage = getLegalPage(window.location.pathname);
+  if (legalPage) return <LegalPage page={legalPage} />;
+
   return (
     <main className="marketing-shell">
       <nav className="marketing-nav" aria-label="Main navigation">
@@ -70,7 +74,6 @@ export default function MarketingHome() {
         <div className="marketing-nav-links">
           <a href="#capabilities">Capabilities</a>
           <a href="#workflow">How it works</a>
-          <a href="#balances">Balances</a>
           <a href="#security">Security</a>
         </div>
         <a className="nav-login" href="/app">Merchant sign in <ArrowRight size={15} /></a>
@@ -130,27 +133,6 @@ export default function MarketingHome() {
         </div>
       </section>
 
-      <section className="funds-band" id="balances" aria-labelledby="balances-title">
-        <div className="funds-heading">
-          <span className="marketing-eyebrow">BALANCES, WITHOUT THE GUESSWORK</span>
-          <h2 id="balances-title">Two balances. Two different transfer paths.</h2>
-          <p>DRPAY keeps your provider balance separate from your floating balance, so you can see which funds each action uses.</p>
-        </div>
-        <div className="funds-grid">
-          <article className="funds-card">
-            <span className="funds-card-label">PROVIDER ACCOUNT</span>
-            <h3>SwiftPay available balance</h3>
-            <p>Use the Transfer flow to send to a supported bank or wallet through an available provider rail. Review the recipient and authorize with your MPIN.</p>
-          </article>
-          <article className="funds-card funds-card-highlight">
-            <span className="funds-card-label">DRPAY FLOATING BALANCE</span>
-            <h3>Request a reviewed payout</h3>
-            <p>Successful collections are credited net of the configured collection fee. Request a transfer to your saved account; pending requests reserve the payout and fixed fee while an admin reviews them.</p>
-          </article>
-        </div>
-        <p className="funds-disclaimer">A floating-balance request is not an instant bank transfer. When approved, the payout is arranged manually outside the app. Its status and any configured transfer fee are shown in your workspace.</p>
-      </section>
-
       <section className="security-band" id="security" aria-labelledby="security-title">
         <div className="security-mark"><BadgeCheck size={24} /></div>
         <div><span className="marketing-eyebrow">SECURITY AT EVERY STEP</span><h2 id="security-title">Your account, with deliberate checks.</h2></div>
@@ -172,13 +154,15 @@ export default function MarketingHome() {
           <strong>Explore</strong>
           <a href="#capabilities">Capabilities</a>
           <a href="#workflow">How it works</a>
-          <a href="#balances">Balances</a>
           <a href="#security">Security</a>
         </div>
         <div className="footer-link-column">
           <strong>DRPAY</strong>
           <a href="/app">Merchant sign in</a>
           {apkUrl && <a href={apkUrl}>Android app <Download size={13} /></a>}
+          <a href="/privacy">Privacy Policy</a>
+          <a href="/terms">Terms of Service</a>
+          <a href="/contact">Contact Us</a>
         </div>
         <div className="footer-bottom">
           <span>© {new Date().getFullYear()} DRPAY</span>

@@ -137,7 +137,14 @@ export default function Checkout({ code }: { code: string }) {
           </>
         )}
       </section>
-      <p className="checkout-footer">Payments are processed through SwiftPay QR Ph.</p>
+      <footer className="checkout-footer">
+        <span>Payments are processed through SwiftPay QR Ph.</span>
+        <nav aria-label="Legal and support">
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <a href="/contact">Contact</a>
+        </nav>
+      </footer>
     </main>
   );
 }

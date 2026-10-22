@@ -112,6 +112,7 @@ import {
 } from "./lib/biometric";
 import Checkout from "./Checkout";
 import MarketingHome from "./MarketingHome";
+import LegalPage, { getLegalPage } from "./LegalPages";
 import QrPaymentDisplay, { InstitutionLogo } from "./QrPaymentDisplay";
 import InstitutionSelectionScreen from "./InstitutionSelectionScreen";
 
@@ -1251,6 +1252,9 @@ function TransferSheet({
   const [bank, setBank] = useState("");
   const [bankSearch, setBankSearch] = useState("");
   const [bankPickerOpen, setBankPickerOpen] = useState(false);
+  const [banksLoading, setBanksLoading] = useState(true);
+  const [banksError, setBanksError] = useState("");
+  const [bankLoadAttempt, setBankLoadAttempt] = useState(0);
   const [channel, setChannel] = useState<"INSTAPAY" | "PESONET">(initialValues?.channel || "INSTAPAY");
   const [name, setName] = useState(initialValues?.fullName || "");
   const [account, setAccount] = useState(initialValues?.accountNumber || "");
@@ -1265,6 +1269,8 @@ function TransferSheet({
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
   useEffect(() => {
+    setBanksLoading(true);
+    setBanksError("");
     getInstitutions().then((items) => {
       setInstitutions(items);
       const requestedBank = initialValues?.bank.trim().toLowerCase();
@@ -1273,8 +1279,10 @@ function TransferSheet({
         : undefined;
       setBank(matchedBank?.code || (initialValues ? "" : items[0]?.code || ""));
       if (initialValues && !matchedBank) setError(`The QR bank “${initialValues.bank}” is not supported for transfers. Choose a bank to continue.`);
-    }).catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Could not load banks"));
-  }, [initialValues]);
+    }).catch((requestError) => {
+      setBanksError(requestError instanceof Error ? requestError.message : "Could not load banks");
+    }).finally(() => setBanksLoading(false));
+  }, [bankLoadAttempt, initialValues]);
 
   const transferAuthorization: TransferAuthorizationInput = {
     amount: Number(amount),
@@ -1323,6 +1331,7 @@ function TransferSheet({
     setBank(code);
     setBankSearch("");
     setBankPickerOpen(false);
+    setError("");
     if (channel === "INSTAPAY" && institution?.instapayEnabled === false && institution.pesonetEnabled) {
       setChannel("PESONET");
     } else if (channel === "PESONET" && institution?.pesonetEnabled === false && institution.instapayEnabled) {
@@ -1335,7 +1344,7 @@ function TransferSheet({
       <section className="payment-sheet" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
         <span className="sheet-handle" />
         <header className="sheet-header">
-          <div><span className="eyebrow">BANK TRANSFER</span><h2>{result ? "Transfer submitted" : reviewing ? "Review transfer" : "Send money"}</h2></div>
+          <div><span className="eyebrow">BANK TRANSFER</span><h2>{result ? "Transfer submitted" : bankPickerOpen ? "Choose a bank or wallet" : reviewing ? authorizing ? "Verify transfer" : "Review transfer" : "Send money"}</h2></div>
           <IconButton label="Close" onClick={onClose}><X size={19} /></IconButton>
         </header>
         {result ? (
@@ -1346,8 +1355,69 @@ function TransferSheet({
             <span className="payment-state">Status: {result.status}</span>
             <Button onClick={onClose}>Done</Button>
           </div>
+        ) : bankPickerOpen ? (
+          <section className="bank-selection" aria-label="Choose transfer destination">
+            <button type="button" className="institution-back" onClick={() => { setBankPickerOpen(false); setBankSearch(""); }}>
+              <ChevronLeft size={16} /> Back to transfer
+            </button>
+            <p className="bank-selection-note">Choose where you’re sending money. Available transfer networks are shown for each destination.</p>
+            <label className="bank-picker-search">
+              <Search size={16} aria-hidden="true" />
+              <input
+                type="search"
+                value={bankSearch}
+                onChange={(event) => setBankSearch(event.target.value)}
+                placeholder="Search banks or wallets"
+                aria-label="Search banks or wallets"
+                autoFocus
+              />
+            </label>
+            {banksError ? (
+              <div className="bank-load-error" role="alert">
+                <span>{banksError}</span>
+                <Button type="button" variant="secondary" onClick={() => setBankLoadAttempt((attempt) => attempt + 1)}>Try again</Button>
+              </div>
+            ) : banksLoading ? (
+              <div className="bank-picker-empty" role="status"><LoaderCircle className="spin" size={16} /> Loading banks and wallets…</div>
+            ) : (
+              <div className="bank-selection-list" role="listbox" aria-label="Supported banks and wallets">
+                {filteredInstitutions.length > 0 ? filteredInstitutions.map((item) => {
+                  const supportsInstapay = item.instapayEnabled !== false;
+                  const supportsPesonet = item.pesonetEnabled !== false;
+                  const unavailable = !supportsInstapay && !supportsPesonet;
+                  return (
+                    <button
+                      key={item.code}
+                      type="button"
+                      role="option"
+                      aria-selected={item.code === bank}
+                      className="bank-selection-option"
+                      disabled={unavailable}
+                      onClick={() => selectBank(item.code)}
+                    >
+                      <InstitutionLogo institution={item} className="institution-selection-logo" />
+                      <span className="institution-option-copy">
+                        <strong>{item.name}</strong>
+                        <small>{unavailable ? "Transfers unavailable" : [supportsInstapay && "InstaPay", supportsPesonet && "PESONet"].filter(Boolean).join(" · ")}</small>
+                      </span>
+                      {item.code === bank && <ShieldCheck className="bank-selection-check" size={17} aria-label="Selected" />}
+                      {!unavailable && item.code !== bank && <ChevronRight size={16} aria-hidden="true" />}
+                    </button>
+                  );
+                }) : (
+                  <p className="bank-picker-empty">{banksLoading ? "Loading banks and wallets…" : "No banks or wallets match your search."}</p>
+                )}
+              </div>
+            )}
+            <p className="bank-selection-footnote"><ShieldCheck size={14} /> Transfer availability depends on the selected bank and network.</p>
+          </section>
         ) : reviewing ? (
           <div className="transfer-review">
+            <div className="transfer-step-heading">
+              <span>Step 2 of 2</span>
+              <strong>{authorizing ? "Verify with your MPIN" : "Review before sending"}</strong>
+              <small>{authorizing ? "Your MPIN securely authorizes this transfer." : "Check the recipient and account details carefully. Transfers may not be reversible."}</small>
+            </div>
             <div className="review-total"><span>You’re sending</span><strong>₱{Number(amount).toLocaleString("en-PH", { minimumFractionDigits: 2 })}</strong></div>
             <dl className="detail-list">
               <div><dt>Recipient</dt><dd>{name}</dd></div>
@@ -1360,7 +1430,7 @@ function TransferSheet({
             {!authorizing ? (
               <div className="result-actions">
                 <Button variant="secondary" onClick={() => setReviewing(false)}>Back</Button>
-                <Button disabled={busy} onClick={() => { setAuthorizing(true); setError(""); }} icon={<ShieldCheck size={16} />}>Verify and send</Button>
+                <Button disabled={busy} onClick={() => { setAuthorizing(true); setError(""); }} icon={<ShieldCheck size={16} />}>Continue to MPIN</Button>
               </div>
             ) : (
               <div className="transfer-authorization">
@@ -1378,72 +1448,54 @@ function TransferSheet({
           </div>
         ) : (
           <form onSubmit={(event) => { event.preventDefault(); setReviewing(true); }}>
+            <div className="transfer-step-heading">
+              <span>Step 1 of 2</span>
+              <strong>Enter transfer details</strong>
+              <small>Choose a destination and confirm the recipient information.</small>
+            </div>
+            {error && <div className="inline-error" role="alert"><AlertCircle size={15} />{error}</div>}
             <div className="bank-picker">
               <span className="bank-picker-label" id="transfer-bank-label">Bank or wallet</span>
               <button
                 type="button"
                 className="bank-picker-trigger"
                 aria-labelledby="transfer-bank-label"
-                aria-haspopup="listbox"
-                aria-expanded={bankPickerOpen}
-                disabled={institutions.length === 0}
-                onClick={() => setBankPickerOpen((open) => !open)}
+                aria-haspopup="dialog"
+                disabled={banksLoading || Boolean(banksError)}
+                onClick={() => setBankPickerOpen(true)}
               >
                 <span className="bank-picker-name">
                   {selectedBank && <InstitutionLogo key={selectedBank.code} institution={selectedBank} className="bank-picker-logo" />}
-                  {selectedBank?.name || "Loading banks…"}
+                  {banksLoading ? "Loading banks…" : selectedBank?.name || "Choose a bank or wallet"}
                 </span>
-                <ChevronDown size={17} />
+                <span className="bank-picker-trigger-action">{selectedBank ? "Change" : "Choose"} <ChevronRight size={16} /></span>
               </button>
-              {bankPickerOpen && (
-                <div className="bank-picker-menu">
-                  <label className="bank-picker-search">
-                    <Search size={16} aria-hidden="true" />
-                    <input
-                      type="search"
-                      value={bankSearch}
-                      onChange={(event) => setBankSearch(event.target.value)}
-                      placeholder="Search banks or wallets"
-                      aria-label="Search banks or wallets"
-                      autoFocus
-                    />
-                  </label>
-                  <div className="bank-picker-options" role="listbox" aria-label="Banks and wallets">
-                    {filteredInstitutions.length > 0 ? filteredInstitutions.map((item) => (
-                      <button
-                        key={item.code}
-                        type="button"
-                        role="option"
-                        aria-selected={item.code === bank}
-                        className="bank-picker-option"
-                        onClick={() => selectBank(item.code)}
-                      >
-                        <span className="bank-picker-name">
-                          <InstitutionLogo institution={item} className="bank-picker-logo" />
-                          {item.name}
-                        </span>
-                        <small>
-                          {[
-                            item.instapayEnabled && "InstaPay",
-                            item.pesonetEnabled && "PESONet",
-                          ].filter(Boolean).join(" · ") || "Unavailable"}
-                        </small>
-                      </button>
-                    )) : <p className="bank-picker-empty">No matching banks or wallets.</p>}
-                  </div>
-                </div>
-              )}
             </div>
-            <div className="rail-selector">
-              {(["INSTAPAY", "PESONET"] as const).map((item) => <button key={item} type="button" className={channel === item ? "active" : ""} onClick={() => setChannel(item)} disabled={item === "INSTAPAY" ? selectedBank?.instapayEnabled === false : selectedBank?.pesonetEnabled === false}>{item === "INSTAPAY" ? "InstaPay" : "PESONet"}</button>)}
+            <div className="transfer-field-group">
+              <span className="bank-picker-label">Transfer network</span>
+              <div className="rail-selector">
+                {(["INSTAPAY", "PESONET"] as const).map((item) => {
+                  const available = item === "INSTAPAY" ? selectedBank?.instapayEnabled !== false : selectedBank?.pesonetEnabled !== false;
+                  return (
+                    <button key={item} type="button" className={channel === item ? "active" : ""} aria-pressed={channel === item} onClick={() => setChannel(item)} disabled={!selectedBank || !available}>
+                      <strong>{item === "INSTAPAY" ? "InstaPay" : "PESONet"}</strong>
+                      <small>{item === "INSTAPAY" ? "Real-time transfers" : "Batch bank transfers"}</small>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <label><span>Recipient full name</span><input value={name} onChange={(event) => setName(event.target.value)} required /></label>
-            <label><span>Account number</span><input inputMode="numeric" value={account} onChange={(event) => setAccount(event.target.value.replace(/\D/g, ""))} required /></label>
-            <label><span>Amount · Available balance {balanceVisible ? formatPeso(balance) : "₱ ••••••"}</span><div className="amount-field"><span>₱</span><input type="number" min="1" step=".01" value={amount} onChange={(event) => setAmount(event.target.value)} required /><small>PHP</small></div></label>
-            <label><span>Remarks (required)</span><input value={remarks} onChange={(event) => setRemarks(event.target.value.slice(0, 80))} maxLength={80} required placeholder="Enter transfer remarks" /></label>
+            <div className="transfer-recipient-fields">
+              <label><span>Recipient full name</span><input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Name on bank account" required /></label>
+              <label><span>Account number</span><input inputMode="numeric" autoComplete="off" value={account} onChange={(event) => setAccount(event.target.value.replace(/\D/g, ""))} placeholder="Enter account number" required /></label>
+            </div>
+            <label className="transfer-amount-label">
+              <span>Amount <small>Available {balanceVisible ? formatPeso(balance) : "₱ ••••••"}</small></span>
+              <div className="amount-field"><span>₱</span><input type="number" min="1" max={balance} step=".01" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" required /><small>PHP</small></div>
+            </label>
+            <label><span>Remarks</span><input value={remarks} onChange={(event) => setRemarks(event.target.value.slice(0, 80))} maxLength={80} required placeholder="What is this transfer for?" /></label>
             {invalidAmount && amount && <div className="inline-error"><AlertCircle size={15} />Enter an amount within your available balance.</div>}
-            {!remarks.trim() && <div className="inline-error"><AlertCircle size={15} />Enter remarks for this transfer.</div>}
-            <Button type="submit" disabled={invalidAmount || !bank || !channelAvailable || !account || !name || !remarks.trim()}>Review transfer</Button>
+            <Button type="submit" disabled={banksLoading || Boolean(banksError) || invalidAmount || !bank || !channelAvailable || !account.trim() || !name.trim() || !remarks.trim()}>Review transfer <ChevronRight size={16} /></Button>
           </form>
         )}
       </section>
@@ -1733,12 +1785,8 @@ function HomeView({
         </div>
         <div className="balance-floating">
           <div>
-            <span>Floating balance</span>
+            <span>Total floating balance</span>
             <strong>{balanceVisible ? data.internalWalletBalance : "₱ ••••••"}</strong>
-          </div>
-          <div>
-            <span>Available to request</span>
-            <strong>{balanceVisible ? formatPeso(data.availableFloatingBalance) : "₱ ••••••"}</strong>
           </div>
         </div>
       </section>
@@ -1996,10 +2044,9 @@ function WalletView({
         </div>
       </section>
       <section className="floating-balance-card">
-        <div className="floating-balance-heading"><span className="wallet-ledger-icon"><WalletCards size={18} /></span><div><strong>Floating balance</strong><p>Available to request for transfer to your saved bank account.</p></div></div>
+        <div className="floating-balance-heading"><span className="wallet-ledger-icon"><WalletCards size={18} /></span><div><strong>Floating balance</strong><p>Your total balance, including funds reserved for pending transfer requests.</p></div></div>
         <div className="floating-balance-values">
           <div><small>Total balance</small><strong>{balanceVisible ? data.internalWalletBalance : "₱ ••••••"}</strong></div>
-          <div><small>Available to request</small><strong>{balanceVisible ? formatPeso(data.availableFloatingBalance) : "₱ ••••••"}</strong></div>
         </div>
         <p className="floating-transfer-fee-note">Transfer fee: {formatPeso(data.transferFeeFixed)} per successful request. The fee is added to the requested amount and reserved while your request is pending.</p>
         {payoutAccount && payoutAccount.bankName ? (
@@ -2164,6 +2211,11 @@ function MoreView({
         <Brand />
         <span>Secure payments powered by SwiftPay</span>
       </div>
+      <nav className="app-legal-links" aria-label="Legal and support">
+        <a href="/privacy">Privacy Policy</a>
+        <a href="/terms">Terms of Service</a>
+        <a href="/contact">Contact Us</a>
+      </nav>
     </section>
   );
 }
@@ -2408,7 +2460,7 @@ function ProfileInfoPage({
               <div><span><WalletCards size={16} /></span><p><strong>Balance question</strong>Refresh the dashboard and compare the wallet activity with your statement.</p></div>
               <div><span><ShieldCheck size={16} /></span><p><strong>Sign-in or security</strong>Verify your device using the email code. Never share your MPIN or one-time code.</p></div>
             </div>
-            <p className="profile-info-note">Support contact details are not configured in this app. Contact your DRPAY administrator for assistance.</p>
+            <p className="profile-info-note">Contact DRPAY support at <a href="mailto:support@denpay.cc">support@denpay.cc</a>. Include the transaction reference and status, but never send your MPIN or one-time verification code.</p>
           </>
         )}
 
@@ -2672,7 +2724,9 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
+  const legalPage = getLegalPage(window.location.pathname);
   if (checkoutCode) return <Checkout code={checkoutCode} />;
+  if (legalPage) return <LegalPage page={legalPage} />;
   if (!isDashboard && !isAdminConsole) return <MarketingHome />;
 
   if (!isBackendConfigured()) {

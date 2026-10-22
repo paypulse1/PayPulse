@@ -51,8 +51,8 @@ h1, h2, p { margin-top: 0; }
 .live-pill.environment-sandbox i { background: #d39d28; box-shadow: 0 0 0 2px #fff2cc; }
 .live-pill.environment-production i { background: #63ad40; box-shadow: 0 0 0 2px #e9f6e4; }
 .icon-button { position: relative; width: 36px; height: 36px; padding: 0; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
-.icon-button, .button, .bottom-nav button, .settings-list > button, .filter-row button, .collection-currencies button, .bank-picker-option, .quick-action > span { transition: color var(--motion-fast) var(--motion-ease), background-color var(--motion-fast) var(--motion-ease), border-color var(--motion-fast) var(--motion-ease), box-shadow var(--motion-fast) var(--motion-ease), transform var(--motion-fast) var(--motion-ease), opacity var(--motion-fast) var(--motion-ease); }
-.button:active:not(:disabled), .icon-button:active, .filter-row button:active, .collection-currencies button:active:not(:disabled), .bank-picker-option:active { transform: scale(.98); }
+.icon-button, .button, .bottom-nav button, .settings-list > button, .filter-row button, .collection-currencies button, .bank-selection-option, .quick-action > span { transition: color var(--motion-fast) var(--motion-ease), background-color var(--motion-fast) var(--motion-ease), border-color var(--motion-fast) var(--motion-ease), box-shadow var(--motion-fast) var(--motion-ease), transform var(--motion-fast) var(--motion-ease), opacity var(--motion-fast) var(--motion-ease); }
+.button:active:not(:disabled), .icon-button:active, .filter-row button:active, .collection-currencies button:active:not(:disabled), .bank-selection-option:active:not(:disabled) { transform: scale(.99); }
 .button:focus-visible, .icon-button:focus-visible, .bottom-nav button:focus-visible, .quick-action:focus-visible, .filter-row button:focus-visible, .settings-list > button:focus-visible { outline: 3px solid #8bb7e8; outline-offset: 3px; }
 @media (hover: hover) and (pointer: fine) {
   .icon-button:hover:not(:disabled) { border-color: #bdcbe0; background: #f4f7fc; }
@@ -76,7 +76,6 @@ h1, h2, p { margin-top: 0; }
 .balance-bottom button { padding: 0; color: var(--accent); font-size: 8px; font-weight: 700; }
 .balance-floating { margin-top: 14px; padding-top: 13px; border-top: 1px solid rgba(255,255,255,.14); gap: 12px; }
 .balance-floating > div { min-width: 0; }
-.balance-floating > div:last-child { text-align: right; }
 .balance-floating span, .balance-floating strong { display: block; }
 .balance-floating span { margin-bottom: 5px; color: #a4b5c9; font-size: 8px; }
 .balance-floating strong { overflow-wrap: anywhere; font-size: 13px; letter-spacing: -.02em; }
@@ -193,7 +192,7 @@ h1, h2, p { margin-top: 0; }
 .floating-balance-heading strong, .floating-balance-heading p { display: block; margin: 0; }
 .floating-balance-heading strong { font-size: 11px; }
 .floating-balance-heading p { margin-top: 4px; color: var(--muted); font-size: 8px; line-height: 1.5; }
-.floating-balance-values { margin: 14px 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.floating-balance-values { margin: 14px 0; display: grid; grid-template-columns: 1fr; gap: 9px; }
 .floating-balance-values > div { min-width: 0; padding: 10px; border-radius: 11px; background: var(--surface-soft); }
 .floating-balance-values small, .floating-balance-values strong { display: block; }
 .floating-balance-values small { color: var(--muted); font-size: 8px; }
@@ -319,21 +318,49 @@ h1, h2, p { margin-top: 0; }
 .payment-sheet input:focus { border-color: #8eaa33; box-shadow: 0 0 0 3px var(--accent-soft); }
 .bank-picker { position: relative; }
 .bank-picker-label { display: block; margin-bottom: 7px; color: var(--muted); font-size: 9px; font-weight: 600; }
-.bank-picker-trigger { width: 100%; min-height: 48px; padding: 0 13px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-soft); display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; font-size: 11px; }
-.bank-picker-trigger:focus-visible, .bank-picker-option:focus-visible { outline: 3px solid var(--accent-soft); border-color: #8eaa33; }
+.bank-picker-trigger { width: 100%; min-height: 58px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; font-size: 11px; }
+.bank-picker-trigger:focus-visible, .bank-selection-option:focus-visible { outline: 3px solid var(--accent-soft); border-color: #8eaa33; }
 .bank-picker-trigger:disabled { color: var(--muted); opacity: .7; }
-.bank-picker-menu { position: absolute; z-index: 5; inset: calc(100% + 5px) 0 auto; padding: 8px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: var(--shadow); }
+.bank-picker-trigger-action { display: inline-flex; align-items: center; gap: 3px; color: var(--ink); font-size: 9px; font-weight: 800; white-space: nowrap; }
+.bank-picker-name { min-width: 0; display: flex; align-items: center; gap: 9px; font-size: 10px; font-weight: 700; }
+.bank-picker-logo { width: 32px; height: 32px; flex: 0 0 32px; border: 1px solid var(--line); border-radius: 9px; background: white; object-fit: contain; }
 .payment-sheet .bank-picker-search { height: 40px; margin-bottom: 6px; padding: 0 10px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-soft); color: var(--muted); }
 .payment-sheet .bank-picker-search input { height: 100%; min-width: 0; padding: 0; border: 0; background: transparent; font-size: 10px; }
 .payment-sheet .bank-picker-search input:focus { border: 0; box-shadow: none; }
-.bank-picker-options { max-height: 220px; overflow-y: auto; }
-.bank-picker-option { width: 100%; min-height: 44px; padding: 7px 9px; border: 0; border-radius: 8px; background: transparent; display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; }
-.bank-picker-option:hover, .bank-picker-option[aria-selected="true"] { background: var(--surface-soft); }
-.bank-picker-name { min-width: 0; display: flex; align-items: center; gap: 9px; font-size: 10px; font-weight: 700; }
-.bank-picker-logo { width: 28px; height: 28px; flex: 0 0 28px; border: 1px solid var(--line); border-radius: 8px; background: white; object-fit: contain; }
 .institution-logo-unavailable { display: grid; place-items: center; color: #69788c; }
-.bank-picker-option small { flex: 0 0 auto; color: var(--muted); font-size: 7px; }
 .bank-picker-empty { margin: 0; padding: 12px 9px; color: var(--muted); font-size: 9px; }
+.bank-picker-empty[role="status"] { display: flex; align-items: center; gap: 8px; }
+.bank-selection { display: grid; gap: 12px; }
+.bank-selection .institution-back { margin: -10px 0 0; }
+.bank-selection-note { margin: -7px 0 0; color: var(--muted); font-size: 9px; line-height: 1.55; }
+.bank-selection-list { max-height: min(47vh, 390px); overflow-y: auto; border: 1px solid var(--line); border-radius: 13px; }
+.bank-selection-option { width: 100%; min-height: 62px; padding: 8px 11px; display: flex; align-items: center; gap: 10px; border: 0; border-bottom: 1px solid var(--line); background: var(--surface); text-align: left; }
+.bank-selection-option:last-child { border-bottom: 0; }
+.bank-selection-option:hover:not(:disabled), .bank-selection-option[aria-selected="true"] { background: #f3f7fc; }
+.bank-selection-option:disabled { cursor: not-allowed; opacity: .55; }
+.bank-selection-option .institution-selection-logo { width: 36px; height: 36px; flex-basis: 36px; }
+.bank-selection-option .institution-option-copy { flex: 1; }
+.bank-selection-option .institution-option-copy strong { font-size: 10px; }
+.bank-selection-option .institution-option-copy small { font-size: 8px; }
+.bank-selection-option > svg:last-child { flex: 0 0 auto; color: var(--muted); }
+.bank-selection-check { flex: 0 0 auto; color: var(--success); }
+.bank-selection-footnote { margin: 0; display: flex; align-items: flex-start; gap: 6px; color: var(--muted); font-size: 8px; line-height: 1.5; }
+.bank-selection-footnote svg { flex: 0 0 auto; }
+.bank-load-error { display: grid; justify-items: start; gap: 10px; padding: 13px; border: 1px solid var(--danger); border-radius: 11px; background: var(--danger-soft); color: var(--danger); font-size: 9px; line-height: 1.5; }
+.transfer-step-heading { display: grid; gap: 4px; }
+.transfer-step-heading > span { color: var(--warning); font-size: 8px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.transfer-step-heading > strong { font-size: 13px; }
+.transfer-step-heading > small { color: var(--muted); font-size: 8px; line-height: 1.5; }
+.transfer-field-group { display: grid; gap: 0; }
+.rail-selector button { min-height: 56px; height: auto; padding: 8px; display: grid; justify-items: start; align-content: center; gap: 4px; text-align: left; }
+.rail-selector button strong { font-size: 9px; }
+.rail-selector button small { color: inherit; font-size: 7px; font-weight: 500; opacity: .75; }
+.rail-selector button:disabled { cursor: not-allowed; opacity: .4; }
+.rail-selector button.active small { color: #d6e2f0; opacity: 1; }
+.transfer-recipient-fields { display: grid; gap: 14px; }
+.transfer-amount-label > span { display: flex !important; align-items: center; justify-content: space-between; gap: 8px; }
+.transfer-amount-label > span small { color: var(--muted); font-size: 8px; font-weight: 500; }
+.payment-sheet form > .button { width: 100%; min-height: 48px; }
 .institution-selection { display: grid; gap: 12px; }
 .institution-back { justify-self: start; padding: 5px 0; display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; color: var(--muted); font-size: 9px; font-weight: 700; }
 .institution-selection > .eyebrow { margin: 0; }
@@ -712,7 +739,11 @@ h1, h2, p { margin-top: 0; }
 .checkout-loading { min-height: 230px; display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--muted); font-size: 10px; }
 .checkout-spinner { animation: spin 1s linear infinite; }
 .checkout-inline-error { margin: 10px 0 0; color: var(--danger); font-size: 8px; }
-.checkout-footer { margin: 0; color: var(--muted); font-size: 8px; text-align: center; }
+.checkout-footer { margin: 0; display: grid; justify-items: center; gap: 8px; color: var(--muted); font-size: 8px; text-align: center; }
+.checkout-footer nav { display: flex; justify-content: center; gap: 14px; }
+.checkout-footer a { color: var(--muted); font-size: 8px; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+.app-legal-links { margin-top: 18px; padding-top: 13px; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 15px; border-top: 1px solid var(--line); }
+.app-legal-links a { color: var(--muted); font-size: 8px; font-weight: 700; }
 
 @media (max-width: 520px) {
   :root { background: var(--paper); }
