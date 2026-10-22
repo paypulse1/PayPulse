@@ -13,7 +13,8 @@ import {
 } from "lucide-react";
 import "./marketing-home.css";
 
-const apkUrl = import.meta.env.VITE_ANDROID_APK_URL?.trim();
+const apkUrl = import.meta.env.VITE_ANDROID_APK_URL?.trim()
+  || "https://github.com/blackhorsecn/drpay-merchant/releases/latest/download/drpay.apk";
 
 function Brand() {
   return (
