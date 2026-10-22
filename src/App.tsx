@@ -832,7 +832,7 @@ const tabs = [
 
 export default function App() {
   const isDashboard = Capacitor.isNativePlatform() || window.location.pathname === "/app" || window.location.pathname.startsWith("/app/");
-  const [session, setSession] = useState<Session | null>(() => getSession());
+  const [session, setSession] = useState<Session | null>(() => isDashboard ? getSession() : null);
   const [data, setData] = useState<DashboardData | null>(null);
   const [activeTab, setActiveTab] = useState("Home");
   const [showPayment, setShowPayment] = useState(false);
