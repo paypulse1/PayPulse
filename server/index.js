@@ -31,7 +31,7 @@ app.use(cors({
     error.status = 403;
     return callback(error);
   },
-  methods: ["GET", "POST", "OPTIONS"],
+  methods: ["GET", "POST", "PUT", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key", "X-Step-Up-Token"],
   maxAge: 600,
 }));
@@ -342,8 +342,56 @@ async function queueSuccessfulTransaction(transactionType, transactionId) {
 
 async function updatePaymentLinkStatus(id, status) {
     await pool.query("UPDATE payment_links SET status = $1, updated_at = NOW() WHERE id = $2", [status, id]);
+    if (status === "EXECUTED") await settleSuccessfulCollection(id);
     await queueSuccessfulTransaction("PAYMENT", id);
   }
+
+async function settleSuccessfulCollection(paymentId) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const payment = await client.query(
+      `SELECT id, merchant_email, reference_no, amount::numeric AS amount, status
+       FROM payment_links WHERE id = $1 FOR UPDATE`,
+      [paymentId],
+    );
+    const row = payment.rows[0];
+    if (!row || row.status !== "EXECUTED" || !row.merchant_email) {
+      await client.query("COMMIT");
+      return;
+    }
+    const feeSetting = await client.query(
+      "SELECT setting_value FROM system_settings WHERE setting_key = 'collection_fee_percent'",
+    );
+    const feePercent = Number(feeSetting.rows[0]?.setting_value || 0);
+    if (!Number.isFinite(feePercent) || feePercent < 0 || feePercent > 100) {
+      throw new Error("The configured collection fee percentage is invalid.");
+    }
+    const grossAmount = Number(row.amount);
+    const feeAmount = Math.round(grossAmount * feePercent) / 100;
+    const netAmount = Math.round((grossAmount - feeAmount) * 100) / 100;
+    const feeEntry = await client.query(
+      `INSERT INTO platform_fee_ledger (id, source_type, source_id, merchant_email, amount)
+       VALUES ($1, 'COLLECTION', $2, $3, $4)
+       ON CONFLICT (source_type, source_id) DO NOTHING
+       RETURNING id`,
+      [randomUUID(), paymentId, row.merchant_email, feeAmount.toFixed(2)],
+    );
+    if (feeEntry.rowCount && netAmount > 0) {
+      await client.query(
+        `INSERT INTO internal_wallet_adjustments (id, merchant_email, amount, reason, adjusted_by)
+         VALUES ($1, $2, $3, $4, 'system:collection-settlement')`,
+        [randomUUID(), row.merchant_email, netAmount.toFixed(2), `Net collection settlement ${row.reference_no}; gross PHP ${grossAmount.toFixed(2)}, fee PHP ${feeAmount.toFixed(2)}`],
+      );
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 
 async function updateDisbursementStatus(id, swiftpayId, status, errorMessage) {
     await pool.query(
@@ -422,6 +470,10 @@ async function initializeDatabase() {
     CREATE TABLE IF NOT EXISTS merchant_accounts (
       email TEXT PRIMARY KEY,
       active BOOLEAN NOT NULL DEFAULT TRUE,
+      business_name TEXT NOT NULL DEFAULT '',
+      contact_person TEXT NOT NULL DEFAULT '',
+      phone_number TEXT NOT NULL DEFAULT '',
+      business_address TEXT NOT NULL DEFAULT '',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -495,6 +547,36 @@ async function initializeDatabase() {
       adjusted_by TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS platform_fee_ledger (
+      id UUID PRIMARY KEY,
+      source_type TEXT NOT NULL CHECK (source_type IN ('COLLECTION', 'FLOATING_TRANSFER')),
+      source_id UUID NOT NULL,
+      merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email),
+      amount NUMERIC(18, 2) NOT NULL CHECK (amount >= 0),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (source_type, source_id)
+    );
+    CREATE TABLE IF NOT EXISTS merchant_payout_accounts (
+      merchant_email TEXT PRIMARY KEY REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      bank_name TEXT NOT NULL,
+      account_name TEXT NOT NULL,
+      account_number TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS floating_transfer_requests (
+      id UUID PRIMARY KEY,
+      merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email),
+      amount NUMERIC(18, 2) NOT NULL CHECK (amount > 0),
+      transfer_fee NUMERIC(18, 2) NOT NULL DEFAULT 0 CHECK (transfer_fee >= 0),
+      bank_name TEXT NOT NULL,
+      account_name TEXT NOT NULL,
+      account_number TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('PENDING', 'SUCCESSFUL', 'FAILED')),
+      failure_reason TEXT,
+      requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      reviewed_at TIMESTAMPTZ,
+      reviewed_by TEXT
+    );
     CREATE TABLE IF NOT EXISTS payment_links (
       id UUID PRIMARY KEY,
       idempotency_key TEXT NOT NULL UNIQUE,
@@ -553,12 +635,56 @@ async function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS disbursements_created_at_idx ON disbursements (created_at DESC);
     CREATE INDEX IF NOT EXISTS internal_wallet_adjustments_merchant_created_idx
       ON internal_wallet_adjustments (merchant_email, created_at DESC);
+    CREATE INDEX IF NOT EXISTS floating_transfer_requests_merchant_status_idx
+      ON floating_transfer_requests (merchant_email, status, requested_at DESC);
+    CREATE INDEX IF NOT EXISTS floating_transfer_requests_status_created_idx
+      ON floating_transfer_requests (status, requested_at ASC);
+    ALTER TABLE floating_transfer_requests
+      DROP CONSTRAINT IF EXISTS floating_transfer_requests_status_check;
+    UPDATE floating_transfer_requests
+      SET status = CASE status WHEN 'APPROVED' THEN 'SUCCESSFUL' WHEN 'REJECTED' THEN 'FAILED' ELSE status END
+      WHERE status IN ('APPROVED', 'REJECTED');
+    ALTER TABLE floating_transfer_requests
+      ADD CONSTRAINT floating_transfer_requests_status_check
+      CHECK (status IN ('PENDING', 'SUCCESSFUL', 'FAILED'));
+    ALTER TABLE floating_transfer_requests
+      ADD COLUMN IF NOT EXISTS failure_reason TEXT;
+    ALTER TABLE floating_transfer_requests
+      ADD COLUMN IF NOT EXISTS transfer_fee NUMERIC(18, 2) NOT NULL DEFAULT 0 CHECK (transfer_fee >= 0);
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS checkout_type TEXT NOT NULL DEFAULT 'PAYMENT_LINK';
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_token TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS qr_payload TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS merchant_email TEXT REFERENCES merchant_accounts(email) ON DELETE CASCADE;
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS request_fingerprint TEXT;
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS merchant_email TEXT REFERENCES merchant_accounts(email) ON DELETE CASCADE;
+    ALTER TABLE merchant_accounts ADD COLUMN IF NOT EXISTS business_name TEXT NOT NULL DEFAULT '';
+    ALTER TABLE merchant_accounts ADD COLUMN IF NOT EXISTS contact_person TEXT NOT NULL DEFAULT '';
+    ALTER TABLE merchant_accounts ADD COLUMN IF NOT EXISTS phone_number TEXT NOT NULL DEFAULT '';
+    ALTER TABLE merchant_accounts ADD COLUMN IF NOT EXISTS business_address TEXT NOT NULL DEFAULT '';
+    DO $migration$
+    DECLARE
+      foreign_key RECORD;
+      definition TEXT;
+    BEGIN
+      FOR foreign_key IN
+        SELECT conrelid::regclass AS table_name, conname, pg_get_constraintdef(oid) AS definition
+        FROM pg_constraint
+        WHERE contype = 'f'
+          AND confrelid IN ('merchant_accounts'::regclass, 'merchant_devices'::regclass)
+      LOOP
+        definition := foreign_key.definition;
+        IF position('ON UPDATE' IN definition) = 0 THEN
+          IF position('ON DELETE' IN definition) > 0 THEN
+            definition := replace(definition, ' ON DELETE', ' ON UPDATE CASCADE ON DELETE');
+          ELSE
+            definition := definition || ' ON UPDATE CASCADE';
+          END IF;
+          EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I', foreign_key.table_name, foreign_key.conname);
+          EXECUTE format('ALTER TABLE %s ADD CONSTRAINT %I %s', foreign_key.table_name, foreign_key.conname, definition);
+        END IF;
+      END LOOP;
+    END
+    $migration$;
     CREATE INDEX IF NOT EXISTS merchant_push_devices_email_idx ON merchant_push_devices (merchant_email);
     CREATE INDEX IF NOT EXISTS transaction_notifications_pending_idx
       ON transaction_notifications (created_at) WHERE email_sent_at IS NULL OR push_sent_at IS NULL;
@@ -569,7 +695,8 @@ async function initializeDatabase() {
   if (authEmail) {
     await pool.query(
       `INSERT INTO merchant_accounts (email)
-       VALUES ($1)
+       SELECT $1
+       WHERE NOT EXISTS (SELECT 1 FROM merchant_accounts)
        ON CONFLICT (email) DO NOTHING`,
       [authEmail],
     );
@@ -908,27 +1035,46 @@ app.use("/v1/admin", requireSuperAdmin);
 app.get("/v1/admin/settings", async (_req, res) => {
   const result = await pool.query(
     "SELECT setting_key, setting_value FROM system_settings WHERE setting_key = ANY($1)",
-    [["krw_to_php_rate", "usdt_address", "usdt_network"]],
+    [["krw_to_php_rate", "usdt_address", "usdt_network", "collection_fee_percent", "transfer_fee_fixed"]],
   );
+  const feeWallet = await pool.query("SELECT COALESCE(SUM(amount), 0)::float8 AS balance FROM platform_fee_ledger");
   const settings = Object.fromEntries(result.rows.map((row) => [row.setting_key, row.setting_value]));
   const rate = settings.krw_to_php_rate === undefined ? null : Number(settings.krw_to_php_rate);
   if (rate !== null && (!Number.isFinite(rate) || rate <= 0)) {
     return res.status(503).json({ error: "The configured KRW/PHP exchange rate is invalid." });
   }
+  const collectionFeePercent = Number(settings.collection_fee_percent || 0);
+  const transferFeeFixed = Number(settings.transfer_fee_fixed || 0);
+  if (!Number.isFinite(collectionFeePercent) || collectionFeePercent < 0 || collectionFeePercent > 100
+    || !Number.isFinite(transferFeeFixed) || transferFeeFixed < 0) {
+    return res.status(503).json({ error: "The configured collection or transfer fee is invalid." });
+  }
   return res.json({
     krwToPhpRate: rate,
     usdtAddress: settings.usdt_address || "",
     usdtNetwork: settings.usdt_network || "",
+    collectionFeePercent,
+    transferFeeFixed,
+    superAdminFeeWallet: feeWallet.rows[0].balance,
   });
 });
 
 app.put("/v1/admin/settings", async (req, res) => {
   const rawRate = req.body?.krwToPhpRate;
   const rate = rawRate === null || rawRate === "" ? null : Number(rawRate);
+  const collectionFeePercent = Number(req.body?.collectionFeePercent);
+  const transferFeeFixed = Number(req.body?.transferFeeFixed);
   const usdtAddress = typeof req.body?.usdtAddress === "string" ? req.body.usdtAddress.trim() : "";
   const usdtNetwork = typeof req.body?.usdtNetwork === "string" ? req.body.usdtNetwork.trim() : "";
   if (rate !== null && (!Number.isFinite(rate) || rate <= 0 || rate > 1000)) {
     return res.status(400).json({ error: "KRW/PHP rate must be greater than zero and no more than 1000." });
+  }
+  if (!Number.isFinite(collectionFeePercent) || collectionFeePercent < 0 || collectionFeePercent > 100) {
+    return res.status(400).json({ error: "Collection fee must be between 0% and 100%." });
+  }
+  if (!Number.isFinite(transferFeeFixed) || transferFeeFixed < 0 || transferFeeFixed > 1_000_000
+    || Math.abs(transferFeeFixed * 100 - Math.round(transferFeeFixed * 100)) > 1e-7) {
+    return res.status(400).json({ error: "Transfer fee must be a non-negative PHP amount with no more than two decimal places." });
   }
   if ((usdtAddress && !usdtNetwork) || (!usdtAddress && usdtNetwork)) {
     return res.status(400).json({ error: "Set both the USDT address and its network, or leave both empty." });
@@ -944,6 +1090,8 @@ app.put("/v1/admin/settings", async (req, res) => {
       ["krw_to_php_rate", rate === null ? null : String(rate)],
       ["usdt_address", usdtAddress || null],
       ["usdt_network", usdtNetwork || null],
+      ["collection_fee_percent", String(collectionFeePercent)],
+      ["transfer_fee_fixed", transferFeeFixed.toFixed(2)],
     ];
     for (const [key, value] of entries) {
       if (value === null) {
@@ -959,10 +1107,14 @@ app.put("/v1/admin/settings", async (req, res) => {
       }
     }
     await client.query("COMMIT");
+    const feeWallet = await pool.query("SELECT COALESCE(SUM(amount), 0)::float8 AS balance FROM platform_fee_ledger");
     return res.json({
       krwToPhpRate: rate,
       usdtAddress,
       usdtNetwork,
+      collectionFeePercent,
+      transferFeeFixed,
+      superAdminFeeWallet: feeWallet.rows[0].balance,
     });
   } catch (error) {
     await client.query("ROLLBACK");
@@ -974,8 +1126,16 @@ app.put("/v1/admin/settings", async (req, res) => {
 
 app.get("/v1/admin/merchants", async (_req, res) => {
   const result = await pool.query(
-    `SELECT email, active, created_at AS "createdAt", updated_at AS "updatedAt"
-     FROM merchant_accounts ORDER BY created_at DESC`,
+    `SELECT merchant.email, merchant.active, merchant.business_name AS "businessName",
+       merchant.contact_person AS "contactPerson", merchant.phone_number AS "phoneNumber",
+       merchant.business_address AS "businessAddress",
+       COALESCE(payout.bank_name, '') AS "bankName",
+       COALESCE(payout.account_name, '') AS "accountName",
+       COALESCE(payout.account_number, '') AS "accountNumber",
+       merchant.created_at AS "createdAt", merchant.updated_at AS "updatedAt"
+     FROM merchant_accounts merchant
+     LEFT JOIN merchant_payout_accounts payout ON payout.merchant_email = merchant.email
+     ORDER BY merchant.created_at DESC`,
   );
   return res.json(result.rows);
 });
@@ -997,9 +1157,13 @@ app.get("/v1/admin/internal-wallets/:email", async (req, res) => {
   const email = typeof req.params.email === "string" ? req.params.email.trim().toLowerCase() : "";
   const account = await pool.query("SELECT email FROM merchant_accounts WHERE email = $1", [email]);
   if (!account.rowCount) return res.status(404).json({ error: "Merchant account not found." });
-  const [balanceResult, adjustmentResult] = await Promise.all([
+  const [balanceResult, reservationResult, adjustmentResult] = await Promise.all([
     pool.query(
       "SELECT COALESCE(SUM(amount), 0)::float8 AS balance FROM internal_wallet_adjustments WHERE merchant_email = $1",
+      [email],
+    ),
+    pool.query(
+      "SELECT COALESCE(SUM(amount + transfer_fee), 0)::float8 AS reserved FROM floating_transfer_requests WHERE merchant_email = $1 AND status = 'PENDING'",
       [email],
     ),
     pool.query(
@@ -1013,7 +1177,7 @@ app.get("/v1/admin/internal-wallets/:email", async (req, res) => {
     merchantEmail: email,
     currency: "PHP",
     balance: balanceResult.rows[0].balance,
-    transferable: false,
+    availableBalance: balanceResult.rows[0].balance - reservationResult.rows[0].reserved,
     adjustments: adjustmentResult.rows,
   });
 });
@@ -1029,15 +1193,112 @@ app.post("/v1/admin/internal-wallets/:email/adjustments", async (req, res) => {
   if (!reason || reason.length > 250) {
     return res.status(400).json({ error: "Enter an adjustment reason of 1–250 characters." });
   }
-  const account = await pool.query("SELECT email FROM merchant_accounts WHERE email = $1", [email]);
-  if (!account.rowCount) return res.status(404).json({ error: "Merchant account not found." });
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const account = await client.query("SELECT email FROM merchant_accounts WHERE email = $1 FOR UPDATE", [email]);
+    if (!account.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Merchant account not found." });
+    }
+    const balances = await client.query(
+      `SELECT COALESCE((SELECT SUM(amount) FROM internal_wallet_adjustments WHERE merchant_email = $1), 0)::numeric AS balance,
+         COALESCE((SELECT SUM(amount + transfer_fee) FROM floating_transfer_requests WHERE merchant_email = $1 AND status = 'PENDING'), 0)::numeric AS reserved`,
+      [email],
+    );
+    if (Number(balances.rows[0].balance) + amount < Number(balances.rows[0].reserved)) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "This adjustment would reduce the floating balance below pending transfer requests." });
+    }
+    const result = await client.query(
+      `INSERT INTO internal_wallet_adjustments (id, merchant_email, amount, reason, adjusted_by)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, amount::float8 AS amount, reason, adjusted_by AS "adjustedBy", created_at AS "createdAt"`,
+      [randomUUID(), email, amount.toFixed(2), reason, req.adminEmail],
+    );
+    await client.query("COMMIT");
+    return res.status(201).json(result.rows[0]);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+});
+
+app.get("/v1/admin/floating-transfer-requests", async (_req, res) => {
   const result = await pool.query(
-    `INSERT INTO internal_wallet_adjustments (id, merchant_email, amount, reason, adjusted_by)
-     VALUES ($1, $2, $3, $4, $5)
-     RETURNING id, amount::float8 AS amount, reason, adjusted_by AS "adjustedBy", created_at AS "createdAt"`,
-    [randomUUID(), email, amount.toFixed(2), reason, req.adminEmail],
+    `SELECT id, merchant_email AS "merchantEmail", amount::float8 AS amount,
+       transfer_fee::float8 AS "transferFee", status,
+       bank_name AS "bankName", account_name AS "accountName", account_number AS "accountNumber",
+       requested_at AS "requestedAt", reviewed_at AS "reviewedAt", reviewed_by AS "reviewedBy",
+       failure_reason AS "failureReason"
+     FROM floating_transfer_requests
+     ORDER BY CASE WHEN status = 'PENDING' THEN 0 ELSE 1 END, requested_at DESC`,
   );
-  return res.status(201).json(result.rows[0]);
+  return res.set("Cache-Control", "no-store").json(result.rows);
+});
+
+app.post("/v1/admin/floating-transfer-requests/:id/:decision", async (req, res) => {
+  const { id, decision } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id) || !["successful", "failed"].includes(decision)) {
+    return res.status(400).json({ error: "Choose a valid transfer request and decision." });
+  }
+  const failureReason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+  if (decision === "failed" && (!failureReason || failureReason.length > 500)) {
+    return res.status(400).json({ error: "Enter a reason for the failed settlement (1–500 characters)." });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const requestInfo = await client.query("SELECT merchant_email FROM floating_transfer_requests WHERE id = $1", [id]);
+    if (!requestInfo.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Floating-balance transfer request not found." });
+    }
+    const email = requestInfo.rows[0].merchant_email;
+    await client.query("SELECT email FROM merchant_accounts WHERE email = $1 FOR UPDATE", [email]);
+    const request = await client.query(
+      "SELECT * FROM floating_transfer_requests WHERE id = $1 FOR UPDATE",
+      [id],
+    );
+    if (request.rows[0].status !== "PENDING") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "This transfer request has already been reviewed." });
+    }
+    const nextStatus = decision === "successful" ? "SUCCESSFUL" : "FAILED";
+    if (nextStatus === "SUCCESSFUL") {
+      const debitAmount = Number(request.rows[0].amount) + Number(request.rows[0].transfer_fee);
+      await client.query(
+        `INSERT INTO internal_wallet_adjustments (id, merchant_email, amount, reason, adjusted_by)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [randomUUID(), email, (-debitAmount).toFixed(2), `Floating-balance transfer request ${id} including PHP ${Number(request.rows[0].transfer_fee).toFixed(2)} fee`, req.adminEmail],
+      );
+      await client.query(
+        `INSERT INTO platform_fee_ledger (id, source_type, source_id, merchant_email, amount)
+         VALUES ($1, 'FLOATING_TRANSFER', $2, $3, $4)
+         ON CONFLICT (source_type, source_id) DO NOTHING`,
+        [randomUUID(), id, email, Number(request.rows[0].transfer_fee).toFixed(2)],
+      );
+    }
+    const updated = await client.query(
+      `UPDATE floating_transfer_requests
+       SET status = $2, reviewed_at = NOW(), reviewed_by = $3, failure_reason = $4
+       WHERE id = $1
+       RETURNING id, merchant_email AS "merchantEmail", amount::float8 AS amount, status,
+         bank_name AS "bankName", account_name AS "accountName", account_number AS "accountNumber",
+         requested_at AS "requestedAt", reviewed_at AS "reviewedAt", reviewed_by AS "reviewedBy",
+         failure_reason AS "failureReason", transfer_fee::float8 AS "transferFee"`,
+      [id, nextStatus, req.adminEmail, nextStatus === "FAILED" ? failureReason : null],
+    );
+    await client.query("COMMIT");
+    return res.json(updated.rows[0]);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 });
 
 app.post("/v1/admin/merchants", async (req, res) => {
@@ -1049,7 +1310,10 @@ app.post("/v1/admin/merchants", async (req, res) => {
     const result = await pool.query(
       `INSERT INTO merchant_accounts (email)
        VALUES ($1)
-       RETURNING email, active, created_at AS "createdAt", updated_at AS "updatedAt"`,
+       RETURNING email, active, business_name AS "businessName", contact_person AS "contactPerson",
+         phone_number AS "phoneNumber", business_address AS "businessAddress",
+         '' AS "bankName", '' AS "accountName", '' AS "accountNumber",
+         created_at AS "createdAt", updated_at AS "updatedAt"`,
       [email],
     );
     return res.status(201).json(result.rows[0]);
@@ -1062,7 +1326,68 @@ app.post("/v1/admin/merchants", async (req, res) => {
 app.patch("/v1/admin/merchants/:email", async (req, res) => {
   const email = typeof req.params.email === "string" ? req.params.email.trim().toLowerCase() : "";
   const hasActive = typeof req.body?.active === "boolean";
-  if (!hasActive) return res.status(400).json({ error: "Provide an active state." });
+  const hasProfile = ["email", "businessName", "contactPerson", "phoneNumber", "businessAddress", "bankName", "accountName", "accountNumber"]
+    .every((key) => typeof req.body?.[key] === "string");
+  if (!hasActive && !hasProfile) return res.status(400).json({ error: "Provide merchant profile fields or an active state." });
+  if (hasProfile) {
+    const nextEmail = req.body.email.trim().toLowerCase();
+    const businessName = req.body.businessName.trim();
+    const contactPerson = req.body.contactPerson.trim();
+    const phoneNumber = req.body.phoneNumber.trim();
+    const businessAddress = req.body.businessAddress.trim();
+    const bankName = req.body.bankName.trim();
+    const accountName = req.body.accountName.trim();
+    const accountNumber = req.body.accountNumber.replace(/\s+/g, "");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail) || nextEmail.length > 254) {
+      return res.status(400).json({ error: "Enter a valid merchant email address." });
+    }
+    if (businessName.length > 160 || contactPerson.length > 120 || phoneNumber.length > 40 || businessAddress.length > 500) {
+      return res.status(400).json({ error: "One or more merchant profile fields exceed the allowed length." });
+    }
+    if ((bankName || accountName || accountNumber)
+      && (bankName.length < 2 || bankName.length > 100 || accountName.length < 2 || accountName.length > 120
+        || !/^[A-Za-z0-9-]{4,34}$/.test(accountNumber))) {
+      return res.status(400).json({ error: "Enter a complete payout bank name, account holder name, and valid account number, or leave all payout fields blank." });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(84172031)");
+      const account = await client.query("SELECT email FROM merchant_accounts WHERE email = $1 FOR UPDATE", [email]);
+      if (!account.rowCount) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Merchant account not found." });
+      }
+      const updated = await client.query(
+        `UPDATE merchant_accounts SET email = $2, business_name = $3, contact_person = $4,
+           phone_number = $5, business_address = $6, updated_at = NOW()
+         WHERE email = $1
+         RETURNING email, active, business_name AS "businessName", contact_person AS "contactPerson",
+           phone_number AS "phoneNumber", business_address AS "businessAddress",
+           created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [email, nextEmail, businessName, contactPerson, phoneNumber, businessAddress],
+      );
+      if (bankName) {
+        await client.query(
+          `INSERT INTO merchant_payout_accounts (merchant_email, bank_name, account_name, account_number)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (merchant_email) DO UPDATE SET bank_name = EXCLUDED.bank_name,
+             account_name = EXCLUDED.account_name, account_number = EXCLUDED.account_number, updated_at = NOW()`,
+          [nextEmail, bankName, accountName, accountNumber],
+        );
+      } else {
+        await client.query("DELETE FROM merchant_payout_accounts WHERE merchant_email = $1", [nextEmail]);
+      }
+      await client.query("COMMIT");
+      return res.json({ ...updated.rows[0], bankName, accountName, accountNumber });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      if (error.code === "23505") return res.status(409).json({ error: "A merchant account with that email already exists." });
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -1088,11 +1413,18 @@ app.patch("/v1/admin/merchants/:email", async (req, res) => {
          active = $2,
          updated_at = NOW()
        WHERE email = $1
-       RETURNING email, active, created_at AS "createdAt", updated_at AS "updatedAt"`,
+       RETURNING email, active, business_name AS "businessName", contact_person AS "contactPerson",
+         phone_number AS "phoneNumber", business_address AS "businessAddress",
+         created_at AS "createdAt", updated_at AS "updatedAt"`,
       [email, req.body.active],
     );
+    const payout = await client.query(
+      `SELECT bank_name AS "bankName", account_name AS "accountName", account_number AS "accountNumber"
+       FROM merchant_payout_accounts WHERE merchant_email = $1`,
+      [email],
+    );
     await client.query("COMMIT");
-    return res.json(result.rows[0]);
+    return res.json({ ...result.rows[0], ...payout.rows[0] });
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -1173,6 +1505,106 @@ app.get("/v1/public/checkout/:code", publicCheckoutLimiter, async (req, res) => 
 });
 
 app.use("/v1", requireMerchant);
+
+app.get("/v1/floating-balance/payout-account", async (req, res) => {
+  const result = await pool.query(
+    `SELECT bank_name AS "bankName", account_name AS "accountName", account_number AS "accountNumber"
+     FROM merchant_payout_accounts WHERE merchant_email = $1`,
+    [req.merchantEmail],
+  );
+  return res.set("Cache-Control", "no-store").json(result.rows[0] || { bankName: "", accountName: "", accountNumber: "" });
+});
+
+app.put("/v1/floating-balance/payout-account", async (req, res) => {
+  const bankName = typeof req.body?.bankName === "string" ? req.body.bankName.trim() : "";
+  const accountName = typeof req.body?.accountName === "string" ? req.body.accountName.trim() : "";
+  const accountNumber = typeof req.body?.accountNumber === "string" ? req.body.accountNumber.replace(/\s+/g, "") : "";
+  if (bankName.length < 2 || bankName.length > 100 || accountName.length < 2 || accountName.length > 120
+    || !/^[A-Za-z0-9-]{4,34}$/.test(accountNumber)) {
+    return res.status(400).json({ error: "Enter a bank name, account holder name, and valid account number." });
+  }
+  const result = await pool.query(
+    `INSERT INTO merchant_payout_accounts (merchant_email, bank_name, account_name, account_number)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (merchant_email) DO UPDATE SET
+       bank_name = EXCLUDED.bank_name, account_name = EXCLUDED.account_name,
+       account_number = EXCLUDED.account_number, updated_at = NOW()
+     RETURNING bank_name AS "bankName", account_name AS "accountName", account_number AS "accountNumber"`,
+    [req.merchantEmail, bankName, accountName, accountNumber],
+  );
+  return res.set("Cache-Control", "no-store").json(result.rows[0]);
+});
+
+app.get("/v1/floating-balance/transfer-requests", async (req, res) => {
+  const result = await pool.query(
+    `SELECT id, amount::float8 AS amount, transfer_fee::float8 AS "transferFee", status, bank_name AS "bankName",
+       account_name AS "accountName", account_number AS "accountNumber",
+       requested_at AS "requestedAt", reviewed_at AS "reviewedAt",
+       failure_reason AS "failureReason"
+     FROM floating_transfer_requests WHERE merchant_email = $1
+     ORDER BY requested_at DESC LIMIT 50`,
+    [req.merchantEmail],
+  );
+  return res.set("Cache-Control", "no-store").json(result.rows);
+});
+
+app.post("/v1/floating-balance/transfer-requests", async (req, res) => {
+  const submittedAmount = Number(req.body?.amount);
+  const amount = Number.isFinite(submittedAmount) ? Math.round(submittedAmount * 100) / 100 : Number.NaN;
+  if (!Number.isFinite(amount) || amount <= 0 || Math.abs(submittedAmount - amount) > 1e-7 || amount > 1_000_000_000) {
+    return res.status(400).json({ error: "Enter a positive PHP amount with no more than two decimal places." });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT email FROM merchant_accounts WHERE email = $1 FOR UPDATE", [req.merchantEmail]);
+    const transferFeeSetting = await client.query(
+      "SELECT setting_value FROM system_settings WHERE setting_key = 'transfer_fee_fixed'",
+    );
+    const transferFee = Number(transferFeeSetting.rows[0]?.setting_value || 0);
+    if (!Number.isFinite(transferFee) || transferFee < 0) {
+      throw new Error("The configured floating-balance transfer fee is invalid.");
+    }
+    const [account, totals] = await Promise.all([
+      client.query(
+        "SELECT bank_name AS \"bankName\", account_name AS \"accountName\", account_number AS \"accountNumber\" FROM merchant_payout_accounts WHERE merchant_email = $1",
+        [req.merchantEmail],
+      ),
+      client.query(
+        `SELECT COALESCE((SELECT SUM(amount) FROM internal_wallet_adjustments WHERE merchant_email = $1), 0)::numeric AS balance,
+           COALESCE((SELECT SUM(amount + transfer_fee) FROM floating_transfer_requests WHERE merchant_email = $1 AND status = 'PENDING'), 0)::numeric AS reserved`,
+        [req.merchantEmail],
+      ),
+    ]);
+    if (!account.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "Save a payout bank account in your merchant profile before requesting a transfer." });
+    }
+    const available = Number(totals.rows[0].balance) - Number(totals.rows[0].reserved);
+    if (amount + transferFee > available) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "The requested amount plus the transfer fee exceeds your available floating balance." });
+    }
+    const payout = account.rows[0];
+    const result = await client.query(
+      `INSERT INTO floating_transfer_requests
+         (id, merchant_email, amount, transfer_fee, bank_name, account_name, account_number, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING')
+       RETURNING id, amount::float8 AS amount, transfer_fee::float8 AS "transferFee", status, bank_name AS "bankName",
+         account_name AS "accountName", account_number AS "accountNumber",
+         requested_at AS "requestedAt", reviewed_at AS "reviewedAt",
+         failure_reason AS "failureReason"`,
+      [randomUUID(), req.merchantEmail, amount.toFixed(2), transferFee.toFixed(2), payout.bankName, payout.accountName, payout.accountNumber],
+    );
+    await client.query("COMMIT");
+    return res.status(201).json(result.rows[0]);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+});
 
 app.get("/v1/security/status", async (req, res) => {
   const { rows } = await pool.query(
@@ -1292,16 +1724,63 @@ app.post("/v1/security/transfer/pin", pinAttemptLimiter, async (req, res) => {
 });
 
 app.get("/v1/internal-wallet", async (req, res) => {
-  const result = await pool.query(
-    "SELECT COALESCE(SUM(amount), 0)::float8 AS balance FROM internal_wallet_adjustments WHERE merchant_email = $1",
+  const [result, feeSetting] = await Promise.all([
+    pool.query(
+    `SELECT COALESCE((SELECT SUM(amount) FROM internal_wallet_adjustments WHERE merchant_email = $1), 0)::float8 AS balance,
+       COALESCE((SELECT SUM(amount + transfer_fee) FROM floating_transfer_requests WHERE merchant_email = $1 AND status = 'PENDING'), 0)::float8 AS reserved`,
     [req.merchantEmail],
-  );
+    ),
+    pool.query("SELECT setting_value FROM system_settings WHERE setting_key = 'transfer_fee_fixed'"),
+  ]);
+  const balance = result.rows[0].balance;
+  const transferFeeFixed = Number(feeSetting.rows[0]?.setting_value || 0);
   return res.set("Cache-Control", "no-store").json({
     currency: "PHP",
-    balance: result.rows[0].balance,
-    transferable: false,
+    balance,
+    availableBalance: balance - result.rows[0].reserved,
+    transferFeeFixed,
     label: "Floated Amount",
   });
+});
+
+app.get("/v1/wallet/activity/trend", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `WITH days AS (
+         SELECT generate_series(CURRENT_DATE - INTERVAL '6 days', CURRENT_DATE, INTERVAL '1 day')::date AS day
+       ), activity AS (
+         SELECT created_at::date AS day, amount, 'COLLECTION' AS activity_type
+         FROM payment_links
+         WHERE merchant_email = $1 AND status = 'EXECUTED'
+           AND created_at >= CURRENT_DATE - INTERVAL '6 days'
+           AND created_at < CURRENT_DATE + INTERVAL '1 day'
+         UNION ALL
+         SELECT created_at::date AS day, amount, 'TRANSFER' AS activity_type
+         FROM disbursements
+         WHERE merchant_email = $1 AND status IN ('EXECUTED', 'SUCCESS', 'COMPLETED')
+           AND created_at >= CURRENT_DATE - INTERVAL '6 days'
+           AND created_at < CURRENT_DATE + INTERVAL '1 day'
+         UNION ALL
+         SELECT COALESCE(reviewed_at, requested_at)::date AS day, amount, 'TRANSFER' AS activity_type
+         FROM floating_transfer_requests
+         WHERE merchant_email = $1 AND status = 'SUCCESSFUL'
+           AND COALESCE(reviewed_at, requested_at) >= CURRENT_DATE - INTERVAL '6 days'
+           AND COALESCE(reviewed_at, requested_at) < CURRENT_DATE + INTERVAL '1 day'
+       )
+       SELECT to_char(days.day, 'YYYY-MM-DD') AS date,
+         COALESCE(SUM(activity.amount) FILTER (WHERE activity.activity_type = 'COLLECTION'), 0)::float8 AS collections,
+         COALESCE(SUM(activity.amount) FILTER (WHERE activity.activity_type = 'TRANSFER'), 0)::float8 AS transfers
+       FROM days
+       LEFT JOIN activity ON activity.day = days.day
+       GROUP BY days.day
+       ORDER BY days.day ASC`,
+      [req.merchantEmail],
+    );
+    return res.set("Cache-Control", "no-store").json(result.rows);
+  } catch (error) {
+    console.error("Merchant activity trend lookup failed", error.message);
+    return res.status(503).json({ error: "The live activity chart is temporarily unavailable." });
+  }
 });
 
 app.get("/v1/exchange-rates/krw-php", async (_req, res) => {
@@ -1583,6 +2062,7 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
       "UPDATE payment_links SET payment_token = $1, qr_payload = $2, payment_url = $3, status = $4, amount = $5, updated_at = NOW() WHERE id = $6",
       [data.paymentId, data.qrCode, checkoutUrl, status, actualAmount, id],
     );
+    if (status === "EXECUTED") await settleSuccessfulCollection(id);
     await queueSuccessfulTransaction("PAYMENT", id);
     const qrImageUrl = new URL(`/v1/public/checkout/${code}/qr.png`, frontendOrigin).toString();
     return res.status(201).json({ id, code, paymentUrl: checkoutUrl, qrCode: data.qrCode, qrImageUrl, status, amount: actualAmount, currency: "PHP" });

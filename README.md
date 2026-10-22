@@ -22,7 +22,21 @@ The API starts in `sandbox` mode. Verify the full flow against SwiftPay sandbox 
 
 Merchant sign-in uses an email one-time code to verify a new device, then a four-digit MPIN for future sign-ins on that device. Every outgoing transfer also requires MPIN approval. Verification codes are delivered by Resend; configure a verified sender address and API key in the Render API service environment. The merchant's device token is stored locally and only its SHA-256 hash is stored by the API. Super-admin access remains separate and password-protected.
 
+On a previously verified device, the app remembers the last merchant email locally and opens directly to MPIN sign-in. Merchants can use configured biometrics instead, recover access through email verification, or switch to another account.
+
 On Android devices with strong biometrics enrolled, merchants can optionally enable biometric sign-in after setting up their MPIN, or manage it in Profile → Security. The app stores a random device-bound key in Android's biometric-protected secure storage; the MPIN is never stored. Biometric sign-in is tied to the merchant's verified device and can be disabled from Security. Email device verification and MPIN sign-in remain available as fallbacks. Biometric sign-in is not available on web or for super-admin accounts.
+
+## Floating-balance transfers
+
+Super admins can adjust each merchant's PHP floating balance in the admin console. Merchants save a bank or wallet payout account in Profile, then submit transfer requests up to their available floating balance. Requests have Pending, Successful, or Failed status. Pending requests reserve their amount; marking a request Successful debits the balance, while marking it Failed releases the reservation and requires a reason that is shown to the merchant. Successful status does not initiate a provider payout: the super admin must arrange the payout manually outside the app. This floating balance is separate from the merchant's SwiftPay available balance.
+
+Super admins can edit merchant business/display name, contact person, phone number, business address, payout account, and login email from Merchant accounts. Changing the login email updates related merchant records and requires the merchant to sign in again.
+
+Super admins configure a global percentage collection fee and fixed floating-balance transfer fee in Settings. Each successful collection credits the merchant's floating balance net of its percentage fee and records the fee in the super-admin fee wallet. Every transfer request reserves its fixed fee together with the requested payout; the fee is charged and credited to the super-admin fee wallet only when marked Successful. Failed requests release both reserved amounts. These are accounting-ledger entries; they do not move money within the shared SwiftPay account.
+
+The merchant dashboard displays a seven-day chart of successful collections and transfers. It refreshes its merchant-scoped aggregate data every 10 seconds without reconciling or fetching the full transaction history.
+
+Merchants can hide or show balances using the dashboard or wallet visibility control. The preference is saved locally for that merchant account and remains in effect across app restarts and sign-outs on the same device.
 
 ## Transaction notifications
 

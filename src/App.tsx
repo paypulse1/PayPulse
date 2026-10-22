@@ -43,17 +43,23 @@ import {
   createTransfer,
   clearPaymentLinkIdempotencyKey,
   createAdminInternalWalletAdjustment,
+  createMerchantFloatingTransferRequest,
   getInstitutions,
   getKrwPhpQuote,
   getAdminInternalWallet,
+  getAdminFloatingTransferRequests,
   getAdminInternalWallets,
   getAdminMerchantAccounts,
   getAdminSettings,
+  getMerchantFloatingTransferRequests,
+  getMerchantActivityTrend,
   getMerchantDashboard,
+  getMerchantPayoutAccount,
   getMerchantSecurityStatus,
   getPaymentLinkIdempotencyKey,
   getPaymentLinkStatus,
   getSession,
+  getLastMerchantEmail,
   loginWithBiometric,
   hasTrustedDevice,
   isBackendConfigured,
@@ -69,11 +75,16 @@ import {
   verifyDeviceOtp,
   updateAdminMerchantAccount,
   updateAdminSettings,
+  reviewAdminFloatingTransferRequest,
+  updateMerchantPayoutAccount,
   type AdminMerchantAccount,
   type AdminInternalWallet,
   type AdminInternalWalletSummary,
+  type FloatingTransferRequest,
+  type MerchantPayoutAccount,
   type AdminSettings,
   type DashboardData,
+  type MerchantActivityTrendPoint,
   type MerchantSecurityStatus,
   type CurrencyQuote,
   type Institution,
@@ -110,6 +121,38 @@ function isTerminalPaymentStatus(status: string) {
 
 function isConfirmedPaymentStatus(status: string) {
   return ["PAID", "EXECUTED"].includes(status.toUpperCase());
+}
+
+function formatPeso(amount: number) {
+  return `₱${amount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function useBalanceVisibility() {
+  const email = getSession()?.email.toLowerCase() || "default";
+  const storageKey = `drpay.balance-visibility.${encodeURIComponent(email)}`;
+  const [preference, setPreference] = useState(() => ({
+    storageKey,
+    visible: localStorage.getItem(storageKey) !== "hidden",
+  }));
+  const balanceVisible =
+    preference.storageKey === storageKey
+      ? preference.visible
+      : localStorage.getItem(storageKey) !== "hidden";
+
+  useEffect(() => {
+    setPreference({
+      storageKey,
+      visible: localStorage.getItem(storageKey) !== "hidden",
+    });
+  }, [storageKey]);
+
+  const toggleBalanceVisibility = useCallback(() => {
+    const visible = !balanceVisible;
+    localStorage.setItem(storageKey, visible ? "visible" : "hidden");
+    setPreference({ storageKey, visible });
+  }, [balanceVisible, storageKey]);
+
+  return { balanceVisible, toggleBalanceVisibility };
 }
 
 type ButtonProps = {
@@ -264,11 +307,11 @@ function TransactionRow({ transaction, onClick }: { transaction: Transaction; on
 }
 
 function SignIn({ onAuthenticated }: { onAuthenticated: (session: Session) => void }) {
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(() => getLastMerchantEmail());
   const [pin, setPin] = useState("");
   const [otp, setOtp] = useState("");
   const [challengeId, setChallengeId] = useState("");
-  const [stage, setStage] = useState<"email" | "pin" | "otp">("email");
+  const [stage, setStage] = useState<"email" | "pin" | "otp">(() => hasTrustedDevice(getLastMerchantEmail()) ? "pin" : "email");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -295,6 +338,7 @@ function SignIn({ onAuthenticated }: { onAuthenticated: (session: Session) => vo
     try {
       onAuthenticated(await loginWithPin(email.trim().toLowerCase(), pin));
     } catch (requestError) {
+      setPin("");
       setError(requestError instanceof Error ? requestError.message : "Sign-in failed");
     } finally {
       setBusy(false);
@@ -360,14 +404,14 @@ function SignIn({ onAuthenticated }: { onAuthenticated: (session: Session) => vo
         </form>}
         {stage === "pin" && <form onSubmit={(event) => void submitPin(event)}>
           <label><span>Merchant email</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="username" /></label>
-          <label><span>Four-digit MPIN</span><input type="password" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} autoComplete="current-password" value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 4))} required autoFocus /></label>
-          {error && <div className="inline-error"><AlertCircle size={15} />{error}</div>}
+          <label><span>Four-digit MPIN</span><input type="password" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} autoComplete="one-time-code" value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 4))} required autoFocus aria-describedby={error ? "signin-error" : undefined} /></label>
+          {error && <div className="inline-error" id="signin-error" role="alert"><AlertCircle size={15} />{error}</div>}
           <Button type="submit" disabled={busy || pin.length !== 4} icon={busy ? <LoaderCircle className="spin" size={17} /> : <KeyRound size={17} />}>{busy ? "Signing in…" : "Sign in with MPIN"}</Button>
           {supportsBiometricLogin() && hasBiometricLogin(email) && (
             <Button type="button" variant="secondary" disabled={busy} onClick={() => void submitBiometric()} icon={<Fingerprint size={17} />}>Use biometrics instead</Button>
           )}
-          <button type="button" className="authorization-back" disabled={busy} onClick={() => { setStage("email"); setPin(""); setError(""); }}>Use a different email</button>
-          <Button type="button" variant="secondary" disabled={busy} onClick={() => void sendOtp()}>Verify with email code</Button>
+          <Button type="button" variant="secondary" disabled={busy} onClick={() => void sendOtp()}>Forgot MPIN? Verify with email code</Button>
+          <button type="button" className="authorization-back" disabled={busy} onClick={() => { setStage("email"); setEmail(""); setPin(""); setError(""); }}>Use a different email</button>
         </form>}
         {stage === "otp" && <form onSubmit={(event) => void submitOtp(event)}>
           <label><span>Merchant email</span><input type="email" value={email} readOnly /></label>
@@ -535,10 +579,19 @@ function SuperAdminSignIn({ onAuthenticated }: { onAuthenticated: (session: Sess
 }
 
 function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
-  const [activePage, setActivePage] = useState<"overview" | "merchants" | "ledger" | "settings">("overview");
-  const [settings, setSettings] = useState<AdminSettings>({ krwToPhpRate: null, usdtAddress: "", usdtNetwork: "" });
+  const [activePage, setActivePage] = useState<"overview" | "merchants" | "ledger" | "requests" | "settings">("overview");
+  const [settings, setSettings] = useState<AdminSettings>({
+    krwToPhpRate: null,
+    usdtAddress: "",
+    usdtNetwork: "",
+    collectionFeePercent: 0,
+    transferFeeFixed: 0,
+    superAdminFeeWallet: 0,
+  });
   const [merchants, setMerchants] = useState<AdminMerchantAccount[]>([]);
+  const [editingMerchant, setEditingMerchant] = useState<(AdminMerchantAccount & { originalEmail: string }) | null>(null);
   const [internalWallets, setInternalWallets] = useState<AdminInternalWalletSummary[]>([]);
+  const [transferRequests, setTransferRequests] = useState<FloatingTransferRequest[]>([]);
   const [merchantSearch, setMerchantSearch] = useState("");
   const [merchantFilter, setMerchantFilter] = useState<"all" | "active" | "disabled">("all");
   const [selectedWalletEmail, setSelectedWalletEmail] = useState("");
@@ -550,6 +603,9 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
   const [savingSettings, setSavingSettings] = useState(false);
   const [savingMerchant, setSavingMerchant] = useState(false);
   const [savingAdjustment, setSavingAdjustment] = useState(false);
+  const [reviewingRequestId, setReviewingRequestId] = useState("");
+  const [failedRequestId, setFailedRequestId] = useState("");
+  const [failedRequestReason, setFailedRequestReason] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const filteredMerchants = useMemo(() => {
@@ -567,14 +623,16 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
     setLoading(true);
     setError("");
     try {
-      const [nextSettings, nextMerchants, nextWallets] = await Promise.all([
+      const [nextSettings, nextMerchants, nextWallets, nextTransferRequests] = await Promise.all([
         getAdminSettings(),
         getAdminMerchantAccounts(),
         getAdminInternalWallets(),
+        getAdminFloatingTransferRequests(),
       ]);
       setSettings(nextSettings);
       setMerchants(nextMerchants);
       setInternalWallets(nextWallets);
+      setTransferRequests(nextTransferRequests);
       setSelectedWalletEmail((current) => nextWallets.some((wallet) => wallet.email === current)
         ? current
         : nextWallets[0]?.email || "");
@@ -609,7 +667,7 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
     try {
       const saved = await updateAdminSettings(settings);
       setSettings(saved);
-      setNotice("Settings saved. KRW collection uses this configured rate.");
+      setNotice("Settings saved. New successful collections and transfer requests use these fee rates.");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not save settings.");
     } finally {
@@ -629,6 +687,33 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
       await loadConsole();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not create merchant account.");
+    } finally {
+      setSavingMerchant(false);
+    }
+  }
+
+  async function saveMerchantProfile(event: FormEvent) {
+    event.preventDefault();
+    if (!editingMerchant) return;
+    setSavingMerchant(true);
+    setError("");
+    setNotice("");
+    try {
+      const updated = await updateAdminMerchantAccount(editingMerchant.originalEmail, {
+        email: editingMerchant.email,
+        businessName: editingMerchant.businessName,
+        contactPerson: editingMerchant.contactPerson,
+        phoneNumber: editingMerchant.phoneNumber,
+        businessAddress: editingMerchant.businessAddress,
+        bankName: editingMerchant.bankName,
+        accountName: editingMerchant.accountName,
+        accountNumber: editingMerchant.accountNumber,
+      });
+      await loadConsole();
+      setEditingMerchant(null);
+      setNotice("Merchant profile updated. If the login email changed, the merchant must sign in again using the new email.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not update merchant profile.");
     } finally {
       setSavingMerchant(false);
     }
@@ -665,11 +750,47 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
       ]);
       setSelectedWallet(wallet);
       setInternalWallets(wallets);
-      setNotice("Bookkeeping entry recorded. It does not change SwiftPay funds and cannot be transferred.");
+      setNotice("Floating-balance adjustment recorded. Pending transfer requests remain reserved.");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not record internal adjustment.");
     } finally {
       setSavingAdjustment(false);
+    }
+  }
+
+  async function reviewTransferRequest(request: FloatingTransferRequest, decision: "successful" | "failed") {
+    const reason = failedRequestReason.trim();
+    if (decision === "failed" && !reason) {
+      setError("Enter a reason before marking the floating-balance request failed.");
+      return;
+    }
+    setReviewingRequestId(request.id);
+    setError("");
+    setNotice("");
+    try {
+      const reviewed = await reviewAdminFloatingTransferRequest(request.id, decision, decision === "failed" ? reason : undefined);
+      setTransferRequests((current) => current.map((item) => item.id === reviewed.id ? reviewed : item));
+      setFailedRequestId("");
+      setFailedRequestReason("");
+      setNotice(decision === "successful"
+        ? "Request marked successful; the requested amount and fixed transfer fee were debited. Arrange the payout to the displayed bank account outside the app."
+        : "Request marked failed. The reserved balance is available to the merchant again.");
+      try {
+        const [wallets, wallet, refreshedSettings] = await Promise.all([
+          getAdminInternalWallets(),
+          selectedWalletEmail ? getAdminInternalWallet(selectedWalletEmail) : Promise.resolve(null),
+          getAdminSettings(),
+        ]);
+        setInternalWallets(wallets);
+        if (wallet) setSelectedWallet(wallet);
+        setSettings(refreshedSettings);
+      } catch (refreshError) {
+        setError(refreshError instanceof Error ? `Request reviewed, but balance totals could not be refreshed: ${refreshError.message}` : "Request reviewed, but balance totals could not be refreshed.");
+      }
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not review transfer request.");
+    } finally {
+      setReviewingRequestId("");
     }
   }
 
@@ -684,8 +805,8 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
         <div className="page-title">
           <span className="eyebrow">CONTROL PLANE</span>
           <div className="admin-page-heading">
-            <div><h1>{activePage === "overview" ? "Backoffice overview" : activePage === "merchants" ? "Merchant accounts" : activePage === "ledger" ? "Internal ledger" : "Collection settings"}</h1>
-            <p>{activePage === "overview" ? "Monitor merchant access and your internal bookkeeping." : activePage === "merchants" ? "Create merchant access and manage account status." : activePage === "ledger" ? "Review and record non-transferable bookkeeping adjustments." : "Configure collection references used by the merchant app."}</p></div>
+            <div><h1>{activePage === "overview" ? "Backoffice overview" : activePage === "merchants" ? "Merchant accounts" : activePage === "ledger" ? "Floating balance" : activePage === "requests" ? "Transfer requests" : "Collection settings"}</h1>
+            <p>{activePage === "overview" ? "Monitor merchant access and floating balances." : activePage === "merchants" ? "Create merchant access and manage account status." : activePage === "ledger" ? "Adjust merchant floating balances and review their audit entries." : activePage === "requests" ? "Mark requests successful or failed and arrange payouts for successful requests." : "Configure collection references used by the merchant app."}</p></div>
             <Button variant="secondary" icon={<RefreshCw size={15} />} onClick={() => void loadConsole()} disabled={loading}>Refresh</Button>
           </div>
         </div>
@@ -693,7 +814,8 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
           {([
             ["overview", "Overview", Home],
             ["merchants", "Merchants", Users],
-            ["ledger", "Internal ledger", WalletCards],
+            ["ledger", "Floating balance", WalletCards],
+            ["requests", `Transfer requests${transferRequests.filter((request) => request.status === "PENDING").length ? ` (${transferRequests.filter((request) => request.status === "PENDING").length})` : ""}`, Send],
             ["settings", "Settings", Settings],
           ] as const).map(([page, label, Icon]) => (
             <button key={page} type="button" className={activePage === page ? "active" : ""} aria-current={activePage === page ? "page" : undefined} onClick={() => { setActivePage(page); setError(""); setNotice(""); }}>
@@ -709,7 +831,9 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
               <>
                 <section className="admin-stat-grid" aria-label="Backoffice summary">
                   <article><span>Merchant accounts</span><strong>{merchants.length}</strong><small>{activeMerchantCount} active · {merchants.length - activeMerchantCount} disabled</small></article>
-                  <article><span>Internal ledger total</span><strong>₱{totalLedgerBalance.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong><small>Bookkeeping only · PHP</small></article>
+                  <article><span>Floating balance total</span><strong>₱{totalLedgerBalance.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong><small>Pending requests are reserved · PHP</small></article>
+                  <article><span>Pending transfer requests</span><strong>{transferRequests.filter((request) => request.status === "PENDING").length}</strong><small>Awaiting admin review</small></article>
+                  <article><span>Super-admin fee wallet</span><strong>₱{settings.superAdminFeeWallet.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong><small>Recorded collection and transfer fees</small></article>
                   <article><span>Collection rate</span><strong>{settings.krwToPhpRate ? `${settings.krwToPhpRate.toLocaleString("en-PH")} PHP` : "Automatic"}</strong><small>{settings.krwToPhpRate ? "KRW → PHP manual override" : "Live reference rate"}</small></article>
                   <article><span>USDT collection</span><strong>{settings.usdtAddress ? "Configured" : "Not configured"}</strong><small>{settings.usdtNetwork || "No receiving network set"}</small></article>
                 </section>
@@ -726,12 +850,12 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
                   </div>
                 </section>
                 <section className="admin-card admin-overview-note">
-                  <ShieldCheck size={18} /><p>Provider credentials and live payment execution are intentionally not available in this console. Internal ledger entries do not change SwiftPay funds and cannot be transferred.</p>
+                  <ShieldCheck size={18} /><p>Successful collections credit merchants net of the collection fee. Successful floating-balance requests debit the requested amount plus the fixed transfer fee. Both fees are recorded in the super-admin fee wallet; bank payouts remain manually handled outside this app.</p>
                 </section>
               </>
             )}
             {activePage === "ledger" && <section className="admin-card">
-              <div className="admin-card-heading"><span className="setting-icon"><WalletCards size={19} /></span><div><h2>Internal ledger balance</h2><p>Manual PHP ledger for records only. It is not a SwiftPay balance and cannot be withdrawn or transferred.</p></div></div>
+              <div className="admin-card-heading"><span className="setting-icon"><WalletCards size={19} /></span><div><h2>Merchant floating balance</h2><p>PHP balance used for transfer requests. Pending requests reserve funds until marked successful or failed.</p></div></div>
               {merchants.length === 0 ? <p className="admin-empty">Create a merchant account before recording ledger adjustments.</p> : (
                 <>
                   <label className="admin-wallet-select">
@@ -741,14 +865,14 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
                     </select>
                   </label>
                   <div className="internal-ledger-balance">
-                    <span>Internal ledger balance · PHP</span>
+                    <span>Floating balance · PHP</span>
                     <strong>{selectedWallet ? `₱${selectedWallet.balance.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "Loading…"}</strong>
-                    <small>Bookkeeping only — not transferable</small>
+                    <small>{selectedWallet ? `₱${selectedWallet.availableBalance.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} available after pending requests` : "Loading available balance…"}</small>
                   </div>
                   <form className="admin-ledger-form" onSubmit={adjustInternalWallet}>
                     <label><span>Adjustment amount (PHP)</span><input type="number" step="0.01" min="-1000000000" max="1000000000" value={adjustmentAmount} onChange={(event) => setAdjustmentAmount(event.target.value)} placeholder="Positive adds; negative subtracts" required /></label>
                     <label><span>Reason for audit record</span><input maxLength={250} value={adjustmentReason} onChange={(event) => setAdjustmentReason(event.target.value)} required placeholder="Internal bookkeeping reason" /></label>
-                    <Button type="submit" disabled={savingAdjustment || !selectedWalletEmail || !adjustmentAmount || Number(adjustmentAmount) === 0 || !adjustmentReason.trim()}>{savingAdjustment ? "Recording…" : "Record ledger adjustment"}</Button>
+                    <Button type="submit" disabled={savingAdjustment || !selectedWalletEmail || !adjustmentAmount || Number(adjustmentAmount) === 0 || !adjustmentReason.trim()}>{savingAdjustment ? "Recording…" : "Adjust floating balance"}</Button>
                   </form>
                   <div className="admin-adjustment-list">
                     <strong>Recent audit entries</strong>
@@ -762,9 +886,53 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
                 </>
               )}
             </section>}
+            {activePage === "requests" && <section className="admin-card">
+              <div className="admin-card-heading"><span className="setting-icon"><Send size={19} /></span><div><h2>Floating-balance transfer requests</h2><p>Successful requests debit the balance; failed requests require a merchant-visible reason.</p></div></div>
+              <div className="admin-transfer-request-list">
+                {transferRequests.length === 0 ? <p className="admin-empty">No transfer requests have been submitted.</p> : transferRequests.map((request) => (
+                  <article className="admin-transfer-request" key={request.id}>
+                    <div className="admin-transfer-request-heading">
+                      <div><strong>{request.merchantEmail}</strong><small>{new Date(request.requestedAt).toLocaleString()}</small></div>
+                      <span className={`admin-status-pill ${request.status.toLowerCase()}`}>{request.status.charAt(0) + request.status.slice(1).toLowerCase()}</span>
+                    </div>
+                    <strong className="admin-transfer-request-amount">₱{request.amount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                    <dl>
+                      <div><dt>Transfer fee</dt><dd>₱{request.transferFee.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</dd></div>
+                      <div><dt>Bank</dt><dd>{request.bankName}</dd></div>
+                      <div><dt>Account name</dt><dd>{request.accountName}</dd></div>
+                      <div><dt>Account number</dt><dd>{request.accountNumber}</dd></div>
+                    </dl>
+                    {request.status === "FAILED" && request.failureReason && <p className="admin-transfer-failure-reason"><strong>Failure reason for merchant</strong>{request.failureReason}</p>}
+                    {request.status === "PENDING" ? <div className="admin-transfer-request-actions">
+                      <Button disabled={reviewingRequestId === request.id} onClick={() => void reviewTransferRequest(request, "successful")}>{reviewingRequestId === request.id ? "Updating…" : "Mark successful"}</Button>
+                      <Button variant="secondary" disabled={reviewingRequestId === request.id} onClick={() => { setFailedRequestId(request.id); setFailedRequestReason(""); setError(""); }}>Mark failed</Button>
+                      {failedRequestId === request.id && <form className="admin-transfer-failure-form" onSubmit={(event) => { event.preventDefault(); void reviewTransferRequest(request, "failed"); }}>
+                        <label><span>Reason for failed settlement (visible to merchant)</span><textarea value={failedRequestReason} onChange={(event) => setFailedRequestReason(event.target.value)} maxLength={500} rows={3} required placeholder="Explain why the settlement failed" /></label>
+                        <div><Button type="submit" disabled={reviewingRequestId === request.id || !failedRequestReason.trim()}>{reviewingRequestId === request.id ? "Saving…" : "Confirm failed"}</Button><Button variant="quiet" disabled={reviewingRequestId === request.id} onClick={() => { setFailedRequestId(""); setFailedRequestReason(""); }}>Cancel</Button></div>
+                      </form>}
+                    </div> : request.reviewedAt && <small className="admin-transfer-reviewed">Reviewed {new Date(request.reviewedAt).toLocaleString()}{request.reviewedBy ? ` · ${request.reviewedBy}` : ""}</small>}
+                  </article>
+                ))}
+              </div>
+            </section>}
             {activePage === "settings" && <section className="admin-card">
-              <div className="admin-card-heading"><span className="setting-icon"><Settings size={19} /></span><div><h2>Collection configuration</h2><p>Provider secrets are not displayed or editable here.</p></div></div>
+              <div className="admin-card-heading"><span className="setting-icon"><Settings size={19} /></span><div><h2>Collection and fee configuration</h2><p>Collection fees reduce merchant net collections; fixed transfer fees apply only on successful settlements.</p></div></div>
               <form onSubmit={saveSettings}>
+                <label>
+                  <span>Collection fee (%)</span>
+                  <input type="number" min="0" max="100" step="0.01" value={settings.collectionFeePercent} onChange={(event) => setSettings({ ...settings, collectionFeePercent: event.target.value ? Number(event.target.value) : 0 })} />
+                  <small>Deducted from each successful merchant collection before its net amount is credited to the floating balance.</small>
+                </label>
+                <label>
+                  <span>Floating-balance transfer fee (PHP)</span>
+                  <input type="number" min="0" max="1000000" step="0.01" value={settings.transferFeeFixed} onChange={(event) => setSettings({ ...settings, transferFeeFixed: event.target.value ? Number(event.target.value) : 0 })} />
+                  <small>Reserved with each pending request, charged only when marked Successful, and credited to the super-admin fee wallet.</small>
+                </label>
+                <div className="internal-ledger-balance">
+                  <span>Super-admin fee wallet · PHP</span>
+                  <strong>₱{settings.superAdminFeeWallet.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                  <small>Accumulated fee ledger total</small>
+                </div>
                 <label>
                   <span>Optional manual KRW → PHP rate</span>
                   <input type="number" min="0.000001" max="1000" step="0.000001" value={settings.krwToPhpRate ?? ""} onChange={(event) => setSettings({ ...settings, krwToPhpRate: event.target.value ? Number(event.target.value) : null })} placeholder="Optional override" />
@@ -793,11 +961,28 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
                   <div className="admin-account-row" key={account.email}>
                     <div><strong>{account.email}</strong><small>Added {new Date(account.createdAt).toLocaleDateString()} · Updated {new Date(account.updatedAt).toLocaleDateString()}</small></div>
                     <span className={`admin-status-pill ${account.active ? "active" : "disabled"}`}>{account.active ? "Active" : "Disabled"}</span>
+                    <button type="button" className="admin-text-action" onClick={() => setEditingMerchant({ ...account, originalEmail: account.email })}>Edit profile</button>
                     <button type="button" className="admin-text-action" onClick={() => void setMerchantActive(account)}>{account.active ? "Disable access" : "Enable access"}</button>
                   </div>
                 ))}
                 {filteredMerchants.length === 0 && <p className="admin-empty">{merchants.length ? "No accounts match your search." : "No merchant accounts yet."}</p>}
               </div>
+              {editingMerchant && <form className="admin-merchant-profile-form" onSubmit={saveMerchantProfile}>
+                <div className="admin-card-heading"><span className="setting-icon"><Store size={19} /></span><div><h2>Edit merchant profile</h2><p>Updating the login email requires the merchant to sign in again.</p></div></div>
+                <label><span>Merchant email / login</span><input type="email" value={editingMerchant.email} onChange={(event) => setEditingMerchant({ ...editingMerchant, email: event.target.value })} required maxLength={254} /></label>
+                <label><span>Business or display name</span><input value={editingMerchant.businessName} onChange={(event) => setEditingMerchant({ ...editingMerchant, businessName: event.target.value })} maxLength={160} /></label>
+                <label><span>Contact person</span><input value={editingMerchant.contactPerson} onChange={(event) => setEditingMerchant({ ...editingMerchant, contactPerson: event.target.value })} maxLength={120} /></label>
+                <label><span>Phone number</span><input type="tel" value={editingMerchant.phoneNumber} onChange={(event) => setEditingMerchant({ ...editingMerchant, phoneNumber: event.target.value })} maxLength={40} /></label>
+                <label><span>Business address</span><textarea value={editingMerchant.businessAddress} onChange={(event) => setEditingMerchant({ ...editingMerchant, businessAddress: event.target.value })} maxLength={500} rows={3} /></label>
+                <div className="admin-profile-payout-heading"><strong>Saved payout account</strong><small>Leave all fields blank to remove the saved payout account.</small></div>
+                <label><span>Bank or wallet name</span><input value={editingMerchant.bankName} onChange={(event) => setEditingMerchant({ ...editingMerchant, bankName: event.target.value })} maxLength={100} /></label>
+                <label><span>Account holder name</span><input value={editingMerchant.accountName} onChange={(event) => setEditingMerchant({ ...editingMerchant, accountName: event.target.value })} maxLength={120} /></label>
+                <label><span>Account number</span><input value={editingMerchant.accountNumber} onChange={(event) => setEditingMerchant({ ...editingMerchant, accountNumber: event.target.value })} maxLength={34} autoComplete="off" /></label>
+                <div className="admin-transfer-request-actions">
+                  <Button type="submit" disabled={savingMerchant}>{savingMerchant ? "Saving…" : "Save merchant profile"}</Button>
+                  <Button variant="secondary" disabled={savingMerchant} onClick={() => setEditingMerchant(null)}>Cancel</Button>
+                </div>
+              </form>}
               <form onSubmit={addMerchant}>
                 <label><span>New merchant email</span><input type="email" value={newEmail} onChange={(event) => setNewEmail(event.target.value)} required autoComplete="off" /></label>
                 <Button type="submit" disabled={savingMerchant || !newEmail}>{savingMerchant ? "Creating…" : "Create merchant account"}</Button>
@@ -1056,6 +1241,7 @@ function TransferSheet({
   onComplete: () => void;
   initialValues?: TransferQrDetails;
 }) {
+  const { balanceVisible } = useBalanceVisibility();
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [bank, setBank] = useState("");
   const [bankSearch, setBankSearch] = useState("");
@@ -1248,7 +1434,7 @@ function TransferSheet({
             </div>
             <label><span>Recipient full name</span><input value={name} onChange={(event) => setName(event.target.value)} required /></label>
             <label><span>Account number</span><input inputMode="numeric" value={account} onChange={(event) => setAccount(event.target.value.replace(/\D/g, ""))} required /></label>
-            <label><span>Amount · Available balance ₱{balance.toLocaleString("en-PH", { minimumFractionDigits: 2 })}</span><div className="amount-field"><span>₱</span><input type="number" min="1" step=".01" value={amount} onChange={(event) => setAmount(event.target.value)} required /><small>PHP</small></div></label>
+            <label><span>Amount · Available balance {balanceVisible ? formatPeso(balance) : "₱ ••••••"}</span><div className="amount-field"><span>₱</span><input type="number" min="1" step=".01" value={amount} onChange={(event) => setAmount(event.target.value)} required /><small>PHP</small></div></label>
             <label><span>Remarks (required)</span><input value={remarks} onChange={(event) => setRemarks(event.target.value.slice(0, 80))} maxLength={80} required placeholder="Enter transfer remarks" /></label>
             {invalidAmount && amount && <div className="inline-error"><AlertCircle size={15} />Enter an amount within your available balance.</div>}
             {!remarks.trim() && <div className="inline-error"><AlertCircle size={15} />Enter remarks for this transfer.</div>}
@@ -1515,14 +1701,18 @@ function HomeView({
   onTransaction: (transaction: Transaction) => void;
   onWalletDetails: () => void;
 }) {
-  const [balanceVisible, setBalanceVisible] = useState(true);
+  const { balanceVisible, toggleBalanceVisibility } = useBalanceVisibility();
 
   return (
     <>
       <section className="balance-card">
         <div className="balance-top">
           <span>AVAILABLE BALANCE</span>
-          <button onClick={() => setBalanceVisible(!balanceVisible)} aria-label="Toggle balance visibility">
+          <button
+            onClick={toggleBalanceVisibility}
+            aria-label={balanceVisible ? "Hide balances" : "Show balances"}
+            aria-pressed={!balanceVisible}
+          >
             <Eye size={15} /> PHP
           </button>
         </div>
@@ -1573,6 +1763,8 @@ function HomeView({
         </div>
       </section>
 
+      <MerchantActivityChart />
+
       <section className="settlement-card">
         <div className="settlement-icon">
           <WalletCards size={21} />
@@ -1588,10 +1780,10 @@ function HomeView({
       <section className="internal-wallet-card">
         <div className="internal-wallet-heading">
           <WalletCards size={18} />
-          <span>Internal ledger balance</span>
-          <strong>{data.internalWalletBalance}</strong>
+          <span>Floating balance</span>
+          <strong>{balanceVisible ? data.internalWalletBalance : "₱ ••••••"}</strong>
         </div>
-        <p>For internal records only. This balance is separate from SwiftPay funds and is not available for transfer or withdrawal.</p>
+        <p>Available to request for transfer to your saved bank account. Pending requests reserve the requested amount.</p>
       </section>
 
       <section className="activity-section">
@@ -1612,10 +1804,175 @@ function HomeView({
   );
 }
 
-function WalletView({ data, onTransaction }: { data: DashboardData; onTransaction: (transaction: Transaction) => void }) {
+function MerchantActivityChart() {
+  const [points, setPoints] = useState<MerchantActivityTrendPoint[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
+  const requestInFlight = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    const refresh = async () => {
+      if (requestInFlight.current) return;
+      requestInFlight.current = true;
+      try {
+        const result = await getMerchantActivityTrend();
+        if (active) {
+          setPoints(result);
+          setError("");
+          setUpdatedAt(new Date());
+        }
+      } catch (requestError) {
+        if (active) setError(requestError instanceof Error ? requestError.message : "Could not load activity.");
+      } finally {
+        requestInFlight.current = false;
+        if (active) setLoading(false);
+      }
+    };
+
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 10_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [retryKey]);
+
+  const maxValue = Math.max(1, ...points.flatMap((point) => [point.collections, point.transfers]));
+  const chartHeight = 150;
+  const chartTop = 12;
+  const chartBottom = 124;
+  const chartLeft = 44;
+  const chartRight = 360;
+  const yFor = (value: number) => chartBottom - (value / maxValue) * (chartBottom - chartTop);
+  const xFor = (index: number) => chartLeft + (index * (chartRight - chartLeft)) / Math.max(points.length - 1, 1);
+  const seriesPath = (field: "collections" | "transfers") =>
+    points.map((point, index) => `${index === 0 ? "M" : "L"} ${xFor(index)} ${yFor(point[field])}`).join(" ");
+  const hasActivity = points.some((point) => point.collections > 0 || point.transfers > 0);
+  const formatAxisValue = (value: number) =>
+    value >= 1000 ? `₱${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k` : `₱${Math.round(value)}`;
+
+  return (
+    <section className="merchant-trend-card" aria-labelledby="merchant-trend-title">
+      <header className="section-header">
+        <div>
+          <span className="eyebrow">LAST 7 DAYS</span>
+          <h2 id="merchant-trend-title">Collections & transfers</h2>
+        </div>
+        <span className="merchant-trend-live"><i /> LIVE · 10 SEC</span>
+      </header>
+      {loading && points.length === 0 ? (
+        <p className="merchant-trend-message">Loading activity…</p>
+      ) : error && points.length === 0 ? (
+        <div className="merchant-trend-message merchant-trend-error" role="status">
+          <span>{error}</span>
+          <button type="button" onClick={() => setRetryKey((key) => key + 1)}>Retry</button>
+        </div>
+      ) : (
+        <>
+          <div className="merchant-trend-legend">
+            <span><i className="merchant-trend-collection-dot" /> Collections</span>
+            <span><i className="merchant-trend-transfer-dot" /> Transfers</span>
+          </div>
+          <svg
+            className="merchant-trend-svg"
+            viewBox={`0 0 380 ${chartHeight}`}
+            role="img"
+            aria-label="Successful collections and transfers by day over the last seven days"
+          >
+            {[0, 0.5, 1].map((fraction) => {
+              const y = chartBottom - fraction * (chartBottom - chartTop);
+              return (
+                <g key={fraction}>
+                  <line x1={chartLeft} x2={chartRight} y1={y} y2={y} className="merchant-trend-gridline" />
+                  <text x={chartLeft - 6} y={y + 3} textAnchor="end" className="merchant-trend-axis">
+                    {formatAxisValue(maxValue * fraction)}
+                  </text>
+                </g>
+              );
+            })}
+            {points.length > 0 && (
+              <>
+                <path d={seriesPath("collections")} className="merchant-trend-line merchant-trend-collection-line" />
+                <path d={seriesPath("transfers")} className="merchant-trend-line merchant-trend-transfer-line" />
+                {points.map((point, index) => (
+                  <g key={point.date}>
+                    <circle cx={xFor(index)} cy={yFor(point.collections)} r="3" className="merchant-trend-collection-point">
+                      <title>{`${point.date}: collections ${formatPeso(point.collections)}`}</title>
+                    </circle>
+                    <circle cx={xFor(index)} cy={yFor(point.transfers)} r="3" className="merchant-trend-transfer-point">
+                      <title>{`${point.date}: transfers ${formatPeso(point.transfers)}`}</title>
+                    </circle>
+                    <text x={xFor(index)} y={chartBottom + 18} textAnchor="middle" className="merchant-trend-axis">
+                      {new Date(`${point.date}T00:00:00`).toLocaleDateString("en-PH", { day: "numeric", month: "short" })}
+                    </text>
+                  </g>
+                ))}
+              </>
+            )}
+          </svg>
+          {!hasActivity && <p className="merchant-trend-empty">No successful collections or transfers in this period.</p>}
+          <div className="merchant-trend-updated">
+            {error ? `Update failed: ${error}` : updatedAt ? `Updated ${updatedAt.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}` : ""}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function WalletView({
+  data,
+  onTransaction,
+  onManagePayoutAccount,
+  onRefresh,
+}: {
+  data: DashboardData;
+  onTransaction: (transaction: Transaction) => void;
+  onManagePayoutAccount: () => void;
+  onRefresh: () => void;
+}) {
   const [filter, setFilter] = useState("All activity");
   const [query, setQuery] = useState("");
-  const [balanceVisible, setBalanceVisible] = useState(true);
+  const { balanceVisible, toggleBalanceVisibility } = useBalanceVisibility();
+  const [payoutAccount, setPayoutAccount] = useState<MerchantPayoutAccount | null>(null);
+  const [transferRequests, setTransferRequests] = useState<FloatingTransferRequest[]>([]);
+  const [requestAmount, setRequestAmount] = useState("");
+  const [requestBusy, setRequestBusy] = useState(false);
+  const [requestError, setRequestError] = useState("");
+  const [requestNotice, setRequestNotice] = useState("");
+  useEffect(() => {
+    let active = true;
+    Promise.all([getMerchantPayoutAccount(), getMerchantFloatingTransferRequests()]).then(([account, requests]) => {
+      if (!active) return;
+      setPayoutAccount(account);
+      setTransferRequests(requests);
+    }).catch((requestError) => {
+      if (active) setRequestError(requestError instanceof Error ? requestError.message : "Could not load floating-balance transfer details.");
+    });
+    return () => { active = false; };
+  }, []);
+
+  async function requestFloatingBalanceTransfer(event: FormEvent) {
+    event.preventDefault();
+    setRequestBusy(true);
+    setRequestError("");
+    setRequestNotice("");
+    try {
+      const request = await createMerchantFloatingTransferRequest({ amount: Number(requestAmount) });
+      setTransferRequests((current) => [request, ...current]);
+      setRequestAmount("");
+      setRequestNotice("Transfer request submitted. The requested amount is reserved until the super admin reviews it.");
+      onRefresh();
+    } catch (requestError) {
+      setRequestError(requestError instanceof Error ? requestError.message : "Could not submit transfer request.");
+    } finally {
+      setRequestBusy(false);
+    }
+  }
+
   const transactions = useMemo(
     () => data.transactions.filter((item) => {
       const matchesFilter =
@@ -1639,7 +1996,7 @@ function WalletView({ data, onTransaction }: { data: DashboardData; onTransactio
       <section className="wallet-balance-panel">
         <div className="wallet-balance-heading">
           <span>Available balance</span>
-          <button type="button" onClick={() => setBalanceVisible((visible) => !visible)} aria-label={balanceVisible ? "Hide available balance" : "Show available balance"} aria-pressed={!balanceVisible}>
+          <button type="button" onClick={toggleBalanceVisibility} aria-label={balanceVisible ? "Hide balances" : "Show balances"} aria-pressed={!balanceVisible}>
             <Eye size={15} /> {balanceVisible ? "Hide" : "Show"}
           </button>
         </div>
@@ -1649,10 +2006,34 @@ function WalletView({ data, onTransaction }: { data: DashboardData; onTransactio
           <span>{data.paymentEnvironment === "production" ? "Live" : "Sandbox"}</span>
         </div>
       </section>
-      <section className="wallet-ledger-card">
-        <span className="wallet-ledger-icon"><WalletCards size={18} /></span>
-        <div><strong>Internal ledger balance</strong><p>For record-keeping only. This is separate from your available balance and cannot be transferred or withdrawn.</p></div>
-        <b>{data.internalWalletBalance}</b>
+      <section className="floating-balance-card">
+        <div className="floating-balance-heading"><span className="wallet-ledger-icon"><WalletCards size={18} /></span><div><strong>Floating balance</strong><p>Available to request for transfer to your saved bank account.</p></div></div>
+        <div className="floating-balance-values">
+          <div><small>Total balance</small><strong>{balanceVisible ? data.internalWalletBalance : "₱ ••••••"}</strong></div>
+          <div><small>Available to request</small><strong>{balanceVisible ? formatPeso(data.availableFloatingBalance) : "₱ ••••••"}</strong></div>
+        </div>
+        <p className="floating-transfer-fee-note">Transfer fee: {formatPeso(data.transferFeeFixed)} per successful request. The fee is added to the requested amount and reserved while your request is pending.</p>
+        {payoutAccount && payoutAccount.bankName ? (
+          <div className="floating-payout-account"><span>Saved payout account</span><strong>{payoutAccount.bankName} · {payoutAccount.accountName}</strong><small>Account ending {payoutAccount.accountNumber.slice(-4)}</small></div>
+        ) : <p className="floating-payout-missing">Save a bank account in your profile before requesting a transfer.</p>}
+        <Button variant="secondary" onClick={onManagePayoutAccount}>Manage payout account</Button>
+        <form className="floating-transfer-form" onSubmit={requestFloatingBalanceTransfer}>
+          <label><span>Transfer request amount (PHP)</span><input type="number" min="0.01" max={Math.max(0, data.availableFloatingBalance - data.transferFeeFixed)} step="0.01" value={requestAmount} onChange={(event) => setRequestAmount(event.target.value)} placeholder="Enter an amount" required /></label>
+          {requestAmount && Number(requestAmount) > 0 && <small className="floating-transfer-total">Requested payout {formatPeso(Number(requestAmount))} + fee {formatPeso(data.transferFeeFixed)} = {formatPeso(Number(requestAmount) + data.transferFeeFixed)} total</small>}
+          <Button type="submit" disabled={requestBusy || !payoutAccount?.bankName || !requestAmount || Number(requestAmount) <= 0 || Number(requestAmount) + data.transferFeeFixed > data.availableFloatingBalance}>{requestBusy ? "Submitting…" : "Request transfer"}</Button>
+        </form>
+        {requestError && <div className="inline-error" role="alert"><AlertCircle size={14} />{requestError}</div>}
+        {requestNotice && <div className="admin-notice"><ShieldCheck size={14} />{requestNotice}</div>}
+        <div className="floating-request-list">
+          <strong>Transfer request history</strong>
+          {transferRequests.length === 0 ? <p>No transfer requests yet.</p> : transferRequests.map((request) => (
+            <div className="floating-request-row" key={request.id}>
+              <span><strong>{formatPeso(request.amount)}</strong><small>Fee {formatPeso(request.transferFee)} · {new Date(request.requestedAt).toLocaleString()}</small>{request.status === "FAILED" && request.failureReason && <small className="floating-request-failure-reason">Reason: {request.failureReason}</small>}</span>
+              <span className={`admin-status-pill ${request.status.toLowerCase()}`}>{request.status.charAt(0) + request.status.slice(1).toLowerCase()}</span>
+            </div>
+          ))}
+        </div>
+        <p className="floating-transfer-note">A successful request deducts the amount from your floating balance. The payout is handled manually by DRPAY outside the app.</p>
       </section>
       <header className="wallet-activity-heading">
         <div><span className="eyebrow">LATEST 50 RECORDS</span><h2>Wallet activity</h2></div>
@@ -1690,6 +2071,7 @@ function TransfersView({
   onTransfer: () => void;
   onTransaction: (transaction: Transaction) => void;
 }) {
+  const { balanceVisible } = useBalanceVisibility();
   const recentTransfers = data.transactions.filter((transaction) => transaction.numericAmount < 0).slice(0, 4);
 
   return (
@@ -1702,7 +2084,7 @@ function TransfersView({
       <section className="transfer-balance-panel">
         <div>
           <span>Available balance</span>
-          <strong>{data.availableBalance}</strong>
+          <strong>{balanceVisible ? data.availableBalance : "₱ ••••••"}</strong>
           <small>Provided by your SwiftPay payout account</small>
         </div>
         <Button icon={<Send size={17} />} onClick={onTransfer}>New transfer</Button>
@@ -1782,6 +2164,7 @@ function MoreView({
         <div>
           <strong>{session.email}</strong>
           <span>{session.role.replace("_", " ")} · {data.walletMode} PHP wallet</span>
+          <span className="merchant-verified-badge"><ShieldCheck size={12} aria-hidden="true" /> Verified</span>
         </div>
         <ShieldCheck size={20} />
       </div>
@@ -1843,6 +2226,12 @@ function ProfileInfoPage({
   const [institutionsLoading, setInstitutionsLoading] = useState(false);
   const [institutionsError, setInstitutionsError] = useState("");
   const [retryInstitutions, setRetryInstitutions] = useState(0);
+  const { balanceVisible } = useBalanceVisibility();
+  const [payoutAccount, setPayoutAccount] = useState<MerchantPayoutAccount>({ bankName: "", accountName: "", accountNumber: "" });
+  const [payoutLoading, setPayoutLoading] = useState(false);
+  const [payoutSaving, setPayoutSaving] = useState(false);
+  const [payoutError, setPayoutError] = useState("");
+  const [payoutNotice, setPayoutNotice] = useState("");
 
   useEffect(() => {
     if (title !== "Transfer banks") return;
@@ -1859,6 +2248,37 @@ function ProfileInfoPage({
     return () => { active = false; };
   }, [title, retryInstitutions]);
 
+  useEffect(() => {
+    if (title !== "Merchant profile") return;
+    let active = true;
+    setPayoutLoading(true);
+    setPayoutError("");
+    getMerchantPayoutAccount().then((account) => {
+      if (active) setPayoutAccount(account);
+    }).catch((requestError) => {
+      if (active) setPayoutError(requestError instanceof Error ? requestError.message : "Could not load your saved payout account.");
+    }).finally(() => {
+      if (active) setPayoutLoading(false);
+    });
+    return () => { active = false; };
+  }, [title]);
+
+  async function savePayoutAccount(event: FormEvent) {
+    event.preventDefault();
+    setPayoutSaving(true);
+    setPayoutError("");
+    setPayoutNotice("");
+    try {
+      const saved = await updateMerchantPayoutAccount(payoutAccount);
+      setPayoutAccount(saved);
+      setPayoutNotice("Your saved payout account has been updated.");
+    } catch (requestError) {
+      setPayoutError(requestError instanceof Error ? requestError.message : "Could not save your payout account.");
+    } finally {
+      setPayoutSaving(false);
+    }
+  }
+
   const successfulTransactions = data.transactions.filter((transaction) => transaction.status === "Completed");
   const pendingTransactions = data.transactions.filter((transaction) => transaction.status === "Pending");
   const failedTransactions = data.transactions.filter((transaction) => transaction.status === "Failed");
@@ -1873,15 +2293,31 @@ function ProfileInfoPage({
 
         {title === "Merchant profile" && (
           <>
-            <div className="profile-detail-hero"><span className="profile-avatar"><Store size={20} /></span><div><strong>{session.email}</strong><span>Verified merchant account</span></div></div>
+            <div className="profile-detail-hero">
+              <span className="profile-avatar"><Store size={20} /></span>
+              <div>
+                <strong>{session.email}</strong>
+                <span className="merchant-verified-badge"><ShieldCheck size={12} aria-hidden="true" /> Verified merchant</span>
+              </div>
+            </div>
             <dl className="detail-list">
               <div><dt>Account role</dt><dd>{session.role.replace("_", " ")}</dd></div>
               <div><dt>Wallet type</dt><dd>{data.walletMode === "pooled" ? "Pooled wallet" : "Internal ledger"}</dd></div>
               <div><dt>Account number</dt><dd>{data.accountNumber ? `•••• ${data.accountNumber.slice(-4)}` : "Not provided"}</dd></div>
-              <div><dt>Available balance</dt><dd>{data.availableBalance}</dd></div>
+              <div><dt>Available balance</dt><dd>{balanceVisible ? data.availableBalance : "₱ ••••••"}</dd></div>
               <div><dt>Environment</dt><dd>{data.paymentEnvironment === "production" ? "Live" : "Sandbox"}</dd></div>
             </dl>
-            <p className="profile-info-note">Business identity and account details are managed by your DRPAY administrator.</p>
+            <div className="profile-info-intro"><strong>Saved payout account</strong><p>Approved floating-balance transfers will be paid to this account. Confirm the details are correct before requesting a transfer.</p></div>
+            {payoutLoading ? <div className="profile-sheet-state" role="status"><LoaderCircle className="spin" size={17} />Loading saved payout account…</div> : (
+              <form className="payout-account-form" onSubmit={savePayoutAccount}>
+                <label><span>Bank or wallet name</span><input maxLength={100} value={payoutAccount.bankName} onChange={(event) => setPayoutAccount({ ...payoutAccount, bankName: event.target.value })} placeholder="For example: BPI" required /></label>
+                <label><span>Account holder name</span><input maxLength={120} value={payoutAccount.accountName} onChange={(event) => setPayoutAccount({ ...payoutAccount, accountName: event.target.value })} autoComplete="name" required /></label>
+                <label><span>Account number</span><input maxLength={34} value={payoutAccount.accountNumber} onChange={(event) => setPayoutAccount({ ...payoutAccount, accountNumber: event.target.value })} inputMode="text" autoComplete="off" required /></label>
+                {payoutError && <div className="inline-error" role="alert"><AlertCircle size={14} />{payoutError}</div>}
+                {payoutNotice && <div className="admin-notice"><ShieldCheck size={14} />{payoutNotice}</div>}
+                <Button type="submit" disabled={payoutSaving || !payoutAccount.bankName.trim() || !payoutAccount.accountName.trim() || !payoutAccount.accountNumber.trim()}>{payoutSaving ? "Saving…" : "Save payout account"}</Button>
+              </form>
+            )}
           </>
         )}
 
@@ -2359,7 +2795,12 @@ export default function App() {
                 }}
               />
             )}
-            {activeTab === "Wallet" && <WalletView data={data} onTransaction={setSelectedTransaction} />}
+            {activeTab === "Wallet" && <WalletView
+              data={data}
+              onTransaction={setSelectedTransaction}
+              onManagePayoutAccount={() => { setProfileSection("Merchant profile"); setActiveTab("Profile"); }}
+              onRefresh={() => { void loadDashboard(); }}
+            />}
             {activeTab === "Transfer" && (
               <TransfersView data={data} onTransfer={() => setShowTransfer(true)} onTransaction={setSelectedTransaction} />
             )}

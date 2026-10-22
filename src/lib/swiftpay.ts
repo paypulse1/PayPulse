@@ -28,6 +28,9 @@ export type DashboardData = {
   availableBalance: string;
   balance: number;
   internalWalletBalance: string;
+  floatingBalance: number;
+  availableFloatingBalance: number;
+  transferFeeFixed: number;
   grossVolume: string;
   successfulPayments: string;
   averageTransaction: string;
@@ -35,6 +38,12 @@ export type DashboardData = {
   walletMode: "internal" | "pooled" | "customer";
   paymentEnvironment: "sandbox" | "production";
   transactions: Transaction[];
+};
+
+export type MerchantActivityTrendPoint = {
+  date: string;
+  collections: number;
+  transfers: number;
 };
 
 export type QrPayment = {
@@ -118,11 +127,21 @@ export type AdminSettings = {
   krwToPhpRate: number | null;
   usdtAddress: string;
   usdtNetwork: string;
+  collectionFeePercent: number;
+  transferFeeFixed: number;
+  superAdminFeeWallet: number;
 };
 
 export type AdminMerchantAccount = {
   email: string;
   active: boolean;
+  businessName: string;
+  contactPerson: string;
+  phoneNumber: string;
+  businessAddress: string;
+  bankName: string;
+  accountName: string;
+  accountNumber: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -146,8 +165,29 @@ export type AdminInternalWallet = {
   merchantEmail: string;
   currency: "PHP";
   balance: number;
-  transferable: false;
+  availableBalance: number;
   adjustments: InternalWalletAdjustment[];
+};
+
+export type MerchantPayoutAccount = {
+  bankName: string;
+  accountName: string;
+  accountNumber: string;
+};
+
+export type FloatingTransferRequest = {
+  id: string;
+  merchantEmail?: string;
+  amount: number;
+  transferFee: number;
+  status: "PENDING" | "SUCCESSFUL" | "FAILED";
+  bankName: string;
+  accountName: string;
+  accountNumber: string;
+  requestedAt: string;
+  reviewedAt: string | null;
+  reviewedBy?: string | null;
+  failureReason: string | null;
 };
 
 type WalletBalanceResponse = {
@@ -161,7 +201,8 @@ type WalletBalanceResponse = {
 type InternalWalletResponse = {
   currency: "PHP";
   balance: number;
-  transferable: false;
+  availableBalance: number;
+  transferFeeFixed: number;
   label: string;
 };
 
@@ -184,6 +225,7 @@ const SESSION_KEY = "drpay_session";
 const PAYMENT_LINK_KEY = "drpay_pending_payment_link_key";
 const DEVICE_TOKEN_PREFIX = "drpay_device_";
 const VERIFIED_DEVICE_PREFIX = "drpay_verified_device_";
+const LAST_MERCHANT_EMAIL_KEY = "drpay_last_merchant_email";
 
 export function isBackendConfigured() {
   return Boolean(apiBaseUrl);
@@ -225,6 +267,10 @@ function getDeviceToken(email: string) {
 
 export function hasTrustedDevice(email: string) {
   return localStorage.getItem(`${VERIFIED_DEVICE_PREFIX}${email}`) === "true";
+}
+
+export function getLastMerchantEmail() {
+  return localStorage.getItem(LAST_MERCHANT_EMAIL_KEY) || "";
 }
 
 export function getPaymentLinkIdempotencyKey() {
@@ -296,13 +342,15 @@ export async function login(email: string, password: string): Promise<Session> {
 }
 
 function saveMerchantSession(email: string, response: { accessToken: string; expiresInSeconds: number; email?: string; role?: Session["role"] }) {
+  const merchantEmail = (response.email || email).trim().toLowerCase();
   const session: Session = {
     accessToken: response.accessToken,
     expiresAt: Date.now() + response.expiresInSeconds * 1000,
-    email: response.email || email,
+    email: merchantEmail,
     role: response.role || "merchant",
   };
   saveSession(session);
+  localStorage.setItem(LAST_MERCHANT_EMAIL_KEY, merchantEmail);
   return session;
 }
 
@@ -358,6 +406,10 @@ export async function removeBiometricCredential() {
 
 export function getMerchantSecurityStatus() {
   return backendRequest<MerchantSecurityStatus>("/v1/security/status");
+}
+
+export async function getMerchantActivityTrend(): Promise<MerchantActivityTrendPoint[]> {
+  return backendRequest<MerchantActivityTrendPoint[]>("/v1/wallet/activity/trend");
 }
 
 export async function registerPushDevice(token: string) {
@@ -438,6 +490,9 @@ export async function getMerchantDashboard(): Promise<DashboardData> {
     availableBalance: formatMoney(wallet.adjustedBalance ?? wallet.balance),
     balance: wallet.adjustedBalance ?? wallet.balance,
     internalWalletBalance: formatMoney(internalWallet.balance),
+    floatingBalance: internalWallet.balance,
+    availableFloatingBalance: internalWallet.availableBalance,
+    transferFeeFixed: internalWallet.transferFeeFixed,
     grossVolume: formatMoney(volume),
     successfulPayments: String(settledCredits.length),
     averageTransaction: formatMoney(settledCredits.length ? volume / settledCredits.length : 0),
@@ -483,6 +538,21 @@ export async function getAdminInternalWallet(email: string): Promise<AdminIntern
   return backendRequest<AdminInternalWallet>(`/v1/admin/internal-wallets/${encodeURIComponent(email)}`);
 }
 
+export async function getAdminFloatingTransferRequests(): Promise<FloatingTransferRequest[]> {
+  return backendRequest<FloatingTransferRequest[]>("/v1/admin/floating-transfer-requests");
+}
+
+export async function reviewAdminFloatingTransferRequest(
+  id: string,
+  decision: "successful" | "failed",
+  reason?: string,
+): Promise<FloatingTransferRequest> {
+  return backendRequest<FloatingTransferRequest>(`/v1/admin/floating-transfer-requests/${encodeURIComponent(id)}/${decision}`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
 export async function createAdminInternalWalletAdjustment(
   email: string,
   input: { amount: number; reason: string },
@@ -491,6 +561,28 @@ export async function createAdminInternalWalletAdjustment(
     `/v1/admin/internal-wallets/${encodeURIComponent(email)}/adjustments`,
     { method: "POST", body: JSON.stringify(input) },
   );
+}
+
+export async function getMerchantPayoutAccount(): Promise<MerchantPayoutAccount> {
+  return backendRequest<MerchantPayoutAccount>("/v1/floating-balance/payout-account");
+}
+
+export async function updateMerchantPayoutAccount(input: MerchantPayoutAccount): Promise<MerchantPayoutAccount> {
+  return backendRequest<MerchantPayoutAccount>("/v1/floating-balance/payout-account", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getMerchantFloatingTransferRequests(): Promise<FloatingTransferRequest[]> {
+  return backendRequest<FloatingTransferRequest[]>("/v1/floating-balance/transfer-requests");
+}
+
+export async function createMerchantFloatingTransferRequest(input: { amount: number }): Promise<FloatingTransferRequest> {
+  return backendRequest<FloatingTransferRequest>("/v1/floating-balance/transfer-requests", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export async function createAdminMerchantAccount(input: { email: string }): Promise<AdminMerchantAccount> {
@@ -502,7 +594,16 @@ export async function createAdminMerchantAccount(input: { email: string }): Prom
 
 export async function updateAdminMerchantAccount(
   email: string,
-  input: { active: boolean },
+  input: { active: boolean } | {
+    email: string;
+    businessName: string;
+    contactPerson: string;
+    phoneNumber: string;
+    businessAddress: string;
+    bankName: string;
+    accountName: string;
+    accountNumber: string;
+  },
 ): Promise<AdminMerchantAccount> {
   return backendRequest<AdminMerchantAccount>(`/v1/admin/merchants/${encodeURIComponent(email)}`, {
     method: "PATCH",
