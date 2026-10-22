@@ -1476,9 +1476,12 @@ function TransferSheet({
               <div className="rail-selector">
                 {(["INSTAPAY", "PESONET"] as const).map((item) => {
                   const available = item === "INSTAPAY" ? selectedBank?.instapayEnabled !== false : selectedBank?.pesonetEnabled !== false;
+                  const networkName = item === "INSTAPAY" ? "InstaPay" : "PESONet";
                   return (
-                    <button key={item} type="button" className={channel === item ? "active" : ""} aria-pressed={channel === item} onClick={() => setChannel(item)} disabled={!selectedBank || !available}>
-                      <strong>{item === "INSTAPAY" ? "InstaPay" : "PESONet"}</strong>
+                    <button key={item} type="button" className={channel === item ? "active" : ""} aria-label={`${networkName} — ${item === "INSTAPAY" ? "real-time transfers" : "batch bank transfers"}`} aria-pressed={channel === item} onClick={() => setChannel(item)} disabled={!selectedBank || !available}>
+                      <span className="transfer-network-logo-frame">
+                        <img src={`/bank-logos/${item === "INSTAPAY" ? "instapay" : "pesonet"}.png`} alt="" aria-hidden="true" />
+                      </span>
                       <small>{item === "INSTAPAY" ? "Real-time transfers" : "Batch bank transfers"}</small>
                     </button>
                   );

@@ -352,11 +352,12 @@ h1, h2, p { margin-top: 0; }
 .transfer-step-heading > strong { font-size: 13px; }
 .transfer-step-heading > small { color: var(--muted); font-size: 8px; line-height: 1.5; }
 .transfer-field-group { display: grid; gap: 0; }
-.rail-selector button { min-height: 56px; height: auto; padding: 8px; display: grid; justify-items: start; align-content: center; gap: 4px; text-align: left; }
-.rail-selector button strong { font-size: 9px; }
+.rail-selector button { min-height: 64px; height: auto; padding: 8px; display: grid; justify-items: start; align-content: center; gap: 5px; text-align: left; }
+.transfer-network-logo-frame { width: 100%; height: 27px; padding: 3px 7px; display: flex; align-items: center; justify-content: flex-start; border-radius: 5px; background: #fff; }
+.transfer-network-logo-frame img { display: block; max-width: min(100%, 100px); max-height: 21px; object-fit: contain; object-position: left center; }
 .rail-selector button small { color: inherit; font-size: 7px; font-weight: 500; opacity: .75; }
 .rail-selector button:disabled { cursor: not-allowed; opacity: .4; }
-.rail-selector button.active small { color: #d6e2f0; opacity: 1; }
+.rail-selector button.active small { color: inherit; opacity: 1; }
 .transfer-recipient-fields { display: grid; gap: 14px; }
 .transfer-amount-label > span { display: flex !important; align-items: center; justify-content: space-between; gap: 8px; }
 .transfer-amount-label > span small { color: var(--muted); font-size: 8px; font-weight: 500; }
@@ -424,7 +425,7 @@ h1, h2, p { margin-top: 0; }
 .detail-note { display: flex; align-items: flex-start; gap: 7px; color: var(--muted); font-size: 8px; line-height: 1.5; }
 .detail-sheet > .button { width: 100%; }
 .rail-selector { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.rail-selector button { height: 39px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--muted); font-size: 8px; font-weight: 800; }
+.rail-selector button { min-height: 64px; height: auto; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--muted); font-size: 8px; font-weight: 800; }
 .rail-selector button.active { background: var(--ink); border-color: var(--ink); color: white; }
 .rail-selector button:disabled { opacity: .35; }
 .review-total { padding: 18px; border-radius: 15px; background: var(--ink); color: white; text-align: center; }
