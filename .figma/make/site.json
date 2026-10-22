@@ -2,6 +2,9 @@
   "title": "DRPAY | Merchant payments, made clear",
   "description": "A focused merchant workspace for payment collections, bank transfers, and account activity.",
   "language": "en",
+  "icons": {
+    "icon": "/drpay-mark.png"
+  },
   "robots": {
     "index": true
   },
