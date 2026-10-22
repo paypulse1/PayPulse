@@ -20,11 +20,17 @@ services:
         value: https://drpay-web.onrender.com
       - key: DRPAY_MERCHANT_EMAIL
         sync: false
-      - key: DRPAY_MERCHANT_PASSWORD
+      - key: DRPAY_SUPER_ADMIN_EMAIL
+        sync: false
+      - key: DRPAY_SUPER_ADMIN_PASSWORD
         sync: false
       - key: DRPAY_PASSWORD_SALT
         sync: false
       - key: DRPAY_JWT_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
         sync: false
       - key: DRPAY_MAX_TRANSFER_PHP
         value: "100000"

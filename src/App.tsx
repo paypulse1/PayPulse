@@ -12,7 +12,6 @@ import {
   CreditCard,
   Download,
   Eye,
-  Fingerprint,
   Home,
   KeyRound,
   Link2,
@@ -35,7 +34,6 @@ import {
 } from "lucide-react";
 import {
   clearSession,
-  authorizeTransferWithBiometric,
   authorizeTransferWithPin,
   createPaymentLink,
   createAdminMerchantAccount,
@@ -53,12 +51,14 @@ import {
   getPaymentLinkIdempotencyKey,
   getPaymentLinkStatus,
   getSession,
+  hasTrustedDevice,
   isBackendConfigured,
   login,
-  loginWithBiometric,
-  registerMerchantBiometric,
+  loginWithPin,
+  requestDeviceOtp,
   resetPaymentLinkIdempotencyKey,
   setMerchantPin,
+  verifyDeviceOtp,
   updateAdminMerchantAccount,
   updateAdminSettings,
   type AdminMerchantAccount,
@@ -235,17 +235,35 @@ function TransactionRow({ transaction, onClick }: { transaction: Transaction; on
 
 function SignIn({ onAuthenticated }: { onAuthenticated: (session: Session) => void }) {
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [pin, setPin] = useState("");
+  const [otp, setOtp] = useState("");
+  const [challengeId, setChallengeId] = useState("");
+  const [stage, setStage] = useState<"email" | "pin" | "otp">("email");
   const [busy, setBusy] = useState(false);
-  const [biometricBusy, setBiometricBusy] = useState(false);
   const [error, setError] = useState("");
 
-  async function submit(event: FormEvent) {
+  async function sendOtp() {
+    const normalizedEmail = email.trim().toLowerCase();
+    setBusy(true);
+    setError("");
+    try {
+      const response = await requestDeviceOtp(normalizedEmail);
+      setChallengeId(response.challengeId);
+      setStage("otp");
+      setOtp("");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not send a verification code.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitPin(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError("");
     try {
-      onAuthenticated(await login(email.trim().toLowerCase(), password));
+      onAuthenticated(await loginWithPin(email.trim().toLowerCase(), pin));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Sign-in failed");
     } finally {
@@ -253,16 +271,23 @@ function SignIn({ onAuthenticated }: { onAuthenticated: (session: Session) => vo
     }
   }
 
-  async function biometricSubmit() {
-    setBiometricBusy(true);
+  async function submitOtp(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
     setError("");
     try {
-      onAuthenticated(await loginWithBiometric(email.trim().toLowerCase()));
+      onAuthenticated(await verifyDeviceOtp(email.trim().toLowerCase(), challengeId, otp));
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Biometric sign-in failed.");
+      setError(requestError instanceof Error ? requestError.message : "Device verification failed.");
     } finally {
-      setBiometricBusy(false);
+      setBusy(false);
     }
+  }
+
+  function continueWithEmail(event: FormEvent) {
+    event.preventDefault();
+    if (hasTrustedDevice(email.trim().toLowerCase())) setStage("pin");
+    else void sendOtp();
   }
 
   return (
@@ -272,25 +297,34 @@ function SignIn({ onAuthenticated }: { onAuthenticated: (session: Session) => vo
         <span className="auth-mark"><img src="/drpay-mark.png" alt="" /></span>
         <span className="eyebrow">MERCHANT ACCESS</span>
         <h1>Welcome to DRPAY</h1>
-        <p>Sign in with the merchant account configured for your DRPAY backend.</p>
-        <form onSubmit={submit}>
+        <p>{stage === "otp" ? "Enter the six-digit code sent to your merchant email to verify this device." : stage === "pin" ? "Enter your MPIN on this verified device." : "Use your MPIN on a verified device, or verify a new device by email."}</p>
+        {stage === "email" && <form onSubmit={continueWithEmail}>
           <label>
             <span>Merchant email</span>
             <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="merchant@company.ph" required autoComplete="username" autoFocus />
           </label>
-          <label>
-            <span>Password</span>
-            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required autoComplete="current-password" />
-          </label>
           {error && <div className="inline-error"><AlertCircle size={15} />{error}</div>}
-          <Button type="submit" disabled={busy || biometricBusy || !email || !password} icon={busy ? <LoaderCircle className="spin" size={17} /> : <Lock size={17} />}>
-            {busy ? "Signing in…" : "Sign in securely"}
+          <Button type="submit" disabled={busy || !email} icon={busy ? <LoaderCircle className="spin" size={17} /> : <Lock size={17} />}>
+            {busy ? "Continuing…" : hasTrustedDevice(email.trim().toLowerCase()) ? "Continue with MPIN" : "Verify device by email"}
           </Button>
-          <Button type="button" variant="secondary" disabled={busy || biometricBusy || !email} onClick={() => void biometricSubmit()} icon={biometricBusy ? <LoaderCircle className="spin" size={17} /> : <Fingerprint size={17} />}>
-            {biometricBusy ? "Verifying…" : "Sign in with biometrics"}
-          </Button>
-        </form>
-        <div className="auth-trust"><ShieldCheck size={16} /><span>Eight-hour signed session. Password verification stays on DRPAY; passkey biometrics remain on your device.</span></div>
+        </form>}
+        {stage === "pin" && <form onSubmit={(event) => void submitPin(event)}>
+          <label><span>Merchant email</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="username" /></label>
+          <label><span>Four-digit MPIN</span><input type="password" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} autoComplete="current-password" value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 4))} required autoFocus /></label>
+          {error && <div className="inline-error"><AlertCircle size={15} />{error}</div>}
+          <Button type="submit" disabled={busy || pin.length !== 4} icon={busy ? <LoaderCircle className="spin" size={17} /> : <KeyRound size={17} />}>{busy ? "Signing in…" : "Sign in with MPIN"}</Button>
+          <button type="button" className="authorization-back" disabled={busy} onClick={() => { setStage("email"); setPin(""); setError(""); }}>Use a different email</button>
+          <Button type="button" variant="secondary" disabled={busy} onClick={() => void sendOtp()}>Verify with email code</Button>
+        </form>}
+        {stage === "otp" && <form onSubmit={(event) => void submitOtp(event)}>
+          <label><span>Merchant email</span><input type="email" value={email} readOnly /></label>
+          <label><span>Six-digit email code</span><input type="text" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} autoComplete="one-time-code" value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))} required autoFocus /></label>
+          {error && <div className="inline-error"><AlertCircle size={15} />{error}</div>}
+          <Button type="submit" disabled={busy || otp.length !== 6} icon={busy ? <LoaderCircle className="spin" size={17} /> : <ShieldCheck size={17} />}>{busy ? "Verifying…" : "Verify device"}</Button>
+          <Button type="button" variant="secondary" disabled={busy} onClick={() => void sendOtp()}>Send a new code</Button>
+          <button type="button" className="authorization-back" disabled={busy} onClick={() => { setStage("email"); setOtp(""); setError(""); }}>Back</button>
+        </form>}
+        <div className="auth-trust"><ShieldCheck size={16} /><span>New devices require an email code. Previously verified devices use your MPIN. Sessions expire automatically after eight hours.</span></div>
       </section>
     </main>
   );
@@ -325,24 +359,9 @@ function SecuritySetupScreen({
       setStatus(nextStatus);
       setPin("");
       setConfirmPin("");
-      if (nextStatus.biometricConfigured) onComplete(nextStatus);
+      onComplete(nextStatus);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not save your MPIN.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function setupBiometric() {
-    setBusy(true);
-    setError("");
-    try {
-      await registerMerchantBiometric();
-      const nextStatus = { ...status, biometricConfigured: true };
-      setStatus(nextStatus);
-      if (nextStatus.pinConfigured) onComplete(nextStatus);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Could not set up biometric sign-in.");
     } finally {
       setBusy(false);
     }
@@ -354,14 +373,11 @@ function SecuritySetupScreen({
       <section className="auth-card security-setup-card">
         <span className="auth-mark"><ShieldCheck size={26} /></span>
         <span className="eyebrow">SECURE YOUR ACCOUNT</span>
-        <h1>Set up transfer verification</h1>
-        <p>Create a four-digit MPIN and enroll this device’s biometric passkey. You’ll verify with either method before each transfer.</p>
+        <h1>Set up your MPIN</h1>
+        <p>Create a four-digit MPIN for future sign-ins on this verified device and to approve every transfer.</p>
         {!status.pinConfigured ? (
           <form onSubmit={(event) => void savePin(event)}>
-            <label>
-              <span>Four-digit MPIN</span>
-              <input type="password" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} autoComplete="new-password" value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 4))} required />
-            </label>
+            <label><span>Four-digit MPIN</span><input type="password" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} autoComplete="new-password" value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 4))} required /></label>
             <label>
               <span>Confirm MPIN</span>
               <input type="password" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} autoComplete="new-password" value={confirmPin} onChange={(event) => setConfirmPin(event.target.value.replace(/\D/g, "").slice(0, 4))} required />
@@ -374,18 +390,8 @@ function SecuritySetupScreen({
         ) : (
           <div className="security-setup-complete"><ShieldCheck size={16} /> MPIN is set</div>
         )}
-        {!status.biometricConfigured ? (
-          <div className="security-biometric-setup">
-            <p>Biometric passkeys use your device’s fingerprint, face unlock, or secure screen lock.</p>
-            <Button type="button" variant="secondary" disabled={busy} onClick={() => void setupBiometric()} icon={busy ? <LoaderCircle className="spin" size={17} /> : <Fingerprint size={17} />}>
-              {busy ? "Setting up…" : "Set up biometric sign-in"}
-            </Button>
-          </div>
-        ) : (
-          <div className="security-setup-complete"><Fingerprint size={16} /> Biometric sign-in is set</div>
-        )}
         {error && status.pinConfigured && <div className="inline-error"><AlertCircle size={15} />{error}</div>}
-        <div className="auth-trust"><Lock size={15} /><span>Your MPIN is hashed on the backend. Biometric data stays with your device; DRPAY stores only the public passkey credential.</span></div>
+        <div className="auth-trust"><Lock size={15} /><span>Your MPIN is hashed on the backend and is required for future sign-ins and transfers.</span></div>
         <Button type="button" variant="quiet" onClick={onSignOut}>Sign out</Button>
       </section>
     </main>
@@ -453,9 +459,6 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
   const [adjustmentAmount, setAdjustmentAmount] = useState("");
   const [adjustmentReason, setAdjustmentReason] = useState("");
   const [newEmail, setNewEmail] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [resetEmail, setResetEmail] = useState("");
-  const [resetPassword, setResetPassword] = useState("");
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [savingMerchant, setSavingMerchant] = useState(false);
@@ -523,9 +526,8 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
     setError("");
     setNotice("");
     try {
-      await createAdminMerchantAccount({ email: newEmail, password: newPassword });
+      await createAdminMerchantAccount({ email: newEmail });
       setNewEmail("");
-      setNewPassword("");
       setNotice("Merchant account created.");
       await loadConsole();
     } catch (requestError) {
@@ -544,20 +546,6 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
       setNotice(`Merchant account ${account.active ? "disabled" : "enabled"}.`);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not update merchant account.");
-    }
-  }
-
-  async function resetMerchantPassword(event: FormEvent) {
-    event.preventDefault();
-    setError("");
-    setNotice("");
-    try {
-      await updateAdminMerchantAccount(resetEmail, { password: resetPassword });
-      setResetEmail("");
-      setResetPassword("");
-      setNotice(`Password reset for ${resetEmail}. Share the new password with its owner securely.`);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Could not reset merchant password.");
     }
   }
 
@@ -658,28 +646,20 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
             </section>
 
             <section className="admin-card">
-              <div className="admin-card-heading"><span className="setting-icon"><Users size={19} /></span><div><h2>Merchant accounts</h2><p>Create accounts, reset passwords, or disable access.</p></div></div>
+              <div className="admin-card-heading"><span className="setting-icon"><Users size={19} /></span><div><h2>Merchant accounts</h2><p>Create email-verified accounts or disable access.</p></div></div>
               <div className="admin-account-list">
                 {merchants.map((account) => (
                   <div className="admin-account-row" key={account.email}>
                     <div><strong>{account.email}</strong><small>{account.active ? "Active" : "Disabled"} · added {new Date(account.createdAt).toLocaleDateString()}</small></div>
                     <button type="button" className="admin-text-action" onClick={() => void setMerchantActive(account)}>{account.active ? "Disable" : "Enable"}</button>
-                    <button type="button" className="admin-text-action" onClick={() => { setResetEmail(account.email); setResetPassword(""); }}>Reset password</button>
                   </div>
                 ))}
                 {merchants.length === 0 && <p className="admin-empty">No merchant accounts yet.</p>}
               </div>
               <form onSubmit={addMerchant}>
                 <label><span>New merchant email</span><input type="email" value={newEmail} onChange={(event) => setNewEmail(event.target.value)} required autoComplete="off" /></label>
-                <label><span>Temporary password (16+ characters)</span><input type="password" minLength={16} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required autoComplete="new-password" /></label>
-                <Button type="submit" disabled={savingMerchant || newPassword.length < 16}>{savingMerchant ? "Creating…" : "Create merchant account"}</Button>
+                <Button type="submit" disabled={savingMerchant || !newEmail}>{savingMerchant ? "Creating…" : "Create merchant account"}</Button>
               </form>
-              {resetEmail && (
-                <form className="admin-reset-form" onSubmit={resetMerchantPassword}>
-                  <label><span>New password for {resetEmail}</span><input type="password" minLength={16} value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} required autoComplete="new-password" /></label>
-                  <div className="result-actions"><Button variant="secondary" onClick={() => setResetEmail("")}>Cancel</Button><Button type="submit" disabled={resetPassword.length < 16}>Reset password</Button></div>
-                </form>
-              )}
             </section>
           </>
         )}
@@ -942,7 +922,7 @@ function TransferSheet({
   const [name, setName] = useState(initialValues?.fullName || "");
   const [account, setAccount] = useState(initialValues?.accountNumber || "");
   const [amount, setAmount] = useState(initialValues?.amount ? String(initialValues.amount) : "");
-  const [remarks, setRemarks] = useState("");
+  const [remarks, setRemarks] = useState("Bank transfer");
   const [reviewing, setReviewing] = useState(false);
   const [authorizing, setAuthorizing] = useState(false);
   const [pin, setPin] = useState("");
@@ -973,13 +953,11 @@ function TransferSheet({
     idempotencyKey,
   };
 
-  async function submitWithAuthorization(method: "pin" | "biometric") {
+  async function submitWithAuthorization() {
     setBusy(true);
     setError("");
     try {
-      const authorization = method === "pin"
-        ? await authorizeTransferWithPin(transferAuthorization, pin)
-        : await authorizeTransferWithBiometric(transferAuthorization);
+      const authorization = await authorizeTransferWithPin(transferAuthorization, pin);
       const response = await createTransfer({ ...transferAuthorization, stepUpToken: authorization.stepUpToken });
       setResult(response);
       onComplete();
@@ -1053,16 +1031,13 @@ function TransferSheet({
               </div>
             ) : (
               <div className="transfer-authorization">
-                <p>Verify this transfer with your MPIN or device biometric before it is sent.</p>
+                <p>Enter your MPIN to approve this transfer.</p>
                 <label>
                   <span>Four-digit MPIN</span>
                   <input type="password" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{4}" maxLength={4} value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 4))} />
                 </label>
-                <Button disabled={busy || pin.length !== 4} onClick={() => void submitWithAuthorization("pin")} icon={busy ? <LoaderCircle className="spin" size={16} /> : <KeyRound size={16} />}>
+                <Button disabled={busy || pin.length !== 4} onClick={() => void submitWithAuthorization()} icon={busy ? <LoaderCircle className="spin" size={16} /> : <KeyRound size={16} />}>
                   {busy ? "Verifying…" : "Verify MPIN and send"}
-                </Button>
-                <Button variant="secondary" disabled={busy} onClick={() => void submitWithAuthorization("biometric")} icon={busy ? <LoaderCircle className="spin" size={16} /> : <Fingerprint size={16} />}>
-                  {busy ? "Verifying…" : "Verify with biometrics"}
                 </Button>
                 <button type="button" className="authorization-back" disabled={busy} onClick={() => { setAuthorizing(false); setPin(""); setError(""); }}>Back to transfer details</button>
               </div>
@@ -1132,9 +1107,10 @@ function TransferSheet({
             <label><span>Recipient full name</span><input value={name} onChange={(event) => setName(event.target.value)} required /></label>
             <label><span>Account number</span><input inputMode="numeric" value={account} onChange={(event) => setAccount(event.target.value.replace(/\D/g, ""))} required /></label>
             <label><span>Amount · Available ₱{balance.toLocaleString("en-PH", { minimumFractionDigits: 2 })}</span><div className="amount-field"><span>₱</span><input type="number" min="1" step=".01" value={amount} onChange={(event) => setAmount(event.target.value)} required /><small>PHP</small></div></label>
-            <label><span>Remarks</span><input value={remarks} onChange={(event) => setRemarks(event.target.value.slice(0, 80))} maxLength={80} placeholder="Optional (up to 80 characters)" /></label>
+            <label><span>Remarks (required)</span><input value={remarks} onChange={(event) => setRemarks(event.target.value.slice(0, 80))} maxLength={80} required placeholder="Enter transfer remarks" /></label>
             {invalidAmount && amount && <div className="inline-error"><AlertCircle size={15} />Enter an amount within your available balance.</div>}
-            <Button type="submit" disabled={invalidAmount || !bank || !channelAvailable || !account || !name}>Review transfer</Button>
+            {!remarks.trim() && <div className="inline-error"><AlertCircle size={15} />Enter remarks for this transfer.</div>}
+            <Button type="submit" disabled={invalidAmount || !bank || !channelAvailable || !account || !name || !remarks.trim()}>Review transfer</Button>
           </form>
         )}
       </section>
@@ -1679,7 +1655,7 @@ export default function App() {
 
   if (!session) return <SignIn onAuthenticated={setSession} />;
 
-  if (session.role === "merchant" && securityStatus && (!securityStatus.pinConfigured || !securityStatus.biometricConfigured)) {
+  if (session.role === "merchant" && securityStatus && !securityStatus.pinConfigured) {
     return <SecuritySetupScreen initialStatus={securityStatus} onComplete={setSecurityStatus} onSignOut={signOut} />;
   }
 
@@ -1796,7 +1772,7 @@ export default function App() {
             <div className="tool-info">
               {infoTool === "Merchant profile" && <><strong>{session.email}</strong><p>Role: {session.role.replace("_", " ")}<br />Wallet mode: {data.walletMode}<br />Account: {data.accountNumber ? `•••• ${data.accountNumber.slice(-4)}` : "Internal merchant ledger"}</p></>}
               {infoTool === "Transfer banks" && <><strong>Supported rails</strong><p>Eligible institutions are loaded directly from SwiftPay. InstaPay and PESONET availability is enforced per institution during transfer setup.</p></>}
-              {infoTool === "Security" && <><strong>Transfer verification</strong><p>Every outgoing transfer requires your four-digit MPIN or device passkey. Biometric sign-in uses a secure platform credential; biometric data stays on your device. Sessions expire automatically after eight hours.</p></>}
+              {infoTool === "Security" && <><strong>Device and transfer security</strong><p>New devices must be verified using a one-time code sent to your merchant email. Previously verified devices use your four-digit MPIN for sign-in, and every outgoing transfer also requires MPIN approval. Sessions expire automatically after eight hours.</p></>}
               {infoTool === "API documentation" && <><strong>Trusted backend boundary</strong><p>Collections use SwiftPay hosted payment links, wallet data comes from the disbursement account API, and transfers use SwiftPay disbursements. SwiftPay secret keys never belong in this client.</p></>}
               {infoTool === "Help center" && <><strong>Need assistance?</strong><p>Keep the payment or transfer reference available when contacting your payment support team. Never send a password, access token, or secret key.</p></>}
             </div>

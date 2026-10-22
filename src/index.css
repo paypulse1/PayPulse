@@ -375,9 +375,6 @@ h1, h2, p { margin-top: 0; }
 .auth-card .button { width: 100%; }
 .security-setup-card { margin-bottom: 22px; }
 .security-setup-complete { min-height: 42px; margin: 12px 0; padding: 0 12px; display: flex; align-items: center; gap: 8px; border-radius: 10px; background: var(--success-soft); color: var(--success); font-size: 9px; font-weight: 700; }
-.security-biometric-setup { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
-.security-biometric-setup p { margin-bottom: 12px; color: var(--muted); font-size: 9px; line-height: 1.55; }
-.security-biometric-setup .button { width: 100%; }
 .transfer-authorization { margin-top: 17px; padding: 14px; display: grid; gap: 10px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-soft); }
 .transfer-authorization > p { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
 .transfer-authorization label > span { display: block; margin-bottom: 6px; color: var(--muted); font-size: 8px; font-weight: 700; }

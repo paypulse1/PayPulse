@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomInt, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import cors from "cors";
@@ -6,12 +6,6 @@ import express from "express";
 import { rateLimit } from "express-rate-limit";
 import helmet from "helmet";
 import { SignJWT, jwtVerify } from "jose";
-import {
-  generateAuthenticationOptions,
-  generateRegistrationOptions,
-  verifyAuthenticationResponse,
-  verifyRegistrationResponse,
-} from "@simplewebauthn/server";
 import pg from "pg";
 
 const { Pool } = pg;
@@ -51,12 +45,13 @@ const pool = new Pool({
 });
 
 const authEmail = process.env.DRPAY_MERCHANT_EMAIL?.trim().toLowerCase();
-const authPassword = process.env.DRPAY_MERCHANT_PASSWORD;
 const superAdminEmail = process.env.DRPAY_SUPER_ADMIN_EMAIL?.trim().toLowerCase();
 const superAdminPassword = process.env.DRPAY_SUPER_ADMIN_PASSWORD;
 const passwordSalt = process.env.DRPAY_PASSWORD_SALT;
 const jwtSecretValue = process.env.DRPAY_JWT_SECRET;
 const jwtSecret = jwtSecretValue ? new TextEncoder().encode(jwtSecretValue) : null;
+const resendApiKey = process.env.RESEND_API_KEY;
+const resendFromEmail = process.env.RESEND_FROM_EMAIL;
 const swiftPayAccessKey = process.env.SWIFTPAY_ACCESS_KEY;
 const swiftPaySecretKey = process.env.SWIFTPAY_SECRET_KEY;
 const swiftPayEnvironment = process.env.SWIFTPAY_ENV || "sandbox";
@@ -86,11 +81,12 @@ function requiredEnvironment() {
   const missing = [];
   if (!process.env.DATABASE_URL) missing.push("DATABASE_URL");
   if (!authEmail) missing.push("DRPAY_MERCHANT_EMAIL");
-  if (!authPassword || authPassword.length < 16) missing.push("DRPAY_MERCHANT_PASSWORD (16+ characters)");
   if (!superAdminEmail) missing.push("DRPAY_SUPER_ADMIN_EMAIL");
   if (!superAdminPassword || superAdminPassword.length < 16) missing.push("DRPAY_SUPER_ADMIN_PASSWORD (16+ characters)");
   if (!passwordSalt || passwordSalt.length < 32) missing.push("DRPAY_PASSWORD_SALT (32+ characters)");
   if (!jwtSecretValue || jwtSecretValue.length < 32) missing.push("DRPAY_JWT_SECRET (32+ characters)");
+  if (!resendApiKey) missing.push("RESEND_API_KEY");
+  if (!resendFromEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(resendFromEmail)) missing.push("RESEND_FROM_EMAIL (verified sender address)");
   if (!swiftPayAccessKey) missing.push("SWIFTPAY_ACCESS_KEY");
   if (!swiftPaySecretKey) missing.push("SWIFTPAY_SECRET_KEY");
   if (!frontendOrigin) missing.push("DRPAY_FRONTEND_ORIGIN");
@@ -101,19 +97,6 @@ function requiredEnvironment() {
   }
 
   return missing;
-}
-
-function webAuthnConfig() {
-  if (!frontendOrigin || !jwtSecret || !jwtSecretValue) {
-    throw new Error("WebAuthn sign-in is not configured.");
-  }
-  const rpID = process.env.DRPAY_WEBAUTHN_RP_ID || new URL(frontendOrigin).hostname;
-  const expectedOrigins = (process.env.DRPAY_WEBAUTHN_ORIGINS || frontendOrigin)
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean)
-    .map((origin) => new URL(origin).origin);
-  return { rpID, expectedOrigins };
 }
 
 function transferSecurityFingerprint(email, body, idempotencyKey) {
@@ -138,27 +121,68 @@ async function issueMerchantSession(email) {
   return { accessToken, expiresInSeconds: 8 * 60 * 60, email, role: "merchant" };
 }
 
-async function createWebAuthnChallenge(email, challenge, purpose, transferFingerprint = null) {
-  await pool.query(
-    "DELETE FROM webauthn_challenges WHERE expires_at <= NOW() OR consumed_at < NOW() - INTERVAL '1 day'",
-  );
-  const id = randomUUID();
-  await pool.query(
-    `INSERT INTO webauthn_challenges (id, email, challenge, purpose, transfer_fingerprint, expires_at)
-     VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '5 minutes')`,
-    [id, email, challenge, purpose, transferFingerprint],
-  );
-  return id;
+function deviceTokenHash(deviceToken) {
+  return createHash("sha256").update(deviceToken).digest("hex");
+}
+
+async function sendMerchantOtp(email, code) {
+  const subject = "Your DRPAY verification code";
+  const text = [
+    "DRPAY",
+    "",
+    "Confirm it's you",
+    `Use this one-time code to securely verify your device: ${code}`,
+    "",
+    "This code expires in 10 minutes. For your security, never share it with anyone. DRPAY will never ask you to share a verification code.",
+    "",
+    "If you did not request this code, you can safely ignore this email.",
+  ].join("\n");
+  const html = `
+    <div style="margin:0;padding:40px 16px;background:#f4f7f5;font-family:Arial,Helvetica,sans-serif;color:#17231d">
+      <div style="max-width:480px;margin:0 auto">
+        <div style="padding:0 4px 20px;color:#163c2a;font-size:18px;font-weight:700;letter-spacing:1px">DRPAY</div>
+        <div style="padding:32px;background:#ffffff;border:1px solid #e2e9e4;border-radius:16px">
+          <div style="margin-bottom:10px;color:#5d7867;font-size:11px;font-weight:700;letter-spacing:1.5px">SECURITY VERIFICATION</div>
+          <h1 style="margin:0 0 12px;font-size:24px;line-height:1.3">Confirm it’s you</h1>
+          <p style="margin:0;color:#58665e;font-size:14px;line-height:1.6">Enter this one-time code in DRPAY to verify your device.</p>
+          <div style="margin:26px 0;padding:19px 12px;background:#f4f8f5;border:1px solid #e2e9e4;border-radius:12px;text-align:center">
+            <div style="color:#163c2a;font-size:32px;font-weight:700;letter-spacing:9px">${code}</div>
+          </div>
+          <p style="margin:0;color:#58665e;font-size:13px;line-height:1.6">This code expires in <strong style="color:#17231d">10 minutes</strong>.</p>
+          <div style="margin-top:22px;padding-top:18px;border-top:1px solid #e8ede9">
+            <p style="margin:0;color:#58665e;font-size:12px;line-height:1.6"><strong style="color:#17231d">Keep your account secure.</strong> Never share this code. DRPAY will never ask you to share a verification code.</p>
+          </div>
+        </div>
+        <p style="margin:18px 4px 0;color:#77847c;font-size:11px;line-height:1.6">If you didn’t request this code, you can safely ignore this email.</p>
+      </div>
+    </div>
+  `;
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${resendApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: resendFromEmail,
+      to: [email],
+      subject,
+      text,
+      html,
+    }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    console.error("Resend OTP delivery failed", response.status, body.name || "provider error");
+    throw new Error("Verification email could not be sent.");
+  }
 }
 
 function passwordMatchesWithSalt(candidate, expectedPassword, salt) {
   const expected = scryptSync(expectedPassword, salt, 64);
   const actual = scryptSync(candidate, salt, 64);
   return timingSafeEqual(expected, actual);
-}
-
-function passwordHash(password, salt = randomBytes(32).toString("hex")) {
-  return { passwordSalt: salt, passwordHash: scryptSync(password, salt, 64).toString("hex") };
 }
 
 function matchesPasswordHash(candidate, salt, expectedHash) {
@@ -171,8 +195,6 @@ async function initializeDatabase() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS merchant_accounts (
       email TEXT PRIMARY KEY,
-      password_salt TEXT NOT NULL,
-      password_hash TEXT NOT NULL,
       active BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -189,17 +211,29 @@ async function initializeDatabase() {
       CHECK ((pin_salt IS NULL) = (pin_hash IS NULL)),
       CHECK ((credential_id IS NULL) = (credential_public_key IS NULL))
     );
-    CREATE TABLE IF NOT EXISTS webauthn_challenges (
+    UPDATE merchant_security
+    SET credential_id = NULL, credential_public_key = NULL, credential_counter = 0, credential_transports = '[]'::jsonb
+    WHERE credential_id IS NOT NULL OR credential_public_key IS NOT NULL;
+    DROP TABLE IF EXISTS webauthn_challenges;
+    ALTER TABLE merchant_accounts DROP COLUMN IF EXISTS password_salt, DROP COLUMN IF EXISTS password_hash;
+    CREATE TABLE IF NOT EXISTS merchant_email_otps (
       id UUID PRIMARY KEY,
       email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
-      challenge TEXT NOT NULL,
-      purpose TEXT NOT NULL CHECK (purpose IN ('REGISTER', 'LOGIN', 'TRANSFER')),
-      transfer_fingerprint TEXT,
+      device_token_hash TEXT NOT NULL,
+      code_hash TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
       expires_at TIMESTAMPTZ NOT NULL,
-      consumed_at TIMESTAMPTZ
+      consumed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
-    CREATE INDEX IF NOT EXISTS webauthn_challenges_email_purpose_idx
-      ON webauthn_challenges (email, purpose, expires_at DESC);
+    CREATE INDEX IF NOT EXISTS merchant_email_otps_expiry_idx ON merchant_email_otps (expires_at);
+    CREATE TABLE IF NOT EXISTS merchant_devices (
+      email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      device_token_hash TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_used_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (email, device_token_hash)
+    );
     CREATE TABLE IF NOT EXISTS used_step_up_tokens (
       jti TEXT PRIMARY KEY,
       merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
@@ -267,13 +301,12 @@ async function initializeDatabase() {
       ON disbursements (request_fingerprint)
       WHERE status IN ('REQUESTING', 'PENDING', 'OUTCOME_UNKNOWN');
   `);
-  if (authEmail && authPassword && passwordSalt) {
-    const seededPassword = passwordHash(authPassword, passwordSalt);
+  if (authEmail) {
     await pool.query(
-      `INSERT INTO merchant_accounts (email, password_salt, password_hash)
-       VALUES ($1, $2, $3)
+      `INSERT INTO merchant_accounts (email)
+       VALUES ($1)
        ON CONFLICT (email) DO NOTHING`,
-      [authEmail, seededPassword.passwordSalt, seededPassword.passwordHash],
+      [authEmail],
     );
   }
   if (process.env.DRPAY_KRW_TO_PHP_RATE !== undefined) {
@@ -414,111 +447,162 @@ app.post("/v1/auth/login", loginLimiter, async (req, res) => {
   if (password.length < 1 || password.length > 256) {
     return res.status(401).json({ error: "Email or password is incorrect." });
   }
-  let role;
-  if (email === superAdminEmail && superAdminPassword && passwordSalt && passwordMatchesWithSalt(password, superAdminPassword, passwordSalt)) {
-    role = "super_admin";
-  } else {
-    const account = await pool.query(
-      "SELECT email, password_salt, password_hash FROM merchant_accounts WHERE email = $1 AND active = TRUE",
-      [email],
-    );
-    const user = account.rows[0];
-    if (!user || !matchesPasswordHash(password, user.password_salt, user.password_hash)) {
-      return res.status(401).json({ error: "Email or password is incorrect." });
-    }
-    role = "merchant";
+  if (email !== superAdminEmail || !superAdminPassword || !passwordSalt || !passwordMatchesWithSalt(password, superAdminPassword, passwordSalt)) {
+    return res.status(401).json({ error: "Email or password is incorrect." });
   }
-  if (role === "merchant") return res.set("Cache-Control", "no-store").json(await issueMerchantSession(email));
   const expiresInSeconds = 60 * 60;
-  const accessToken = await new SignJWT({ role })
+  const accessToken = await new SignJWT({ role: "super_admin" })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(email)
     .setIssuedAt()
-    .setExpirationTime(role === "super_admin" ? "1h" : "8h")
+    .setExpirationTime("1h")
     .sign(jwtSecret);
-  return res.set("Cache-Control", "no-store").json({ accessToken, expiresInSeconds, email, role });
+  return res.set("Cache-Control", "no-store").json({ accessToken, expiresInSeconds, email, role: "super_admin" });
 });
 
-app.post("/v1/auth/biometric/options", loginLimiter, async (req, res) => {
+app.post("/v1/auth/device/otp/request", loginLimiter, async (req, res) => {
   const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
-  if (!email || email.length > 254) return res.status(400).json({ error: "Enter your merchant email first." });
-  try {
-    const { rpID } = webAuthnConfig();
-    const { rows } = await pool.query(
-      `SELECT s.credential_id, s.credential_transports
-       FROM merchant_accounts a JOIN merchant_security s ON s.email = a.email
-       WHERE a.email = $1 AND a.active = TRUE AND s.credential_id IS NOT NULL`,
+  const deviceToken = typeof req.body?.deviceToken === "string" ? req.body.deviceToken : "";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || !/^[A-Za-z0-9_-]{32,128}$/.test(deviceToken)) {
+    return res.status(400).json({ error: "Enter a valid merchant email to request a verification code." });
+  }
+  const account = await pool.query("SELECT email FROM merchant_accounts WHERE email = $1 AND active = TRUE", [email]);
+  let challengeId = randomUUID();
+  if (account.rowCount) {
+    const tokenHash = deviceTokenHash(deviceToken);
+    const recentChallenge = await pool.query(
+      `SELECT id FROM merchant_email_otps
+       WHERE email = $1 AND device_token_hash = $2 AND consumed_at IS NULL
+         AND attempts < 5 AND created_at > NOW() - INTERVAL '60 seconds'
+       ORDER BY created_at DESC LIMIT 1`,
+      [email, tokenHash],
+    );
+    if (recentChallenge.rowCount) {
+      challengeId = recentChallenge.rows[0].id;
+      return res.set("Cache-Control", "no-store").json({
+        challengeId,
+        message: "If this email belongs to an active merchant account, a verification code has been sent.",
+      });
+    }
+    const recentRequests = await pool.query(
+      "SELECT COUNT(*)::int AS count FROM merchant_email_otps WHERE email = $1 AND created_at > NOW() - INTERVAL '15 minutes'",
       [email],
     );
-    if (!rows[0]) return res.status(404).json({ error: "No biometric sign-in is enrolled for this merchant account." });
-    const options = await generateAuthenticationOptions({
-      rpID,
-      allowCredentials: [{ id: rows[0].credential_id, transports: rows[0].credential_transports }],
-      userVerification: "required",
-    });
-    const challengeId = await createWebAuthnChallenge(email, options.challenge, "LOGIN");
-    return res.set("Cache-Control", "no-store").json({ challengeId, options });
+    if (recentRequests.rows[0].count >= 5) {
+      return res.set("Cache-Control", "no-store").json({
+        challengeId,
+        message: "If this email belongs to an active merchant account, a verification code has been sent.",
+      });
+    }
+    const code = String(randomInt(100_000, 1_000_000));
+    const codeHash = createHmac("sha256", jwtSecretValue).update(`${challengeId}:${email}:${code}`).digest("hex");
+    await pool.query("DELETE FROM merchant_email_otps WHERE expires_at <= NOW() OR consumed_at IS NOT NULL");
+    await pool.query(
+      "UPDATE merchant_email_otps SET consumed_at = NOW() WHERE email = $1 AND consumed_at IS NULL",
+      [email],
+    );
+    await pool.query(
+      `INSERT INTO merchant_email_otps (id, email, device_token_hash, code_hash, expires_at)
+       VALUES ($1, $2, $3, $4, NOW() + INTERVAL '10 minutes')`,
+      [challengeId, email, tokenHash, codeHash],
+    );
+    try {
+      await sendMerchantOtp(email, code);
+    } catch {
+      await pool.query("DELETE FROM merchant_email_otps WHERE id = $1", [challengeId]);
+      return res.status(503).json({ error: "Verification email could not be sent. Try again later." });
+    }
+  }
+  return res.set("Cache-Control", "no-store").json({
+    challengeId,
+    message: "If this email belongs to an active merchant account, a verification code has been sent.",
+  });
+});
+
+app.post("/v1/auth/device/otp/verify", loginLimiter, async (req, res) => {
+  const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+  const code = typeof req.body?.code === "string" ? req.body.code.trim() : "";
+  const challengeId = typeof req.body?.challengeId === "string" ? req.body.challengeId : "";
+  const deviceToken = typeof req.body?.deviceToken === "string" ? req.body.deviceToken : "";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !/^\d{6}$/.test(code) || !/^[A-Za-z0-9_-]{32,128}$/.test(deviceToken) || !/^[0-9a-f-]{36}$/i.test(challengeId)) {
+    return res.status(400).json({ error: "Enter the six-digit email code to verify this device." });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const challenge = await client.query(
+      `SELECT o.code_hash FROM merchant_email_otps o
+       JOIN merchant_accounts a ON a.email = o.email AND a.active = TRUE
+       WHERE o.id = $1 AND o.email = $2 AND o.device_token_hash = $3
+         AND o.consumed_at IS NULL AND o.expires_at > NOW() AND o.attempts < 5
+       FOR UPDATE`,
+      [challengeId, email, deviceTokenHash(deviceToken)],
+    );
+    const record = challenge.rows[0];
+    if (!record) {
+      await client.query("ROLLBACK");
+      return res.status(401).json({ error: "That code is invalid or expired. Request a new code." });
+    }
+    await client.query("UPDATE merchant_email_otps SET attempts = attempts + 1 WHERE id = $1", [challengeId]);
+    const expectedHash = createHmac("sha256", jwtSecretValue).update(`${challengeId}:${email}:${code}`).digest();
+    const actualHash = Buffer.from(record.code_hash, "hex");
+    if (actualHash.length !== expectedHash.length || !timingSafeEqual(actualHash, expectedHash)) {
+      await client.query("COMMIT");
+      return res.status(401).json({ error: "That code is incorrect. Check the email and try again." });
+    }
+    const consumed = await client.query(
+      `UPDATE merchant_email_otps SET consumed_at = NOW()
+       WHERE id = $1 AND consumed_at IS NULL RETURNING id`,
+      [challengeId],
+    );
+    if (!consumed.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(401).json({ error: "That code has already been used. Request a new code." });
+    }
+    await client.query(
+      `INSERT INTO merchant_devices (email, device_token_hash)
+       VALUES ($1, $2) ON CONFLICT (email, device_token_hash) DO UPDATE SET last_used_at = NOW()`,
+      [email, deviceTokenHash(deviceToken)],
+    );
+    await client.query("COMMIT");
+    return res.set("Cache-Control", "no-store").json(await issueMerchantSession(email));
   } catch (error) {
-    console.error("Biometric sign-in options failed", error.message);
-    return res.status(503).json({ error: "Biometric sign-in is unavailable. Use your merchant password." });
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
   }
 });
 
-app.post("/v1/auth/biometric/verify", loginLimiter, async (req, res) => {
+app.post("/v1/auth/device/pin", loginLimiter, async (req, res) => {
   const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
-  const challengeId = typeof req.body?.challengeId === "string" ? req.body.challengeId : "";
-  if (!email || !challengeId || !req.body?.response) return res.status(400).json({ error: "Biometric sign-in could not be verified." });
-  try {
-    const { rpID, expectedOrigins } = webAuthnConfig();
-    const [{ rows: challenges }, { rows: credentials }] = await Promise.all([
-      pool.query(
-        `SELECT challenge FROM webauthn_challenges
-         WHERE id = $1 AND email = $2 AND purpose = 'LOGIN' AND consumed_at IS NULL AND expires_at > NOW()`,
-        [challengeId, email],
-      ),
-      pool.query(
-        `SELECT s.credential_id, s.credential_public_key, s.credential_counter, s.credential_transports
-         FROM merchant_accounts a JOIN merchant_security s ON s.email = a.email
-         WHERE a.email = $1 AND a.active = TRUE`,
-        [email],
-      ),
-    ]);
-    const challenge = challenges[0];
-    const credential = credentials[0];
-    if (!challenge || !credential?.credential_id || req.body.response.id !== credential.credential_id) {
-      return res.status(401).json({ error: "Biometric sign-in failed. Try again or use your password." });
-    }
-    const verification = await verifyAuthenticationResponse({
-      response: req.body.response,
-      expectedChallenge: challenge.challenge,
-      expectedOrigin: expectedOrigins,
-      expectedRPID: rpID,
-      credential: {
-        id: credential.credential_id,
-        publicKey: new Uint8Array(credential.credential_public_key),
-        counter: Number(credential.credential_counter),
-        transports: credential.credential_transports,
-      },
-      requireUserVerification: true,
-    });
-    if (!verification.verified || !verification.authenticationInfo.userVerified) {
-      return res.status(401).json({ error: "Biometric sign-in failed. Try again or use your password." });
-    }
-    const consumed = await pool.query(
-      `UPDATE webauthn_challenges SET consumed_at = NOW()
-       WHERE id = $1 AND consumed_at IS NULL AND expires_at > NOW() RETURNING id`,
-      [challengeId],
-    );
-    if (!consumed.rowCount) return res.status(401).json({ error: "That biometric challenge has expired. Try again." });
-    await pool.query(
-      "UPDATE merchant_security SET credential_counter = $1, updated_at = NOW() WHERE email = $2",
-      [verification.authenticationInfo.newCounter, email],
-    );
-    return res.set("Cache-Control", "no-store").json(await issueMerchantSession(email));
-  } catch (error) {
-    console.error("Biometric sign-in verification failed", error.message);
-    return res.status(401).json({ error: "Biometric sign-in failed. Try again or use your password." });
+  const pin = typeof req.body?.pin === "string" ? req.body.pin : "";
+  const deviceToken = typeof req.body?.deviceToken === "string" ? req.body.deviceToken : "";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !/^\d{4}$/.test(pin) || !/^[A-Za-z0-9_-]{32,128}$/.test(deviceToken)) {
+    return res.status(401).json({ error: "Check your email and four-digit MPIN, or verify this device by email." });
   }
+  const { rows } = await pool.query(
+    `SELECT s.pin_salt, s.pin_hash FROM merchant_accounts a
+     JOIN merchant_devices d ON d.email = a.email
+     JOIN merchant_security s ON s.email = a.email
+     WHERE a.email = $1 AND a.active = TRUE AND d.device_token_hash = $2`,
+    [email, deviceTokenHash(deviceToken)],
+  );
+  const security = rows[0];
+  if (!security?.pin_hash) return res.status(403).json({ error: "Verify this device by email and set up an MPIN to continue." });
+  await pool.query("DELETE FROM merchant_pin_attempts WHERE created_at <= NOW() - INTERVAL '1 day'");
+  const attempts = await pool.query(
+    "SELECT COUNT(*)::int AS count FROM merchant_pin_attempts WHERE merchant_email = $1 AND created_at > NOW() - INTERVAL '15 minutes'",
+    [email],
+  );
+  if (attempts.rows[0].count >= 5) return res.status(429).json({ error: "Too many incorrect MPIN attempts. Try again in 15 minutes." });
+  if (!matchesPasswordHash(pin, security.pin_salt, security.pin_hash)) {
+    await pool.query("INSERT INTO merchant_pin_attempts (merchant_email) VALUES ($1)", [email]);
+    return res.status(401).json({ error: "The MPIN is incorrect." });
+  }
+  await pool.query("DELETE FROM merchant_pin_attempts WHERE merchant_email = $1", [email]);
+  await pool.query("UPDATE merchant_devices SET last_used_at = NOW() WHERE email = $1 AND device_token_hash = $2", [email, deviceTokenHash(deviceToken)]);
+  return res.set("Cache-Control", "no-store").json(await issueMerchantSession(email));
 });
 
 app.use("/v1/admin", requireSuperAdmin);
@@ -660,20 +744,15 @@ app.post("/v1/admin/internal-wallets/:email/adjustments", async (req, res) => {
 
 app.post("/v1/admin/merchants", async (req, res) => {
   const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
-  const password = typeof req.body?.password === "string" ? req.body.password : "";
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
     return res.status(400).json({ error: "Enter a valid merchant email address." });
   }
-  if (password.length < 16 || password.length > 256) {
-    return res.status(400).json({ error: "Merchant passwords must be 16–256 characters." });
-  }
-  const credentials = passwordHash(password);
   try {
     const result = await pool.query(
-      `INSERT INTO merchant_accounts (email, password_salt, password_hash)
-       VALUES ($1, $2, $3)
+      `INSERT INTO merchant_accounts (email)
+       VALUES ($1)
        RETURNING email, active, created_at AS "createdAt", updated_at AS "updatedAt"`,
-      [email, credentials.passwordSalt, credentials.passwordHash],
+      [email],
     );
     return res.status(201).json(result.rows[0]);
   } catch (error) {
@@ -685,12 +764,7 @@ app.post("/v1/admin/merchants", async (req, res) => {
 app.patch("/v1/admin/merchants/:email", async (req, res) => {
   const email = typeof req.params.email === "string" ? req.params.email.trim().toLowerCase() : "";
   const hasActive = typeof req.body?.active === "boolean";
-  const hasPassword = typeof req.body?.password === "string";
-  if (!hasActive && !hasPassword) return res.status(400).json({ error: "Provide an active state or a replacement password." });
-  if (hasPassword && (req.body.password.length < 16 || req.body.password.length > 256)) {
-    return res.status(400).json({ error: "Merchant passwords must be 16–256 characters." });
-  }
-  const credentials = hasPassword ? passwordHash(req.body.password) : null;
+  if (!hasActive) return res.status(400).json({ error: "Provide an active state." });
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -709,16 +783,15 @@ app.patch("/v1/admin/merchants/:email", async (req, res) => {
         await client.query("ROLLBACK");
         return res.status(409).json({ error: "The last active merchant account cannot be disabled." });
       }
+      await client.query("DELETE FROM merchant_devices WHERE email = $1", [email]);
     }
     const result = await client.query(
       `UPDATE merchant_accounts SET
-         active = CASE WHEN $2::boolean IS NULL THEN active ELSE $2 END,
-         password_salt = COALESCE($3, password_salt),
-         password_hash = COALESCE($4, password_hash),
+         active = $2,
          updated_at = NOW()
        WHERE email = $1
        RETURNING email, active, created_at AS "createdAt", updated_at AS "updatedAt"`,
-      [email, hasActive ? req.body.active : null, credentials?.passwordSalt || null, credentials?.passwordHash || null],
+      [email, req.body.active],
     );
     await client.query("COMMIT");
     return res.json(result.rows[0]);
@@ -805,12 +878,11 @@ app.use("/v1", requireMerchant);
 
 app.get("/v1/security/status", async (req, res) => {
   const { rows } = await pool.query(
-    "SELECT pin_hash IS NOT NULL AS pin_configured, credential_id IS NOT NULL AS biometric_configured FROM merchant_security WHERE email = $1",
+    "SELECT pin_hash IS NOT NULL AS pin_configured FROM merchant_security WHERE email = $1",
     [req.merchantEmail],
   );
   return res.set("Cache-Control", "no-store").json({
     pinConfigured: rows[0]?.pin_configured === true,
-    biometricConfigured: rows[0]?.biometric_configured === true,
   });
 });
 
@@ -829,89 +901,6 @@ app.post("/v1/security/pin", async (req, res) => {
   return res.set("Cache-Control", "no-store").json({ pinConfigured: true });
 });
 
-app.post("/v1/security/biometric/register/options", async (req, res) => {
-  try {
-    const { rpID } = webAuthnConfig();
-    const { rows } = await pool.query(
-      "SELECT credential_id FROM merchant_security WHERE email = $1",
-      [req.merchantEmail],
-    );
-    if (rows[0]?.credential_id) return res.status(409).json({ error: "Biometric sign-in is already configured." });
-    const options = await generateRegistrationOptions({
-      rpName: "DRPAY Merchant",
-      rpID,
-      userID: new TextEncoder().encode(req.merchantEmail),
-      userName: req.merchantEmail,
-      userDisplayName: req.merchantEmail,
-      attestationType: "none",
-      authenticatorSelection: {
-        authenticatorAttachment: "platform",
-        residentKey: "preferred",
-        userVerification: "required",
-      },
-    });
-    const challengeId = await createWebAuthnChallenge(req.merchantEmail, options.challenge, "REGISTER");
-    return res.set("Cache-Control", "no-store").json({ challengeId, options });
-  } catch (error) {
-    console.error("Biometric registration options failed", error.message);
-    return res.status(503).json({ error: "Biometric setup is unavailable on this device or origin." });
-  }
-});
-
-app.post("/v1/security/biometric/register/verify", async (req, res) => {
-  const challengeId = typeof req.body?.challengeId === "string" ? req.body.challengeId : "";
-  if (!challengeId || !req.body?.response) return res.status(400).json({ error: "Biometric setup could not be verified." });
-  try {
-    const { rpID, expectedOrigins } = webAuthnConfig();
-    const { rows } = await pool.query(
-      `SELECT challenge FROM webauthn_challenges
-       WHERE id = $1 AND email = $2 AND purpose = 'REGISTER' AND consumed_at IS NULL AND expires_at > NOW()`,
-      [challengeId, req.merchantEmail],
-    );
-    if (!rows[0]) return res.status(400).json({ error: "That biometric setup challenge has expired. Try again." });
-    const verification = await verifyRegistrationResponse({
-      response: req.body.response,
-      expectedChallenge: rows[0].challenge,
-      expectedOrigin: expectedOrigins,
-      expectedRPID: rpID,
-      requireUserVerification: true,
-    });
-    if (!verification.verified || !verification.registrationInfo.userVerified) {
-      return res.status(400).json({ error: "Your device could not verify biometric enrollment." });
-    }
-    const { credential } = verification.registrationInfo;
-    await pool.query("INSERT INTO merchant_security (email) VALUES ($1) ON CONFLICT (email) DO NOTHING", [req.merchantEmail]);
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      const consumed = await client.query(
-        `UPDATE webauthn_challenges SET consumed_at = NOW()
-         WHERE id = $1 AND consumed_at IS NULL AND expires_at > NOW() RETURNING id`,
-        [challengeId],
-      );
-      if (!consumed.rowCount) throw new Error("That biometric setup challenge has already been used.");
-      const saved = await client.query(
-        `UPDATE merchant_security
-         SET credential_id = $1, credential_public_key = $2, credential_counter = $3,
-             credential_transports = $4, updated_at = NOW()
-         WHERE email = $5 AND credential_id IS NULL RETURNING email`,
-        [credential.id, Buffer.from(credential.publicKey), credential.counter, JSON.stringify(req.body.response.response?.transports || []), req.merchantEmail],
-      );
-      if (!saved.rowCount) throw new Error("Biometric sign-in is already configured.");
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
-    return res.set("Cache-Control", "no-store").json({ biometricConfigured: true });
-  } catch (error) {
-    console.error("Biometric registration verification failed", error.message);
-    return res.status(400).json({ error: error.message || "Biometric setup could not be verified." });
-  }
-});
-
 app.post("/v1/security/transfer/pin", pinAttemptLimiter, async (req, res) => {
   const pin = typeof req.body?.pin === "string" ? req.body.pin : "";
   const idempotencyKey = typeof req.body?.idempotencyKey === "string" ? req.body.idempotencyKey : "";
@@ -919,12 +908,12 @@ app.post("/v1/security/transfer/pin", pinAttemptLimiter, async (req, res) => {
     return res.status(400).json({ error: "Enter your four-digit MPIN to authorize this transfer." });
   }
   const { rows } = await pool.query(
-    "SELECT pin_salt, pin_hash, credential_id FROM merchant_security WHERE email = $1",
+    "SELECT pin_salt, pin_hash FROM merchant_security WHERE email = $1",
     [req.merchantEmail],
   );
   const security = rows[0];
-  if (!security?.pin_hash || !security.credential_id) {
-    return res.status(403).json({ error: "Set up both your MPIN and biometric sign-in before transferring." });
+  if (!security?.pin_hash) {
+    return res.status(403).json({ error: "Set up an MPIN before transferring." });
   }
   await pool.query("DELETE FROM merchant_pin_attempts WHERE created_at <= NOW() - INTERVAL '1 day'");
   const attempts = await pool.query(
@@ -949,93 +938,6 @@ app.post("/v1/security/transfer/pin", pinAttemptLimiter, async (req, res) => {
     .setExpirationTime("2m")
     .sign(jwtSecret);
   return res.set("Cache-Control", "no-store").json({ stepUpToken });
-});
-
-app.post("/v1/security/transfer/biometric/options", async (req, res) => {
-  const idempotencyKey = typeof req.body?.idempotencyKey === "string" ? req.body.idempotencyKey : "";
-  if (!validIdempotencyKey(idempotencyKey)) return res.status(400).json({ error: "A valid transfer confirmation is required." });
-  try {
-    const { rpID } = webAuthnConfig();
-    const { rows } = await pool.query(
-      "SELECT credential_id, credential_transports FROM merchant_security WHERE email = $1 AND pin_hash IS NOT NULL",
-      [req.merchantEmail],
-    );
-    if (!rows[0]?.credential_id) return res.status(403).json({ error: "Set up biometric sign-in before transferring." });
-    const options = await generateAuthenticationOptions({
-      rpID,
-      allowCredentials: [{ id: rows[0].credential_id, transports: rows[0].credential_transports }],
-      userVerification: "required",
-    });
-    const fingerprint = transferSecurityFingerprint(req.merchantEmail, req.body, idempotencyKey);
-    const challengeId = await createWebAuthnChallenge(req.merchantEmail, options.challenge, "TRANSFER", fingerprint);
-    return res.set("Cache-Control", "no-store").json({ challengeId, options });
-  } catch (error) {
-    console.error("Transfer biometric options failed", error.message);
-    return res.status(503).json({ error: "Biometric verification is unavailable. Authorize with your MPIN." });
-  }
-});
-
-app.post("/v1/security/transfer/biometric/verify", async (req, res) => {
-  const challengeId = typeof req.body?.challengeId === "string" ? req.body.challengeId : "";
-  if (!challengeId || !req.body?.response) return res.status(400).json({ error: "Biometric verification could not be completed." });
-  try {
-    const { rpID, expectedOrigins } = webAuthnConfig();
-    const [{ rows: challenges }, { rows: credentials }] = await Promise.all([
-      pool.query(
-        `SELECT challenge, transfer_fingerprint FROM webauthn_challenges
-         WHERE id = $1 AND email = $2 AND purpose = 'TRANSFER' AND consumed_at IS NULL AND expires_at > NOW()`,
-        [challengeId, req.merchantEmail],
-      ),
-      pool.query(
-        `SELECT credential_id, credential_public_key, credential_counter, credential_transports
-         FROM merchant_security WHERE email = $1 AND pin_hash IS NOT NULL`,
-        [req.merchantEmail],
-      ),
-    ]);
-    const challenge = challenges[0];
-    const credential = credentials[0];
-    if (!challenge || !credential?.credential_id || req.body.response.id !== credential.credential_id) {
-      return res.status(403).json({ error: "Biometric verification failed. Try again." });
-    }
-    const verification = await verifyAuthenticationResponse({
-      response: req.body.response,
-      expectedChallenge: challenge.challenge,
-      expectedOrigin: expectedOrigins,
-      expectedRPID: rpID,
-      credential: {
-        id: credential.credential_id,
-        publicKey: new Uint8Array(credential.credential_public_key),
-        counter: Number(credential.credential_counter),
-        transports: credential.credential_transports,
-      },
-      requireUserVerification: true,
-    });
-    if (!verification.verified || !verification.authenticationInfo.userVerified) {
-      return res.status(403).json({ error: "Biometric verification failed. Try again." });
-    }
-    const consumed = await pool.query(
-      `UPDATE webauthn_challenges SET consumed_at = NOW()
-       WHERE id = $1 AND consumed_at IS NULL AND expires_at > NOW() RETURNING id`,
-      [challengeId],
-    );
-    if (!consumed.rowCount) return res.status(403).json({ error: "That biometric challenge has expired. Try again." });
-    await pool.query(
-      "UPDATE merchant_security SET credential_counter = $1, updated_at = NOW() WHERE email = $2",
-      [verification.authenticationInfo.newCounter, req.merchantEmail],
-    );
-    const jti = randomUUID();
-    const stepUpToken = await new SignJWT({ purpose: "transfer_step_up", fingerprint: challenge.transfer_fingerprint })
-      .setProtectedHeader({ alg: "HS256" })
-      .setSubject(req.merchantEmail)
-      .setJti(jti)
-      .setIssuedAt()
-      .setExpirationTime("2m")
-      .sign(jwtSecret);
-    return res.set("Cache-Control", "no-store").json({ stepUpToken });
-  } catch (error) {
-    console.error("Transfer biometric verification failed", error.message);
-    return res.status(403).json({ error: "Biometric verification failed. Try again." });
-  }
 });
 
 app.get("/v1/internal-wallet", async (req, res) => {
@@ -1362,6 +1264,7 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
   if (channel === "INSTAPAY" && amount > maxInstapayAmount) {
     return res.status(400).json({ error: "InstaPay transfers are limited to PHP 50,000 per transfer. Choose PESONET for a larger amount." });
   }
+  if (!remarks) return res.status(400).json({ error: "Transfer remarks are required." });
   if (remarks.length > 80) return res.status(400).json({ error: "Transfer remarks must be 80 characters or fewer." });
   if (!["INSTAPAY", "PESONET"].includes(channel) || !institutionCode || institutionCode.length > 16) return res.status(400).json({ error: "Choose a valid bank and transfer rail." });
   if (!/^[0-9]{5,64}$/.test(accountNumber) || !fullName || fullName.length > 128) return res.status(400).json({ error: "Check the recipient name and account number." });
@@ -1374,11 +1277,11 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
   }
 
   const security = await pool.query(
-    "SELECT pin_hash, credential_id FROM merchant_security WHERE email = $1",
+    "SELECT pin_hash FROM merchant_security WHERE email = $1",
     [req.merchantEmail],
   );
-  if (!security.rows[0]?.pin_hash || !security.rows[0]?.credential_id) {
-    return res.status(403).json({ error: "Set up both your MPIN and biometric sign-in before transferring." });
+  if (!security.rows[0]?.pin_hash) {
+    return res.status(403).json({ error: "Set up an MPIN before transferring." });
   }
   const stepUpToken = req.get("X-Step-Up-Token") || "";
   const expectedFingerprint = transferSecurityFingerprint(req.merchantEmail, req.body, idempotencyKey);
@@ -1386,7 +1289,7 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
   try {
     ({ payload: stepUpPayload } = await jwtVerify(stepUpToken, jwtSecret, { algorithms: ["HS256"] }));
   } catch {
-    return res.status(403).json({ error: "Confirm this transfer with your MPIN or biometric sign-in." });
+    return res.status(403).json({ error: "Confirm this transfer with your MPIN." });
   }
   if (
     stepUpPayload.sub !== req.merchantEmail
@@ -1443,7 +1346,7 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
         channel,
         type: "P2P",
         institutionCode,
-        creditInformation: { amount, ...(remarks ? { remarks } : {}) },
+        creditInformation: { amount, remarks },
         recipientInformation: { accountNumber, fullName },
       },
     });

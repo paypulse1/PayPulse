@@ -1,5 +1,3 @@
-import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
-
 export type Session = {
   accessToken: string;
   expiresAt: number;
@@ -74,7 +72,6 @@ export type TransferResult = {
 
 export type MerchantSecurityStatus = {
   pinConfigured: boolean;
-  biometricConfigured: boolean;
 };
 
 export type TransferAuthorizationInput = {
@@ -185,6 +182,8 @@ type WalletActivityResponse = {
 const apiBaseUrl = import.meta.env.VITE_DRPAY_BACKEND_URL || "";
 const SESSION_KEY = "drpay_session";
 const PAYMENT_LINK_KEY = "drpay_pending_payment_link_key";
+const DEVICE_TOKEN_PREFIX = "drpay_device_";
+const VERIFIED_DEVICE_PREFIX = "drpay_verified_device_";
 
 export function isBackendConfigured() {
   return Boolean(apiBaseUrl);
@@ -214,6 +213,20 @@ export function clearSession() {
   sessionStorage.removeItem(SESSION_KEY);
 }
 
+function getDeviceToken(email: string) {
+  const key = `${DEVICE_TOKEN_PREFIX}${email}`;
+  const existing = localStorage.getItem(key);
+  if (existing) return existing;
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const token = btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  localStorage.setItem(key, token);
+  return token;
+}
+
+export function hasTrustedDevice(email: string) {
+  return localStorage.getItem(`${VERIFIED_DEVICE_PREFIX}${email}`) === "true";
+}
+
 export function getPaymentLinkIdempotencyKey() {
   const existing = sessionStorage.getItem(PAYMENT_LINK_KEY);
   if (existing) return existing;
@@ -235,11 +248,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
   if (response.ok) return response.json() as Promise<T>;
   const body = await response.json().catch(() => ({})) as { error?: string };
   if (response.status === 401) clearSession();
-  throw new Error(
-    response.status === 401
-      ? "Your session has expired. Sign in again."
-      : body.error || `Request failed (${response.status})`,
-  );
+  throw new Error(body.error || (response.status === 401 ? "Your session has expired. Sign in again." : `Request failed (${response.status})`));
 }
 
 async function publicRequest<T>(path: string, options?: RequestInit): Promise<T> {
@@ -286,27 +295,39 @@ export async function login(email: string, password: string): Promise<Session> {
   return session;
 }
 
-export async function loginWithBiometric(email: string): Promise<Session> {
-  const { challengeId, options } = await publicRequest<{
-    challengeId: string;
-    options: Parameters<typeof startAuthentication>[0]["optionsJSON"];
-  }>("/v1/auth/biometric/options", {
-    method: "POST",
-    body: JSON.stringify({ email }),
-  });
-  const response = await startAuthentication({ optionsJSON: options });
-  const session = await publicRequest<Omit<Session, "expiresAt"> & { expiresInSeconds: number }>("/v1/auth/biometric/verify", {
-    method: "POST",
-    body: JSON.stringify({ email, challengeId, response }),
-  });
-  const authenticatedSession: Session = {
-    accessToken: session.accessToken,
-    expiresAt: Date.now() + session.expiresInSeconds * 1000,
-    email: session.email,
-    role: session.role,
+function saveMerchantSession(email: string, response: { accessToken: string; expiresInSeconds: number; email?: string; role?: Session["role"] }) {
+  const session: Session = {
+    accessToken: response.accessToken,
+    expiresAt: Date.now() + response.expiresInSeconds * 1000,
+    email: response.email || email,
+    role: response.role || "merchant",
   };
-  saveSession(authenticatedSession);
-  return authenticatedSession;
+  saveSession(session);
+  return session;
+}
+
+export async function requestDeviceOtp(email: string) {
+  return publicRequest<{ challengeId: string; message: string }>("/v1/auth/device/otp/request", {
+    method: "POST",
+    body: JSON.stringify({ email, deviceToken: getDeviceToken(email) }),
+  });
+}
+
+export async function verifyDeviceOtp(email: string, challengeId: string, code: string): Promise<Session> {
+  const response = await publicRequest<{ accessToken: string; expiresInSeconds: number; email?: string; role?: Session["role"] }>("/v1/auth/device/otp/verify", {
+    method: "POST",
+    body: JSON.stringify({ email, challengeId, code, deviceToken: getDeviceToken(email) }),
+  });
+  localStorage.setItem(`${VERIFIED_DEVICE_PREFIX}${email}`, "true");
+  return saveMerchantSession(email, response);
+}
+
+export async function loginWithPin(email: string, pin: string): Promise<Session> {
+  const response = await publicRequest<{ accessToken: string; expiresInSeconds: number; email?: string; role?: Session["role"] }>("/v1/auth/device/pin", {
+    method: "POST",
+    body: JSON.stringify({ email, pin, deviceToken: getDeviceToken(email) }),
+  });
+  return saveMerchantSession(email, response);
 }
 
 export function getMerchantSecurityStatus() {
@@ -320,37 +341,10 @@ export async function setMerchantPin(pin: string) {
   });
 }
 
-export async function registerMerchantBiometric() {
-  const { challengeId, options } = await backendRequest<{
-    challengeId: string;
-    options: Parameters<typeof startRegistration>[0]["optionsJSON"];
-  }>("/v1/security/biometric/register/options", { method: "POST" });
-  const response = await startRegistration({ optionsJSON: options });
-  return backendRequest<{ biometricConfigured: true }>("/v1/security/biometric/register/verify", {
-    method: "POST",
-    body: JSON.stringify({ challengeId, response }),
-  });
-}
-
 export async function authorizeTransferWithPin(input: TransferAuthorizationInput, pin: string) {
   return backendRequest<{ stepUpToken: string }>("/v1/security/transfer/pin", {
     method: "POST",
     body: JSON.stringify({ ...input, pin }),
-  });
-}
-
-export async function authorizeTransferWithBiometric(input: TransferAuthorizationInput) {
-  const { challengeId, options } = await backendRequest<{
-    challengeId: string;
-    options: Parameters<typeof startAuthentication>[0]["optionsJSON"];
-  }>("/v1/security/transfer/biometric/options", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-  const response = await startAuthentication({ optionsJSON: options });
-  return backendRequest<{ stepUpToken: string }>("/v1/security/transfer/biometric/verify", {
-    method: "POST",
-    body: JSON.stringify({ challengeId, response }),
   });
 }
 
@@ -459,7 +453,7 @@ export async function createAdminInternalWalletAdjustment(
   );
 }
 
-export async function createAdminMerchantAccount(input: { email: string; password: string }): Promise<AdminMerchantAccount> {
+export async function createAdminMerchantAccount(input: { email: string }): Promise<AdminMerchantAccount> {
   return backendRequest<AdminMerchantAccount>("/v1/admin/merchants", {
     method: "POST",
     body: JSON.stringify(input),
@@ -468,7 +462,7 @@ export async function createAdminMerchantAccount(input: { email: string; passwor
 
 export async function updateAdminMerchantAccount(
   email: string,
-  input: { active?: boolean; password?: string },
+  input: { active: boolean },
 ): Promise<AdminMerchantAccount> {
   return backendRequest<AdminMerchantAccount>(`/v1/admin/merchants/${encodeURIComponent(email)}`, {
     method: "PATCH",
