@@ -14,6 +14,7 @@ import {
   CreditCard,
   Download,
   Eye,
+  Fingerprint,
   Home,
   KeyRound,
   Link2,
@@ -53,11 +54,14 @@ import {
   getPaymentLinkIdempotencyKey,
   getPaymentLinkStatus,
   getSession,
+  loginWithBiometric,
   hasTrustedDevice,
   isBackendConfigured,
   login,
   loginWithPin,
   registerPushDevice,
+  registerBiometricCredential,
+  removeBiometricCredential,
   removePushDevice,
   requestDeviceOtp,
   resetPaymentLinkIdempotencyKey,
@@ -82,6 +86,19 @@ import {
 } from "./lib/swiftpay";
 import type { MerchantQrDetails, TransferQrDetails } from "./lib/transferQr";
 import { parseScannedQr } from "./lib/transferQr";
+import {
+  createBiometricSecret,
+  deleteBiometricSecret,
+  hasBiometricLogin,
+  isBiometricLoginAvailable,
+  markBiometricLoginDisabled,
+  markBiometricLoginEnabled,
+  markBiometricOfferDismissed,
+  readBiometricSecret,
+  storeBiometricSecret,
+  supportsBiometricLogin,
+  wasBiometricOfferDismissed,
+} from "./lib/biometric";
 import Checkout from "./Checkout";
 import MarketingHome from "./MarketingHome";
 import QrPaymentDisplay, { InstitutionLogo } from "./QrPaymentDisplay";
@@ -284,6 +301,21 @@ function SignIn({ onAuthenticated }: { onAuthenticated: (session: Session) => vo
     }
   }
 
+  async function submitBiometric() {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) return;
+    setBusy(true);
+    setError("");
+    try {
+      const secret = await readBiometricSecret(normalizedEmail);
+      onAuthenticated(await loginWithBiometric(normalizedEmail, secret));
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Biometric sign-in failed. Use your MPIN or verify this device by email.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submitOtp(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -320,12 +352,20 @@ function SignIn({ onAuthenticated }: { onAuthenticated: (session: Session) => vo
           <Button type="submit" disabled={busy || !email} icon={busy ? <LoaderCircle className="spin" size={17} /> : <Lock size={17} />}>
             {busy ? "Continuing…" : hasTrustedDevice(email.trim().toLowerCase()) ? "Continue with MPIN" : "Verify device by email"}
           </Button>
+          {supportsBiometricLogin() && email.trim() && hasBiometricLogin(email) && (
+            <Button type="button" variant="secondary" disabled={busy} onClick={() => void submitBiometric()} icon={<Fingerprint size={17} />}>
+              Sign in with biometrics
+            </Button>
+          )}
         </form>}
         {stage === "pin" && <form onSubmit={(event) => void submitPin(event)}>
           <label><span>Merchant email</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="username" /></label>
           <label><span>Four-digit MPIN</span><input type="password" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} autoComplete="current-password" value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 4))} required autoFocus /></label>
           {error && <div className="inline-error"><AlertCircle size={15} />{error}</div>}
           <Button type="submit" disabled={busy || pin.length !== 4} icon={busy ? <LoaderCircle className="spin" size={17} /> : <KeyRound size={17} />}>{busy ? "Signing in…" : "Sign in with MPIN"}</Button>
+          {supportsBiometricLogin() && hasBiometricLogin(email) && (
+            <Button type="button" variant="secondary" disabled={busy} onClick={() => void submitBiometric()} icon={<Fingerprint size={17} />}>Use biometrics instead</Button>
+          )}
           <button type="button" className="authorization-back" disabled={busy} onClick={() => { setStage("email"); setPin(""); setError(""); }}>Use a different email</button>
           <Button type="button" variant="secondary" disabled={busy} onClick={() => void sendOtp()}>Verify with email code</Button>
         </form>}
@@ -337,7 +377,7 @@ function SignIn({ onAuthenticated }: { onAuthenticated: (session: Session) => vo
           <Button type="button" variant="secondary" disabled={busy} onClick={() => void sendOtp()}>Send a new code</Button>
           <button type="button" className="authorization-back" disabled={busy} onClick={() => { setStage("email"); setOtp(""); setError(""); }}>Back</button>
         </form>}
-        <div className="auth-trust"><ShieldCheck size={16} /><span>New devices require an email code. Previously verified devices use your MPIN. Sessions expire automatically after eight hours.</span></div>
+        <div className="auth-trust"><ShieldCheck size={16} /><span>New devices require an email code. Previously verified devices use your MPIN or optional biometric sign-in. Sessions expire automatically after eight hours.</span></div>
       </section>
       <PoweredByFooter />
     </main>
@@ -412,6 +452,35 @@ function SecuritySetupScreen({
   );
 }
 
+function BiometricEnrollmentPrompt({
+  busy,
+  error,
+  onEnable,
+  onSkip,
+}: {
+  busy: boolean;
+  error: string;
+  onEnable: () => void;
+  onSkip: () => void;
+}) {
+  return (
+    <div className="sheet-backdrop biometric-backdrop">
+      <section className="payment-sheet biometric-prompt" role="dialog" aria-modal="true" aria-labelledby="biometric-prompt-title">
+        <span className="sheet-handle" />
+        <span className="biometric-prompt-icon"><Fingerprint size={25} /></span>
+        <span className="eyebrow">OPTIONAL SIGN-IN</span>
+        <h2 id="biometric-prompt-title">Set up biometric sign-in</h2>
+        <p>Use your enrolled fingerprint or face to sign in on this device. Your MPIN is never stored; a device-bound key is protected by Android biometrics.</p>
+        {error && <div className="inline-error" role="alert"><AlertCircle size={15} />{error}</div>}
+        <Button disabled={busy} onClick={onEnable} icon={busy ? <LoaderCircle className="spin" size={17} /> : <Fingerprint size={17} />}>
+          {busy ? "Setting up…" : "Enable biometric sign-in"}
+        </Button>
+        <Button variant="quiet" disabled={busy} onClick={onSkip}>Not now</Button>
+      </section>
+    </div>
+  );
+}
+
 function SuperAdminSignIn({ onAuthenticated }: { onAuthenticated: (session: Session) => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -466,9 +535,12 @@ function SuperAdminSignIn({ onAuthenticated }: { onAuthenticated: (session: Sess
 }
 
 function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
+  const [activePage, setActivePage] = useState<"overview" | "merchants" | "ledger" | "settings">("overview");
   const [settings, setSettings] = useState<AdminSettings>({ krwToPhpRate: null, usdtAddress: "", usdtNetwork: "" });
   const [merchants, setMerchants] = useState<AdminMerchantAccount[]>([]);
   const [internalWallets, setInternalWallets] = useState<AdminInternalWalletSummary[]>([]);
+  const [merchantSearch, setMerchantSearch] = useState("");
+  const [merchantFilter, setMerchantFilter] = useState<"all" | "active" | "disabled">("all");
   const [selectedWalletEmail, setSelectedWalletEmail] = useState("");
   const [selectedWallet, setSelectedWallet] = useState<AdminInternalWallet | null>(null);
   const [adjustmentAmount, setAdjustmentAmount] = useState("");
@@ -480,6 +552,16 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
   const [savingAdjustment, setSavingAdjustment] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const filteredMerchants = useMemo(() => {
+    const query = merchantSearch.trim().toLowerCase();
+    return merchants.filter((merchant) => {
+      const matchesSearch = !query || merchant.email.toLowerCase().includes(query);
+      const matchesStatus = merchantFilter === "all" || (merchantFilter === "active" ? merchant.active : !merchant.active);
+      return matchesSearch && matchesStatus;
+    });
+  }, [merchants, merchantSearch, merchantFilter]);
+  const activeMerchantCount = merchants.filter((merchant) => merchant.active).length;
+  const totalLedgerBalance = internalWallets.reduce((total, wallet) => total + wallet.balance, 0);
 
   async function loadConsole() {
     setLoading(true);
@@ -601,14 +683,54 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
       <div className="admin-content">
         <div className="page-title">
           <span className="eyebrow">CONTROL PLANE</span>
-          <h1>Super-admin console</h1>
-          <p>Manage collection configuration and merchant access.</p>
+          <div className="admin-page-heading">
+            <div><h1>{activePage === "overview" ? "Backoffice overview" : activePage === "merchants" ? "Merchant accounts" : activePage === "ledger" ? "Internal ledger" : "Collection settings"}</h1>
+            <p>{activePage === "overview" ? "Monitor merchant access and your internal bookkeeping." : activePage === "merchants" ? "Create merchant access and manage account status." : activePage === "ledger" ? "Review and record non-transferable bookkeeping adjustments." : "Configure collection references used by the merchant app."}</p></div>
+            <Button variant="secondary" icon={<RefreshCw size={15} />} onClick={() => void loadConsole()} disabled={loading}>Refresh</Button>
+          </div>
         </div>
+        <nav className="admin-nav" aria-label="Super-admin pages">
+          {([
+            ["overview", "Overview", Home],
+            ["merchants", "Merchants", Users],
+            ["ledger", "Internal ledger", WalletCards],
+            ["settings", "Settings", Settings],
+          ] as const).map(([page, label, Icon]) => (
+            <button key={page} type="button" className={activePage === page ? "active" : ""} aria-current={activePage === page ? "page" : undefined} onClick={() => { setActivePage(page); setError(""); setNotice(""); }}>
+              <Icon size={16} />{label}
+            </button>
+          ))}
+        </nav>
         {error && <div className="inline-error"><AlertCircle size={15} />{error}</div>}
         {notice && <div className="admin-notice"><ShieldCheck size={15} />{notice}</div>}
         {loading ? <div className="admin-loading" role="status"><LoaderCircle className="spin" size={20} />Loading console…</div> : (
           <>
-            <section className="admin-card">
+            {activePage === "overview" && (
+              <>
+                <section className="admin-stat-grid" aria-label="Backoffice summary">
+                  <article><span>Merchant accounts</span><strong>{merchants.length}</strong><small>{activeMerchantCount} active · {merchants.length - activeMerchantCount} disabled</small></article>
+                  <article><span>Internal ledger total</span><strong>₱{totalLedgerBalance.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong><small>Bookkeeping only · PHP</small></article>
+                  <article><span>Collection rate</span><strong>{settings.krwToPhpRate ? `${settings.krwToPhpRate.toLocaleString("en-PH")} PHP` : "Automatic"}</strong><small>{settings.krwToPhpRate ? "KRW → PHP manual override" : "Live reference rate"}</small></article>
+                  <article><span>USDT collection</span><strong>{settings.usdtAddress ? "Configured" : "Not configured"}</strong><small>{settings.usdtNetwork || "No receiving network set"}</small></article>
+                </section>
+                <section className="admin-card">
+                  <div className="admin-card-heading"><span className="setting-icon"><Users size={19} /></span><div><h2>Merchant access</h2><p>Recently added accounts and their current access status.</p></div><button className="admin-text-action" onClick={() => setActivePage("merchants")}>Manage merchants</button></div>
+                  <div className="admin-account-list">
+                    {merchants.slice(0, 5).map((account) => (
+                      <div className="admin-account-row" key={account.email}>
+                        <div><strong>{account.email}</strong><small>Added {new Date(account.createdAt).toLocaleDateString()}</small></div>
+                        <span className={`admin-status-pill ${account.active ? "active" : "disabled"}`}>{account.active ? "Active" : "Disabled"}</span>
+                      </div>
+                    ))}
+                    {merchants.length === 0 && <p className="admin-empty">No merchant accounts yet. Create one to get started.</p>}
+                  </div>
+                </section>
+                <section className="admin-card admin-overview-note">
+                  <ShieldCheck size={18} /><p>Provider credentials and live payment execution are intentionally not available in this console. Internal ledger entries do not change SwiftPay funds and cannot be transferred.</p>
+                </section>
+              </>
+            )}
+            {activePage === "ledger" && <section className="admin-card">
               <div className="admin-card-heading"><span className="setting-icon"><WalletCards size={19} /></span><div><h2>Internal ledger balance</h2><p>Manual PHP ledger for records only. It is not a SwiftPay balance and cannot be withdrawn or transferred.</p></div></div>
               {merchants.length === 0 ? <p className="admin-empty">Create a merchant account before recording ledger adjustments.</p> : (
                 <>
@@ -639,8 +761,8 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
                   </div>
                 </>
               )}
-            </section>
-            <section className="admin-card">
+            </section>}
+            {activePage === "settings" && <section className="admin-card">
               <div className="admin-card-heading"><span className="setting-icon"><Settings size={19} /></span><div><h2>Collection configuration</h2><p>Provider secrets are not displayed or editable here.</p></div></div>
               <form onSubmit={saveSettings}>
                 <label>
@@ -658,24 +780,29 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
                 </label>
                 <Button type="submit" disabled={savingSettings}>{savingSettings ? "Saving…" : "Save configuration"}</Button>
               </form>
-            </section>
+            </section>}
 
-            <section className="admin-card">
-              <div className="admin-card-heading"><span className="setting-icon"><Users size={19} /></span><div><h2>Merchant accounts</h2><p>Create email-verified accounts or disable access.</p></div></div>
+            {activePage === "merchants" && <section className="admin-card">
+              <div className="admin-card-heading"><span className="setting-icon"><Users size={19} /></span><div><h2>Merchant accounts</h2><p>Create email-verified accounts or disable access. Disabling an account revokes its trusted devices.</p></div></div>
+              <div className="admin-merchant-tools">
+                <label className="admin-search"><Search size={16} /><input aria-label="Search merchant emails" value={merchantSearch} onChange={(event) => setMerchantSearch(event.target.value)} placeholder="Search by merchant email" /></label>
+                <label className="admin-filter"><span>Status</span><select value={merchantFilter} onChange={(event) => setMerchantFilter(event.target.value as typeof merchantFilter)}><option value="all">All accounts</option><option value="active">Active</option><option value="disabled">Disabled</option></select></label>
+              </div>
               <div className="admin-account-list">
-                {merchants.map((account) => (
+                {filteredMerchants.map((account) => (
                   <div className="admin-account-row" key={account.email}>
-                    <div><strong>{account.email}</strong><small>{account.active ? "Active" : "Disabled"} · added {new Date(account.createdAt).toLocaleDateString()}</small></div>
-                    <button type="button" className="admin-text-action" onClick={() => void setMerchantActive(account)}>{account.active ? "Disable" : "Enable"}</button>
+                    <div><strong>{account.email}</strong><small>Added {new Date(account.createdAt).toLocaleDateString()} · Updated {new Date(account.updatedAt).toLocaleDateString()}</small></div>
+                    <span className={`admin-status-pill ${account.active ? "active" : "disabled"}`}>{account.active ? "Active" : "Disabled"}</span>
+                    <button type="button" className="admin-text-action" onClick={() => void setMerchantActive(account)}>{account.active ? "Disable access" : "Enable access"}</button>
                   </div>
                 ))}
-                {merchants.length === 0 && <p className="admin-empty">No merchant accounts yet.</p>}
+                {filteredMerchants.length === 0 && <p className="admin-empty">{merchants.length ? "No accounts match your search." : "No merchant accounts yet."}</p>}
               </div>
               <form onSubmit={addMerchant}>
                 <label><span>New merchant email</span><input type="email" value={newEmail} onChange={(event) => setNewEmail(event.target.value)} required autoComplete="off" /></label>
                 <Button type="submit" disabled={savingMerchant || !newEmail}>{savingMerchant ? "Creating…" : "Create merchant account"}</Button>
               </form>
-            </section>
+            </section>}
           </>
         )}
       </div>
@@ -1034,7 +1161,7 @@ function TransferSheet({
             <dl className="detail-list">
               <div><dt>Recipient</dt><dd>{name}</dd></div>
               <div><dt>Bank</dt><dd>{selectedBank?.name}</dd></div>
-              <div><dt>Account</dt><dd>•••• {account.slice(-4)}</dd></div>
+              <div><dt>Account number</dt><dd>{account}</dd></div>
               <div><dt>Transfer network</dt><dd>{channel === "INSTAPAY" ? "InstaPay" : "PESONet"}</dd></div>
               {remarks.trim() && <div><dt>Remarks</dt><dd>{remarks.trim()}</dd></div>}
             </dl>
@@ -1203,9 +1330,25 @@ function ScannerSheet({
   async function scanImage(file?: File) {
     if (!file) return;
     setCameraError("");
+    if (!file.type.startsWith("image/")) {
+      setCameraError("Choose a valid image file containing a QR code.");
+      if (uploadRef.current) uploadRef.current.value = "";
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setCameraError("This image is larger than 10 MB. Choose a smaller QR image.");
+      if (uploadRef.current) uploadRef.current.value = "";
+      return;
+    }
     setDecodingUpload(true);
     const imageUrl = URL.createObjectURL(file);
     try {
+      const image = new Image();
+      image.src = imageUrl;
+      await image.decode();
+      if (!image.naturalWidth || !image.naturalHeight || image.naturalWidth * image.naturalHeight > 24_000_000) {
+        throw new Error("This image is too large to scan safely. Choose an image under 24 megapixels.");
+      }
       const { BrowserMultiFormatReader } = await import("@zxing/browser");
       const result = await new BrowserMultiFormatReader().decodeFromImageUrl(imageUrl);
       handlePayload(result.getText());
@@ -1670,9 +1813,15 @@ function ProfileInfoPage({
   securityStatus,
   notificationPermission,
   pushError,
+  biometricAvailable,
+  biometricEnabled,
+  biometricBusy,
+  biometricError,
   onClose,
   onExport,
   onEnablePush,
+  onEnableBiometric,
+  onDisableBiometric,
 }: {
   title: string;
   session: Session;
@@ -1680,9 +1829,15 @@ function ProfileInfoPage({
   securityStatus: MerchantSecurityStatus | null;
   notificationPermission: string;
   pushError: string;
+  biometricAvailable: boolean;
+  biometricEnabled: boolean;
+  biometricBusy: boolean;
+  biometricError: string;
   onClose: () => void;
   onExport: () => void;
   onEnablePush: () => void;
+  onEnableBiometric: () => void;
+  onDisableBiometric: () => void;
 }) {
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [institutionsLoading, setInstitutionsLoading] = useState(false);
@@ -1778,8 +1933,18 @@ function ProfileInfoPage({
             <dl className="detail-list">
               <div><dt>Device verification</dt><dd>Email code required</dd></div>
               <div><dt>Transfer approval</dt><dd>{securityStatus?.pinConfigured ? "MPIN enabled" : "MPIN setup required"}</dd></div>
+              <div><dt>Biometric sign-in</dt><dd>{biometricEnabled ? "Enabled on this device" : biometricAvailable ? "Available on this device" : "Not available on this device"}</dd></div>
               <div><dt>Session expires</dt><dd>{new Date(session.expiresAt).toLocaleString()}</dd></div>
             </dl>
+            {biometricError && <div className="inline-error" role="alert"><AlertCircle size={15} />{biometricError}</div>}
+            {(biometricAvailable || biometricEnabled) && (
+              <>
+                <Button disabled={biometricBusy} variant={biometricEnabled ? "secondary" : "primary"} onClick={biometricEnabled ? onDisableBiometric : onEnableBiometric} icon={biometricBusy ? <LoaderCircle className="spin" size={16} /> : <Fingerprint size={16} />}>
+                  {biometricBusy ? "Updating…" : biometricEnabled ? "Disable biometric sign-in" : "Enable biometric sign-in"}
+                </Button>
+              </>
+            )}
+            {!biometricAvailable && supportsBiometricLogin() && <p className="profile-info-note">Enroll a strong biometric in Android settings to use biometric sign-in. Your MPIN and email verification remain available.</p>}
             <p className="profile-info-note">Never share your one-time code or MPIN. Every outgoing transfer requires MPIN approval.</p>
           </>
         )}
@@ -1858,7 +2023,13 @@ export default function App() {
   const [profileSection, setProfileSection] = useState("");
   const [pushPermission, setPushPermission] = useState("prompt");
   const [pushError, setPushError] = useState("");
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [biometricOfferEmail, setBiometricOfferEmail] = useState("");
+  const [biometricBusy, setBiometricBusy] = useState(false);
+  const [biometricError, setBiometricError] = useState("");
   const pushTokenRef = useRef("");
+  const biometricOfferPendingRef = useRef(false);
   const [showPayment, setShowPayment] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
@@ -1901,6 +2072,95 @@ export default function App() {
       setPushError(requestError instanceof Error ? requestError.message : "Push notification setup failed.");
     }
   }, []);
+
+  function handleMerchantAuthenticated(nextSession: Session) {
+    biometricOfferPendingRef.current = true;
+    setBiometricOfferEmail("");
+    setBiometricError("");
+    setSession(nextSession);
+  }
+
+  function dismissBiometricOffer() {
+    if (biometricOfferEmail) markBiometricOfferDismissed(biometricOfferEmail);
+    setBiometricOfferEmail("");
+    setBiometricError("");
+  }
+
+  async function enableBiometricSignIn() {
+    if (!session || session.role !== "merchant") return;
+    setBiometricBusy(true);
+    setBiometricError("");
+    const secret = createBiometricSecret();
+    let localCredentialStored = false;
+    try {
+      await storeBiometricSecret(session.email, secret);
+      localCredentialStored = true;
+      await registerBiometricCredential(secret);
+      markBiometricLoginEnabled(session.email);
+      setBiometricEnabled(true);
+      setBiometricOfferEmail("");
+    } catch (requestError) {
+      if (localCredentialStored) {
+        try {
+          await deleteBiometricSecret(session.email);
+        } catch (cleanupError) {
+          console.error("Could not remove incomplete biometric credential", cleanupError);
+        }
+      }
+      setBiometricError(requestError instanceof Error ? requestError.message : "Could not enable biometric sign-in.");
+    } finally {
+      setBiometricBusy(false);
+    }
+  }
+
+  async function disableBiometricSignIn() {
+    if (!session || session.role !== "merchant") return;
+    setBiometricBusy(true);
+    setBiometricError("");
+    try {
+      await removeBiometricCredential();
+      markBiometricLoginDisabled(session.email);
+      setBiometricEnabled(false);
+      try {
+        await deleteBiometricSecret(session.email);
+      } catch (cleanupError) {
+        console.error("Biometric credential was revoked, but local cleanup failed", cleanupError);
+        setBiometricError("Biometric sign-in is disabled on the server, but this device could not remove its saved key.");
+      }
+    } catch (requestError) {
+      setBiometricError(requestError instanceof Error ? requestError.message : "Could not disable biometric sign-in.");
+    } finally {
+      setBiometricBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!session || session.role !== "merchant" || !isDashboard || !supportsBiometricLogin()) {
+      setBiometricAvailable(false);
+      setBiometricEnabled(false);
+      return;
+    }
+    let active = true;
+    const enabled = hasBiometricLogin(session.email);
+    setBiometricEnabled(enabled);
+    void isBiometricLoginAvailable().then((available) => {
+      if (!active) return;
+      setBiometricAvailable(available);
+      if (biometricOfferPendingRef.current) {
+        biometricOfferPendingRef.current = false;
+        if (available && !enabled && !wasBiometricOfferDismissed(session.email)) {
+          setBiometricOfferEmail(session.email);
+        }
+      }
+    }).catch((requestError: unknown) => {
+      if (!active) return;
+      biometricOfferPendingRef.current = false;
+      setBiometricAvailable(false);
+      setBiometricError(requestError instanceof Error ? requestError.message : "Could not check biometric availability on this device.");
+      console.error("Could not check native biometric availability", requestError);
+    });
+    return () => { active = false; };
+  }, [session?.email, session?.role, isDashboard]);
 
   async function loadDashboard() {
     if (!session) return;
@@ -1975,6 +2235,9 @@ export default function App() {
     setSession(null);
     setData(null);
     setSecurityStatus(null);
+    setBiometricOfferEmail("");
+    setBiometricError("");
+    biometricOfferPendingRef.current = false;
     setProfileSection("");
     setActiveTab("Home");
   }
@@ -2033,7 +2296,7 @@ export default function App() {
     return <SuperAdminConsole session={session} onSignOut={signOut} />;
   }
 
-  if (!session) return <SignIn onAuthenticated={setSession} />;
+  if (!session) return <SignIn onAuthenticated={handleMerchantAuthenticated} />;
 
   if (session.role === "merchant" && securityStatus && !securityStatus.pinConfigured) {
     return <SecuritySetupScreen initialStatus={securityStatus} onComplete={setSecurityStatus} onSignOut={signOut} />;
@@ -2108,9 +2371,15 @@ export default function App() {
                 securityStatus={securityStatus}
                 notificationPermission={pushPermission}
                 pushError={pushError}
+                biometricAvailable={biometricAvailable}
+                biometricEnabled={biometricEnabled}
+                biometricBusy={biometricBusy}
+                biometricError={biometricError}
                 onClose={() => setProfileSection("")}
                 onExport={exportActivity}
                 onEnablePush={() => void enablePushNotifications()}
+                onEnableBiometric={() => void enableBiometricSignIn()}
+                onDisableBiometric={() => void disableBiometricSignIn()}
               />
             ) : (
               <MoreView session={session} data={data} onPaymentLink={() => setShowPaymentLink(true)} onInfo={setProfileSection} onSignOut={signOut} />
@@ -2156,6 +2425,14 @@ export default function App() {
       )}
       {showPaymentLink && <PaymentLinkSheet onClose={() => { setShowPaymentLink(false); void loadDashboard(); }} />}
       {selectedTransaction && <TransactionSheet transaction={selectedTransaction} onClose={() => setSelectedTransaction(null)} />}
+      {biometricOfferEmail && session?.role === "merchant" && session.email === biometricOfferEmail && securityStatus?.pinConfigured && (
+        <BiometricEnrollmentPrompt
+          busy={biometricBusy}
+          error={biometricError}
+          onEnable={() => void enableBiometricSignIn()}
+          onSkip={dismissBiometricOffer}
+        />
+      )}
       {showNotifications && (
         <div className="sheet-backdrop" role="presentation" onMouseDown={() => setShowNotifications(false)}>
           <section className="payment-sheet" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>

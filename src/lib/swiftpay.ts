@@ -330,6 +330,32 @@ export async function loginWithPin(email: string, pin: string): Promise<Session>
   return saveMerchantSession(email, response);
 }
 
+export async function loginWithBiometric(email: string, secret: string): Promise<Session> {
+  const response = await publicRequest<{ accessToken: string; expiresInSeconds: number; email?: string; role?: Session["role"] }>("/v1/auth/device/biometric", {
+    method: "POST",
+    body: JSON.stringify({ email, secret, deviceToken: getDeviceToken(email) }),
+  });
+  return saveMerchantSession(email, response);
+}
+
+export async function registerBiometricCredential(secret: string) {
+  const session = getSession();
+  if (!session) throw new Error("Sign in before enabling biometric access.");
+  return backendRequest<{ enabled: true }>("/v1/security/biometric", {
+    method: "POST",
+    body: JSON.stringify({ secret, deviceToken: getDeviceToken(session.email) }),
+  });
+}
+
+export async function removeBiometricCredential() {
+  const session = getSession();
+  if (!session) throw new Error("Sign in before disabling biometric access.");
+  return backendRequest<{ enabled: false }>("/v1/security/biometric/remove", {
+    method: "POST",
+    body: JSON.stringify({ deviceToken: getDeviceToken(session.email) }),
+  });
+}
+
 export function getMerchantSecurityStatus() {
   return backendRequest<MerchantSecurityStatus>("/v1/security/status");
 }

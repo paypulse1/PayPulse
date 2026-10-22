@@ -131,6 +131,10 @@ function deviceTokenHash(deviceToken) {
   return createHash("sha256").update(deviceToken).digest("hex");
 }
 
+function biometricSecretHash(secret) {
+  return createHmac("sha256", jwtSecretValue).update(`merchant-biometric:${secret}`).digest("hex");
+}
+
 async function sendMerchantOtp(email, code) {
   const subject = "Your DRPAY verification code";
   const text = [
@@ -455,6 +459,16 @@ async function initializeDatabase() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       last_used_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (email, device_token_hash)
+    );
+    CREATE TABLE IF NOT EXISTS merchant_biometric_credentials (
+      email TEXT NOT NULL,
+      device_token_hash TEXT NOT NULL,
+      secret_hash TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_used_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (email, device_token_hash),
+      FOREIGN KEY (email, device_token_hash)
+        REFERENCES merchant_devices (email, device_token_hash) ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS used_step_up_tokens (
       jti TEXT PRIMARY KEY,
@@ -856,6 +870,39 @@ app.post("/v1/auth/device/pin", loginLimiter, async (req, res) => {
   return res.set("Cache-Control", "no-store").json(await issueMerchantSession(email));
 });
 
+app.post("/v1/auth/device/biometric", loginLimiter, async (req, res) => {
+  const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+  const secret = typeof req.body?.secret === "string" ? req.body.secret : "";
+  const deviceToken = typeof req.body?.deviceToken === "string" ? req.body.deviceToken : "";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !/^[A-Za-z0-9_-]{43}$/.test(secret) || !/^[A-Za-z0-9_-]{32,128}$/.test(deviceToken)) {
+    return res.status(401).json({ error: "Biometric sign-in is unavailable. Use your MPIN or verify this device by email." });
+  }
+  const { rows } = await pool.query(
+    `SELECT credential.secret_hash FROM merchant_accounts account
+     JOIN merchant_devices device ON device.email = account.email
+     JOIN merchant_biometric_credentials credential
+       ON credential.email = device.email AND credential.device_token_hash = device.device_token_hash
+     WHERE account.email = $1 AND account.active = TRUE AND device.device_token_hash = $2`,
+    [email, deviceTokenHash(deviceToken)],
+  );
+  const expectedHash = rows[0]?.secret_hash;
+  const actualHash = Buffer.from(biometricSecretHash(secret), "hex");
+  const storedHash = typeof expectedHash === "string" ? Buffer.from(expectedHash, "hex") : Buffer.alloc(0);
+  if (storedHash.length !== actualHash.length || !timingSafeEqual(storedHash, actualHash)) {
+    return res.status(401).json({ error: "Biometric sign-in is unavailable. Use your MPIN or verify this device by email." });
+  }
+  await pool.query(
+    `UPDATE merchant_biometric_credentials SET last_used_at = NOW()
+     WHERE email = $1 AND device_token_hash = $2`,
+    [email, deviceTokenHash(deviceToken)],
+  );
+  await pool.query(
+    "UPDATE merchant_devices SET last_used_at = NOW() WHERE email = $1 AND device_token_hash = $2",
+    [email, deviceTokenHash(deviceToken)],
+  );
+  return res.set("Cache-Control", "no-store").json(await issueMerchantSession(email));
+});
+
 app.use("/v1/admin", requireSuperAdmin);
 
 app.get("/v1/admin/settings", async (_req, res) => {
@@ -928,7 +975,7 @@ app.put("/v1/admin/settings", async (req, res) => {
 app.get("/v1/admin/merchants", async (_req, res) => {
   const result = await pool.query(
     `SELECT email, active, created_at AS "createdAt", updated_at AS "updatedAt"
-     FROM merchant_accounts ORDER BY created_at ASC`,
+     FROM merchant_accounts ORDER BY created_at DESC`,
   );
   return res.json(result.rows);
 });
@@ -1154,6 +1201,40 @@ app.post("/v1/notifications/push-token/remove", async (req, res) => {
   if (token.length < 32 || token.length > 4096) return res.status(400).json({ error: "A valid push token is required." });
   await pool.query("DELETE FROM merchant_push_devices WHERE token = $1 AND merchant_email = $2", [token, req.merchantEmail]);
   return res.json({ removed: true });
+});
+
+app.post("/v1/security/biometric", async (req, res) => {
+  const secret = typeof req.body?.secret === "string" ? req.body.secret : "";
+  const deviceToken = typeof req.body?.deviceToken === "string" ? req.body.deviceToken : "";
+  if (!/^[A-Za-z0-9_-]{43}$/.test(secret) || !/^[A-Za-z0-9_-]{32,128}$/.test(deviceToken)) {
+    return res.status(400).json({ error: "Could not enable biometric sign-in on this device." });
+  }
+  const deviceHash = deviceTokenHash(deviceToken);
+  const device = await pool.query(
+    "SELECT 1 FROM merchant_devices WHERE email = $1 AND device_token_hash = $2",
+    [req.merchantEmail, deviceHash],
+  );
+  if (!device.rowCount) return res.status(403).json({ error: "Verify this device by email before enabling biometric sign-in." });
+  await pool.query(
+    `INSERT INTO merchant_biometric_credentials (email, device_token_hash, secret_hash)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (email, device_token_hash)
+     DO UPDATE SET secret_hash = EXCLUDED.secret_hash, created_at = NOW(), last_used_at = NOW()`,
+    [req.merchantEmail, deviceHash, biometricSecretHash(secret)],
+  );
+  return res.set("Cache-Control", "no-store").json({ enabled: true });
+});
+
+app.post("/v1/security/biometric/remove", async (req, res) => {
+  const deviceToken = typeof req.body?.deviceToken === "string" ? req.body.deviceToken : "";
+  if (!/^[A-Za-z0-9_-]{32,128}$/.test(deviceToken)) {
+    return res.status(400).json({ error: "Could not disable biometric sign-in on this device." });
+  }
+  await pool.query(
+    "DELETE FROM merchant_biometric_credentials WHERE email = $1 AND device_token_hash = $2",
+    [req.merchantEmail, deviceTokenHash(deviceToken)],
+  );
+  return res.set("Cache-Control", "no-store").json({ enabled: false });
 });
 
 app.post("/v1/security/pin", async (req, res) => {

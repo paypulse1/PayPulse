@@ -22,6 +22,8 @@ The API starts in `sandbox` mode. Verify the full flow against SwiftPay sandbox 
 
 Merchant sign-in uses an email one-time code to verify a new device, then a four-digit MPIN for future sign-ins on that device. Every outgoing transfer also requires MPIN approval. Verification codes are delivered by Resend; configure a verified sender address and API key in the Render API service environment. The merchant's device token is stored locally and only its SHA-256 hash is stored by the API. Super-admin access remains separate and password-protected.
 
+On Android devices with strong biometrics enrolled, merchants can optionally enable biometric sign-in after setting up their MPIN, or manage it in Profile → Security. The app stores a random device-bound key in Android's biometric-protected secure storage; the MPIN is never stored. Biometric sign-in is tied to the merchant's verified device and can be disabled from Security. Email device verification and MPIN sign-in remain available as fallbacks. Biometric sign-in is not available on web or for super-admin accounts.
+
 ## Transaction notifications
 
 Confirmed successful incoming QR payments and outgoing transfers are emailed to the merchant account that created the transaction, using the existing Resend sender configuration. The API reconciles pending transactions and retries queued email delivery.

@@ -69,17 +69,29 @@ function parseRecord(record: Record<string, unknown>): TransferQrDetails | undef
 
 function parseEmvTlv(payload: string): Map<string, string> | undefined {
   const fields = new Map<string, string>();
+  const bytes = new TextEncoder().encode(payload);
+  const decoder = new TextDecoder("utf-8", { fatal: true });
   let offset = 0;
-  while (offset < payload.length) {
-    if (offset + 4 > payload.length) return undefined;
-    const tag = payload.slice(offset, offset + 2);
-    const lengthValue = payload.slice(offset + 2, offset + 4);
+  while (offset < bytes.length) {
+    if (offset + 4 > bytes.length) return undefined;
+    let tag: string;
+    let lengthValue: string;
+    try {
+      tag = decoder.decode(bytes.subarray(offset, offset + 2));
+      lengthValue = decoder.decode(bytes.subarray(offset + 2, offset + 4));
+    } catch {
+      return undefined;
+    }
     if (!/^\d{2}$/.test(tag) || !/^\d{2}$/.test(lengthValue)) return undefined;
     const length = Number(lengthValue);
     const valueStart = offset + 4;
     const valueEnd = valueStart + length;
-    if (valueEnd > payload.length) return undefined;
-    fields.set(tag, payload.slice(valueStart, valueEnd));
+    if (valueEnd > bytes.length) return undefined;
+    try {
+      fields.set(tag, decoder.decode(bytes.subarray(valueStart, valueEnd)));
+    } catch {
+      return undefined;
+    }
     offset = valueEnd;
   }
   return fields;
@@ -116,13 +128,7 @@ function parseQrPh(payload: string): ScannedQrPayload | undefined {
   const p2mTemplate = accountTemplates.find((candidate) => {
     const gui = candidate?.get("00")?.toLowerCase();
     return Boolean(gui && qrPhP2mGuis.has(gui));
-  }) || (
-    fields.get("58") === "PH"
-    && fields.has("52")
-    && fields.has("59")
-    ? accountTemplates.find((candidate) => Boolean(candidate?.get("00")))
-    : undefined
-  );
+  });
   if (!p2mTemplate) return undefined;
 
   const nestedAdditionalData = parseEmvTlv(fields.get("62") || "");
