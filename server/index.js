@@ -5,7 +5,7 @@ import cors from "cors";
 import express from "express";
 import { rateLimit } from "express-rate-limit";
 import helmet from "helmet";
-import { SignJWT, jwtVerify } from "jose";
+import { importPKCS8, SignJWT, jwtVerify } from "jose";
 import pg from "pg";
 
 const { Pool } = pg;
@@ -52,6 +52,9 @@ const jwtSecretValue = process.env.DRPAY_JWT_SECRET;
 const jwtSecret = jwtSecretValue ? new TextEncoder().encode(jwtSecretValue) : null;
 const resendApiKey = process.env.RESEND_API_KEY;
 const resendFromEmail = process.env.RESEND_FROM_EMAIL;
+const fcmProjectId = process.env.FCM_PROJECT_ID;
+const fcmServiceAccountEmail = process.env.FCM_SERVICE_ACCOUNT_EMAIL;
+const fcmServiceAccountPrivateKey = process.env.FCM_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, "\n");
 const swiftPayAccessKey = process.env.SWIFTPAY_ACCESS_KEY;
 const swiftPaySecretKey = process.env.SWIFTPAY_SECRET_KEY;
 const swiftPayEnvironment = process.env.SWIFTPAY_ENV || "sandbox";
@@ -76,6 +79,9 @@ const publicQrImageLimiter = rateLimit({ windowMs: 60 * 1000, limit: 30, standar
 const institutionCache = new Map();
 let paymentInstitutionCache = null;
 let liveKrwPhpRateCache = null;
+let fcmAccessToken;
+let fcmAccessTokenExpiresAt = 0;
+let reconcilingPending = false;
 
 function requiredEnvironment() {
   const missing = [];
@@ -160,7 +166,7 @@ async function sendMerchantOtp(email, code) {
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${resendApiKey}`,
+      Authorization: "Bearer " + resendApiKey,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -173,9 +179,225 @@ async function sendMerchantOtp(email, code) {
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    console.error("Resend OTP delivery failed", response.status, body.name || "provider error");
+    const body = await response.json().catch(() => null);
+    const providerMessage = typeof body?.message === "string"
+      ? body.message
+        .replace(/[\w.+-]+@([\w.-]+\.[A-Za-z]{2,})/g, "[redacted]@$1")
+        .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
+      : "No provider message";
+    console.error("Resend OTP delivery failed", {
+      status: response.status,
+      name: typeof body?.name === "string" ? body.name : "provider error",
+      message: providerMessage,
+    });
     throw new Error("Verification email could not be sent.");
+  }
+}
+
+function escapeEmailHtml(value) {
+    return String(value).replace(/[&<>"']/g, (character) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      "\"": "&quot;",
+      "'": "&#39;",
+    })[character]);
+  }
+
+async function sendTransactionEmail(notification) {
+    const type = notification.transaction_type === "PAYMENT" ? "Incoming payment received" : "Outgoing transfer completed";
+    const amount = `PHP ${Number(notification.amount).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const reference = escapeEmailHtml(notification.reference_no);
+    const safeType = escapeEmailHtml(type);
+    const safeAmount = escapeEmailHtml(amount);
+    const text = [
+      "DRPAY",
+      "",
+      type,
+      `Amount: ${amount}`,
+      `Reference: ${notification.reference_no}`,
+      "",
+      "This transaction was confirmed as successful by the payment provider.",
+    ].join("\n");
+    const html = `
+      <div style="margin:0;padding:32px 16px;background:#f4f7fc;font-family:Arial,Helvetica,sans-serif;color:#0b1f3a">
+        <div style="max-width:480px;margin:0 auto">
+          <div style="padding:0 4px 18px;color:#0b1f3a;font-size:17px;font-weight:700;letter-spacing:1px">DRPAY</div>
+          <div style="padding:28px;background:#fff;border:1px solid #d8e1ed;border-radius:16px">
+            <div style="margin-bottom:10px;color:#52647c;font-size:10px;font-weight:700;letter-spacing:1.3px">TRANSACTION CONFIRMED</div>
+            <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3">${safeType}</h1>
+            <p style="margin:0 0 18px;color:#52647c;font-size:13px;line-height:1.6">The payment provider confirmed this transaction as successful.</p>
+            <div style="padding:16px;background:#f8f9f5;border:1px solid #d8e1ed;border-radius:11px">
+              <div style="color:#52647c;font-size:11px">Amount</div>
+              <div style="margin-top:4px;font-size:20px;font-weight:700">${safeAmount}</div>
+              <div style="margin-top:14px;color:#52647c;font-size:11px">Reference</div>
+              <div style="margin-top:4px;font-size:12px;font-weight:700;overflow-wrap:anywhere">${reference}</div>
+            </div>
+          </div>
+          <p style="margin:14px 4px 0;color:#52647c;font-size:11px">This is an automated transaction notification. Never share your password or MPIN.</p>
+        </div>
+      </div>
+    `;
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + resendApiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ from: resendFromEmail, to: [notification.merchant_email], subject: `DRPAY: ${type}`, text, html }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) {
+      console.error("Resend transaction notification failed", { status: response.status });
+      throw new Error("Transaction email delivery failed.");
+    }
+  }
+
+function fcmConfigured() {
+    return Boolean(fcmProjectId && fcmServiceAccountEmail && fcmServiceAccountPrivateKey);
+  }
+
+async function getFcmAccessToken() {
+    if (fcmAccessToken && fcmAccessTokenExpiresAt > Date.now() + 60_000) return fcmAccessToken;
+    const key = await importPKCS8(fcmServiceAccountPrivateKey, "RS256");
+    const assertion = await new SignJWT({ scope: "https://www.googleapis.com/auth/firebase.messaging" })
+      .setProtectedHeader({ alg: "RS256", typ: "JWT" })
+      .setIssuer(fcmServiceAccountEmail)
+      .setSubject(fcmServiceAccountEmail)
+      .setAudience("https://oauth2.googleapis.com/token")
+      .setIssuedAt()
+      .setExpirationTime("1h")
+      .sign(key);
+    const response = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        assertion,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) {
+      console.error("Firebase access token request failed", { status: response.status });
+      throw new Error("Push notification authorization failed.");
+    }
+    const token = await response.json();
+    if (typeof token.access_token !== "string" || !Number.isFinite(token.expires_in)) {
+      throw new Error("Firebase returned an invalid access token.");
+    }
+    fcmAccessToken = token.access_token;
+    fcmAccessTokenExpiresAt = Date.now() + token.expires_in * 1000;
+    return fcmAccessToken;
+  }
+
+async function sendTransactionPush(notification, deviceToken) {
+    const incoming = notification.transaction_type === "PAYMENT";
+    const type = incoming ? "Incoming payment received" : "Outgoing transfer completed";
+    const amount = `PHP ${Number(notification.amount).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const response = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(fcmProjectId)}/messages:send`, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + await getFcmAccessToken(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        message: {
+          token: deviceToken,
+          notification: { title: type, body: `${amount} · ${notification.reference_no}` },
+          data: { transactionType: notification.transaction_type, reference: notification.reference_no },
+          android: { priority: "high", notification: { channel_id: "drpay-transactions" } },
+        },
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (response.ok) return true;
+    const result = await response.json().catch(() => null);
+    const fcmError = result?.error?.details?.find((detail) => detail?.["@type"] === "type.googleapis.com/google.firebase.fcm.v1.FcmError")?.errorCode;
+    if (fcmError === "UNREGISTERED" || result?.error?.status === "NOT_FOUND") return false;
+    console.error("Firebase transaction push failed", { status: response.status, error: result?.error?.status || "provider error" });
+    throw new Error("Transaction push delivery failed.");
+  }
+
+async function queueSuccessfulTransaction(transactionType, transactionId) {
+    const query = transactionType === "PAYMENT"
+      ? `SELECT merchant_email, reference_no, amount, status FROM payment_links WHERE id = $1`
+      : `SELECT merchant_email, merchant_reference_no AS reference_no, amount, status FROM disbursements WHERE id = $1`;
+    const result = await pool.query(query, [transactionId]);
+    const transaction = result.rows[0];
+    const successful = transactionType === "PAYMENT"
+      ? transaction?.status === "EXECUTED"
+      : ["EXECUTED", "SUCCESS", "COMPLETED"].includes(transaction?.status?.toUpperCase());
+    if (!transaction?.merchant_email || !successful) return;
+    await pool.query(
+      `INSERT INTO transaction_notifications (id, merchant_email, transaction_type, transaction_id, reference_no, amount)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (transaction_type, transaction_id) DO NOTHING`,
+      [randomUUID(), transaction.merchant_email, transactionType, transactionId, transaction.reference_no, transaction.amount],
+    );
+  }
+
+async function updatePaymentLinkStatus(id, status) {
+    await pool.query("UPDATE payment_links SET status = $1, updated_at = NOW() WHERE id = $2", [status, id]);
+    await queueSuccessfulTransaction("PAYMENT", id);
+  }
+
+async function updateDisbursementStatus(id, swiftpayId, status, errorMessage) {
+    await pool.query(
+      "UPDATE disbursements SET swiftpay_id = COALESCE($1, swiftpay_id), status = $2, error_message = $3, updated_at = NOW() WHERE id = $4",
+      [swiftpayId, status, errorMessage, id],
+    );
+    await queueSuccessfulTransaction("DISBURSEMENT", id);
+  }
+
+async function dispatchTransactionNotifications() {
+  const { rows } = await pool.query(`
+    SELECT * FROM transaction_notifications
+    WHERE email_sent_at IS NULL OR push_sent_at IS NULL
+    ORDER BY created_at ASC
+    LIMIT 25
+  `);
+  for (const notification of rows) {
+    if (!notification.email_sent_at) {
+      try {
+        await sendTransactionEmail(notification);
+        await pool.query("UPDATE transaction_notifications SET email_sent_at = NOW() WHERE id = $1", [notification.id]);
+      } catch (error) {
+        console.error("Transaction email notification remains queued", error.message);
+      }
+    }
+    if (!notification.push_sent_at && fcmConfigured()) {
+      try {
+        const devices = await pool.query("SELECT token FROM merchant_push_devices WHERE merchant_email = $1", [notification.merchant_email]);
+        for (const device of devices.rows) {
+          const priorDelivery = await pool.query(
+            "SELECT 1 FROM transaction_push_deliveries WHERE notification_id = $1 AND token = $2",
+            [notification.id, device.token],
+          );
+          if (priorDelivery.rowCount) continue;
+          const sent = await sendTransactionPush(notification, device.token);
+          if (!sent) {
+            await pool.query("DELETE FROM merchant_push_devices WHERE token = $1", [device.token]);
+            continue;
+          }
+          await pool.query(
+            `INSERT INTO transaction_push_deliveries (notification_id, token)
+             VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+            [notification.id, device.token],
+          );
+        }
+        const remaining = await pool.query(
+          `SELECT COUNT(*)::int AS count FROM merchant_push_devices d
+           WHERE d.merchant_email = $1
+           AND NOT EXISTS (SELECT 1 FROM transaction_push_deliveries p WHERE p.notification_id = $2 AND p.token = d.token)`,
+          [notification.merchant_email, notification.id],
+        );
+        if (!remaining.rows[0].count) {
+          await pool.query("UPDATE transaction_notifications SET push_sent_at = NOW() WHERE id = $1", [notification.id]);
+        }
+      } catch (error) {
+        console.error("Transaction push notification remains queued", error.message);
+      }
+    }
   }
 }
 
@@ -289,6 +511,30 @@ async function initializeDatabase() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS merchant_push_devices (
+      token TEXT PRIMARY KEY,
+      merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS transaction_notifications (
+      id UUID PRIMARY KEY,
+      merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      transaction_type TEXT NOT NULL CHECK (transaction_type IN ('PAYMENT', 'DISBURSEMENT')),
+      transaction_id UUID NOT NULL,
+      reference_no TEXT NOT NULL,
+      amount NUMERIC(18, 2) NOT NULL,
+      email_sent_at TIMESTAMPTZ,
+      push_sent_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (transaction_type, transaction_id)
+    );
+    CREATE TABLE IF NOT EXISTS transaction_push_deliveries (
+      notification_id UUID NOT NULL REFERENCES transaction_notifications(id) ON DELETE CASCADE,
+      token TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (notification_id, token)
+    );
     CREATE INDEX IF NOT EXISTS payment_links_created_at_idx ON payment_links (created_at DESC);
     CREATE INDEX IF NOT EXISTS disbursements_created_at_idx ON disbursements (created_at DESC);
     CREATE INDEX IF NOT EXISTS internal_wallet_adjustments_merchant_created_idx
@@ -296,7 +542,12 @@ async function initializeDatabase() {
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS checkout_type TEXT NOT NULL DEFAULT 'PAYMENT_LINK';
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_token TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS qr_payload TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS merchant_email TEXT REFERENCES merchant_accounts(email) ON DELETE CASCADE;
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS request_fingerprint TEXT;
+    ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS merchant_email TEXT REFERENCES merchant_accounts(email) ON DELETE CASCADE;
+    CREATE INDEX IF NOT EXISTS merchant_push_devices_email_idx ON merchant_push_devices (merchant_email);
+    CREATE INDEX IF NOT EXISTS transaction_notifications_pending_idx
+      ON transaction_notifications (created_at) WHERE email_sent_at IS NULL OR push_sent_at IS NULL;
     CREATE UNIQUE INDEX IF NOT EXISTS disbursements_active_fingerprint_idx
       ON disbursements (request_fingerprint)
       WHERE status IN ('REQUESTING', 'PENDING', 'OUTCOME_UNKNOWN');
@@ -856,7 +1107,7 @@ app.get("/v1/public/checkout/:code", publicCheckoutLimiter, async (req, res) => 
     try {
       const { data } = await swiftPayPaymentRequest("/payments/status", row.payment_token);
       status = paymentStatusFromResponse(data);
-      await pool.query("UPDATE payment_links SET status = $1, updated_at = NOW() WHERE code = $2", [status, code]);
+      await updatePaymentLinkStatus(row.id, status);
     } catch (error) {
       statusCheckUnavailable = true;
       console.error("Checkout payment status lookup failed", error.status || "network error");
@@ -884,6 +1135,25 @@ app.get("/v1/security/status", async (req, res) => {
   return res.set("Cache-Control", "no-store").json({
     pinConfigured: rows[0]?.pin_configured === true,
   });
+});
+
+app.post("/v1/notifications/push-token", async (req, res) => {
+  const token = typeof req.body?.token === "string" ? req.body.token.trim() : "";
+  if (token.length < 32 || token.length > 4096) return res.status(400).json({ error: "A valid push token is required." });
+  await pool.query(
+    `INSERT INTO merchant_push_devices (token, merchant_email)
+     VALUES ($1, $2)
+     ON CONFLICT (token) DO UPDATE SET merchant_email = EXCLUDED.merchant_email, updated_at = NOW()`,
+    [token, req.merchantEmail],
+  );
+  return res.json({ registered: true });
+});
+
+app.post("/v1/notifications/push-token/remove", async (req, res) => {
+  const token = typeof req.body?.token === "string" ? req.body.token.trim() : "";
+  if (token.length < 32 || token.length > 4096) return res.status(400).json({ error: "A valid push token is required." });
+  await pool.query("DELETE FROM merchant_push_devices WHERE token = $1 AND merchant_email = $2", [token, req.merchantEmail]);
+  return res.json({ removed: true });
 });
 
 app.post("/v1/security/pin", async (req, res) => {
@@ -949,7 +1219,7 @@ app.get("/v1/internal-wallet", async (req, res) => {
     currency: "PHP",
     balance: result.rows[0].balance,
     transferable: false,
-    label: "DRPAY internal bookkeeping balance",
+    label: "Floated Amount",
   });
 });
 
@@ -1062,9 +1332,12 @@ app.get("/v1/payment-institutions", async (_req, res) => {
 });
 
 async function reconcilePending() {
+  if (reconcilingPending) return;
+  reconcilingPending = true;
+  try {
   const [links, transfers] = await Promise.all([
-    pool.query("SELECT id, code, payment_token FROM payment_links WHERE status IN ('CREATING', 'ACTIVE', 'PENDING') AND code IS NOT NULL ORDER BY created_at DESC LIMIT 10"),
-    pool.query("SELECT id, swiftpay_id, merchant_reference_no FROM disbursements WHERE status IN ('REQUESTING', 'PENDING', 'OUTCOME_UNKNOWN') ORDER BY created_at DESC LIMIT 10"),
+    pool.query("SELECT id, code, payment_token FROM payment_links WHERE status IN ('CREATING', 'ACTIVE', 'PENDING') AND code IS NOT NULL ORDER BY created_at DESC LIMIT 50"),
+    pool.query("SELECT id, swiftpay_id, merchant_reference_no FROM disbursements WHERE status IN ('REQUESTING', 'PENDING', 'OUTCOME_UNKNOWN') ORDER BY created_at DESC LIMIT 50"),
   ]);
   await Promise.allSettled([
     ...links.rows.map(async (row) => {
@@ -1076,7 +1349,7 @@ async function reconcilePending() {
         const { data } = await swiftPayRequest(`/payments/links/${encodeURIComponent(row.code)}`);
         status = data.linkStatus || "ACTIVE";
       }
-      await pool.query("UPDATE payment_links SET status = $1, updated_at = NOW() WHERE id = $2", [status, row.id]);
+      await updatePaymentLinkStatus(row.id, status);
     }),
     ...transfers.rows.map(async (row) => {
       let data;
@@ -1088,9 +1361,25 @@ async function reconcilePending() {
         data = result.data?.result?.find((item) => item.merchantReferenceNo === row.merchant_reference_no);
         if (!data) return;
       }
-      await pool.query("UPDATE disbursements SET swiftpay_id = $1, status = $2, error_message = $3, updated_at = NOW() WHERE id = $4", [data.id, data.status, data.errorMessage || null, row.id]);
+      await updateDisbursementStatus(row.id, data.id, data.status, data.errorMessage || null);
     }),
   ]);
+  await dispatchTransactionNotifications();
+  } finally {
+    reconcilingPending = false;
+  }
+}
+
+function startNotificationWorker() {
+  if (!fcmConfigured()) {
+    console.warn("Firebase push delivery is disabled until FCM_PROJECT_ID, FCM_SERVICE_ACCOUNT_EMAIL, and FCM_SERVICE_ACCOUNT_PRIVATE_KEY are configured.");
+  }
+  const timer = setInterval(() => {
+    void reconcilePending().catch((error) => {
+      console.error("Transaction notification worker cycle failed", error.status || error.message || "unexpected error");
+    });
+  }, 30_000);
+  timer.unref();
 }
 
 app.get("/v1/wallet/activity", async (req, res) => {
@@ -1104,15 +1393,15 @@ app.get("/v1/wallet/activity", async (req, res) => {
         CASE WHEN payment_token IS NULL THEN 'Payment link' ELSE 'QR Ph checkout' END AS channel,
         status, amount::float8 AS amount,
         created_at AS "createdAt", 'PAYMENT_LINK' AS "transactionType"
-      FROM payment_links
+      FROM payment_links WHERE merchant_email = $3
       UNION ALL
       SELECT id::text, merchant_reference_no AS "referenceNo", institution_code AS "institutionCode", institution_code AS description,
         NULL::text AS "institutionName", NULL::text AS "institutionLogoUrl",
         channel, status, -amount::float8 AS amount,
         created_at AS "createdAt", 'DISBURSEMENT' AS "transactionType"
-      FROM disbursements
+      FROM disbursements WHERE merchant_email = $3
       ORDER BY "createdAt" DESC LIMIT $1 OFFSET $2
-    `, [limit, offset]);
+    `, [limit, offset, req.merchantEmail]);
     let institutions = institutionCache.get("all")?.items;
     if (!institutions || institutionCache.get("all").expiresAt <= Date.now()) {
       try {
@@ -1154,7 +1443,7 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
   if (!validIdempotencyKey(idempotencyKey)) return res.status(400).json({ error: "A valid Idempotency-Key header is required." });
   if (!Number.isFinite(amount) || Math.abs(submittedAmount - amount) > 1e-7 || amount <= 0 || amount > 1_000_000 || !title) return res.status(400).json({ error: "Enter a description and a valid PHP amount with no more than two decimal places." });
 
-  const existing = await pool.query("SELECT * FROM payment_links WHERE idempotency_key = $1", [idempotencyKey]);
+  const existing = await pool.query("SELECT * FROM payment_links WHERE idempotency_key = $1 AND merchant_email = $2", [idempotencyKey, req.merchantEmail]);
   if (existing.rowCount) {
     const row = existing.rows[0];
     let qrPayload = row.qr_payload;
@@ -1186,8 +1475,8 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
   const referenceNo = `DRP-${randomUUID()}`;
   const code = randomBytes(32).toString("base64url");
   try {
-    await pool.query(`INSERT INTO payment_links (id, idempotency_key, reference_no, code, title, amount, checkout_type, status)
-      VALUES ($1, $2, $3, $4, $5, $6, 'DIRECT_QRPH', 'CREATING')`, [id, idempotencyKey, referenceNo, code, title, amount]);
+    await pool.query(`INSERT INTO payment_links (id, idempotency_key, reference_no, code, title, amount, checkout_type, status, merchant_email)
+      VALUES ($1, $2, $3, $4, $5, $6, 'DIRECT_QRPH', 'CREATING', $7)`, [id, idempotencyKey, referenceNo, code, title, amount, req.merchantEmail]);
   } catch (error) {
     if (error.code === "23505") return res.status(409).json({ error: "The checkout outcome is unknown. Check wallet activity before retrying." });
     throw error;
@@ -1213,24 +1502,25 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
       "UPDATE payment_links SET payment_token = $1, qr_payload = $2, payment_url = $3, status = $4, amount = $5, updated_at = NOW() WHERE id = $6",
       [data.paymentId, data.qrCode, checkoutUrl, status, actualAmount, id],
     );
+    await queueSuccessfulTransaction("PAYMENT", id);
     const qrImageUrl = new URL(`/v1/public/checkout/${code}/qr.png`, frontendOrigin).toString();
     return res.status(201).json({ id, code, paymentUrl: checkoutUrl, qrCode: data.qrCode, qrImageUrl, status, amount: actualAmount, currency: "PHP" });
   } catch (error) {
     const isAmbiguous = !error.status || error.status >= 500;
-    await pool.query("UPDATE payment_links SET status = $1, updated_at = NOW() WHERE id = $2", [isAmbiguous ? "OUTCOME_UNKNOWN" : "FAILED", id]);
+    await updatePaymentLinkStatus(id, isAmbiguous ? "OUTCOME_UNKNOWN" : "FAILED");
     console.error("SwiftPay QR checkout creation failed", error.status || "network error");
     return res.status(isAmbiguous ? 503 : 502).json({ error: isAmbiguous ? "The checkout outcome is unknown. Check wallet activity before retrying." : "SwiftPay could not create the QR checkout." });
   }
 });
 
 app.get("/v1/payment-links/:code", async (req, res) => {
-  const record = await pool.query("SELECT * FROM payment_links WHERE code = $1", [req.params.code]);
+  const record = await pool.query("SELECT * FROM payment_links WHERE code = $1 AND merchant_email = $2", [req.params.code, req.merchantEmail]);
   if (!record.rowCount) return res.status(404).json({ error: "Payment link not found." });
   try {
     if (record.rows[0].payment_token) {
       const { data } = await swiftPayPaymentRequest("/payments/status", record.rows[0].payment_token);
       const status = paymentStatusFromResponse(data);
-      await pool.query("UPDATE payment_links SET status = $1, updated_at = NOW() WHERE id = $2", [status, record.rows[0].id]);
+      await updatePaymentLinkStatus(record.rows[0].id, status);
       return res.json({
         code: record.rows[0].code,
         paymentUrl: record.rows[0].payment_url,
@@ -1242,7 +1532,7 @@ app.get("/v1/payment-links/:code", async (req, res) => {
     }
     const { data } = await swiftPayRequest(`/payments/links/${encodeURIComponent(req.params.code)}`);
     const status = data.linkStatus || record.rows[0].status;
-    await pool.query("UPDATE payment_links SET status = $1, updated_at = NOW() WHERE id = $2", [status, record.rows[0].id]);
+    await updatePaymentLinkStatus(record.rows[0].id, status);
     return res.json({ code: data.code, paymentUrl: data.paymentUrl, status, amount: Number(data.amount), currency: data.currency, referenceNo: data.referenceNo });
   } catch (error) {
     console.error("Payment-link status lookup failed", error.status || "network error");
@@ -1269,7 +1559,7 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
   if (!["INSTAPAY", "PESONET"].includes(channel) || !institutionCode || institutionCode.length > 16) return res.status(400).json({ error: "Choose a valid bank and transfer rail." });
   if (!/^[0-9]{5,64}$/.test(accountNumber) || !fullName || fullName.length > 128) return res.status(400).json({ error: "Check the recipient name and account number." });
 
-  const existing = await pool.query("SELECT * FROM disbursements WHERE idempotency_key = $1", [idempotencyKey]);
+  const existing = await pool.query("SELECT * FROM disbursements WHERE idempotency_key = $1 AND merchant_email = $2", [idempotencyKey, req.merchantEmail]);
   if (existing.rowCount) {
     const row = existing.rows[0];
     const outcomeUnknown = ["REQUESTING", "OUTCOME_UNKNOWN"].includes(row.status);
@@ -1313,10 +1603,10 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
   if (!selectedInstitution) return res.status(400).json({ error: "That institution is not enabled for the selected transfer rail." });
 
   const requestFingerprint = createHmac("sha256", jwtSecretValue)
-    .update(JSON.stringify([amount.toFixed(2), channel, institutionCode, accountNumber, fullName.toLowerCase()]))
+    .update(JSON.stringify([req.merchantEmail, amount.toFixed(2), channel, institutionCode, accountNumber, fullName.toLowerCase()]))
     .digest("hex");
   const activeRequest = await pool.query(`SELECT merchant_reference_no, status FROM disbursements
-    WHERE request_fingerprint = $1 AND status IN ('REQUESTING', 'PENDING', 'OUTCOME_UNKNOWN') LIMIT 1`, [requestFingerprint]);
+    WHERE merchant_email = $1 AND request_fingerprint = $2 AND status IN ('REQUESTING', 'PENDING', 'OUTCOME_UNKNOWN') LIMIT 1`, [req.merchantEmail, requestFingerprint]);
   if (activeRequest.rowCount) return res.status(409).json({ error: `A matching transfer is already ${activeRequest.rows[0].status.toLowerCase()}. Check wallet activity before creating another.` });
 
   await pool.query("DELETE FROM used_step_up_tokens WHERE expires_at <= NOW()");
@@ -1331,8 +1621,8 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
   const id = randomUUID();
   const merchantReferenceNo = `DRP-${randomUUID()}`;
   try {
-    await pool.query(`INSERT INTO disbursements (id, idempotency_key, merchant_reference_no, amount, channel, institution_code, request_fingerprint, status)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, 'REQUESTING')`, [id, idempotencyKey, merchantReferenceNo, amount, channel, institutionCode, requestFingerprint]);
+    await pool.query(`INSERT INTO disbursements (id, idempotency_key, merchant_reference_no, amount, channel, institution_code, request_fingerprint, status, merchant_email)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, 'REQUESTING', $8)`, [id, idempotencyKey, merchantReferenceNo, amount, channel, institutionCode, requestFingerprint, req.merchantEmail]);
   } catch (error) {
     if (error.code === "23505") return res.status(409).json({ error: "A matching transfer is already being processed. Check wallet activity before retrying." });
     throw error;
@@ -1359,7 +1649,7 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
       : settled
         ? "SwiftPay confirmed the transfer as settled."
         : "Provider accepted the transfer; settlement is not yet confirmed.";
-    await pool.query("UPDATE disbursements SET swiftpay_id = $1, status = $2, error_message = $3, updated_at = NOW() WHERE id = $4", [data.id, status, failed ? message : null, id]);
+    await updateDisbursementStatus(id, data.id, status, failed ? message : null);
     return res.status(202).json({ id: data.id, referenceNo: merchantReferenceNo, status, message });
   } catch (error) {
     const isAmbiguous = !error.status || error.status >= 500;
@@ -1367,7 +1657,7 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
     const message = isAmbiguous
       ? "Transfer outcome is unknown. Do not retry until it is reconciled."
       : error.providerMessage || `SwiftPay rejected the transfer request (${error.status}).`;
-    await pool.query("UPDATE disbursements SET status = $1, error_message = $2, updated_at = NOW() WHERE id = $3", [status, message, id]);
+    await updateDisbursementStatus(id, null, status, message);
     console.error("SwiftPay disbursement request failed", error.status || "network error");
     const responseStatus = isAmbiguous ? 503 : error.status === 400 ? 400 : 502;
     return res.status(responseStatus).json({ referenceNo: merchantReferenceNo, status, outcomeUnknown: isAmbiguous, message });
@@ -1393,7 +1683,13 @@ async function start() {
   if (missing.length) throw new Error(`Missing or invalid server configuration: ${missing.join(", ")}`);
   await initializeDatabase();
   const port = Number(process.env.PORT || 10000);
-  app.listen(port, "0.0.0.0", () => console.log(`DRPAY API listening on ${port} (${swiftPayEnvironment})`));
+  app.listen(port, "0.0.0.0", () => {
+    console.log(`DRPAY API listening on ${port} (${swiftPayEnvironment})`);
+    startNotificationWorker();
+    void reconcilePending().catch((error) => {
+      console.error("Initial transaction notification cycle failed", error.status || error.message || "unexpected error");
+    });
+  });
 }
 
 start().catch((error) => {

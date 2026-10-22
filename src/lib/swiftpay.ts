@@ -334,6 +334,20 @@ export function getMerchantSecurityStatus() {
   return backendRequest<MerchantSecurityStatus>("/v1/security/status");
 }
 
+export async function registerPushDevice(token: string) {
+  return backendRequest<{ registered: true }>("/v1/notifications/push-token", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+}
+
+export async function removePushDevice(token: string) {
+  return backendRequest<{ removed: true }>("/v1/notifications/push-token/remove", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+}
+
 export async function setMerchantPin(pin: string) {
   return backendRequest<{ pinConfigured: true }>("/v1/security/pin", {
     method: "POST",

@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Capacitor } from "@capacitor/core";
+import { PushNotifications } from "@capacitor/push-notifications";
 import {
   AlertCircle,
   ArrowDownLeft,
   ArrowUpRight,
   Bell,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   CircleHelp,
   Copy,
@@ -55,6 +57,8 @@ import {
   isBackendConfigured,
   login,
   loginWithPin,
+  registerPushDevice,
+  removePushDevice,
   requestDeviceOtp,
   resetPaymentLinkIdempotencyKey,
   setMerchantPin,
@@ -153,6 +157,15 @@ function Brand() {
       </span>
       <strong>DRPAY</strong>
     </div>
+  );
+}
+
+function PoweredByFooter() {
+  return (
+    <footer className="auth-powered-by">
+      <span>POWERED BY</span>
+      <span className="auth-powered-by-signature" role="img" aria-label="DRPAY signature" />
+    </footer>
   );
 }
 
@@ -291,7 +304,7 @@ function SignIn({ onAuthenticated }: { onAuthenticated: (session: Session) => vo
   }
 
   return (
-    <main className="auth-screen">
+    <main className="auth-screen auth-screen-with-footer">
       <div className="auth-brand"><Brand /></div>
       <section className="auth-card">
         <span className="auth-mark"><img src="/drpay-mark.png" alt="" /></span>
@@ -326,6 +339,7 @@ function SignIn({ onAuthenticated }: { onAuthenticated: (session: Session) => vo
         </form>}
         <div className="auth-trust"><ShieldCheck size={16} /><span>New devices require an email code. Previously verified devices use your MPIN. Sessions expire automatically after eight hours.</span></div>
       </section>
+      <PoweredByFooter />
     </main>
   );
 }
@@ -423,7 +437,7 @@ function SuperAdminSignIn({ onAuthenticated }: { onAuthenticated: (session: Sess
   }
 
   return (
-    <main className="auth-screen">
+    <main className="auth-screen auth-screen-with-footer">
       <div className="auth-brand"><Brand /></div>
       <section className="auth-card">
         <span className="auth-mark"><ShieldCheck size={27} /></span>
@@ -446,6 +460,7 @@ function SuperAdminSignIn({ onAuthenticated }: { onAuthenticated: (session: Sess
         </form>
         <div className="auth-trust"><ShieldCheck size={16} /><span>Separate one-hour admin session. Provider secrets and payment execution are not exposed here.</span></div>
       </section>
+      <PoweredByFooter />
     </main>
   );
 }
@@ -594,7 +609,7 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
         {loading ? <div className="admin-loading" role="status"><LoaderCircle className="spin" size={20} />Loading console…</div> : (
           <>
             <section className="admin-card">
-              <div className="admin-card-heading"><span className="setting-icon"><WalletCards size={19} /></span><div><h2>Internal bookkeeping wallet</h2><p>Manual PHP ledger for records only. It is not a SwiftPay balance and cannot be withdrawn or transferred.</p></div></div>
+              <div className="admin-card-heading"><span className="setting-icon"><WalletCards size={19} /></span><div><h2>Floated Amount</h2><p>Manual PHP ledger for records only. It is not a SwiftPay balance and cannot be withdrawn or transferred.</p></div></div>
               {merchants.length === 0 ? <p className="admin-empty">Create a merchant account before recording ledger adjustments.</p> : (
                 <>
                   <label className="admin-wallet-select">
@@ -604,7 +619,7 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
                     </select>
                   </label>
                   <div className="internal-ledger-balance">
-                    <span>DRPAY internal ledger · PHP</span>
+                    <span>Floated Amount · PHP</span>
                     <strong>{selectedWallet ? `₱${selectedWallet.balance.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "Loading…"}</strong>
                     <small>Bookkeeping only — not transferable</small>
                   </div>
@@ -1129,6 +1144,7 @@ function ScannerSheet({
   const uploadRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<"scan" | "collect" | "merchant">("scan");
   const [cameraError, setCameraError] = useState("");
+  const [cameraRetry, setCameraRetry] = useState(0);
   const [decodingUpload, setDecodingUpload] = useState(false);
   const [merchantQr, setMerchantQr] = useState<MerchantQrDetails | null>(null);
 
@@ -1167,13 +1183,22 @@ function ScannerSheet({
       if (active) stopScanner = () => controls.stop();
       else controls.stop();
     }).catch((error: unknown) => {
-      if (active) setCameraError(error instanceof Error ? error.message : "Camera access is unavailable.");
+      if (!active) return;
+      if (error instanceof DOMException && (error.name === "NotAllowedError" || error.name === "PermissionDeniedError")) {
+        setCameraError("Camera access was denied. Allow camera permission for DRPAY in your device settings, then try again.");
+      } else if (error instanceof DOMException && error.name === "NotFoundError") {
+        setCameraError("No camera was found on this device. You can still upload a QR image.");
+      } else if (error instanceof DOMException && error.name === "NotReadableError") {
+        setCameraError("The camera is already in use by another app. Close it and try again.");
+      } else {
+        setCameraError(error instanceof Error ? error.message : "Camera access is unavailable. You can still upload a QR image.");
+      }
     });
     return () => {
       active = false;
       stopScanner?.();
     };
-  }, [mode, decodingUpload]);
+  }, [mode, decodingUpload, cameraRetry]);
 
   async function scanImage(file?: File) {
     if (!file) return;
@@ -1210,7 +1235,13 @@ function ScannerSheet({
               <span className="scanner-frame" aria-hidden="true" />
               <span className="scanner-hint">Scan a QR Ph recipient or merchant code</span>
             </div>
-            {cameraError && <div className="inline-error" role="alert"><AlertCircle size={15} />{cameraError}</div>}
+            {cameraError && (
+              <div className="inline-error" role="alert">
+                <AlertCircle size={15} />
+                <span>{cameraError}</span>
+                <button className="camera-retry" onClick={() => { setCameraError(""); setCameraRetry((retry) => retry + 1); }}>Retry camera</button>
+              </div>
+            )}
             {decodingUpload && <p className="institution-list-state" role="status"><LoaderCircle className="spin" size={16} />Reading uploaded QR…</p>}
             <input
               ref={uploadRef}
@@ -1414,7 +1445,7 @@ function HomeView({
       <section className="internal-wallet-card">
         <div className="internal-wallet-heading">
           <WalletCards size={18} />
-          <span>DRPAY internal bookkeeping balance</span>
+          <span>Floated Amount</span>
           <strong>{data.internalWalletBalance}</strong>
         </div>
         <p>For internal records only. This balance is separate from SwiftPay funds and is not available for transfer or withdrawal.</p>
@@ -1483,14 +1514,12 @@ function MoreView({
   session,
   data,
   onPaymentLink,
-  onExport,
   onInfo,
   onSignOut,
 }: {
   session: Session;
   data: DashboardData;
   onPaymentLink: () => void;
-  onExport: () => void;
   onInfo: (title: string) => void;
   onSignOut: () => void;
 }) {
@@ -1498,7 +1527,8 @@ function MoreView({
     { label: "Merchant profile", description: "Business and account details", icon: Store, action: () => onInfo("Merchant profile") },
     ...(data.walletMode === "pooled" ? [{ label: "QR checkouts", description: "Create a self-hosted QR Ph checkout", icon: QrCode, action: onPaymentLink }] : []),
     { label: "Transfer banks", description: "InstaPay and PESONET", icon: CreditCard, action: () => onInfo("Transfer banks") },
-    { label: "Statements", description: "Download wallet activity", icon: ReceiptText, action: onExport },
+    { label: "Statements", description: "View and download wallet activity", icon: ReceiptText, action: () => onInfo("Statements") },
+    { label: "Notifications", description: "Email and push alerts", icon: Bell, action: () => onInfo("Notifications") },
     { label: "Security", description: "Session and device protection", icon: ShieldCheck, action: () => onInfo("Security") },
     { label: "API documentation", description: "Merchant integration guide", icon: Settings, action: () => onInfo("API documentation") },
     { label: "Help center", description: "DRPAY merchant support", icon: CircleHelp, action: () => onInfo("Help center") },
@@ -1540,6 +1570,182 @@ function MoreView({
   );
 }
 
+function ProfileInfoPage({
+  title,
+  session,
+  data,
+  securityStatus,
+  notificationPermission,
+  pushError,
+  onClose,
+  onExport,
+  onEnablePush,
+}: {
+  title: string;
+  session: Session;
+  data: DashboardData;
+  securityStatus: MerchantSecurityStatus | null;
+  notificationPermission: string;
+  pushError: string;
+  onClose: () => void;
+  onExport: () => void;
+  onEnablePush: () => void;
+}) {
+  const [institutions, setInstitutions] = useState<Institution[]>([]);
+  const [institutionsLoading, setInstitutionsLoading] = useState(false);
+  const [institutionsError, setInstitutionsError] = useState("");
+  const [retryInstitutions, setRetryInstitutions] = useState(0);
+
+  useEffect(() => {
+    if (title !== "Transfer banks") return;
+    let active = true;
+    setInstitutionsLoading(true);
+    setInstitutionsError("");
+    getInstitutions().then((result) => {
+      if (active) setInstitutions(result);
+    }).catch((requestError) => {
+      if (active) setInstitutionsError(requestError instanceof Error ? requestError.message : "Could not load transfer banks.");
+    }).finally(() => {
+      if (active) setInstitutionsLoading(false);
+    });
+    return () => { active = false; };
+  }, [title, retryInstitutions]);
+
+  const successfulTransactions = data.transactions.filter((transaction) => transaction.status === "Paid");
+  const pendingTransactions = data.transactions.filter((transaction) => transaction.status === "Pending");
+  const failedTransactions = data.transactions.filter((transaction) => transaction.status === "Failed");
+
+  return (
+    <section className="profile-info-page" aria-labelledby="profile-info-title">
+      <header className="profile-info-page-header">
+        <button className="profile-back-button" onClick={onClose}><ChevronLeft size={16} /> Profile</button>
+        <span className="eyebrow">DRPAY MERCHANT</span>
+        <h1 id="profile-info-title">{title}</h1>
+      </header>
+
+        {title === "Merchant profile" && (
+          <>
+            <div className="profile-detail-hero"><span className="profile-avatar"><Store size={20} /></span><div><strong>{session.email}</strong><span>Verified merchant account</span></div></div>
+            <dl className="detail-list">
+              <div><dt>Account role</dt><dd>{session.role.replace("_", " ")}</dd></div>
+              <div><dt>Wallet type</dt><dd>{data.walletMode === "pooled" ? "Pooled wallet" : "Internal ledger"}</dd></div>
+              <div><dt>Account number</dt><dd>{data.accountNumber ? `•••• ${data.accountNumber.slice(-4)}` : "Not provided"}</dd></div>
+              <div><dt>Available balance</dt><dd>{data.availableBalance}</dd></div>
+              <div><dt>Environment</dt><dd>{data.paymentEnvironment === "production" ? "Live" : "Sandbox"}</dd></div>
+            </dl>
+            <p className="profile-info-note">Business identity and account details are managed by your DRPAY administrator.</p>
+          </>
+        )}
+
+        {title === "Transfer banks" && (
+          <>
+            <div className="profile-info-intro"><strong>Supported transfer destinations</strong><p>Availability is provided by SwiftPay. Each bank may support InstaPay, PESONET, or both.</p></div>
+            {institutionsLoading ? <div className="profile-sheet-state" role="status"><LoaderCircle className="spin" size={17} />Loading supported banks…</div> : institutionsError ? (
+              <div className="inline-error" role="alert"><AlertCircle size={15} />{institutionsError}<button className="profile-inline-action" onClick={() => setRetryInstitutions((attempt) => attempt + 1)}>Retry</button></div>
+            ) : institutions.length === 0 ? <p className="profile-sheet-state">No transfer banks are currently available.</p> : (
+              <div className="profile-bank-list">
+                {institutions.map((institution) => (
+                  <div className="profile-bank-row" key={institution.code}>
+                    <InstitutionLogo institution={institution} className="profile-bank-logo" />
+                    <strong>{institution.name}</strong>
+                    <span className="profile-rails">
+                      {institution.instapayEnabled && <small>InstaPay</small>}
+                      {institution.pesonetEnabled && <small>PESONET</small>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {title === "Statements" && (
+          <>
+            <div className="profile-statement-summary">
+              <div><strong>{data.transactions.length}</strong><span>Transactions</span></div>
+              <div><strong>{successfulTransactions.length}</strong><span>Paid</span></div>
+              <div><strong>{pendingTransactions.length}</strong><span>Pending</span></div>
+              <div><strong>{failedTransactions.length}</strong><span>Failed</span></div>
+            </div>
+            <div className="profile-info-intro"><strong>Recent wallet activity</strong><p>Download the available activity as a CSV statement for your records.</p></div>
+            {data.transactions.length > 0 ? (
+              <div className="profile-recent-list">
+                {data.transactions.slice(0, 5).map((transaction) => (
+                  <div key={transaction.id}><span><strong>{transaction.description}</strong><small>{transaction.date} · {transaction.status}</small></span><strong>{transaction.amount}</strong></div>
+                ))}
+              </div>
+            ) : <p className="profile-sheet-state">No wallet activity is available yet.</p>}
+            <Button icon={<Download size={16} />} onClick={onExport}>Download CSV statement</Button>
+          </>
+        )}
+
+        {title === "Security" && (
+          <>
+            <div className="profile-security-status"><span><ShieldCheck size={20} /></span><div><strong>Account protection</strong><small>Security controls for this merchant session</small></div></div>
+            <dl className="detail-list">
+              <div><dt>Device verification</dt><dd>Email code required</dd></div>
+              <div><dt>Transfer approval</dt><dd>{securityStatus?.pinConfigured ? "MPIN enabled" : "MPIN setup required"}</dd></div>
+              <div><dt>Session expires</dt><dd>{new Date(session.expiresAt).toLocaleString()}</dd></div>
+            </dl>
+            <p className="profile-info-note">Never share your one-time code or MPIN. Every outgoing transfer requires MPIN approval.</p>
+          </>
+        )}
+
+        {title === "Notifications" && (
+          <>
+            <div className="profile-notification-option">
+              <span className="profile-notification-icon"><ReceiptText size={18} /></span>
+              <div><strong>Email notifications</strong><small>Successful incoming payments and outgoing transfers</small><small>{session.email}</small></div>
+              <span className="profile-notification-state">ON</span>
+            </div>
+            <div className="profile-notification-option">
+              <span className="profile-notification-icon"><Bell size={18} /></span>
+              <div>
+                <strong>Push notifications</strong>
+                <small>{notificationPermission === "granted" ? "Permission enabled on this device" : notificationPermission === "denied" ? "Permission is blocked in device settings" : notificationPermission === "unavailable" ? "Push notifications are available in the Android app" : "Allow alerts on this device for successful transactions"}</small>
+              </div>
+              <span className={`profile-notification-state ${notificationPermission === "granted" ? "enabled" : ""}`}>{notificationPermission === "granted" ? "ON" : notificationPermission === "denied" ? "BLOCKED" : "OFF"}</span>
+            </div>
+            {pushError && <div className="inline-error" role="alert"><AlertCircle size={15} />{pushError}</div>}
+            {notificationPermission !== "unavailable" && (
+              <Button onClick={onEnablePush} icon={<Bell size={16} />}>{notificationPermission === "granted" ? "Retry push setup" : notificationPermission === "denied" ? "Check notification permission" : "Enable push notifications"}</Button>
+            )}
+            {notificationPermission === "denied" && <p className="profile-info-note">If access is still blocked, enable notifications in Android Settings → Apps → DRPAY → Notifications.</p>}
+            <p className="profile-info-note">Email alerts are sent after the payment provider confirms the transaction. Push alerts require notification permission and Firebase setup on this device and server.</p>
+          </>
+        )}
+
+        {title === "API documentation" && (
+          <>
+            <div className="profile-info-intro"><strong>Merchant API reference</strong><p>The merchant app calls your configured DRPAY backend. Authenticated endpoints use the merchant session; provider credentials remain server-side.</p></div>
+            <div className="profile-guide-list">
+              <div><span>GET</span><p><strong>/v1/wallet/balance</strong>Retrieve the merchant wallet balance.</p></div>
+              <div><span>GET</span><p><strong>/v1/wallet/activity</strong>Read wallet transactions with limit and offset pagination.</p></div>
+              <div><span>GET</span><p><strong>/v1/disbursement-institutions</strong>List supported transfer destinations and rails.</p></div>
+              <div><span>POST</span><p><strong>/v1/payment-links</strong>Create a PHP hosted checkout using an idempotency key.</p></div>
+              <div><span>POST</span><p><strong>/v1/disbursements</strong>Submit a transfer with MPIN step-up authorization and an idempotency key.</p></div>
+            </div>
+            <p className="profile-info-note">These routes are served by your configured backend. Ask your DRPAY administrator for the API base URL and integration access. Never expose SwiftPay secret keys in client code.</p>
+          </>
+        )}
+
+        {title === "Help center" && (
+          <>
+            <div className="profile-info-intro"><strong>How can we help?</strong><p>Use these steps to resolve common account and payment questions.</p></div>
+            <div className="profile-guide-list">
+              <div><span><CircleHelp size={16} /></span><p><strong>Payment or transfer issue</strong>Keep the transaction reference and current status available when requesting help.</p></div>
+              <div><span><WalletCards size={16} /></span><p><strong>Balance question</strong>Refresh the dashboard and compare the wallet activity with your statement.</p></div>
+              <div><span><ShieldCheck size={16} /></span><p><strong>Sign-in or security</strong>Verify your device using the email code. Never share your MPIN or one-time code.</p></div>
+            </div>
+            <p className="profile-info-note">Support contact details are not configured in this app. Contact your DRPAY administrator for assistance.</p>
+          </>
+        )}
+
+      <Button variant="secondary" onClick={onClose}>Back to profile</Button>
+    </section>
+  );
+}
+
 const tabs = [
   { label: "Home", icon: Home },
   { label: "Wallet", icon: WalletCards },
@@ -1556,16 +1762,52 @@ export default function App() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [securityStatus, setSecurityStatus] = useState<MerchantSecurityStatus | null>(null);
   const [activeTab, setActiveTab] = useState("Home");
+  const [profileSection, setProfileSection] = useState("");
+  const [pushPermission, setPushPermission] = useState("prompt");
+  const [pushError, setPushError] = useState("");
+  const pushTokenRef = useRef("");
   const [showPayment, setShowPayment] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [transferQrPrefill, setTransferQrPrefill] = useState<TransferQrDetails | undefined>();
   const [showPaymentLink, setShowPaymentLink] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [infoTool, setInfoTool] = useState("");
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  const enablePushNotifications = useCallback(async () => {
+    if (Capacitor.getPlatform() !== "android") {
+      setPushPermission("unavailable");
+      return;
+    }
+    setPushError("");
+    try {
+      let permission = await PushNotifications.checkPermissions();
+      if (permission.receive === "denied") {
+        setPushPermission("denied");
+        setPushError("Notifications are blocked for DRPAY. Enable them in Android Settings > Apps > DRPAY > Notifications.");
+        return;
+      }
+      if (permission.receive !== "granted") permission = await PushNotifications.requestPermissions();
+      setPushPermission(permission.receive);
+      if (permission.receive !== "granted") {
+        setPushError("Allow notifications to receive transaction alerts on this device.");
+        return;
+      }
+      await PushNotifications.createChannel({
+        id: "drpay-transactions",
+        name: "Transaction alerts",
+        description: "Successful incoming payments and outgoing transfers",
+        importance: 4,
+        visibility: 0,
+        vibration: true,
+      });
+      await PushNotifications.register();
+    } catch (requestError) {
+      setPushError(requestError instanceof Error ? requestError.message : "Push notification setup failed.");
+    }
+  }, []);
 
   async function loadDashboard() {
     if (!session) return;
@@ -1591,11 +1833,56 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, isDashboard]);
 
+  useEffect(() => {
+    if (!session || !isDashboard || Capacitor.getPlatform() !== "android") {
+      if (Capacitor.getPlatform() !== "android") setPushPermission("unavailable");
+      return;
+    }
+    let active = true;
+    const listeners: { remove: () => Promise<void> }[] = [];
+    async function registerDevice() {
+      try {
+        listeners.push(await PushNotifications.addListener("registration", ({ value }) => {
+          pushTokenRef.current = value;
+          void registerPushDevice(value).then(() => {
+            if (active) setPushError("");
+          }).catch((requestError: unknown) => {
+            if (active) setPushError(requestError instanceof Error ? requestError.message : "Could not register this device for push notifications.");
+          });
+        }));
+        listeners.push(await PushNotifications.addListener("registrationError", (registrationError) => {
+          if (active) setPushError(registrationError.error || "Firebase push registration failed. Check the Android Firebase app configuration.");
+        }));
+        const permission = await PushNotifications.checkPermissions();
+        if (!active) return;
+        setPushPermission(permission.receive);
+        if (permission.receive !== "denied") await enablePushNotifications();
+      } catch (requestError) {
+        if (active) setPushError(requestError instanceof Error ? requestError.message : "Push notification setup failed.");
+      }
+    }
+    void registerDevice();
+    return () => {
+      active = false;
+      for (const listener of listeners) void listener.remove();
+    };
+  }, [session?.email, isDashboard, enablePushNotifications]);
+
   function signOut() {
+    if (pushTokenRef.current) {
+      void removePushDevice(pushTokenRef.current).catch((requestError: unknown) => {
+        console.error("Could not remove signed-out device push token", requestError);
+      });
+      pushTokenRef.current = "";
+      void PushNotifications.unregister().catch((requestError: unknown) => {
+        console.error("Could not unregister signed-out device push notifications", requestError);
+      });
+    }
     clearSession();
     setSession(null);
     setData(null);
     setSecurityStatus(null);
+    setProfileSection("");
     setActiveTab("Home");
   }
 
@@ -1710,7 +1997,10 @@ export default function App() {
                 onScan={() => setShowScanner(true)}
                 onActivity={() => setActiveTab("Wallet")}
                 onTransaction={setSelectedTransaction}
-                onWalletDetails={() => setInfoTool("Merchant profile")}
+                onWalletDetails={() => {
+                  setProfileSection("Merchant profile");
+                  setActiveTab("Profile");
+                }}
               />
             )}
             {activeTab === "Wallet" && <ActivityView data={data} onTransaction={setSelectedTransaction} />}
@@ -1722,7 +2012,21 @@ export default function App() {
                 <Button icon={<Send size={18} />} onClick={() => setShowTransfer(true)}>Start transfer</Button>
               </section>
             )}
-            {activeTab === "Profile" && <MoreView session={session} data={data} onPaymentLink={() => setShowPaymentLink(true)} onExport={exportActivity} onInfo={setInfoTool} onSignOut={signOut} />}
+            {activeTab === "Profile" && (profileSection ? (
+              <ProfileInfoPage
+                title={profileSection}
+                session={session}
+                data={data}
+                securityStatus={securityStatus}
+                notificationPermission={pushPermission}
+                pushError={pushError}
+                onClose={() => setProfileSection("")}
+                onExport={exportActivity}
+                onEnablePush={() => void enablePushNotifications()}
+              />
+            ) : (
+              <MoreView session={session} data={data} onPaymentLink={() => setShowPaymentLink(true)} onInfo={setProfileSection} onSignOut={signOut} />
+            ))}
           </div>
         </div>
 
@@ -1764,22 +2068,6 @@ export default function App() {
       )}
       {showPaymentLink && <PaymentLinkSheet onClose={() => { setShowPaymentLink(false); void loadDashboard(); }} />}
       {selectedTransaction && <TransactionSheet transaction={selectedTransaction} onClose={() => setSelectedTransaction(null)} />}
-      {infoTool && (
-        <div className="sheet-backdrop" role="presentation" onMouseDown={() => setInfoTool("")}>
-          <section className="payment-sheet" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-            <span className="sheet-handle" />
-            <header className="sheet-header"><div><span className="eyebrow">DRPAY MERCHANT</span><h2>{infoTool}</h2></div><IconButton label="Close" onClick={() => setInfoTool("")}><X size={19} /></IconButton></header>
-            <div className="tool-info">
-              {infoTool === "Merchant profile" && <><strong>{session.email}</strong><p>Role: {session.role.replace("_", " ")}<br />Wallet mode: {data.walletMode}<br />Account: {data.accountNumber ? `•••• ${data.accountNumber.slice(-4)}` : "Internal merchant ledger"}</p></>}
-              {infoTool === "Transfer banks" && <><strong>Supported rails</strong><p>Eligible institutions are loaded directly from SwiftPay. InstaPay and PESONET availability is enforced per institution during transfer setup.</p></>}
-              {infoTool === "Security" && <><strong>Device and transfer security</strong><p>New devices must be verified using a one-time code sent to your merchant email. Previously verified devices use your four-digit MPIN for sign-in, and every outgoing transfer also requires MPIN approval. Sessions expire automatically after eight hours.</p></>}
-              {infoTool === "API documentation" && <><strong>Trusted backend boundary</strong><p>Collections use SwiftPay hosted payment links, wallet data comes from the disbursement account API, and transfers use SwiftPay disbursements. SwiftPay secret keys never belong in this client.</p></>}
-              {infoTool === "Help center" && <><strong>Need assistance?</strong><p>Keep the payment or transfer reference available when contacting your payment support team. Never send a password, access token, or secret key.</p></>}
-            </div>
-            <Button onClick={() => setInfoTool("")}>Done</Button>
-          </section>
-        </div>
-      )}
       {showNotifications && (
         <div className="sheet-backdrop" role="presentation" onMouseDown={() => setShowNotifications(false)}>
           <section className="payment-sheet" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
