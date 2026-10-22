@@ -44,12 +44,19 @@ export type QrPayment = {
   checkoutUrl?: string;
 };
 
-export type Institution = {
+export type InstitutionBrand = {
   code: string;
   name: string;
+  logoUrl?: string;
+};
+
+export type Institution = InstitutionBrand & {
   instapayEnabled: boolean;
   pesonetEnabled: boolean;
-  logoUrl?: string;
+};
+
+export type PaymentInstitution = InstitutionBrand & {
+  category: string;
 };
 
 export type TransferResult = {
@@ -78,7 +85,7 @@ export type PublicCheckout = {
   currency: string;
   status: string;
   statusCheckUnavailable: boolean;
-  qrImageUrl: string;
+  qrCode: string;
 };
 
 export type CurrencyQuote = {
@@ -313,6 +320,10 @@ export async function getMerchantDashboard(): Promise<DashboardData> {
 
 export async function getInstitutions(): Promise<Institution[]> {
   return backendRequest<Institution[]>("/v1/disbursement-institutions");
+}
+
+export async function getPaymentInstitutions(): Promise<PaymentInstitution[]> {
+  return backendRequest<PaymentInstitution[]>("/v1/payment-institutions");
 }
 
 export async function getKrwPhpQuote(): Promise<CurrencyQuote> {

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Capacitor } from "@capacitor/core";
-import QRCode from "qrcode";
 import {
   AlertCircle,
   ArrowDownLeft,
@@ -62,6 +61,7 @@ import {
   type DashboardData,
   type CurrencyQuote,
   type Institution,
+  type PaymentInstitution,
   type PaymentLinkResult,
   type Session,
   type Transaction,
@@ -69,6 +69,8 @@ import {
 } from "./lib/swiftpay";
 import Checkout from "./Checkout";
 import MarketingHome from "./MarketingHome";
+import QrPaymentDisplay, { InstitutionLogo } from "./QrPaymentDisplay";
+import InstitutionSelectionScreen from "./InstitutionSelectionScreen";
 
 function isTerminalPaymentStatus(status: string) {
   return ["PAID", "EXECUTED", "INACTIVE", "CANCELED", "REJECTED", "EXPIRED", "FAILED"].includes(status.toUpperCase());
@@ -76,36 +78,6 @@ function isTerminalPaymentStatus(status: string) {
 
 function isConfirmedPaymentStatus(status: string) {
   return ["PAID", "EXECUTED"].includes(status.toUpperCase());
-}
-
-function PaymentQrCode({ value }: { value?: string }) {
-  const [image, setImage] = useState("");
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let active = true;
-    setImage("");
-    setError("");
-    if (!value) {
-      setError("The QR payload is unavailable for this checkout.");
-      return () => { active = false; };
-    }
-    QRCode.toString(value, {
-      type: "svg",
-      errorCorrectionLevel: "Q",
-      margin: 4,
-      color: { dark: "#071429", light: "#ffffff" },
-    }).then((svg) => {
-      if (active) setImage(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`);
-    }).catch(() => {
-      if (active) setError("The QR could not be rendered. Create a new checkout.");
-    });
-    return () => { active = false; };
-  }, [value]);
-
-  if (error) return <p className="checkout-qr-error" role="alert">{error}</p>;
-  if (!image) return <p className="checkout-qr-loading">Preparing scannable QR…</p>;
-  return <img className="qr-preview" src={image} alt="Scan this QR Ph payment code" />;
 }
 
 type ButtonProps = {
@@ -196,6 +168,31 @@ function StatusBadge({ status }: { status: Transaction["status"] }) {
       <i />
       {status}
     </span>
+  );
+}
+
+function DashboardLoading() {
+  return (
+    <main className="dashboard-loading-screen" role="status" aria-label="Loading merchant dashboard">
+      <div className="dashboard-loading-brand"><Brand /><span className="loading-indicator" /></div>
+      <div className="dashboard-loading-content" aria-hidden="true">
+        <div className="loading-skeleton loading-balance">
+          <span />
+          <strong />
+          <span />
+        </div>
+        <div className="loading-actions">
+          {[0, 1, 2, 3].map((item) => <span className="loading-skeleton" key={item} />)}
+        </div>
+        <div className="loading-skeleton loading-summary">
+          <span />
+          <strong />
+          <span />
+          <span />
+        </div>
+      </div>
+      <span className="dashboard-loading-label">Loading your merchant workspace…</span>
+    </main>
   );
 }
 
@@ -476,7 +473,7 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
         </div>
         {error && <div className="inline-error"><AlertCircle size={15} />{error}</div>}
         {notice && <div className="admin-notice"><ShieldCheck size={15} />{notice}</div>}
-        {loading ? <div className="admin-loading"><LoaderCircle className="spin" size={20} />Loading console…</div> : (
+        {loading ? <div className="admin-loading" role="status"><LoaderCircle className="spin" size={20} />Loading console…</div> : (
           <>
             <section className="admin-card">
               <div className="admin-card-heading"><span className="setting-icon"><WalletCards size={19} /></span><div><h2>Internal bookkeeping wallet</h2><p>Manual PHP ledger for records only. It is not a SwiftPay balance and cannot be withdrawn or transferred.</p></div></div>
@@ -572,6 +569,8 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState("");
   const [idempotencyKey, setIdempotencyKey] = useState(() => getPaymentLinkIdempotencyKey());
   const [paymentStatus, setPaymentStatus] = useState("");
+  const [selectingInstitution, setSelectingInstitution] = useState(false);
+  const [selectedInstitution, setSelectedInstitution] = useState<PaymentInstitution | null>(null);
 
   useEffect(() => {
     if (currency !== "KRW") {
@@ -614,11 +613,16 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    setSelectingInstitution(true);
+  }
+
+  async function createCheckout(institution: PaymentInstitution) {
     const enteredAmount = Number(amount);
     const phpAmount = currency === "KRW" && krwPhpQuote
       ? Math.round(enteredAmount * krwPhpQuote.rate * 100) / 100
       : enteredAmount;
     if (currency === "USDT" || (currency === "KRW" && !krwPhpQuote)) return;
+    setSelectedInstitution(institution);
     setSubmitting(true);
     setError("");
     try {
@@ -653,7 +657,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
         <header className="sheet-header">
           <div>
             <span className="eyebrow">DRPAY · SELF-HOSTED QR CHECKOUT</span>
-            <h2 id="sheet-title">{result ? "Collection ready" : "Collect payment"}</h2>
+            <h2 id="sheet-title">{result ? "Collection ready" : selectingInstitution ? "Choose payment app" : "Collect payment"}</h2>
           </div>
           <IconButton label="Close" onClick={onClose}>
             <X size={19} />
@@ -683,11 +687,18 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
                     : `Show this QR to collect PHP ${Number(result.amount || amount).toLocaleString("en-PH", { minimumFractionDigits: 2 })}.`}
                 </p>
                 <span className={`payment-state state-${paymentStatus.toLowerCase()}`}>{isConfirmedPaymentStatus(paymentStatus) ? "Payment confirmed by SwiftPay" : `Checkout status: ${paymentStatus || result.status || "PENDING"}`}</span>
-                <PaymentQrCode value={result.qrCode} />
+                <QrPaymentDisplay value={result.qrCode} institution={selectedInstitution || undefined} />
                 <Button onClick={onClose}>Done</Button>
               </>
             )}
           </div>
+        ) : selectingInstitution ? (
+          <InstitutionSelectionScreen
+            onBack={() => setSelectingInstitution(false)}
+            onConfirm={(institution) => void createCheckout(institution)}
+            busy={submitting}
+            submissionError={error}
+          />
         ) : (
           <form onSubmit={submit}>
             <div className="collection-currencies" role="group" aria-label="Collection currency">
@@ -899,7 +910,10 @@ function TransferSheet({ balance, onClose, onComplete }: { balance: number; onCl
                 disabled={institutions.length === 0}
                 onClick={() => setBankPickerOpen((open) => !open)}
               >
-                <span>{selectedBank?.name || "Loading banks…"}</span>
+                <span className="bank-picker-name">
+                  {selectedBank && <InstitutionLogo key={selectedBank.code} institution={selectedBank} className="bank-picker-logo" />}
+                  {selectedBank?.name || "Loading banks…"}
+                </span>
                 <ChevronDown size={17} />
               </button>
               {bankPickerOpen && (
@@ -925,7 +939,10 @@ function TransferSheet({ balance, onClose, onComplete }: { balance: number; onCl
                         className="bank-picker-option"
                         onClick={() => selectBank(item.code)}
                       >
-                        <span>{item.name}</span>
+                        <span className="bank-picker-name">
+                          <InstitutionLogo institution={item} className="bank-picker-logo" />
+                          {item.name}
+                        </span>
                         <small>
                           {[
                             item.instapayEnabled && "InstaPay",
@@ -1002,6 +1019,8 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState("");
   const [code, setCode] = useState("");
   const [paymentStatus, setPaymentStatus] = useState("");
+  const [selectingInstitution, setSelectingInstitution] = useState(false);
+  const [selectedInstitution, setSelectedInstitution] = useState<PaymentInstitution | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState(() => getPaymentLinkIdempotencyKey());
 
   useEffect(() => {
@@ -1020,6 +1039,10 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
   }, [code]);
   async function submit(event: FormEvent) {
     event.preventDefault();
+    setSelectingInstitution(true);
+  }
+  async function createCheckout(institution: PaymentInstitution) {
+    setSelectedInstitution(institution);
     setBusy(true);
     setError("");
     try {
@@ -1043,8 +1066,9 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
     <div className="sheet-backdrop" role="presentation" onMouseDown={onClose}>
       <section className="payment-sheet" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
         <span className="sheet-handle" />
-        <header className="sheet-header"><div><span className="eyebrow">POOLED MERCHANT TOOL</span><h2>QR checkout</h2></div><IconButton label="Close" onClick={onClose}><X size={19} /></IconButton></header>
-        {url ? <div className="link-result"><div className="result-icon"><QrCode size={23} /></div><strong>Scan to collect payment</strong><p>Show this QR to your customer to scan.</p><span className={`payment-state state-${paymentStatus.toLowerCase()}`}>{isConfirmedPaymentStatus(paymentStatus) ? "Payment confirmed by SwiftPay" : `Checkout status: ${paymentStatus || "PENDING"}`}</span><PaymentQrCode value={qrCode} /><Button variant="quiet" onClick={onClose}>Done</Button></div> :
+        <header className="sheet-header"><div><span className="eyebrow">POOLED MERCHANT TOOL</span><h2>{url ? "QR checkout" : selectingInstitution ? "Choose payment app" : "QR checkout"}</h2></div><IconButton label="Close" onClick={onClose}><X size={19} /></IconButton></header>
+        {url ? <div className="link-result"><div className="result-icon"><QrCode size={23} /></div><strong>Scan to collect payment</strong><p>Show this QR to your customer to scan.</p><span className={`payment-state state-${paymentStatus.toLowerCase()}`}>{isConfirmedPaymentStatus(paymentStatus) ? "Payment confirmed by SwiftPay" : `Checkout status: ${paymentStatus || "PENDING"}`}</span><QrPaymentDisplay value={qrCode} institution={selectedInstitution || undefined} /><Button variant="quiet" onClick={onClose}>Done</Button></div> :
+          selectingInstitution ? <InstitutionSelectionScreen onBack={() => setSelectingInstitution(false)} onConfirm={(institution) => void createCheckout(institution)} busy={busy} submissionError={error} /> :
           <form onSubmit={submit}><label><span>Description</span><input value={description} onChange={(event) => setDescription(event.target.value)} required /></label><label><span>Fixed amount</span><div className="amount-field"><span>₱</span><input type="number" min="1" step=".01" value={amount} onChange={(event) => setAmount(event.target.value)} required /><small>PHP</small></div></label>{error && <div className="inline-error"><AlertCircle size={15} />{error}</div>}<Button type="submit" disabled={busy}>{busy ? "Creating…" : "Create QR checkout"}</Button></form>}
       </section>
     </div>
@@ -1378,17 +1402,12 @@ export default function App() {
   if (!session) return <SignIn onAuthenticated={setSession} />;
 
   if (!data && loading) {
-    return (
-      <main className="loading-screen">
-        <Brand />
-        <span className="loading-line" />
-      </main>
-    );
+    return <DashboardLoading />;
   }
 
   if (!data) {
     return (
-      <main className="loading-screen error-screen">
+      <main className="dashboard-error-screen error-screen" role="alert">
         <AlertCircle size={28} />
         <h1>Wallet unavailable</h1>
         <p>{error || "We couldn’t load your merchant wallet."}</p>
@@ -1424,27 +1443,29 @@ export default function App() {
 
         <div className="app-scroll">
           {error && <div className="data-warning"><AlertCircle size={15} />{error}<button onClick={loadDashboard}>Retry</button></div>}
-          {activeTab === "Home" && (
-            <HomeView
-              data={data}
-              onRequestPayment={() => setShowPayment(true)}
-              onTransfer={() => setShowTransfer(true)}
-              onScan={() => setShowScanner(true)}
-              onActivity={() => setActiveTab("Wallet")}
-              onTransaction={setSelectedTransaction}
-              onWalletDetails={() => setInfoTool("Merchant profile")}
-            />
-          )}
-          {activeTab === "Wallet" && <ActivityView data={data} onTransaction={setSelectedTransaction} />}
-          {activeTab === "Transfer" && (
-            <section className="empty-page">
-              <span className="empty-icon"><Send size={25} /></span>
-              <h1>Send money</h1>
-              <p>Transfer from your PHP ledger through InstaPay or PESONET. Provider acceptance is not final settlement.</p>
-              <Button icon={<Send size={18} />} onClick={() => setShowTransfer(true)}>Start transfer</Button>
-            </section>
-          )}
-          {activeTab === "Profile" && <MoreView session={session} data={data} onPaymentLink={() => setShowPaymentLink(true)} onExport={exportActivity} onInfo={setInfoTool} onSignOut={signOut} />}
+          <div key={activeTab} className="page-transition" role="region" aria-label={`${activeTab} page`}>
+            {activeTab === "Home" && (
+              <HomeView
+                data={data}
+                onRequestPayment={() => setShowPayment(true)}
+                onTransfer={() => setShowTransfer(true)}
+                onScan={() => setShowScanner(true)}
+                onActivity={() => setActiveTab("Wallet")}
+                onTransaction={setSelectedTransaction}
+                onWalletDetails={() => setInfoTool("Merchant profile")}
+              />
+            )}
+            {activeTab === "Wallet" && <ActivityView data={data} onTransaction={setSelectedTransaction} />}
+            {activeTab === "Transfer" && (
+              <section className="empty-page">
+                <span className="empty-icon"><Send size={25} /></span>
+                <h1>Send money</h1>
+                <p>Transfer from your PHP ledger through InstaPay or PESONET. Provider acceptance is not final settlement.</p>
+                <Button icon={<Send size={18} />} onClick={() => setShowTransfer(true)}>Start transfer</Button>
+              </section>
+            )}
+            {activeTab === "Profile" && <MoreView session={session} data={data} onPaymentLink={() => setShowPaymentLink(true)} onExport={exportActivity} onInfo={setInfoTool} onSignOut={signOut} />}
+          </div>
         </div>
 
         <nav className="bottom-nav" aria-label="App navigation">

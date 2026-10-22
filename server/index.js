@@ -65,6 +65,7 @@ const transferLimiter = rateLimit({ windowMs: 60 * 1000, limit: 5, standardHeade
 const publicCheckoutLimiter = rateLimit({ windowMs: 60 * 1000, limit: 60, standardHeaders: "draft-8", legacyHeaders: false });
 const publicQrImageLimiter = rateLimit({ windowMs: 60 * 1000, limit: 30, standardHeaders: "draft-8", legacyHeaders: false });
 const institutionCache = new Map();
+let paymentInstitutionCache = null;
 let liveKrwPhpRateCache = null;
 
 function requiredEnvironment() {
@@ -572,7 +573,7 @@ app.get("/v1/public/checkout/:code", publicCheckoutLimiter, async (req, res) => 
   const code = req.params.code;
   if (!/^[A-Za-z0-9_-]{40,50}$/.test(code)) return res.status(404).json({ error: "Checkout not found." });
   const record = await pool.query(
-    `SELECT code, title, reference_no, amount::float8 AS amount, currency, status, payment_token
+    `SELECT code, title, reference_no, amount::float8 AS amount, currency, status, payment_token, qr_payload
      FROM payment_links WHERE code = $1 AND checkout_type = 'DIRECT_QRPH'`,
     [code],
   );
@@ -599,7 +600,7 @@ app.get("/v1/public/checkout/:code", publicCheckoutLimiter, async (req, res) => 
     currency: row.currency,
     status,
     statusCheckUnavailable,
-    qrImageUrl: new URL(`/v1/public/checkout/${code}/qr.png`, frontendOrigin).toString(),
+    qrCode: row.qr_payload,
   });
 });
 
@@ -700,6 +701,24 @@ app.get("/v1/disbursement-institutions", async (req, res) => {
   } catch (error) {
     console.error("Institution lookup failed", error.status || "network error");
     return res.status(503).json({ error: "Transfer institutions are temporarily unavailable." });
+  }
+});
+
+app.get("/v1/payment-institutions", async (_req, res) => {
+  if (paymentInstitutionCache && paymentInstitutionCache.expiresAt > Date.now()) {
+    return res.json(paymentInstitutionCache.items);
+  }
+  try {
+    const { data } = await swiftPayFetch("/institutions");
+    if (!Array.isArray(data)) throw new Error("SwiftPay returned an invalid payment institution list.");
+    const items = data
+      .filter((item) => item?.enabled === true && (swiftPayEnvironment !== "production" || item.live === true))
+      .map(({ code, name, category }) => ({ code, name, category }));
+    paymentInstitutionCache = { items, expiresAt: Date.now() + 60 * 60 * 1000 };
+    return res.json(items);
+  } catch (error) {
+    console.error("Payment institution lookup failed", error.status || error.message || "unexpected error");
+    return res.status(503).json({ error: "Payment institutions are temporarily unavailable." });
   }
 });
 

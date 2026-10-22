@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, Clock3, Copy, LoaderCircle, ShieldCheck, TriangleAlert } from "lucide-react";
 import { getPublicCheckout, type PublicCheckout } from "./lib/swiftpay";
+import QrPaymentDisplay from "./QrPaymentDisplay";
 
 function statusPresentation(checkout: PublicCheckout) {
   if (checkout.status === "EXECUTED") {
@@ -21,7 +22,6 @@ function statusPresentation(checkout: PublicCheckout) {
 export default function Checkout({ code }: { code: string }) {
   const [checkout, setCheckout] = useState<PublicCheckout | null>(null);
   const [error, setError] = useState("");
-  const [imageFailed, setImageFailed] = useState(false);
   const [referenceCopied, setReferenceCopied] = useState(false);
 
   useEffect(() => {
@@ -69,7 +69,7 @@ export default function Checkout({ code }: { code: string }) {
         </header>
 
         {!checkout && !error && (
-          <div className="checkout-loading"><LoaderCircle size={24} className="checkout-spinner" />Loading checkout…</div>
+          <div className="checkout-loading" role="status"><LoaderCircle size={24} className="checkout-spinner" />Loading checkout…</div>
         )}
 
         {error && !checkout && (
@@ -110,16 +110,8 @@ export default function Checkout({ code }: { code: string }) {
               <div className="checkout-expired">Ask the merchant for a new payment request.</div>
             ) : checkout.status === "CANCELED" || checkout.status === "REJECTED" ? (
               <div className="checkout-expired">This payment request is no longer active. Ask the merchant for help.</div>
-            ) : imageFailed ? (
-              <div className="checkout-qr-error">The payment QR could not be loaded. Refresh this page or ask the merchant for a new checkout.</div>
             ) : (
-              <div className="checkout-qr-frame">
-                <img
-                  src={checkout.qrImageUrl}
-                  alt="QR Ph payment code"
-                  onError={() => setImageFailed(true)}
-                />
-              </div>
+              <QrPaymentDisplay value={checkout.qrCode} />
             )}
 
             {!terminal && (
