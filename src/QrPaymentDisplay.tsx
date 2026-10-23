@@ -5,10 +5,34 @@ import type { InstitutionBrand } from "./lib/swiftpay";
 import { getInstitutionLogoAsset } from "./lib/institutionLogos";
 
 export function InstitutionLogo({ institution, className = "" }: { institution: InstitutionBrand; className?: string }) {
-  const [imageFailed, setImageFailed] = useState(false);
-  const logoUrl = getInstitutionLogoAsset(institution.code, institution.name) || institution.logoUrl;
-  if (logoUrl && !imageFailed) {
-    return <img className={className} src={logoUrl} alt={`${institution.name} logo`} onError={() => setImageFailed(true)} />;
+  const [failedLogoUrl, setFailedLogoUrl] = useState("");
+  const fallbackLogoUrl = getInstitutionLogoAsset(institution.code, institution.name);
+  const logoUrl = institution.logoUrl || fallbackLogoUrl;
+  const nextLogoUrl = logoUrl === institution.logoUrl ? fallbackLogoUrl : undefined;
+
+  useEffect(() => {
+    setFailedLogoUrl("");
+  }, [logoUrl, nextLogoUrl]);
+
+  if (logoUrl && failedLogoUrl !== logoUrl) {
+    return (
+      <img
+        className={className}
+        src={logoUrl}
+        alt={`${institution.name} logo`}
+        onError={() => setFailedLogoUrl(logoUrl)}
+      />
+    );
+  }
+  if (nextLogoUrl && failedLogoUrl !== nextLogoUrl) {
+    return (
+      <img
+        className={className}
+        src={nextLogoUrl}
+        alt={`${institution.name} logo`}
+        onError={() => setFailedLogoUrl(nextLogoUrl)}
+      />
+    );
   }
 
   return (

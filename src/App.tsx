@@ -2067,6 +2067,119 @@ function MerchantActivityChart() {
   );
 }
 
+const WALLET_ACTIVITY_FILTERS = ["All activity", "Money in", "Money out", "Completed", "Pending", "Failed"];
+
+function WalletBalancePanel({
+  data,
+  balanceVisible,
+  onToggleBalanceVisibility,
+}: {
+  data: DashboardData;
+  balanceVisible: boolean;
+  onToggleBalanceVisibility: () => void;
+}) {
+  return (
+    <section className="wallet-balance-panel">
+      <div className="wallet-balance-heading">
+        <span>Available balance</span>
+        <button type="button" onClick={onToggleBalanceVisibility} aria-label={balanceVisible ? "Hide balances" : "Show balances"} aria-pressed={!balanceVisible}>
+          <Eye size={15} /> {balanceVisible ? "Hide" : "Show"}
+        </button>
+      </div>
+      <strong className="wallet-balance-value">{balanceVisible ? data.availableBalance : "₱ ••••••"}</strong>
+      <div className="wallet-balance-foot">
+        <span><i /> SwiftPay payout account</span>
+        <span>{data.paymentEnvironment === "production" ? "Live" : "Sandbox"}</span>
+      </div>
+    </section>
+  );
+}
+
+function WalletFloatingBalanceCard({
+  data,
+  balanceVisible,
+  payoutAccount,
+  requestBusy,
+  requestError,
+  requestNotice,
+  onRequestTransfer,
+}: {
+  data: DashboardData;
+  balanceVisible: boolean;
+  payoutAccount: MerchantPayoutAccount | null;
+  requestBusy: boolean;
+  requestError: string;
+  requestNotice: string;
+  onRequestTransfer: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  if (data.availableFloatingBalance <= 0) return null;
+
+  return (
+    <section className="floating-balance-card">
+      <div className="floating-balance-heading"><span className="wallet-ledger-icon"><WalletCards size={18} /></span><div><strong>Unsettled Funds</strong><p>Your total balance, including funds reserved for pending transfer requests.</p></div></div>
+      <div className="floating-balance-values">
+        <div><small>Total balance</small><strong>{balanceVisible ? data.internalWalletBalance : "₱ ••••••"}</strong></div>
+      </div>
+      <p className="floating-transfer-fee-note">The merchant should completed the accumolative Payment Collection worth of 500,000 Korean Won before the unsettled funds can be transfered into the merchant wallet ledger.</p>
+      {payoutAccount && payoutAccount.bankName ? (
+        <div className="floating-payout-account"><span>Saved payout account</span><strong>{payoutAccount.bankName} · {payoutAccount.accountName}</strong><small>Account ending {payoutAccount.accountNumber.slice(-4)}</small></div>
+      ) : <p className="floating-payout-missing">Save a bank account in your profile before requesting a transfer.</p>}
+      <form className="floating-transfer-form" onSubmit={onRequestTransfer}>
+        <small className="floating-transfer-total">Full available balance: {formatPeso(Math.max(0, data.availableFloatingBalance - data.transferFeeFixed))} payout + {formatPeso(data.transferFeeFixed)} fee</small>
+        <Button type="submit" disabled={requestBusy || !payoutAccount?.bankName || data.availableFloatingBalance <= data.transferFeeFixed}>{requestBusy ? "Submitting…" : "Request for Payout"}</Button>
+      </form>
+      {requestError && <div className="inline-error" role="alert"><AlertCircle size={14} />{requestError}</div>}
+      {requestNotice && <div className="admin-notice"><ShieldCheck size={14} />{requestNotice}</div>}
+    </section>
+  );
+}
+
+function WalletActivitySection({
+  transactions,
+  totalTransactions,
+  filter,
+  query,
+  onFilterChange,
+  onQueryChange,
+  onTransaction,
+}: {
+  transactions: Transaction[];
+  totalTransactions: number;
+  filter: string;
+  query: string;
+  onFilterChange: (filter: string) => void;
+  onQueryChange: (query: string) => void;
+  onTransaction: (transaction: Transaction) => void;
+}) {
+  return (
+    <>
+      <header className="wallet-activity-heading">
+        <div><span className="eyebrow">LATEST 50 RECORDS</span><h2>Wallet activity</h2></div>
+        <span>{transactions.length} shown</span>
+      </header>
+      <label className="activity-search"><Search size={16} /><input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search description or reference" aria-label="Search wallet activity" /></label>
+      <div className="filter-row">
+        {WALLET_ACTIVITY_FILTERS.map((item) => (
+          <button key={item} type="button" aria-pressed={filter === item} className={filter === item ? "active" : ""} onClick={() => onFilterChange(item)}>
+            {item}
+          </button>
+        ))}
+      </div>
+      <div className="transaction-list full-list">
+        {transactions.length > 0 ? transactions.map((transaction) => (
+          <TransactionRow key={transaction.id} transaction={transaction} onClick={() => onTransaction(transaction)} />
+        )) : (
+          <div className="wallet-empty-state">
+            <WalletCards size={23} />
+            <strong>{totalTransactions ? "No matching activity" : "No wallet activity yet"}</strong>
+            <p>{totalTransactions ? "Try a different filter or search term." : "Incoming payments and outgoing transfers will appear here."}</p>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 function WalletView({
   data,
   onTransaction,
@@ -2080,10 +2193,10 @@ function WalletView({
   const [query, setQuery] = useState("");
   const { balanceVisible, toggleBalanceVisibility } = useBalanceVisibility();
   const [payoutAccount, setPayoutAccount] = useState<MerchantPayoutAccount | null>(null);
-  const [requestAmount, setRequestAmount] = useState("");
   const [requestBusy, setRequestBusy] = useState(false);
   const [requestError, setRequestError] = useState("");
   const [requestNotice, setRequestNotice] = useState("");
+
   useEffect(() => {
     let active = true;
     getMerchantPayoutAccount().then((account) => {
@@ -2095,15 +2208,15 @@ function WalletView({
     return () => { active = false; };
   }, []);
 
-  async function requestFloatingBalanceTransfer(event: FormEvent) {
+  async function requestFloatingBalanceTransfer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setRequestBusy(true);
     setRequestError("");
     setRequestNotice("");
     try {
-      await createMerchantFloatingTransferRequest({ amount: Number(requestAmount) });
-      setRequestAmount("");
-      setRequestNotice("Transfer request submitted. The requested amount is reserved until the super admin reviews it.");
+      const requestAmount = data.availableFloatingBalance - data.transferFeeFixed;
+      await createMerchantFloatingTransferRequest({ amount: requestAmount });
+      setRequestNotice("Transfer request submitted for your full available balance, less the transfer fee.");
       onRefresh();
     } catch (requestError) {
       setRequestError(requestError instanceof Error ? requestError.message : "Could not submit transfer request.");
@@ -2127,59 +2240,25 @@ function WalletView({
 
   return (
     <section className="wallet-page">
-      <section className="wallet-balance-panel">
-        <div className="wallet-balance-heading">
-          <span>Available balance</span>
-          <button type="button" onClick={toggleBalanceVisibility} aria-label={balanceVisible ? "Hide balances" : "Show balances"} aria-pressed={!balanceVisible}>
-            <Eye size={15} /> {balanceVisible ? "Hide" : "Show"}
-          </button>
-        </div>
-        <strong className="wallet-balance-value">{balanceVisible ? data.availableBalance : "₱ ••••••"}</strong>
-        <div className="wallet-balance-foot">
-          <span><i /> SwiftPay payout account</span>
-          <span>{data.paymentEnvironment === "production" ? "Live" : "Sandbox"}</span>
-        </div>
-      </section>
-      {data.availableFloatingBalance > 0 && <section className="floating-balance-card">
-        <div className="floating-balance-heading"><span className="wallet-ledger-icon"><WalletCards size={18} /></span><div><strong>Unsettled Funds</strong><p>Your total balance, including funds reserved for pending transfer requests.</p></div></div>
-        <div className="floating-balance-values">
-          <div><small>Total balance</small><strong>{balanceVisible ? data.internalWalletBalance : "₱ ••••••"}</strong></div>
-        </div>
-        <p className="floating-transfer-fee-note">The merchant should completed the accumolative Payment Collection worth of 500,000 Korean Won before the unsettled funds can be transfered into the merchant wallet ledger.</p>
-        {payoutAccount && payoutAccount.bankName ? (
-          <div className="floating-payout-account"><span>Saved payout account</span><strong>{payoutAccount.bankName} · {payoutAccount.accountName}</strong><small>Account ending {payoutAccount.accountNumber.slice(-4)}</small></div>
-        ) : <p className="floating-payout-missing">Save a bank account in your profile before requesting a transfer.</p>}
-        <form className="floating-transfer-form" onSubmit={requestFloatingBalanceTransfer}>
-          <label><span>Transfer request amount (PHP)</span><input type="number" min="0.01" max={Math.max(0, data.availableFloatingBalance - data.transferFeeFixed)} step="0.01" value={requestAmount} onChange={(event) => setRequestAmount(event.target.value)} placeholder="Enter an amount" required /></label>
-          {requestAmount && Number(requestAmount) > 0 && <small className="floating-transfer-total">Requested payout {formatPeso(Number(requestAmount))} + fee {formatPeso(data.transferFeeFixed)} = {formatPeso(Number(requestAmount) + data.transferFeeFixed)} total</small>}
-          <Button type="submit" disabled={requestBusy || !payoutAccount?.bankName || !requestAmount || Number(requestAmount) <= 0 || Number(requestAmount) + data.transferFeeFixed > data.availableFloatingBalance}>{requestBusy ? "Submitting…" : "Request for Payout"}</Button>
-        </form>
-        {requestError && <div className="inline-error" role="alert"><AlertCircle size={14} />{requestError}</div>}
-        {requestNotice && <div className="admin-notice"><ShieldCheck size={14} />{requestNotice}</div>}
-      </section>}
-      <header className="wallet-activity-heading">
-        <div><span className="eyebrow">LATEST 50 RECORDS</span><h2>Wallet activity</h2></div>
-        <span>{transactions.length} shown</span>
-      </header>
-      <label className="activity-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search description or reference" aria-label="Search wallet activity" /></label>
-      <div className="filter-row">
-        {["All activity", "Money in", "Money out", "Completed", "Pending", "Failed"].map((item) => (
-          <button key={item} type="button" aria-pressed={filter === item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>
-            {item}
-          </button>
-        ))}
-      </div>
-      <div className="transaction-list full-list">
-        {transactions.length > 0 ? transactions.map((transaction) => (
-          <TransactionRow key={transaction.id} transaction={transaction} onClick={() => onTransaction(transaction)} />
-        )) : (
-          <div className="wallet-empty-state">
-            <WalletCards size={23} />
-            <strong>{data.transactions.length ? "No matching activity" : "No wallet activity yet"}</strong>
-            <p>{data.transactions.length ? "Try a different filter or search term." : "Incoming payments and outgoing transfers will appear here."}</p>
-          </div>
-        )}
-      </div>
+      <WalletBalancePanel data={data} balanceVisible={balanceVisible} onToggleBalanceVisibility={toggleBalanceVisibility} />
+      <WalletFloatingBalanceCard
+        data={data}
+        balanceVisible={balanceVisible}
+        payoutAccount={payoutAccount}
+        requestBusy={requestBusy}
+        requestError={requestError}
+        requestNotice={requestNotice}
+        onRequestTransfer={requestFloatingBalanceTransfer}
+      />
+      <WalletActivitySection
+        transactions={transactions}
+        totalTransactions={data.transactions.length}
+        filter={filter}
+        query={query}
+        onFilterChange={setFilter}
+        onQueryChange={setQuery}
+        onTransaction={onTransaction}
+      />
     </section>
   );
 }
@@ -2209,11 +2288,11 @@ function TransfersView({
       <section className="transfer-methods-card">
         <h2>Choose a transfer network</h2>
         <div className="transfer-method-row">
-          <span className="transfer-method-icon"><ArrowUpRight size={17} /></span>
+          <img className="transfer-method-logo" src="/bank-logos/instapay.png" alt="InstaPay logo" />
           <div><strong>InstaPay</strong><p>Real-time network for eligible banks and wallets.</p></div>
         </div>
         <div className="transfer-method-row">
-          <span className="transfer-method-icon"><ArrowUpRight size={17} /></span>
+          <img className="transfer-method-logo" src="/bank-logos/pesonet.png" alt="PESONet logo" />
           <div><strong>PESONet</strong><p>Batch network for eligible bank transfers.</p></div>
         </div>
       </section>

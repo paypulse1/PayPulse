@@ -78,6 +78,23 @@ const publicCheckoutLimiter = rateLimit({ windowMs: 60 * 1000, limit: 60, standa
 const publicQrImageLimiter = rateLimit({ windowMs: 60 * 1000, limit: 30, standardHeaders: "draft-8", legacyHeaders: false });
 const institutionCache = new Map();
 let paymentInstitutionCache = null;
+function getInstitutionLogoUrl(institution) {
+  const candidates = [
+    institution?.logoUrl,
+    institution?.logo_url,
+    institution?.logo,
+    institution?.iconUrl,
+    institution?.icon_url,
+    institution?.icon,
+    institution?.imageUrl,
+    institution?.image_url,
+  ];
+  return candidates.find((value) =>
+    typeof value === "string"
+    && (value.startsWith("https://") || value.startsWith("/")),
+  ) || null;
+}
+
 let liveKrwPhpRateCache = null;
 let fcmAccessToken;
 let fcmAccessTokenExpiresAt = 0;
@@ -1915,8 +1932,12 @@ app.get("/v1/disbursement-institutions", async (req, res) => {
     const query = channel ? `?channel=${encodeURIComponent(channel)}` : "";
     const { data } = await swiftPayRequest(`/disbursements/institutions${query}`);
     if (!Array.isArray(data)) throw new Error("SwiftPay returned an invalid disbursement institution list.");
-    institutionCache.set(cacheKey, { items: data, expiresAt: Date.now() + 6 * 60 * 60 * 1000 });
-    return res.json(data);
+    const items = data.map((institution) => ({
+      ...institution,
+      logoUrl: getInstitutionLogoUrl(institution),
+    }));
+    institutionCache.set(cacheKey, { items, expiresAt: Date.now() + 6 * 60 * 60 * 1000 });
+    return res.json(items);
   } catch (error) {
     console.error("Institution lookup failed", error.status || "network error");
     return res.status(503).json({ error: "Transfer institutions are temporarily unavailable." });
@@ -1936,7 +1957,12 @@ app.get("/v1/payment-institutions", async (_req, res) => {
         && (swiftPayEnvironment !== "production" || item.live === true)
         && !["PALAWAN", "JCB_MAYA", "VISA_MAYA", "MASTERCARD_MAYA", "BILLEASE", "CARD_MAYA"].includes(item.code),
       )
-      .map(({ code, name, category }) => ({ code, name, category }));
+      .map((institution) => ({
+        code: institution.code,
+        name: institution.name,
+        category: institution.category,
+        logoUrl: getInstitutionLogoUrl(institution),
+      }));
     paymentInstitutionCache = { items, expiresAt: Date.now() + 60 * 60 * 1000 };
     return res.json(items);
   } catch (error) {
@@ -2152,7 +2178,7 @@ app.get("/v1/wallet/activity", async (req, res) => {
       return institution ? {
         ...row,
         institutionName: typeof institution.name === "string" ? institution.name : null,
-        institutionLogoUrl: typeof institution.logoUrl === "string" ? institution.logoUrl : null,
+        institutionLogoUrl: getInstitutionLogoUrl(institution),
       } : row;
     });
     return res.json(enrichedRows);
