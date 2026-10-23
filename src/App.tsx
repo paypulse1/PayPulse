@@ -52,7 +52,6 @@ import {
   getAdminInternalWallets,
   getAdminMerchantAccounts,
   getAdminSettings,
-  getMerchantFloatingTransferRequests,
   getMerchantActivityTrend,
   getMerchantDashboard,
   getMerchantPayoutAccount,
@@ -2071,29 +2070,25 @@ function MerchantActivityChart() {
 function WalletView({
   data,
   onTransaction,
-  onManagePayoutAccount,
   onRefresh,
 }: {
   data: DashboardData;
   onTransaction: (transaction: Transaction) => void;
-  onManagePayoutAccount: () => void;
   onRefresh: () => void;
 }) {
   const [filter, setFilter] = useState("All activity");
   const [query, setQuery] = useState("");
   const { balanceVisible, toggleBalanceVisibility } = useBalanceVisibility();
   const [payoutAccount, setPayoutAccount] = useState<MerchantPayoutAccount | null>(null);
-  const [transferRequests, setTransferRequests] = useState<FloatingTransferRequest[]>([]);
   const [requestAmount, setRequestAmount] = useState("");
   const [requestBusy, setRequestBusy] = useState(false);
   const [requestError, setRequestError] = useState("");
   const [requestNotice, setRequestNotice] = useState("");
   useEffect(() => {
     let active = true;
-    Promise.all([getMerchantPayoutAccount(), getMerchantFloatingTransferRequests()]).then(([account, requests]) => {
+    getMerchantPayoutAccount().then((account) => {
       if (!active) return;
       setPayoutAccount(account);
-      setTransferRequests(requests);
     }).catch((requestError) => {
       if (active) setRequestError(requestError instanceof Error ? requestError.message : "Could not load floating-balance transfer details.");
     });
@@ -2106,8 +2101,7 @@ function WalletView({
     setRequestError("");
     setRequestNotice("");
     try {
-      const request = await createMerchantFloatingTransferRequest({ amount: Number(requestAmount) });
-      setTransferRequests((current) => [request, ...current]);
+      await createMerchantFloatingTransferRequest({ amount: Number(requestAmount) });
       setRequestAmount("");
       setRequestNotice("Transfer request submitted. The requested amount is reserved until the super admin reviews it.");
       onRefresh();
@@ -2147,15 +2141,14 @@ function WalletView({
         </div>
       </section>
       {data.availableFloatingBalance > 0 && <section className="floating-balance-card">
-        <div className="floating-balance-heading"><span className="wallet-ledger-icon"><WalletCards size={18} /></span><div><strong>Floating balance</strong><p>Your total balance, including funds reserved for pending transfer requests.</p></div></div>
+        <div className="floating-balance-heading"><span className="wallet-ledger-icon"><WalletCards size={18} /></span><div><strong>Unsettled Funds</strong><p>Your total balance, including funds reserved for pending transfer requests.</p></div></div>
         <div className="floating-balance-values">
           <div><small>Total balance</small><strong>{balanceVisible ? data.internalWalletBalance : "₱ ••••••"}</strong></div>
         </div>
-        <p className="floating-transfer-fee-note">Transfer fee: {formatPeso(data.transferFeeFixed)} per successful request. The fee is added to the requested amount and reserved while your request is pending.</p>
+        <p className="floating-transfer-fee-note">The merchant should completed the accumolative Payment Collection worth of 500,000 Korean Won before the unsettled funds can be transfered into the merchant wallet ledger.</p>
         {payoutAccount && payoutAccount.bankName ? (
           <div className="floating-payout-account"><span>Saved payout account</span><strong>{payoutAccount.bankName} · {payoutAccount.accountName}</strong><small>Account ending {payoutAccount.accountNumber.slice(-4)}</small></div>
         ) : <p className="floating-payout-missing">Save a bank account in your profile before requesting a transfer.</p>}
-        <Button variant="secondary" onClick={onManagePayoutAccount}>Manage payout account</Button>
         <form className="floating-transfer-form" onSubmit={requestFloatingBalanceTransfer}>
           <label><span>Transfer request amount (PHP)</span><input type="number" min="0.01" max={Math.max(0, data.availableFloatingBalance - data.transferFeeFixed)} step="0.01" value={requestAmount} onChange={(event) => setRequestAmount(event.target.value)} placeholder="Enter an amount" required /></label>
           {requestAmount && Number(requestAmount) > 0 && <small className="floating-transfer-total">Requested payout {formatPeso(Number(requestAmount))} + fee {formatPeso(data.transferFeeFixed)} = {formatPeso(Number(requestAmount) + data.transferFeeFixed)} total</small>}
@@ -2163,16 +2156,6 @@ function WalletView({
         </form>
         {requestError && <div className="inline-error" role="alert"><AlertCircle size={14} />{requestError}</div>}
         {requestNotice && <div className="admin-notice"><ShieldCheck size={14} />{requestNotice}</div>}
-        <div className="floating-request-list">
-          <strong>Transfer request history</strong>
-          {transferRequests.length === 0 ? <p>No transfer requests yet.</p> : transferRequests.map((request) => (
-            <div className="floating-request-row" key={request.id}>
-              <span><strong>{formatPeso(request.amount)}</strong><small>Fee {formatPeso(request.transferFee)} · {new Date(request.requestedAt).toLocaleString()}</small>{request.status === "FAILED" && request.failureReason && <small className="floating-request-failure-reason">Reason: {request.failureReason}</small>}</span>
-              <span className={`admin-status-pill ${request.status.toLowerCase()}`}>{request.status.charAt(0) + request.status.slice(1).toLowerCase()}</span>
-            </div>
-          ))}
-        </div>
-        <p className="floating-transfer-note">A successful request deducts the amount from your floating balance. The payout is handled manually by DRPAY outside the app.</p>
       </section>}
       <header className="wallet-activity-heading">
         <div><span className="eyebrow">LATEST 50 RECORDS</span><h2>Wallet activity</h2></div>
@@ -2926,7 +2909,6 @@ export default function App() {
             {activeTab === "Wallet" && <WalletView
               data={data}
               onTransaction={setSelectedTransaction}
-              onManagePayoutAccount={() => { setProfileSection("Merchant profile"); setActiveTab("Profile"); }}
               onRefresh={() => { void loadDashboard(); }}
             />}
             {activeTab === "Transfer" && (
