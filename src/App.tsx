@@ -58,6 +58,7 @@ import {
   getMerchantActivityTrend,
   getMerchantDashboard,
   createMerchantFloatingTransferRequest,
+  getMerchantPayoutAccount,
   getMerchantSecurityStatus,
   getPaymentLinkIdempotencyKey,
   getPaymentLinkStatus,
@@ -87,6 +88,7 @@ import {
   type CollectionRefundDetails,
   type DashboardData,
   type MerchantActivityTrendPoint,
+  type MerchantPayoutAccount,
   type MerchantSecurityStatus,
   type CurrencyQuote,
   type Institution,
@@ -2318,7 +2320,9 @@ function WalletFloatingBalanceCard({
   data: DashboardData;
   balanceVisible: boolean;
 }) {
-  const [requestAmount, setRequestAmount] = useState("");
+  const [payoutAccount, setPayoutAccount] = useState<MerchantPayoutAccount | null>(null);
+  const [payoutAccountLoading, setPayoutAccountLoading] = useState(true);
+  const [payoutAccountError, setPayoutAccountError] = useState("");
   const [requestError, setRequestError] = useState("");
   const [requestMessage, setRequestMessage] = useState("");
   const [requestSubmitting, setRequestSubmitting] = useState(false);
@@ -2331,22 +2335,33 @@ function WalletFloatingBalanceCard({
   );
   const maxRequestAmount = Math.min(
     availableToRequest,
-    Math.max(0, data.availableFloatingBalance - data.transferFeeFixed),
+    Math.max(0, Math.floor((data.availableFloatingBalance - data.transferFeeFixed) * 100) / 100),
   );
   const thresholdReached = currentCollectionsKrw >= collectionTargetKrw;
   const unlocked = data.paymentEnvironment === "production" && thresholdReached;
 
-  async function submitTransferRequest(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  useEffect(() => {
+    let active = true;
+    getMerchantPayoutAccount().then((account) => {
+      if (active) setPayoutAccount(account);
+    }).catch((error) => {
+      if (active) setPayoutAccountError(error instanceof Error ? error.message : "Could not load the saved payout account.");
+    }).finally(() => {
+      if (active) setPayoutAccountLoading(false);
+    });
+    return () => { active = false; };
+  }, []);
+
+  async function submitTransferRequest() {
     setRequestError("");
     setRequestMessage("");
+    const amount = maxRequestAmount;
+    if (amount <= 0) return;
     setRequestSubmitting(true);
     try {
-      const amount = Number(requestAmount);
       await createMerchantFloatingTransferRequest({ amount });
       setAvailableToRequest((available) => Math.max(0, available - amount - data.transferFeeFixed));
-      setRequestAmount("");
-      setRequestMessage("Transfer request sent to a super admin for review.");
+      setRequestMessage(`${formatPeso(amount)} payout request sent to a super admin for review.`);
     } catch (error) {
       setRequestError(error instanceof Error ? error.message : "Could not submit transfer request.");
     } finally {
@@ -2373,6 +2388,18 @@ function WalletFloatingBalanceCard({
           <span style={{ width: `${collectionProgress}%` }} />
         </div>
       </div>
+      <div className="unsettled-payout-account" aria-label="Saved payout bank account">
+        <CreditCard size={17} aria-hidden="true" />
+        <div>
+          <strong>Payout account</strong>
+          {payoutAccountLoading ? <small>Loading saved account…</small> : payoutAccount?.accountNumber ? (
+            <>
+              <span>{payoutAccount.bankName}</span>
+              <small>{payoutAccount.accountName} ···· {payoutAccount.accountNumber.slice(-4)}</small>
+            </>
+          ) : <small>{payoutAccountError || "No payout account saved. Contact your super admin."}</small>}
+        </div>
+      </div>
       <div className={`unsettled-unlock-status ${unlocked ? "unsettled-unlock-status-ready" : ""}`} role="status">
         <ShieldCheck size={16} />
         <p>{unlocked
@@ -2381,32 +2408,10 @@ function WalletFloatingBalanceCard({
             ? "The unlock threshold is separate from transfer requests. You can request a transfer before reaching it if you have available admin-set funds. This is a sandbox wallet."
             : "At ₩1,000,000 in maintained live collections, funds unlock for transfer by a super admin. You can still request a transfer before reaching the threshold if you have available admin-set funds."}</p>
       </div>
-      <section className="unsettled-request-section" aria-labelledby="unsettled-request-heading">
-        <div>
-          <strong id="unsettled-request-heading">Request a transfer</strong>
-          <p>Requests are available before the collection threshold when funds are available.</p>
-        </div>
-        <form className="unsettled-request-form" onSubmit={(event) => void submitTransferRequest(event)}>
-          <label htmlFor="unsettled-request-amount">Amount in PHP</label>
-          <div className="unsettled-request-controls">
-            <input
-              id="unsettled-request-amount"
-              type="number"
-              min="0.01"
-              max={maxRequestAmount.toFixed(2)}
-              step="0.01"
-              value={requestAmount}
-              onChange={(event) => setRequestAmount(event.target.value)}
-              placeholder="0.00"
-              required
-              disabled={requestSubmitting || maxRequestAmount <= 0}
-            />
-            <Button type="submit" icon={<Send size={16} />} disabled={requestSubmitting || maxRequestAmount <= 0}>
-              {requestSubmitting ? "Sending…" : "Send request"}
-            </Button>
-          </div>
-          <small>Available to request: {formatPeso(maxRequestAmount)} after the PHP {data.transferFeeFixed.toFixed(2)} transfer fee.</small>
-        </form>
+      <section className="unsettled-request-section" aria-label="Request payout">
+        <Button icon={<Send size={16} />} onClick={() => void submitTransferRequest()} disabled={requestSubmitting || maxRequestAmount <= 0}>
+          {requestSubmitting ? "Requesting…" : "Request Payout"}
+        </Button>
         {requestError && <div className="inline-error" role="alert"><AlertCircle size={15} />{requestError}</div>}
         {requestMessage && <p className="unsettled-request-success" role="status">{requestMessage}</p>}
       </section>
