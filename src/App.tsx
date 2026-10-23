@@ -2481,6 +2481,7 @@ function ProfileInfoPage({
   data,
   securityStatus,
   notificationPermission,
+  pushRegistrationState,
   pushError,
   biometricAvailable,
   biometricEnabled,
@@ -2497,6 +2498,7 @@ function ProfileInfoPage({
   data: DashboardData;
   securityStatus: MerchantSecurityStatus | null;
   notificationPermission: string;
+  pushRegistrationState: "idle" | "registering" | "registered" | "error";
   pushError: string;
   biometricAvailable: boolean;
   biometricEnabled: boolean;
@@ -2680,13 +2682,27 @@ function ProfileInfoPage({
               <span className="profile-notification-icon"><Bell size={18} /></span>
               <div>
                 <strong>Push notifications</strong>
-                <small>{notificationPermission === "granted" ? "Permission enabled on this device" : notificationPermission === "denied" ? "Permission is blocked in device settings" : notificationPermission === "unavailable" ? "Push notifications are available in the Android app" : "Allow alerts on this device for successful transactions"}</small>
+                <small>{notificationPermission === "unavailable"
+                  ? "Push notifications are available in the Android app"
+                  : notificationPermission === "denied"
+                    ? "Permission is blocked in device settings"
+                    : pushRegistrationState === "registered"
+                      ? "This device is registered for transaction alerts"
+                      : pushRegistrationState === "registering"
+                        ? "Registering this device for transaction alerts…"
+                        : pushRegistrationState === "error"
+                          ? "Device registration needs attention"
+                          : notificationPermission === "granted"
+                            ? "Permission is enabled; finish device registration"
+                            : "Enable alerts on this device for successful transactions"}</small>
               </div>
-              <span className={`profile-notification-state ${notificationPermission === "granted" ? "enabled" : ""}`}>{notificationPermission === "granted" ? "ON" : notificationPermission === "denied" ? "BLOCKED" : "OFF"}</span>
+              <span className={`profile-notification-state ${pushRegistrationState === "registered" ? "enabled" : ""}`}>
+                {notificationPermission === "unavailable" ? "APP ONLY" : notificationPermission === "denied" ? "BLOCKED" : pushRegistrationState === "registered" ? "ON" : pushRegistrationState === "registering" ? "SETUP" : notificationPermission === "granted" ? "RETRY" : "OFF"}
+              </span>
             </div>
             {pushError && <div className="inline-error" role="alert"><AlertCircle size={15} />{pushError}</div>}
             {notificationPermission !== "unavailable" && (
-              <Button onClick={onEnablePush} icon={<Bell size={16} />}>{notificationPermission === "granted" ? "Retry push setup" : notificationPermission === "denied" ? "Check notification permission" : "Enable push notifications"}</Button>
+              <Button onClick={onEnablePush} disabled={pushRegistrationState === "registering"} icon={<Bell size={16} />}>{notificationPermission === "granted" ? "Retry push setup" : notificationPermission === "denied" ? "Check notification permission" : "Enable push notifications"}</Button>
             )}
             {notificationPermission === "denied" && <p className="profile-info-note">If access is still blocked, enable notifications in Android Settings → Apps → DRPAY → Notifications.</p>}
             <p className="profile-info-note">Email alerts are sent after the payment provider confirms the transaction. Push alerts require notification permission and Firebase setup on this device and server.</p>
@@ -2742,6 +2758,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("Home");
   const [profileSection, setProfileSection] = useState("");
   const [pushPermission, setPushPermission] = useState("prompt");
+  const [pushRegistrationState, setPushRegistrationState] = useState<"idle" | "registering" | "registered" | "error">("idle");
   const [pushError, setPushError] = useState("");
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
@@ -2766,16 +2783,19 @@ export default function App() {
       return;
     }
     setPushError("");
+    setPushRegistrationState("registering");
     try {
       let permission = await PushNotifications.checkPermissions();
       if (permission.receive === "denied") {
         setPushPermission("denied");
+        setPushRegistrationState("idle");
         setPushError("Notifications are blocked for DRPAY. Enable them in Android Settings > Apps > DRPAY > Notifications.");
         return;
       }
       if (permission.receive !== "granted") permission = await PushNotifications.requestPermissions();
       setPushPermission(permission.receive);
       if (permission.receive !== "granted") {
+        setPushRegistrationState("idle");
         setPushError("Allow notifications to receive transaction alerts on this device.");
         return;
       }
@@ -2789,6 +2809,7 @@ export default function App() {
       });
       await PushNotifications.register();
     } catch (requestError) {
+      setPushRegistrationState("error");
       setPushError(requestError instanceof Error ? requestError.message : "Push notification setup failed.");
     }
   }, []);
@@ -2908,30 +2929,49 @@ export default function App() {
 
   useEffect(() => {
     if (!session || !isDashboard || Capacitor.getPlatform() !== "android") {
-      if (Capacitor.getPlatform() !== "android") setPushPermission("unavailable");
+      if (Capacitor.getPlatform() !== "android") {
+        setPushPermission("unavailable");
+        setPushRegistrationState("idle");
+      }
       return;
     }
     let active = true;
     const listeners: { remove: () => Promise<void> }[] = [];
     async function registerDevice() {
+      setPushRegistrationState("idle");
+      setPushError("");
       try {
         listeners.push(await PushNotifications.addListener("registration", ({ value }) => {
+          if (!active || !getSession()) return;
           pushTokenRef.current = value;
+          setPushRegistrationState("registering");
           void registerPushDevice(value).then(() => {
-            if (active) setPushError("");
+            if (active) {
+              setPushRegistrationState("registered");
+              setPushError("");
+            }
           }).catch((requestError: unknown) => {
-            if (active) setPushError(requestError instanceof Error ? requestError.message : "Could not register this device for push notifications.");
+            if (active) {
+              setPushRegistrationState("error");
+              setPushError(requestError instanceof Error ? requestError.message : "Could not register this device for push notifications.");
+            }
           });
         }));
         listeners.push(await PushNotifications.addListener("registrationError", (registrationError) => {
-          if (active) setPushError(registrationError.error || "Firebase push registration failed. Check the Android Firebase app configuration.");
+          if (active) {
+            setPushRegistrationState("error");
+            setPushError(registrationError.error || "Firebase push registration failed. Check the Android Firebase app configuration.");
+          }
         }));
         const permission = await PushNotifications.checkPermissions();
         if (!active) return;
         setPushPermission(permission.receive);
-        if (permission.receive !== "denied") await enablePushNotifications();
+        if (permission.receive === "granted") await enablePushNotifications();
       } catch (requestError) {
-        if (active) setPushError(requestError instanceof Error ? requestError.message : "Push notification setup failed.");
+        if (active) {
+          setPushRegistrationState("error");
+          setPushError(requestError instanceof Error ? requestError.message : "Push notification setup failed.");
+        }
       }
     }
     void registerDevice();
@@ -2942,16 +2982,20 @@ export default function App() {
   }, [session?.email, isDashboard, enablePushNotifications]);
 
   function signOut() {
+    clearSession();
     if (pushTokenRef.current) {
       void removePushDevice(pushTokenRef.current).catch((requestError: unknown) => {
         console.error("Could not remove signed-out device push token", requestError);
       });
       pushTokenRef.current = "";
+    }
+    if (Capacitor.getPlatform() === "android") {
       void PushNotifications.unregister().catch((requestError: unknown) => {
         console.error("Could not unregister signed-out device push notifications", requestError);
       });
     }
-    clearSession();
+    setPushRegistrationState("idle");
+    setPushError("");
     setSession(null);
     setData(null);
     setSecurityStatus(null);
@@ -3090,6 +3134,7 @@ export default function App() {
                 data={data}
                 securityStatus={securityStatus}
                 notificationPermission={pushPermission}
+                pushRegistrationState={pushRegistrationState}
                 pushError={pushError}
                 biometricAvailable={biometricAvailable}
                 biometricEnabled={biometricEnabled}
