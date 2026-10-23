@@ -1999,11 +1999,7 @@ app.get("/v1/wallet/balance", async (_req, res) => {
       swiftPayRequest("/disbursements/account"),
       pool.query(
         `SELECT COALESCE(SUM(p.collection_amount_krw), 0)::numeric AS completed_krw,
-           COALESCE(SUM(GREATEST(p.amount - COALESCE(f.amount, 0), 0)), 0)::numeric AS settled_php,
-           COALESCE((SELECT SUM(d.amount) FROM disbursements d
-             WHERE d.status IN ('EXECUTED', 'SUCCESS', 'COMPLETED')), 0)
-           + COALESCE((SELECT SUM(r.amount) FROM floating_transfer_requests r
-             WHERE r.status = 'SUCCESSFUL'), 0)::numeric AS transferred_php
+           COALESCE(SUM(GREATEST(p.amount - COALESCE(f.amount, 0), 0)), 0)::numeric AS settled_php
          FROM payment_links p
          LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
          WHERE p.status = 'EXECUTED' AND p.collection_amount_krw IS NOT NULL`,
@@ -2012,12 +2008,8 @@ app.get("/v1/wallet/balance", async (_req, res) => {
     const balance = Number(data.balance);
     const completedKrw = Number(collections.rows[0].completed_krw);
     const settledPhp = Number(collections.rows[0].settled_php);
-    const transferredPhp = Number(collections.rows[0].transferred_php);
-    const krwPerPhp = settledPhp > 0 ? completedKrw / settledPhp : 0;
-    const remainingKrw = Math.max(0, completedKrw - transferredPhp * krwPerPhp);
-    const remainingPhp = Math.max(0, settledPhp - transferredPhp);
-    const cumulativeKrwCollections = remainingPhp > 0
-      ? remainingKrw * Math.min(1, Math.max(0, balance / remainingPhp))
+    const cumulativeKrwCollections = settledPhp > 0
+      ? completedKrw * Math.min(1, Math.max(0, balance / settledPhp))
       : 0;
     return res.json({
       balance,
