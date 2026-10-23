@@ -1915,18 +1915,21 @@ app.get("/v1/wallet/activity/trend", async (req, res) => {
          SELECT created_at::date AS day, amount, 'COLLECTION' AS activity_type
          FROM payment_links
          WHERE merchant_email = $1 AND status = 'EXECUTED'
+           AND created_at >= (SELECT created_at FROM merchant_accounts WHERE email = $1)
            AND created_at >= CURRENT_DATE - INTERVAL '6 days'
            AND created_at < CURRENT_DATE + INTERVAL '1 day'
          UNION ALL
          SELECT created_at::date AS day, amount, 'TRANSFER' AS activity_type
          FROM disbursements
          WHERE merchant_email = $1 AND status IN ('EXECUTED', 'SUCCESS', 'COMPLETED')
+           AND created_at >= (SELECT created_at FROM merchant_accounts WHERE email = $1)
            AND created_at >= CURRENT_DATE - INTERVAL '6 days'
            AND created_at < CURRENT_DATE + INTERVAL '1 day'
          UNION ALL
          SELECT COALESCE(reviewed_at, requested_at)::date AS day, amount, 'TRANSFER' AS activity_type
          FROM floating_transfer_requests
          WHERE merchant_email = $1 AND status = 'SUCCESSFUL'
+           AND COALESCE(reviewed_at, requested_at) >= (SELECT created_at FROM merchant_accounts WHERE email = $1)
            AND COALESCE(reviewed_at, requested_at) >= CURRENT_DATE - INTERVAL '6 days'
            AND COALESCE(reviewed_at, requested_at) < CURRENT_DATE + INTERVAL '1 day'
        )
@@ -2242,6 +2245,7 @@ app.get("/v1/wallet/activity", async (req, res) => {
         ORDER BY d.created_at DESC LIMIT 1
       ) refund ON TRUE
       WHERE p.merchant_email = $3
+        AND p.created_at >= (SELECT created_at FROM merchant_accounts WHERE email = $3)
       UNION ALL
       SELECT d.id::text, d.merchant_reference_no AS "referenceNo", d.institution_code AS "institutionCode",
         CASE WHEN d.refund_payment_id IS NOT NULL THEN 'Refund of collection ' || p.reference_no ELSE d.institution_code END AS description,
@@ -2254,6 +2258,7 @@ app.get("/v1/wallet/activity", async (req, res) => {
       FROM disbursements d
       LEFT JOIN payment_links p ON p.id = d.refund_payment_id
       WHERE d.merchant_email = $3
+        AND d.created_at >= (SELECT created_at FROM merchant_accounts WHERE email = $3)
       ORDER BY "createdAt" DESC LIMIT $1 OFFSET $2
     `, [limit, offset, req.merchantEmail, maxTransferAmount]);
     let institutions = institutionCache.get("all")?.items;
