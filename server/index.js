@@ -704,6 +704,7 @@ async function initializeDatabase() {
       title TEXT NOT NULL,
       amount NUMERIC(18, 2) NOT NULL CHECK (amount > 0),
       currency TEXT NOT NULL DEFAULT 'PHP',
+      collection_amount_krw NUMERIC(18, 0),
       payment_institution_code TEXT,
       payment_institution_name TEXT,
       payment_institution_logo_url TEXT,
@@ -777,6 +778,14 @@ async function initializeDatabase() {
     ALTER TABLE floating_transfer_requests
       ADD COLUMN IF NOT EXISTS transfer_fee NUMERIC(18, 2) NOT NULL DEFAULT 0 CHECK (transfer_fee >= 0);
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS checkout_type TEXT NOT NULL DEFAULT 'PAYMENT_LINK';
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS collection_amount_krw NUMERIC(18, 0);
+    UPDATE payment_links
+    SET collection_amount_krw = NULLIF(
+      REPLACE((regexp_match(title, '·[[:space:]]*([0-9,]+)[[:space:]]*KRW[[:space:]]*@'))[1], ',', ''),
+      ''
+    )::numeric
+    WHERE collection_amount_krw IS NULL
+      AND title ~ '·[[:space:]]*[0-9,]+[[:space:]]*KRW[[:space:]]*@';
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_token TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS qr_payload TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_institution_code TEXT;
@@ -1862,13 +1871,25 @@ app.post("/v1/security/transfer/pin", pinAttemptLimiter, async (req, res) => {
 app.get("/v1/internal-wallet", async (req, res) => {
   const [result, feeSetting] = await Promise.all([
     pool.query(
-    `SELECT COALESCE((SELECT SUM(amount) FROM internal_wallet_adjustments WHERE merchant_email = $1), 0)::float8 AS balance,
+    `WITH wallet AS (
+       SELECT COALESCE(SUM(amount), 0)::numeric AS balance
+       FROM internal_wallet_adjustments
+       WHERE merchant_email = $1
+     ), krw_collections AS (
+       SELECT
+         COALESCE(SUM(p.collection_amount_krw), 0)::numeric AS completed_krw,
+         COALESCE(SUM(GREATEST(p.amount - COALESCE(f.amount, 0), 0)), 0)::numeric AS settled_php
+       FROM payment_links p
+       LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
+       WHERE p.merchant_email = $1 AND p.status = 'EXECUTED' AND p.collection_amount_krw IS NOT NULL
+     )
+     SELECT wallet.balance::float8 AS balance,
        COALESCE((SELECT SUM(amount + transfer_fee) FROM floating_transfer_requests WHERE merchant_email = $1 AND status = 'PENDING'), 0)::float8 AS reserved,
-       COALESCE((
-         SELECT SUM(NULLIF(REPLACE((regexp_match(title, '·[[:space:]]*([0-9,]+)[[:space:]]*KRW[[:space:]]*@'))[1], ',', ''), '')::numeric)
-         FROM payment_links
-         WHERE merchant_email = $1 AND status = 'EXECUTED'
-       ), 0)::float8 AS cumulative_krw_collections`,
+       CASE WHEN krw_collections.settled_php > 0
+         THEN (krw_collections.completed_krw * LEAST(1, GREATEST(0, wallet.balance / krw_collections.settled_php)))::float8
+         ELSE 0::float8
+       END AS cumulative_krw_collections
+     FROM wallet CROSS JOIN krw_collections`,
     [req.merchantEmail],
     ),
     pool.query("SELECT setting_value FROM system_settings WHERE setting_key = 'transfer_fee_fixed'"),
@@ -2271,6 +2292,8 @@ function validIdempotencyKey(value) {
 app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
   const submittedAmount = Number(req.body?.amount);
   const amount = Number.isFinite(submittedAmount) ? Math.round(submittedAmount * 100) / 100 : Number.NaN;
+  const submittedKrwAmount = req.body?.collectionAmountKrw;
+  const collectionAmountKrw = submittedKrwAmount === undefined ? null : Number(submittedKrwAmount);
   const title = typeof req.body?.description === "string" ? req.body.description.trim().slice(0, 100) : "";
   const institutionCode = typeof req.body?.institutionCode === "string" ? req.body.institutionCode.trim().toUpperCase() : "";
   const institutionName = typeof req.body?.institutionName === "string" ? req.body.institutionName.trim() : "";
@@ -2283,6 +2306,9 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
   const idempotencyKey = req.get("Idempotency-Key");
   if (!validIdempotencyKey(idempotencyKey)) return res.status(400).json({ error: "A valid Idempotency-Key header is required." });
   if (!Number.isFinite(amount) || Math.abs(submittedAmount - amount) > 1e-7 || amount <= 0 || amount > 1_000_000 || !title) return res.status(400).json({ error: "Enter a description and a valid PHP amount with no more than two decimal places." });
+  if (submittedKrwAmount !== undefined && (!Number.isSafeInteger(collectionAmountKrw) || collectionAmountKrw <= 0)) {
+    return res.status(400).json({ error: "Enter a valid whole-number KRW collection amount." });
+  }
   if (hasInstitution && (
     !/^[A-Z0-9_-]{1,64}$/.test(institutionCode)
     || !institutionName
@@ -2323,11 +2349,11 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
   const code = randomBytes(32).toString("base64url");
   try {
     await pool.query(`INSERT INTO payment_links (
-      id, idempotency_key, reference_no, code, title, amount,
+      id, idempotency_key, reference_no, code, title, amount, collection_amount_krw,
       payment_institution_code, payment_institution_name, payment_institution_logo_url,
       checkout_type, status, merchant_email
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'DIRECT_QRPH', 'CREATING', $10)`,
-    [id, idempotencyKey, referenceNo, code, title, amount, institutionCode || null, institutionName || null, institutionLogoUrl, req.merchantEmail]);
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'DIRECT_QRPH', 'CREATING', $11)`,
+    [id, idempotencyKey, referenceNo, code, title, amount, collectionAmountKrw, institutionCode || null, institutionName || null, institutionLogoUrl, req.merchantEmail]);
   } catch (error) {
     if (error.code === "23505") return res.status(409).json({ error: "The checkout outcome is unknown. Check wallet activity before retrying." });
     throw error;

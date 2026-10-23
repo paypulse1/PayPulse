@@ -720,7 +720,7 @@ export async function createTransfer(input: {
 }
 
 export async function createPaymentLink(
-  input: { amount: number; description: string; institution?: PaymentInstitution },
+  input: { amount: number; description: string; institution?: PaymentInstitution; collectionAmountKrw?: number },
   idempotencyKey: string = crypto.randomUUID(),
 ): Promise<PaymentLinkResult> {
   const result = await backendRequest<PaymentLinkResult>("/v1/payment-links", {
@@ -730,6 +730,7 @@ export async function createPaymentLink(
       amount: input.amount,
       currency: "PHP",
       description: input.description,
+      collectionAmountKrw: input.collectionAmountKrw,
       referenceNo: `LINK-${Date.now()}`,
       institutionCode: input.institution?.code,
       institutionName: input.institution?.name,

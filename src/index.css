@@ -189,6 +189,7 @@ h1, h2, p { margin-top: 0; }
 .wallet-ledger-card { margin-bottom: 18px; padding: 13px; display: grid; grid-template-columns: 36px 1fr auto; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
 .wallet-ledger-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 11px; background: #e6eef8; color: #1b4f9c; }
 .wallet-ledger-icon img { width: 27px; height: auto; }
+.wallet-ledger-icon > svg { width: 18px; height: 18px; }
 .wallet-ledger-card strong { display: block; font-size: 10px; }
 .wallet-ledger-card p { margin: 4px 0 0; color: var(--muted); font-size: 8px; line-height: 1.45; }
 .wallet-ledger-card b { font-size: 10px; white-space: nowrap; }
@@ -217,16 +218,12 @@ h1, h2, p { margin-top: 0; }
 .collection-progress p:first-child strong { color: #3478e5; font-weight: 700; }
 .collection-progress-track { height: 8px; overflow: hidden; border-radius: 999px; background: #e6e7ea; }
 .collection-progress-track span { display: block; height: 100%; border-radius: inherit; background: #3478e5; transition: width .25s ease; }
-.floating-payout-account { margin-bottom: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
-.floating-payout-account span, .floating-payout-account strong, .floating-payout-account small { display: block; }
-.floating-payout-account span, .floating-payout-account small { color: var(--muted); font-size: 8px; }
-.floating-payout-account strong { margin: 4px 0; font-size: 9px; }
-.floating-payout-missing, .floating-transfer-note { color: var(--muted); font-size: 8px; line-height: 1.5; }
-.floating-transfer-form { margin-top: 12px; padding-top: 12px; display: grid; gap: 10px; border-top: 1px solid var(--line); }
-.payout-account-form label > span { display: block; margin-bottom: 6px; color: var(--muted); font-size: 9px; font-weight: 700; }
-.payout-account-form input { width: 100%; height: 42px; padding: 0 11px; border: 1px solid var(--line); border-radius: 10px; outline: 0; background: var(--surface-soft); font-size: 10px; }
-.payout-account-form input:focus { border-color: #1b4f9c; box-shadow: 0 0 0 3px #e6eef8; }
-.floating-transfer-form > .button { justify-self: start; }
+.unsettled-unlock-status { margin-top: 12px; padding: 10px; display: flex; align-items: flex-start; gap: 8px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-soft); }
+.unsettled-unlock-status > svg { flex: 0 0 auto; margin-top: 1px; color: var(--muted); }
+.unsettled-unlock-status p { margin: 0; color: var(--muted); font-size: 8px; line-height: 1.5; }
+.unsettled-unlock-status-ready { border-color: #b9e5cf; background: #f0fbf5; }
+.unsettled-unlock-status-ready > svg { color: #18864b; }
+.unsettled-unlock-status-ready p { color: #176b40; }
 .floating-request-list { margin-top: 16px; }
 .floating-request-list > strong { display: block; margin-bottom: 7px; font-size: 9px; }
 .floating-request-list > p { color: var(--muted); font-size: 8px; }
@@ -234,9 +231,6 @@ h1, h2, p { margin-top: 0; }
 .floating-request-row > span:first-child strong, .floating-request-row > span:first-child small { display: block; }
 .floating-request-row > span:first-child strong { font-size: 9px; }
 .floating-request-row > span:first-child small { margin-top: 3px; color: var(--muted); font-size: 7px; }
-.floating-transfer-note { margin: 12px 0 0; }
-.floating-transfer-fee-note, .floating-transfer-total { display: block; margin: 7px 0; color: var(--muted); font-size: 8px; line-height: 1.5; }
-.floating-transfer-total { margin: -3px 0 0; color: var(--ink); font-weight: 700; }
 .wallet-activity-heading { margin: 18px 2px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .wallet-activity-heading h2 { margin: 0; font-size: 14px; letter-spacing: -.03em; }
 .wallet-activity-heading > span { color: var(--muted); font-size: 9px; }

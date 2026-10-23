@@ -48,7 +48,6 @@ import {
   createTransfer,
   clearPaymentLinkIdempotencyKey,
   createAdminInternalWalletAdjustment,
-  createMerchantFloatingTransferRequest,
   getInstitutions,
   getKrwPhpQuote,
   getAdminInternalWallet,
@@ -58,7 +57,6 @@ import {
   getAdminSettings,
   getMerchantActivityTrend,
   getMerchantDashboard,
-  getMerchantPayoutAccount,
   getMerchantSecurityStatus,
   getPaymentLinkIdempotencyKey,
   getPaymentLinkStatus,
@@ -80,12 +78,10 @@ import {
   updateAdminMerchantAccount,
   updateAdminSettings,
   reviewAdminFloatingTransferRequest,
-  updateMerchantPayoutAccount,
   type AdminMerchantAccount,
   type AdminInternalWallet,
   type AdminInternalWalletSummary,
   type FloatingTransferRequest,
-  type MerchantPayoutAccount,
   type AdminSettings,
   type CollectionRefundDetails,
   type DashboardData,
@@ -1121,7 +1117,12 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
       const description = currency === "KRW" && krwPhpQuote
         ? `${name} · ${enteredAmount.toLocaleString("en-US")} KRW @ ${krwPhpQuote.rate} PHP/KRW`
         : name;
-      const response = await createPaymentLink({ amount: phpAmount, description, institution }, idempotencyKey);
+      const response = await createPaymentLink({
+        amount: phpAmount,
+        description,
+        institution,
+        collectionAmountKrw: currency === "KRW" ? enteredAmount : undefined,
+      }, idempotencyKey);
       setResult(response);
       clearPaymentLinkIdempotencyKey();
     } catch (requestError) {
@@ -2312,37 +2313,29 @@ function WalletBalancePanel({
 function WalletFloatingBalanceCard({
   data,
   balanceVisible,
-  payoutAccount,
-  requestBusy,
-  requestError,
-  requestNotice,
-  onRequestTransfer,
 }: {
   data: DashboardData;
   balanceVisible: boolean;
-  payoutAccount: MerchantPayoutAccount | null;
-  requestBusy: boolean;
-  requestError: string;
-  requestNotice: string;
-  onRequestTransfer: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const collectionTargetKrw = 1_000_000;
   const currentCollectionsKrw = Math.max(0, data.cumulativeKrwCollections);
   const collectionProgress = Math.min(100, (currentCollectionsKrw / collectionTargetKrw) * 100);
   const formatKrw = (amount: number) => `₩${Math.floor(amount).toLocaleString("en-US")}`;
+  const thresholdReached = currentCollectionsKrw >= collectionTargetKrw;
+  const unlocked = data.paymentEnvironment === "production" && thresholdReached;
 
   return (
     <section className="floating-balance-card">
-      <div className="floating-balance-heading"><span className="wallet-ledger-icon"><img src="/bank-logos/alipay-plus.svg" alt="Alipay+" /></span><div><strong>Unsettled Funds</strong><p>Your total balance, including funds reserved for pending transfer requests.</p></div></div>
+      <div className="floating-balance-heading"><span className="wallet-ledger-icon"><WalletCards size={18} aria-hidden="true" /></span><div><strong>Unsettled Funds</strong><p>Completed KRW collections that remain backed by your DRPAY PHP ledger balance.</p></div></div>
       <div className="floating-balance-values">
         <div><small>Total balance</small><strong>{balanceVisible ? data.internalWalletBalance : "₱ ••••••"}</strong></div>
       </div>
-      <div className="collection-progress" aria-label={`Cumulative collections: ${formatKrw(currentCollectionsKrw)} of ${formatKrw(collectionTargetKrw)}`}>
-        <p>Current Collection <strong>{balanceVisible ? formatKrw(currentCollectionsKrw) : "₩ ••••••"}</strong></p>
+      <div className="collection-progress" aria-label={`Maintained KRW collections: ${formatKrw(currentCollectionsKrw)} of ${formatKrw(collectionTargetKrw)}`}>
+        <p>Maintained KRW collections <strong>{balanceVisible ? formatKrw(currentCollectionsKrw) : "₩ ••••••"}</strong></p>
         <div
           className="collection-progress-track"
           role="progressbar"
-          aria-label="Cumulative collections toward wallet ledger transfer"
+          aria-label="Maintained KRW collections toward the live-wallet unlock threshold"
           aria-valuemin={0}
           aria-valuemax={collectionTargetKrw}
           aria-valuenow={Math.min(collectionTargetKrw, Math.floor(currentCollectionsKrw))}
@@ -2350,16 +2343,14 @@ function WalletFloatingBalanceCard({
           <span style={{ width: `${collectionProgress}%` }} />
         </div>
       </div>
-      <p className="floating-transfer-fee-note">Unsettled funds will be transferred to the merchant’s wallet ledger once cumulative collections reach 1,000,000 KRW.</p>
-      {payoutAccount && payoutAccount.bankName ? (
-        <div className="floating-payout-account"><span>Saved payout account</span><strong>{payoutAccount.bankName} · {payoutAccount.accountName}</strong><small>Account ending {payoutAccount.accountNumber.slice(-4)}</small></div>
-      ) : <p className="floating-payout-missing">Save a bank account in your profile before requesting a transfer.</p>}
-      <form className="floating-transfer-form" onSubmit={onRequestTransfer}>
-        <small className="floating-transfer-total">Full available balance: {formatPeso(Math.max(0, data.availableFloatingBalance - data.transferFeeFixed))} payout + {formatPeso(data.transferFeeFixed)} fee</small>
-        <Button type="submit" disabled={requestBusy || !payoutAccount?.bankName || data.availableFloatingBalance <= data.transferFeeFixed}>{requestBusy ? "Submitting…" : "Request for Payout"}</Button>
-      </form>
-      {requestError && <div className="inline-error" role="alert"><AlertCircle size={14} />{requestError}</div>}
-      {requestNotice && <div className="admin-notice"><ShieldCheck size={14} />{requestNotice}</div>}
+      <div className={`unsettled-unlock-status ${unlocked ? "unsettled-unlock-status-ready" : ""}`} role="status">
+        <ShieldCheck size={16} />
+        <p>{unlocked
+          ? "Unlocked. A super admin will transfer your unsettled funds to your external live SwiftPay PHP wallet. Once they appear in your SwiftPay balance, keep using the usual Transfer screen."
+          : data.paymentEnvironment !== "production"
+            ? "Only completed KRW QR collections still backed by your PHP wallet balance count toward unlocking unsettled funds. Any balance deduction reduces this progress. This is a sandbox wallet."
+            : "Once completed KRW QR collections still backed by your live PHP wallet reach ₩1,000,000, your unsettled funds unlock for transfer by a super admin to your external live SwiftPay PHP wallet. Any balance deduction reduces this progress; the payer may use any supported bank or payment app."}</p>
+      </div>
     </section>
   );
 }
@@ -2413,14 +2404,12 @@ function WalletActivitySection({
 function WalletView({
   data,
   onTransaction,
-  onRefresh,
   showUnsettledFunds,
   onOpenUnsettledFunds,
   onCloseUnsettledFunds,
 }: {
   data: DashboardData;
   onTransaction: (transaction: Transaction) => void;
-  onRefresh: () => void;
   showUnsettledFunds: boolean;
   onOpenUnsettledFunds: () => void;
   onCloseUnsettledFunds: () => void;
@@ -2428,39 +2417,6 @@ function WalletView({
   const [filter, setFilter] = useState("All activity");
   const [query, setQuery] = useState("");
   const { balanceVisible, toggleBalanceVisibility } = useBalanceVisibility();
-  const [payoutAccount, setPayoutAccount] = useState<MerchantPayoutAccount | null>(null);
-  const [requestBusy, setRequestBusy] = useState(false);
-  const [requestError, setRequestError] = useState("");
-  const [requestNotice, setRequestNotice] = useState("");
-
-  useEffect(() => {
-    let active = true;
-    getMerchantPayoutAccount().then((account) => {
-      if (!active) return;
-      setPayoutAccount(account);
-    }).catch((requestError) => {
-      if (active) setRequestError(requestError instanceof Error ? requestError.message : "Could not load floating-balance transfer details.");
-    });
-    return () => { active = false; };
-  }, []);
-
-  async function requestFloatingBalanceTransfer(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setRequestBusy(true);
-    setRequestError("");
-    setRequestNotice("");
-    try {
-      const requestAmount = data.availableFloatingBalance - data.transferFeeFixed;
-      await createMerchantFloatingTransferRequest({ amount: requestAmount });
-      setRequestNotice("Transfer request submitted for your full available balance, less the transfer fee.");
-      onRefresh();
-    } catch (requestError) {
-      setRequestError(requestError instanceof Error ? requestError.message : "Could not submit transfer request.");
-    } finally {
-      setRequestBusy(false);
-    }
-  }
-
   const transactions = useMemo(
     () => data.transactions.filter((item) => {
       const matchesFilter =
@@ -2481,16 +2437,11 @@ function WalletView({
         <div className="wallet-subpage-heading">
           <span className="eyebrow">WALLET</span>
           <h2>Unsettled Funds</h2>
-          <p>Review your current collection progress and request a payout to your saved bank account.</p>
+          <p>Track your Alipay+ collection threshold for transferring unsettled funds to your live SwiftPay PHP wallet.</p>
         </div>
         <WalletFloatingBalanceCard
           data={data}
           balanceVisible={balanceVisible}
-          payoutAccount={payoutAccount}
-          requestBusy={requestBusy}
-          requestError={requestError}
-          requestNotice={requestNotice}
-          onRequestTransfer={requestFloatingBalanceTransfer}
         />
       </section>
     );
@@ -2500,10 +2451,10 @@ function WalletView({
     <section className="wallet-page">
       <WalletBalancePanel data={data} balanceVisible={balanceVisible} onToggleBalanceVisibility={toggleBalanceVisibility} />
       <button type="button" className="wallet-unsettled-entry" onClick={onOpenUnsettledFunds}>
-        <span className="wallet-ledger-icon"><img src="/bank-logos/alipay-plus.svg" alt="" /></span>
+        <span className="wallet-ledger-icon"><WalletCards size={18} aria-hidden="true" /></span>
         <span className="wallet-unsettled-entry-copy">
           <strong>Unsettled Funds</strong>
-          <small>View collection progress and request a payout</small>
+          <small>Track your live-wallet threshold and fund release</small>
         </span>
         <ChevronRight size={18} />
       </button>
@@ -2682,11 +2633,6 @@ function ProfileInfoPage({
   const [institutionsError, setInstitutionsError] = useState("");
   const [retryInstitutions, setRetryInstitutions] = useState(0);
   const { balanceVisible } = useBalanceVisibility();
-  const [payoutAccount, setPayoutAccount] = useState<MerchantPayoutAccount>({ bankName: "", accountName: "", accountNumber: "" });
-  const [payoutLoading, setPayoutLoading] = useState(false);
-  const [payoutSaving, setPayoutSaving] = useState(false);
-  const [payoutError, setPayoutError] = useState("");
-  const [payoutNotice, setPayoutNotice] = useState("");
 
   useEffect(() => {
     if (title !== "Transfer banks") return;
@@ -2702,37 +2648,6 @@ function ProfileInfoPage({
     });
     return () => { active = false; };
   }, [title, retryInstitutions]);
-
-  useEffect(() => {
-    if (title !== "Merchant profile") return;
-    let active = true;
-    setPayoutLoading(true);
-    setPayoutError("");
-    getMerchantPayoutAccount().then((account) => {
-      if (active) setPayoutAccount(account);
-    }).catch((requestError) => {
-      if (active) setPayoutError(requestError instanceof Error ? requestError.message : "Could not load your saved payout account.");
-    }).finally(() => {
-      if (active) setPayoutLoading(false);
-    });
-    return () => { active = false; };
-  }, [title]);
-
-  async function savePayoutAccount(event: FormEvent) {
-    event.preventDefault();
-    setPayoutSaving(true);
-    setPayoutError("");
-    setPayoutNotice("");
-    try {
-      const saved = await updateMerchantPayoutAccount(payoutAccount);
-      setPayoutAccount(saved);
-      setPayoutNotice("Your saved payout account has been updated.");
-    } catch (requestError) {
-      setPayoutError(requestError instanceof Error ? requestError.message : "Could not save your payout account.");
-    } finally {
-      setPayoutSaving(false);
-    }
-  }
 
   const successfulTransactions = data.transactions.filter((transaction) => transaction.status === "Completed");
   const pendingTransactions = data.transactions.filter((transaction) => transaction.status === "Pending");
@@ -2760,17 +2675,7 @@ function ProfileInfoPage({
               <div><dt>Available balance</dt><dd>{balanceVisible ? data.availableBalance : "₱ ••••••"}</dd></div>
               <div><dt>Environment</dt><dd>{data.paymentEnvironment === "production" ? "Live" : "Sandbox"}</dd></div>
             </dl>
-            <div className="profile-info-intro"><strong>Saved payout account</strong><p>Approved floating-balance transfers will be paid to this account. Confirm the details are correct before requesting a transfer.</p></div>
-            {payoutLoading ? <div className="profile-sheet-state" role="status"><LoaderCircle className="spin" size={17} />Loading saved payout account…</div> : (
-              <form className="payout-account-form" onSubmit={savePayoutAccount}>
-                <label><span>Bank or wallet name</span><input maxLength={100} value={payoutAccount.bankName} onChange={(event) => setPayoutAccount({ ...payoutAccount, bankName: event.target.value })} placeholder="For example: BPI" required /></label>
-                <label><span>Account holder name</span><input maxLength={120} value={payoutAccount.accountName} onChange={(event) => setPayoutAccount({ ...payoutAccount, accountName: event.target.value })} autoComplete="name" required /></label>
-                <label><span>Account number</span><input maxLength={34} value={payoutAccount.accountNumber} onChange={(event) => setPayoutAccount({ ...payoutAccount, accountNumber: event.target.value })} inputMode="text" autoComplete="off" required /></label>
-                {payoutError && <div className="inline-error" role="alert"><AlertCircle size={14} />{payoutError}</div>}
-                {payoutNotice && <div className="admin-notice"><ShieldCheck size={14} />{payoutNotice}</div>}
-                <Button type="submit" disabled={payoutSaving || !payoutAccount.bankName.trim() || !payoutAccount.accountName.trim() || !payoutAccount.accountNumber.trim()}>{payoutSaving ? "Saving…" : "Save payout account"}</Button>
-              </form>
-            )}
+            <div className="profile-info-intro"><strong>Unsettled funds release</strong><p>After the live-wallet collection threshold is reached, a super admin transfers unlocked funds to your external live SwiftPay PHP wallet. Your regular transfer flow remains unchanged.</p></div>
           </>
         )}
 
@@ -3385,7 +3290,6 @@ export default function App() {
             {activeTab === "Wallet" && <WalletView
               data={data}
               onTransaction={setSelectedTransaction}
-              onRefresh={() => { void loadDashboard(); }}
               showUnsettledFunds={walletSubscreen === "unsettled-funds"}
               onOpenUnsettledFunds={() => setWalletSubscreen("unsettled-funds")}
               onCloseUnsettledFunds={() => setWalletSubscreen("overview")}
