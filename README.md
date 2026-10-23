@@ -34,6 +34,8 @@ Super admins can edit merchant business/display name, contact person, phone numb
 
 Super admins configure a global percentage collection fee and fixed floating-balance transfer fee in Settings. Successful collections record the configured fee in the super-admin fee wallet but do not increase the merchant's floating balance. Every transfer request reserves its fixed fee together with the requested payout; the fee is charged and credited to the super-admin fee wallet only when marked Successful. Failed requests release both reserved amounts. These are accounting-ledger entries; they do not move money within the shared SwiftPay account.
 
+Unsettled-funds progress is shared across all merchants using the common SwiftPay wallet. Successful outgoing transfers and settled payout requests reduce that progress by their PHP amount converted to its KRW equivalent.
+
 The merchant dashboard displays a seven-day chart of successful collections and transfers. It refreshes its merchant-scoped aggregate data every 10 seconds without reconciling or fetching the full transaction history.
 
 Merchants can hide or show balances using the dashboard or wallet visibility control. The preference is saved locally for that merchant account and remains in effect across app restarts and sign-outs on the same device.

@@ -2371,16 +2371,16 @@ function WalletFloatingBalanceCard({
 
   return (
     <section className="floating-balance-card">
-      <div className="floating-balance-heading"><span className="wallet-ledger-icon"><WalletCards size={18} aria-hidden="true" /></span><div><strong>Unsettled Funds</strong><p>Completed KRW collections that remain backed by your DRPAY PHP ledger balance.</p></div></div>
+      <div className="floating-balance-heading"><span className="wallet-ledger-icon"><WalletCards size={18} aria-hidden="true" /></span><div><strong>Unsettled Funds</strong><p>Shared progress across merchants using the same DRPAY PHP wallet.</p></div></div>
       <div className="floating-balance-values">
         <div><small>Total balance</small><strong>{balanceVisible ? data.internalWalletBalance : "₱ ••••••"}</strong></div>
       </div>
-      <div className="collection-progress" aria-label={`Maintained KRW collections: ${formatKrw(currentCollectionsKrw)} of ${formatKrw(collectionTargetKrw)}`}>
-        <p>Maintained KRW collections <strong>{balanceVisible ? formatKrw(currentCollectionsKrw) : "₩ ••••••"}</strong></p>
+      <div className="collection-progress" aria-label={`Shared maintained KRW collections: ${formatKrw(currentCollectionsKrw)} of ${formatKrw(collectionTargetKrw)}`}>
+        <p>Shared maintained KRW collections <strong>{balanceVisible ? formatKrw(currentCollectionsKrw) : "₩ ••••••"}</strong></p>
         <div
           className="collection-progress-track"
           role="progressbar"
-          aria-label="Maintained KRW collections toward the live-wallet unlock threshold"
+          aria-label="Shared KRW collections toward the live-wallet unlock threshold"
           aria-valuemin={0}
           aria-valuemax={collectionTargetKrw}
           aria-valuenow={Math.min(collectionTargetKrw, Math.floor(currentCollectionsKrw))}
@@ -2403,10 +2403,10 @@ function WalletFloatingBalanceCard({
       <div className={`unsettled-unlock-status ${unlocked ? "unsettled-unlock-status-ready" : ""}`} role="status">
         <ShieldCheck size={16} />
         <p>{unlocked
-          ? "Unlocked. A super admin will transfer your unsettled funds to your external live SwiftPay PHP wallet. Once they appear in your SwiftPay balance, keep using the usual Transfer screen."
+          ? "Unlocked. This progress is shared across merchants and decreases by the KRW equivalent of successful transfers. A super admin will transfer your unsettled funds to your external live SwiftPay PHP wallet."
           : data.paymentEnvironment !== "production"
-            ? "The unlock threshold is separate from transfer requests. You can request a transfer before reaching it if you have available admin-set funds. This is a sandbox wallet."
-            : "At ₩1,000,000 in maintained live collections, funds unlock for transfer by a super admin. You can still request a transfer before reaching the threshold if you have available admin-set funds."}</p>
+            ? "All merchants share this progress, and successful transfers reduce it by their KRW equivalent. You can request a transfer before the threshold if admin-set funds are available. This is a sandbox wallet."
+            : "At ₩1,000,000 in shared maintained collections, funds unlock for transfer by a super admin. Successful transfers reduce progress by their KRW equivalent. Requests are available before the threshold if admin-set funds are available."}</p>
       </div>
       <section className="unsettled-request-section" aria-label="Request payout">
         <Button icon={<Send size={16} />} onClick={() => void submitTransferRequest()} disabled={requestSubmitting || maxRequestAmount <= 0}>

@@ -205,6 +205,7 @@ export type FloatingTransferRequest = {
 
 type WalletBalanceResponse = {
   balance: number;
+  cumulativeKrwCollections: number;
   adjustedBalance?: number;
   accountNumber?: string;
   walletMode?: string;
@@ -216,7 +217,6 @@ type InternalWalletResponse = {
   balance: number;
   availableBalance: number;
   transferFeeFixed: number;
-  cumulativeKrwCollections: number;
   label: string;
 };
 
@@ -571,7 +571,7 @@ export async function getMerchantDashboard(): Promise<DashboardData> {
     availableBalance: formatMoney(wallet.adjustedBalance ?? wallet.balance),
     balance: wallet.adjustedBalance ?? wallet.balance,
     internalWalletBalance: formatMoney(internalWallet.balance),
-    cumulativeKrwCollections: internalWallet.cumulativeKrwCollections,
+    cumulativeKrwCollections: wallet.cumulativeKrwCollections,
     floatingBalance: internalWallet.balance,
     availableFloatingBalance: internalWallet.availableBalance,
     transferFeeFixed: internalWallet.transferFeeFixed,

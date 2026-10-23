@@ -1873,21 +1873,10 @@ app.get("/v1/internal-wallet", async (req, res) => {
        SELECT COALESCE(SUM(amount), 0)::numeric AS balance
        FROM internal_wallet_adjustments
       WHERE merchant_email = $1 AND adjusted_by NOT LIKE 'system:%'
-     ), krw_collections AS (
-       SELECT
-         COALESCE(SUM(p.collection_amount_krw), 0)::numeric AS completed_krw,
-         COALESCE(SUM(GREATEST(p.amount - COALESCE(f.amount, 0), 0)), 0)::numeric AS settled_php
-       FROM payment_links p
-       LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
-       WHERE p.merchant_email = $1 AND p.status = 'EXECUTED' AND p.collection_amount_krw IS NOT NULL
      )
      SELECT wallet.balance::float8 AS balance,
-       COALESCE((SELECT SUM(amount + transfer_fee) FROM floating_transfer_requests WHERE merchant_email = $1 AND status = 'PENDING'), 0)::float8 AS reserved,
-       CASE WHEN krw_collections.settled_php > 0
-         THEN (krw_collections.completed_krw * LEAST(1, GREATEST(0, wallet.balance / krw_collections.settled_php)))::float8
-         ELSE 0::float8
-       END AS cumulative_krw_collections
-     FROM wallet CROSS JOIN krw_collections`,
+       COALESCE((SELECT SUM(amount + transfer_fee) FROM floating_transfer_requests WHERE merchant_email = $1 AND status = 'PENDING'), 0)::float8 AS reserved
+     FROM wallet`,
     [req.merchantEmail],
     ),
     pool.query("SELECT setting_value FROM system_settings WHERE setting_key = 'transfer_fee_fixed'"),
@@ -1899,7 +1888,6 @@ app.get("/v1/internal-wallet", async (req, res) => {
     balance,
     availableBalance: balance - result.rows[0].reserved,
     transferFeeFixed,
-    cumulativeKrwCollections: result.rows[0].cumulative_krw_collections,
     label: "Floated Amount",
   });
 });
@@ -2007,8 +1995,37 @@ app.get("/v1/exchange-rates/krw-php", async (_req, res) => {
 
 app.get("/v1/wallet/balance", async (_req, res) => {
   try {
-    const { data } = await swiftPayRequest("/disbursements/account");
-    return res.json({ balance: Number(data.balance), accountNumber: data.number, walletMode: "pooled", paymentEnvironment: swiftPayEnvironment });
+    const [{ data }, collections] = await Promise.all([
+      swiftPayRequest("/disbursements/account"),
+      pool.query(
+        `SELECT COALESCE(SUM(p.collection_amount_krw), 0)::numeric AS completed_krw,
+           COALESCE(SUM(GREATEST(p.amount - COALESCE(f.amount, 0), 0)), 0)::numeric AS settled_php,
+           COALESCE((SELECT SUM(d.amount) FROM disbursements d
+             WHERE d.status IN ('EXECUTED', 'SUCCESS', 'COMPLETED')), 0)
+           + COALESCE((SELECT SUM(r.amount) FROM floating_transfer_requests r
+             WHERE r.status = 'SUCCESSFUL'), 0)::numeric AS transferred_php
+         FROM payment_links p
+         LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
+         WHERE p.status = 'EXECUTED' AND p.collection_amount_krw IS NOT NULL`,
+      ),
+    ]);
+    const balance = Number(data.balance);
+    const completedKrw = Number(collections.rows[0].completed_krw);
+    const settledPhp = Number(collections.rows[0].settled_php);
+    const transferredPhp = Number(collections.rows[0].transferred_php);
+    const krwPerPhp = settledPhp > 0 ? completedKrw / settledPhp : 0;
+    const remainingKrw = Math.max(0, completedKrw - transferredPhp * krwPerPhp);
+    const remainingPhp = Math.max(0, settledPhp - transferredPhp);
+    const cumulativeKrwCollections = remainingPhp > 0
+      ? remainingKrw * Math.min(1, Math.max(0, balance / remainingPhp))
+      : 0;
+    return res.json({
+      balance,
+      accountNumber: data.number,
+      walletMode: "pooled",
+      paymentEnvironment: swiftPayEnvironment,
+      cumulativeKrwCollections,
+    });
   } catch (error) {
     console.error("Wallet balance lookup failed", error.status || "network error");
     return res.status(error.status === 401 ? 502 : 503).json({ error: "Merchant wallet is temporarily unavailable." });
