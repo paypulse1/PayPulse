@@ -112,8 +112,10 @@ function transferSecurityFingerprint(email, body, idempotencyKey) {
   const accountNumber = typeof body?.accountNumber === "string" ? body.accountNumber.replace(/\s/g, "") : "";
   const fullName = typeof body?.fullName === "string" ? body.fullName.trim() : "";
   const remarks = typeof body?.remarks === "string" ? body.remarks.trim().slice(0, 80) : "";
+  const fields = [email, amount.toFixed(2), channel, institutionCode, accountNumber, fullName.toLowerCase(), remarks, idempotencyKey];
+  if (typeof body?.refundPaymentId === "string" && body.refundPaymentId) fields.push(body.refundPaymentId);
   return createHmac("sha256", jwtSecretValue)
-    .update(JSON.stringify([email, amount.toFixed(2), channel, institutionCode, accountNumber, fullName.toLowerCase(), remarks, idempotencyKey]))
+    .update(JSON.stringify(fields))
     .digest("hex");
 }
 
@@ -394,12 +396,59 @@ async function settleSuccessfulCollection(paymentId) {
 }
 
 async function updateDisbursementStatus(id, swiftpayId, status, errorMessage) {
-    await pool.query(
-      "UPDATE disbursements SET swiftpay_id = COALESCE($1, swiftpay_id), status = $2, error_message = $3, updated_at = NOW() WHERE id = $4",
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const updated = await client.query(
+      `UPDATE disbursements
+       SET swiftpay_id = COALESCE($1, swiftpay_id), status = $2, error_message = $3, updated_at = NOW()
+       WHERE id = $4
+       RETURNING refund_payment_id`,
       [swiftpayId, status, errorMessage, id],
     );
-    await queueSuccessfulTransaction("DISBURSEMENT", id);
+    const successful = ["EXECUTED", "SUCCESS", "COMPLETED"].includes(String(status).toUpperCase());
+    const refundPaymentId = updated.rows[0]?.refund_payment_id;
+    if (successful && refundPaymentId) {
+      const payment = await client.query(
+        `SELECT p.merchant_email, p.reference_no, p.amount::numeric AS amount,
+           COALESCE(f.amount, 0)::numeric AS fee_amount,
+           d.merchant_reference_no, d.refund_ledger_reversed_at
+         FROM payment_links p
+         JOIN disbursements d ON d.id = $2
+         LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
+         WHERE p.id = $1
+         FOR UPDATE OF d`,
+        [refundPaymentId, id],
+      );
+      const row = payment.rows[0];
+      if (!row) throw new Error("Refund settlement references a missing collection.");
+      if (!row.refund_ledger_reversed_at) {
+        const netAmount = Math.round((Number(row.amount) - Number(row.fee_amount)) * 100) / 100;
+        if (!Number.isFinite(netAmount) || netAmount < 0) {
+          throw new Error("The collection refund ledger amount is invalid.");
+        }
+        if (netAmount > 0) {
+          await client.query(
+            `INSERT INTO internal_wallet_adjustments (id, merchant_email, amount, reason, adjusted_by)
+             VALUES ($1, $2, $3, $4, 'system:collection-refund')`,
+            [randomUUID(), row.merchant_email, (-netAmount).toFixed(2), `Refund of collection ${row.reference_no}; transfer ${row.merchant_reference_no}`],
+          );
+        }
+        await client.query(
+          "UPDATE disbursements SET refund_ledger_reversed_at = NOW() WHERE id = $1",
+          [id],
+        );
+      }
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
   }
+  await queueSuccessfulTransaction("DISBURSEMENT", id);
+}
 
 async function dispatchTransactionNotifications() {
   const { rows } = await pool.query(`
@@ -657,6 +706,11 @@ async function initializeDatabase() {
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS merchant_email TEXT REFERENCES merchant_accounts(email) ON DELETE CASCADE;
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS request_fingerprint TEXT;
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS merchant_email TEXT REFERENCES merchant_accounts(email) ON DELETE CASCADE;
+    ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS refund_payment_id UUID REFERENCES payment_links(id);
+    ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS refund_ledger_reversed_at TIMESTAMPTZ;
+    CREATE INDEX IF NOT EXISTS disbursements_refund_payment_created_idx
+      ON disbursements (refund_payment_id, created_at DESC)
+      WHERE refund_payment_id IS NOT NULL;
     ALTER TABLE merchant_accounts ADD COLUMN IF NOT EXISTS business_name TEXT NOT NULL DEFAULT '';
     ALTER TABLE merchant_accounts ADD COLUMN IF NOT EXISTS contact_person TEXT NOT NULL DEFAULT '';
     ALTER TABLE merchant_accounts ADD COLUMN IF NOT EXISTS phone_number TEXT NOT NULL DEFAULT '';
@@ -1942,26 +1996,143 @@ function startNotificationWorker() {
   timer.unref();
 }
 
+async function getRefundTransferDetails(paymentId, merchantEmail) {
+  const paymentResult = await pool.query(
+    `SELECT id, reference_no, amount::float8 AS amount, status, payment_token
+     FROM payment_links WHERE id = $1 AND merchant_email = $2`,
+    [paymentId, merchantEmail],
+  );
+  const payment = paymentResult.rows[0];
+  if (!payment) {
+    const error = new Error("This collection was not found.");
+    error.status = 404;
+    throw error;
+  }
+  if (payment.status !== "EXECUTED" || !payment.payment_token) {
+    const error = new Error("Only completed SwiftPay collections can be refunded.");
+    error.status = 409;
+    throw error;
+  }
+  if (payment.amount > maxTransferAmount) {
+    const error = new Error("This collection is above the configured transfer limit for an automatic refund.");
+    error.status = 409;
+    throw error;
+  }
+  const settlement = await pool.query(
+    "SELECT 1 FROM platform_fee_ledger WHERE source_type = 'COLLECTION' AND source_id = $1",
+    [paymentId],
+  );
+  if (!settlement.rowCount) {
+    const error = new Error("Collection settlement is still being finalized. Refresh Wallet activity and try again.");
+    error.status = 409;
+    throw error;
+  }
+
+  const previousRefund = await pool.query(
+    `SELECT status FROM disbursements WHERE refund_payment_id = $1
+     ORDER BY created_at DESC LIMIT 1`,
+    [paymentId],
+  );
+  const previousStatus = previousRefund.rows[0]?.status;
+  if (previousStatus && !["REJECTED", "ERROR", "FAILED", "CANCELED", "CANCELLED"].includes(previousStatus.toUpperCase())) {
+    const error = new Error("A refund transfer for this collection is already in progress or complete.");
+    error.status = 409;
+    throw error;
+  }
+
+  const { data } = await swiftPayPaymentRequest("/payments", payment.payment_token);
+  if (
+    data?.paymentStatus !== "EXECUTED"
+    || Math.round(Number(data.amount) * 100) !== Math.round(payment.amount * 100)
+  ) {
+    const error = new Error("SwiftPay could not confirm this collection as eligible for a full refund.");
+    error.status = 409;
+    throw error;
+  }
+  const accountNumber = typeof data.bankAccountNo === "string" ? data.bankAccountNo.replace(/\s/g, "") : "";
+  const fullName = typeof data.payerName === "string" ? data.payerName.trim() : "";
+  const institutionCode = typeof data.institutionCode === "string" ? data.institutionCode.trim() : "";
+  if (!/^[0-9]{5,64}$/.test(accountNumber) || !fullName || fullName.length > 128 || !institutionCode || institutionCode.length > 16) {
+    const error = new Error("SwiftPay did not provide valid payer bank details for this refund.");
+    error.status = 409;
+    throw error;
+  }
+
+  let channel = "";
+  for (const candidate of ["INSTAPAY", "PESONET"]) {
+    if (candidate === "INSTAPAY" && payment.amount > maxInstapayAmount) continue;
+    let cached = institutionCache.get(candidate);
+    if (!cached || cached.expiresAt <= Date.now()) {
+      const result = await swiftPayRequest(`/disbursements/institutions?channel=${candidate}`);
+      if (!Array.isArray(result.data)) throw new Error("SwiftPay returned an invalid transfer-institution list.");
+      cached = { items: result.data, expiresAt: Date.now() + 6 * 60 * 60 * 1000 };
+      institutionCache.set(candidate, cached);
+    }
+    if (cached.items.some((item) => item.code === institutionCode)) {
+      channel = candidate;
+      break;
+    }
+  }
+  if (!channel) {
+    const error = new Error("The payer’s institution is not available for an automatic refund transfer.");
+    error.status = 409;
+    throw error;
+  }
+
+  return {
+    amount: payment.amount,
+    channel,
+    institutionCode,
+    accountNumber,
+    fullName,
+    remarks: `Refund ${payment.reference_no}`.slice(0, 80),
+  };
+}
+
+app.get("/v1/payment-links/:id/refund-details", async (req, res) => {
+  try {
+    const details = await getRefundTransferDetails(req.params.id, req.merchantEmail);
+    return res.set("Cache-Control", "no-store").json(details);
+  } catch (error) {
+    console.error("Collection refund eligibility lookup failed", error.status || "provider error");
+    return res.status(error.status || 503).json({ error: error.status ? error.message : "Refund details are temporarily unavailable." });
+  }
+});
+
 app.get("/v1/wallet/activity", async (req, res) => {
   const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 50, 1), 100);
   const offset = Math.max(Number.parseInt(req.query.offset, 10) || 0, 0);
   try {
     await reconcilePending();
     const { rows } = await pool.query(`
-      SELECT id::text, reference_no AS "referenceNo", NULL::text AS "institutionCode", title AS description,
+      SELECT p.id::text, p.reference_no AS "referenceNo", NULL::text AS "institutionCode", p.title AS description,
         NULL::text AS "institutionName", NULL::text AS "institutionLogoUrl",
-        CASE WHEN payment_token IS NULL THEN 'Payment link' ELSE 'QR Ph checkout' END AS channel,
-        status, amount::float8 AS amount,
-        created_at AS "createdAt", 'PAYMENT_LINK' AS "transactionType"
-      FROM payment_links WHERE merchant_email = $3
+        CASE WHEN p.payment_token IS NULL THEN 'Payment link' ELSE 'QR Ph checkout' END AS channel,
+        p.status, p.amount::float8 AS amount,
+        p.created_at AS "createdAt", 'PAYMENT_LINK' AS "transactionType",
+        (p.status = 'EXECUTED' AND p.payment_token IS NOT NULL AND p.amount <= $4
+          AND EXISTS (SELECT 1 FROM platform_fee_ledger f WHERE f.source_type = 'COLLECTION' AND f.source_id = p.id)
+          AND (refund.status IS NULL OR refund.status IN ('REJECTED', 'ERROR', 'FAILED', 'CANCELED', 'CANCELLED'))) AS "canRefund",
+        refund.status AS "refundStatus"
+      FROM payment_links p
+      LEFT JOIN LATERAL (
+        SELECT d.status FROM disbursements d
+        WHERE d.refund_payment_id = p.id
+        ORDER BY d.created_at DESC LIMIT 1
+      ) refund ON TRUE
+      WHERE p.merchant_email = $3
       UNION ALL
-      SELECT id::text, merchant_reference_no AS "referenceNo", institution_code AS "institutionCode", institution_code AS description,
+      SELECT d.id::text, d.merchant_reference_no AS "referenceNo", d.institution_code AS "institutionCode",
+        CASE WHEN d.refund_payment_id IS NOT NULL THEN 'Refund of collection ' || p.reference_no ELSE d.institution_code END AS description,
         NULL::text AS "institutionName", NULL::text AS "institutionLogoUrl",
-        channel, status, -amount::float8 AS amount,
-        created_at AS "createdAt", 'DISBURSEMENT' AS "transactionType"
-      FROM disbursements WHERE merchant_email = $3
+        d.channel, d.status, -d.amount::float8 AS amount,
+        d.created_at AS "createdAt", 'DISBURSEMENT' AS "transactionType",
+        FALSE AS "canRefund", NULL::text AS "refundStatus"
+      FROM disbursements d
+      LEFT JOIN payment_links p ON p.id = d.refund_payment_id
+      WHERE d.merchant_email = $3
       ORDER BY "createdAt" DESC LIMIT $1 OFFSET $2
-    `, [limit, offset, req.merchantEmail]);
+    `, [limit, offset, req.merchantEmail, maxTransferAmount]);
     let institutions = institutionCache.get("all")?.items;
     if (!institutions || institutionCache.get("all").expiresAt <= Date.now()) {
       try {
@@ -2109,8 +2280,12 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
   const accountNumber = typeof req.body?.accountNumber === "string" ? req.body.accountNumber.replace(/\s/g, "") : "";
   const fullName = typeof req.body?.fullName === "string" ? req.body.fullName.trim() : "";
   const remarks = typeof req.body?.remarks === "string" ? req.body.remarks.trim() : "";
+  const refundPaymentId = typeof req.body?.refundPaymentId === "string" ? req.body.refundPaymentId : "";
   const idempotencyKey = req.get("Idempotency-Key");
   if (!validIdempotencyKey(idempotencyKey)) return res.status(400).json({ error: "A valid Idempotency-Key header is required." });
+  if (refundPaymentId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(refundPaymentId)) {
+    return res.status(400).json({ error: "The collection reference for this refund is invalid." });
+  }
   if (!Number.isFinite(amount) || Math.abs(submittedAmount - amount) > 1e-7 || amount <= 0 || amount > maxTransferAmount) return res.status(400).json({ error: `Transfer amount must be greater than zero, no more than PHP ${maxTransferAmount.toLocaleString("en-PH")}, and have no more than two decimal places.` });
   if (channel === "INSTAPAY" && amount > maxInstapayAmount) {
     return res.status(400).json({ error: "InstaPay transfers are limited to PHP 50,000 per transfer. Choose PESONET for a larger amount." });
@@ -2123,6 +2298,9 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
   const existing = await pool.query("SELECT * FROM disbursements WHERE idempotency_key = $1 AND merchant_email = $2", [idempotencyKey, req.merchantEmail]);
   if (existing.rowCount) {
     const row = existing.rows[0];
+    if ((row.refund_payment_id || "") !== refundPaymentId) {
+      return res.status(409).json({ error: "This idempotency key was already used for a different transfer." });
+    }
     const outcomeUnknown = ["REQUESTING", "OUTCOME_UNKNOWN"].includes(row.status);
     return res.json({ id: row.swiftpay_id, referenceNo: row.merchant_reference_no, status: outcomeUnknown ? "OUTCOME_UNKNOWN" : row.status, outcomeUnknown, message: row.error_message });
   }
@@ -2163,8 +2341,30 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
   }
   if (!selectedInstitution) return res.status(400).json({ error: "That institution is not enabled for the selected transfer rail." });
 
+  if (refundPaymentId) {
+    let refundDetails;
+    try {
+      refundDetails = await getRefundTransferDetails(refundPaymentId, req.merchantEmail);
+    } catch (error) {
+      console.error("Collection refund validation failed", error.status || "provider error");
+      return res.status(error.status || 503).json({ error: error.status ? error.message : "Refund eligibility could not be verified." });
+    }
+    if (
+      amount !== refundDetails.amount
+      || channel !== refundDetails.channel
+      || institutionCode !== refundDetails.institutionCode
+      || accountNumber !== refundDetails.accountNumber
+      || fullName.toLowerCase() !== refundDetails.fullName.toLowerCase()
+      || remarks !== refundDetails.remarks
+    ) {
+      return res.status(400).json({ error: "The refund details do not match the confirmed collection and payer account." });
+    }
+  }
+
+  const requestFingerprintFields = [req.merchantEmail, amount.toFixed(2), channel, institutionCode, accountNumber, fullName.toLowerCase()];
+  if (refundPaymentId) requestFingerprintFields.push(refundPaymentId);
   const requestFingerprint = createHmac("sha256", jwtSecretValue)
-    .update(JSON.stringify([req.merchantEmail, amount.toFixed(2), channel, institutionCode, accountNumber, fullName.toLowerCase()]))
+    .update(JSON.stringify(requestFingerprintFields))
     .digest("hex");
   const activeRequest = await pool.query(`SELECT merchant_reference_no, status FROM disbursements
     WHERE merchant_email = $1 AND request_fingerprint = $2 AND status IN ('REQUESTING', 'PENDING', 'OUTCOME_UNKNOWN') LIMIT 1`, [req.merchantEmail, requestFingerprint]);
@@ -2181,16 +2381,47 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
 
   const id = randomUUID();
   const merchantReferenceNo = `DRP-${randomUUID()}`;
+  const client = await pool.connect();
   try {
-    await pool.query(`INSERT INTO disbursements (id, idempotency_key, merchant_reference_no, amount, channel, institution_code, request_fingerprint, status, merchant_email)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, 'REQUESTING', $8)`, [id, idempotencyKey, merchantReferenceNo, amount, channel, institutionCode, requestFingerprint, req.merchantEmail]);
+    await client.query("BEGIN");
+    if (refundPaymentId) {
+      const collection = await client.query(
+        "SELECT status FROM payment_links WHERE id = $1 AND merchant_email = $2 FOR UPDATE",
+        [refundPaymentId, req.merchantEmail],
+      );
+      if (collection.rows[0]?.status !== "EXECUTED") {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "Only completed collections can be refunded." });
+      }
+      const previousRefund = await client.query(
+        `SELECT status FROM disbursements WHERE refund_payment_id = $1
+         ORDER BY created_at DESC LIMIT 1`,
+        [refundPaymentId],
+      );
+      const previousStatus = previousRefund.rows[0]?.status;
+      if (previousStatus && !["REJECTED", "ERROR", "FAILED", "CANCELED", "CANCELLED"].includes(previousStatus.toUpperCase())) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "A refund transfer for this collection is already in progress or complete." });
+      }
+    }
+    await client.query(
+      `INSERT INTO disbursements
+       (id, idempotency_key, merchant_reference_no, amount, channel, institution_code, request_fingerprint, status, merchant_email, refund_payment_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'REQUESTING', $8, $9)`,
+      [id, idempotencyKey, merchantReferenceNo, amount, channel, institutionCode, requestFingerprint, req.merchantEmail, refundPaymentId || null],
+    );
+    await client.query("COMMIT");
   } catch (error) {
+    await client.query("ROLLBACK");
     if (error.code === "23505") return res.status(409).json({ error: "A matching transfer is already being processed. Check wallet activity before retrying." });
     throw error;
+  } finally {
+    client.release();
   }
 
+  let data;
   try {
-    const { data } = await swiftPayRequest("/disbursements/send", {
+    const result = await swiftPayRequest("/disbursements/send", {
       method: "POST",
       body: {
         merchantReferenceNo,
@@ -2201,17 +2432,8 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
         recipientInformation: { accountNumber, fullName },
       },
     });
+    data = result.data;
     if (!data?.id) throw new Error("SwiftPay returned no disbursement id.");
-    const status = typeof data.status === "string" ? data.status.toUpperCase() : "PENDING";
-    const failed = ["REJECTED", "ERROR", "FAILED", "CANCELED", "CANCELLED"].includes(status);
-    const settled = ["EXECUTED", "SUCCESS", "COMPLETED"].includes(status);
-    const message = failed
-      ? data.errorMessage || "SwiftPay rejected the transfer."
-      : settled
-        ? "SwiftPay confirmed the transfer as settled."
-        : "Provider accepted the transfer; settlement is not yet confirmed.";
-    await updateDisbursementStatus(id, data.id, status, failed ? message : null);
-    return res.status(202).json({ id: data.id, referenceNo: merchantReferenceNo, status, message });
   } catch (error) {
     const isAmbiguous = !error.status || error.status >= 500;
     const status = isAmbiguous ? "OUTCOME_UNKNOWN" : "REJECTED";
@@ -2223,6 +2445,16 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
     const responseStatus = isAmbiguous ? 503 : error.status === 400 ? 400 : 502;
     return res.status(responseStatus).json({ referenceNo: merchantReferenceNo, status, outcomeUnknown: isAmbiguous, message });
   }
+  const status = typeof data.status === "string" ? data.status.toUpperCase() : "PENDING";
+  const failed = ["REJECTED", "ERROR", "FAILED", "CANCELED", "CANCELLED"].includes(status);
+  const settled = ["EXECUTED", "SUCCESS", "COMPLETED"].includes(status);
+  const message = failed
+    ? data.errorMessage || "SwiftPay rejected the transfer."
+    : settled
+      ? "SwiftPay confirmed the transfer as settled."
+      : "Provider accepted the transfer; settlement is not yet confirmed.";
+  await updateDisbursementStatus(id, data.id, status, failed ? message : null);
+  return res.status(202).json({ id: data.id, referenceNo: merchantReferenceNo, status, message });
 });
 
 app.use(express.static(clientBuildDirectory));

@@ -50,6 +50,8 @@ The API uses SwiftPay hosted payment links and checks link status server-side. I
 
 The current implementation uses provider polling for reconciliation. It does not claim or depend on an unverified webhook signature format. A payment link timeout is recorded as an unknown outcome and must be reconciled before a new request is attempted.
 
+Merchants can refund eligible completed QR Ph collections from Wallet activity. The refund is a full InstaPay/PESONet transfer to the payer details returned by SwiftPay and must be confirmed with the merchant MPIN. A collection cannot be refunded again while a transfer is pending or after it succeeds; failed transfers may be retried. The merchant's net floating-balance credit is reversed only after SwiftPay confirms the refund transfer, while the original platform fee is retained.
+
 ## Local API configuration
 
 Start the API with `pnpm start:api` after setting the server environment variables above and a PostgreSQL `DATABASE_URL`. Keep the API credentials out of source control and local `.env` files that may be shared.

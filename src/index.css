@@ -424,6 +424,15 @@ h1, h2, p { margin-top: 0; }
 .detail-list dd button { padding: 0; border: 0; background: transparent; display: inline-flex; align-items: center; gap: 5px; font-weight: 700; }
 .detail-note { display: flex; align-items: flex-start; gap: 7px; color: var(--muted); font-size: 8px; line-height: 1.5; }
 .detail-sheet > .button { width: 100%; }
+.refund-confirmation { margin: 14px 0; padding: 12px; display: grid; gap: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
+.refund-confirmation > strong { font-size: 10px; }
+.refund-confirmation > p { margin: 0; color: var(--muted); font-size: 8px; line-height: 1.55; }
+.refund-confirmation label { display: grid; gap: 5px; }
+.refund-confirmation label span { color: var(--muted); font-size: 8px; font-weight: 700; }
+.refund-confirmation input { min-height: 40px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); letter-spacing: .3em; }
+.refund-confirmation .button { width: 100%; }
+.refund-status { margin: 12px 0; padding: 10px; display: flex; align-items: flex-start; gap: 7px; border-radius: 9px; background: var(--warning-soft); color: var(--warning); font-size: 8px; line-height: 1.5; }
+.refund-status-complete { background: var(--success-soft); color: var(--success); }
 .rail-selector { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .rail-selector button { min-height: 64px; height: auto; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--muted); font-size: 8px; font-weight: 800; }
 .rail-selector button.active { background: var(--ink); border-color: var(--ink); color: white; }

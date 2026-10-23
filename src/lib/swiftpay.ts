@@ -22,6 +22,8 @@ export type Transaction = {
   amount: string;
   numericAmount: number;
   description: string;
+  canRefund?: boolean;
+  refundStatus?: string | null;
 };
 
 export type DashboardData = {
@@ -91,7 +93,13 @@ export type TransferAuthorizationInput = {
   fullName: string;
   remarks: string;
   idempotencyKey: string;
+  refundPaymentId?: string;
 };
+
+export type CollectionRefundDetails = Pick<
+  TransferAuthorizationInput,
+  "amount" | "channel" | "institutionCode" | "accountNumber" | "fullName" | "remarks"
+>;
 
 export type PaymentLinkResult = {
   id?: string;
@@ -218,6 +226,8 @@ type WalletActivityResponse = {
   transactionType: string;
   description: string;
   createdAt: string;
+  canRefund: boolean;
+  refundStatus: string | null;
 };
 
 const apiBaseUrl = import.meta.env.VITE_DRPAY_BACKEND_URL || "";
@@ -440,6 +450,10 @@ export async function authorizeTransferWithPin(input: TransferAuthorizationInput
   });
 }
 
+export async function getCollectionRefundDetails(paymentId: string): Promise<CollectionRefundDetails> {
+  return backendRequest<CollectionRefundDetails>(`/v1/payment-links/${encodeURIComponent(paymentId)}/refund-details`);
+}
+
 function formatMoney(amount: number, showSign = false) {
   const sign = amount < 0 ? "−" : showSign ? "+" : "";
   return `${sign}₱${Math.abs(amount).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -474,6 +488,8 @@ function toTransaction(item: WalletActivityResponse, index: number): Transaction
     amount: formatMoney(item.amount, true),
     numericAmount: item.amount,
     description: item.description,
+    canRefund: item.canRefund,
+    refundStatus: item.refundStatus,
   };
 }
 
@@ -620,6 +636,7 @@ export async function createTransfer(input: {
   remarks: string;
   idempotencyKey: string;
   stepUpToken: string;
+  refundPaymentId?: string;
 }): Promise<TransferResult> {
   return backendRequest<TransferResult>("/v1/disbursements", {
     method: "POST",
@@ -631,6 +648,7 @@ export async function createTransfer(input: {
       accountNumber: input.accountNumber,
       fullName: input.fullName,
       remarks: input.remarks,
+      refundPaymentId: input.refundPaymentId,
     }),
   });
 }

@@ -39,6 +39,7 @@ import {
   clearSession,
   authorizeTransferWithPin,
   createPaymentLink,
+  getCollectionRefundDetails,
   createAdminMerchantAccount,
   createTransfer,
   clearPaymentLinkIdempotencyKey,
@@ -83,6 +84,7 @@ import {
   type FloatingTransferRequest,
   type MerchantPayoutAccount,
   type AdminSettings,
+  type CollectionRefundDetails,
   type DashboardData,
   type MerchantActivityTrendPoint,
   type MerchantSecurityStatus,
@@ -1208,10 +1210,73 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
   );
 }
 
-function TransactionSheet({ transaction, onClose }: { transaction: Transaction; onClose: () => void }) {
+function TransactionSheet({
+  transaction,
+  onClose,
+  onComplete,
+}: {
+  transaction: Transaction;
+  onClose: () => void;
+  onComplete: () => void;
+}) {
+  const [refundDetails, setRefundDetails] = useState<CollectionRefundDetails | null>(null);
+  const [refundPin, setRefundPin] = useState("");
+  const [refundLoading, setRefundLoading] = useState(false);
+  const [refundSubmitting, setRefundSubmitting] = useState(false);
+  const [refundError, setRefundError] = useState("");
+  const [refundIdempotencyKey, setRefundIdempotencyKey] = useState(() => crypto.randomUUID());
+
   async function copyReference() {
     await navigator.clipboard?.writeText(transaction.reference);
   }
+
+  async function loadRefundDetails() {
+    setRefundLoading(true);
+    setRefundError("");
+    try {
+      setRefundDetails(await getCollectionRefundDetails(transaction.id));
+    } catch (requestError) {
+      setRefundError(requestError instanceof Error ? requestError.message : "Could not verify refund eligibility.");
+    } finally {
+      setRefundLoading(false);
+    }
+  }
+
+  async function submitRefund(event: FormEvent) {
+    event.preventDefault();
+    if (!refundDetails) return;
+    setRefundSubmitting(true);
+    setRefundError("");
+    try {
+      const authorizationInput: TransferAuthorizationInput = {
+        ...refundDetails,
+        idempotencyKey: refundIdempotencyKey,
+        refundPaymentId: transaction.id,
+      };
+      const authorization = await authorizeTransferWithPin(authorizationInput, refundPin);
+      const result = await createTransfer({
+        ...refundDetails,
+        idempotencyKey: refundIdempotencyKey,
+        stepUpToken: authorization.stepUpToken,
+        refundPaymentId: transaction.id,
+      });
+      if (["REJECTED", "ERROR", "FAILED", "CANCELED", "CANCELLED"].includes(result.status.toUpperCase())) {
+        setRefundError(result.message || "SwiftPay rejected the refund transfer.");
+        setRefundIdempotencyKey(crypto.randomUUID());
+        return;
+      }
+      onComplete();
+      onClose();
+    } catch (requestError) {
+      setRefundError(requestError instanceof Error ? requestError.message : "Could not submit the refund transfer.");
+    } finally {
+      setRefundSubmitting(false);
+    }
+  }
+
+  const refundInProgress = ["REQUESTING", "PENDING", "OUTCOME_UNKNOWN"].includes((transaction.refundStatus || "").toUpperCase());
+  const refundCompleted = ["EXECUTED", "SUCCESS", "COMPLETED"].includes((transaction.refundStatus || "").toUpperCase());
+
   return (
     <div className="sheet-backdrop" role="presentation" onMouseDown={onClose}>
       <section className="payment-sheet detail-sheet" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
@@ -1230,6 +1295,41 @@ function TransactionSheet({ transaction, onClose }: { transaction: Transaction; 
           <div><dt>Reference</dt><dd><button onClick={copyReference}>{transaction.reference}<Copy size={14} /></button></dd></div>
         </dl>
         <p className="detail-note"><ShieldCheck size={15} /> Status was last reconciled by the DRPAY server with SwiftPay.</p>
+        {refundCompleted && <div className="refund-status refund-status-complete"><ShieldCheck size={15} />Refund transfer completed.</div>}
+        {refundInProgress && <div className="refund-status"><LoaderCircle size={15} className="spin" />Refund transfer is being processed. Check Wallet activity for its latest status.</div>}
+        {transaction.canRefund && !refundDetails && (
+          <Button variant="secondary" icon={<RefreshCw size={15} />} onClick={() => void loadRefundDetails()} disabled={refundLoading}>
+            {refundLoading ? "Checking refund…" : "Refund to payer"}
+          </Button>
+        )}
+        {refundDetails && (
+          <form className="refund-confirmation" onSubmit={submitRefund}>
+            <strong>Refund to the original payer</strong>
+            <p>{formatPeso(refundDetails.amount)} will be transferred via {refundDetails.channel} to {refundDetails.fullName} · {refundDetails.institutionCode}, account ending {refundDetails.accountNumber.slice(-4)}. The platform fee will not be refunded.</p>
+            <label>
+              <span>Confirm with your MPIN</span>
+              <input
+                type="password"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={4}
+                pattern="[0-9]{4}"
+                value={refundPin}
+                onChange={(event) => setRefundPin(event.target.value.replace(/\D/g, "").slice(0, 4))}
+                required
+              />
+            </label>
+            {refundError && <div className="inline-error" role="alert"><AlertCircle size={14} />{refundError}</div>}
+            <Button type="submit" disabled={refundSubmitting || refundPin.length !== 4}>
+              {refundSubmitting ? "Submitting refund…" : `Confirm refund · ${formatPeso(refundDetails.amount)}`}
+            </Button>
+            <Button variant="quiet" onClick={() => { setRefundDetails(null); setRefundPin(""); setRefundError(""); }}>Cancel</Button>
+          </form>
+        )}
+        {!transaction.canRefund && !refundInProgress && !refundCompleted && transaction.refundStatus && (
+          <div className="refund-status">The previous refund transfer failed. This collection can be retried.</div>
+        )}
+        {refundError && !refundDetails && <div className="inline-error" role="alert"><AlertCircle size={14} />{refundError}</div>}
         <Button onClick={onClose}>Done</Button>
       </section>
     </div>
@@ -2046,7 +2146,7 @@ function WalletView({
           <span>{data.paymentEnvironment === "production" ? "Live" : "Sandbox"}</span>
         </div>
       </section>
-      <section className="floating-balance-card">
+      {data.availableFloatingBalance > 0 && <section className="floating-balance-card">
         <div className="floating-balance-heading"><span className="wallet-ledger-icon"><WalletCards size={18} /></span><div><strong>Floating balance</strong><p>Your total balance, including funds reserved for pending transfer requests.</p></div></div>
         <div className="floating-balance-values">
           <div><small>Total balance</small><strong>{balanceVisible ? data.internalWalletBalance : "₱ ••••••"}</strong></div>
@@ -2059,7 +2159,7 @@ function WalletView({
         <form className="floating-transfer-form" onSubmit={requestFloatingBalanceTransfer}>
           <label><span>Transfer request amount (PHP)</span><input type="number" min="0.01" max={Math.max(0, data.availableFloatingBalance - data.transferFeeFixed)} step="0.01" value={requestAmount} onChange={(event) => setRequestAmount(event.target.value)} placeholder="Enter an amount" required /></label>
           {requestAmount && Number(requestAmount) > 0 && <small className="floating-transfer-total">Requested payout {formatPeso(Number(requestAmount))} + fee {formatPeso(data.transferFeeFixed)} = {formatPeso(Number(requestAmount) + data.transferFeeFixed)} total</small>}
-          <Button type="submit" disabled={requestBusy || !payoutAccount?.bankName || !requestAmount || Number(requestAmount) <= 0 || Number(requestAmount) + data.transferFeeFixed > data.availableFloatingBalance}>{requestBusy ? "Submitting…" : "Request transfer"}</Button>
+          <Button type="submit" disabled={requestBusy || !payoutAccount?.bankName || !requestAmount || Number(requestAmount) <= 0 || Number(requestAmount) + data.transferFeeFixed > data.availableFloatingBalance}>{requestBusy ? "Submitting…" : "Request for Payout"}</Button>
         </form>
         {requestError && <div className="inline-error" role="alert"><AlertCircle size={14} />{requestError}</div>}
         {requestNotice && <div className="admin-notice"><ShieldCheck size={14} />{requestNotice}</div>}
@@ -2073,7 +2173,7 @@ function WalletView({
           ))}
         </div>
         <p className="floating-transfer-note">A successful request deducts the amount from your floating balance. The payout is handled manually by DRPAY outside the app.</p>
-      </section>
+      </section>}
       <header className="wallet-activity-heading">
         <div><span className="eyebrow">LATEST 50 RECORDS</span><h2>Wallet activity</h2></div>
         <span>{transactions.length} shown</span>
@@ -2893,7 +2993,7 @@ export default function App() {
         />
       )}
       {showPaymentLink && <PaymentLinkSheet onClose={() => { setShowPaymentLink(false); void loadDashboard(); }} />}
-      {selectedTransaction && <TransactionSheet transaction={selectedTransaction} onClose={() => setSelectedTransaction(null)} />}
+      {selectedTransaction && <TransactionSheet transaction={selectedTransaction} onClose={() => setSelectedTransaction(null)} onComplete={() => void loadDashboard()} />}
       {biometricOfferEmail && session?.role === "merchant" && session.email === biometricOfferEmail && securityStatus?.pinConfigured && (
         <BiometricEnrollmentPrompt
           busy={biometricBusy}
