@@ -441,21 +441,13 @@ async function settleSuccessfulCollection(paymentId) {
     }
     const grossAmount = Number(row.amount);
     const feeAmount = Math.round(grossAmount * feePercent) / 100;
-    const netAmount = Math.round((grossAmount - feeAmount) * 100) / 100;
-    const feeEntry = await client.query(
+    await client.query(
       `INSERT INTO platform_fee_ledger (id, source_type, source_id, merchant_email, amount)
        VALUES ($1, 'COLLECTION', $2, $3, $4)
        ON CONFLICT (source_type, source_id) DO NOTHING
-       RETURNING id`,
+       `,
       [randomUUID(), paymentId, row.merchant_email, feeAmount.toFixed(2)],
     );
-    if (feeEntry.rowCount && netAmount > 0) {
-      await client.query(
-        `INSERT INTO internal_wallet_adjustments (id, merchant_email, amount, reason, adjusted_by)
-         VALUES ($1, $2, $3, $4, 'system:collection-settlement')`,
-        [randomUUID(), row.merchant_email, netAmount.toFixed(2), `Net collection settlement ${row.reference_no}; gross PHP ${grossAmount.toFixed(2)}, fee PHP ${feeAmount.toFixed(2)}`],
-      );
-    }
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
@@ -1291,7 +1283,8 @@ app.get("/v1/admin/internal-wallets", async (_req, res) => {
        COALESCE(SUM(a.amount), 0)::float8 AS balance,
        MAX(a.created_at) AS "lastAdjustedAt"
      FROM merchant_accounts m
-     LEFT JOIN internal_wallet_adjustments a ON a.merchant_email = m.email
+     LEFT JOIN internal_wallet_adjustments a
+       ON a.merchant_email = m.email AND a.adjusted_by NOT LIKE 'system:%'
      GROUP BY m.email, m.active
      ORDER BY m.email ASC`,
   );
@@ -1304,7 +1297,9 @@ app.get("/v1/admin/internal-wallets/:email", async (req, res) => {
   if (!account.rowCount) return res.status(404).json({ error: "Merchant account not found." });
   const [balanceResult, reservationResult, adjustmentResult] = await Promise.all([
     pool.query(
-      "SELECT COALESCE(SUM(amount), 0)::float8 AS balance FROM internal_wallet_adjustments WHERE merchant_email = $1",
+      `SELECT COALESCE(SUM(amount), 0)::float8 AS balance
+       FROM internal_wallet_adjustments
+       WHERE merchant_email = $1 AND adjusted_by NOT LIKE 'system:%'`,
       [email],
     ),
     pool.query(
@@ -1347,7 +1342,8 @@ app.post("/v1/admin/internal-wallets/:email/adjustments", async (req, res) => {
       return res.status(404).json({ error: "Merchant account not found." });
     }
     const balances = await client.query(
-      `SELECT COALESCE((SELECT SUM(amount) FROM internal_wallet_adjustments WHERE merchant_email = $1), 0)::numeric AS balance,
+      `SELECT COALESCE((SELECT SUM(amount) FROM internal_wallet_adjustments
+            WHERE merchant_email = $1 AND adjusted_by NOT LIKE 'system:%'), 0)::numeric AS balance,
          COALESCE((SELECT SUM(amount + transfer_fee) FROM floating_transfer_requests WHERE merchant_email = $1 AND status = 'PENDING'), 0)::numeric AS reserved`,
       [email],
     );
@@ -1671,12 +1667,13 @@ app.put("/v1/floating-balance/payout-account", async (req, res) => {
   const result = await pool.query(
     `INSERT INTO merchant_payout_accounts (merchant_email, bank_name, account_name, account_number)
      VALUES ($1, $2, $3, $4)
-     ON CONFLICT (merchant_email) DO UPDATE SET
-       bank_name = EXCLUDED.bank_name, account_name = EXCLUDED.account_name,
-       account_number = EXCLUDED.account_number, updated_at = NOW()
+     ON CONFLICT (merchant_email) DO NOTHING
      RETURNING bank_name AS "bankName", account_name AS "accountName", account_number AS "accountNumber"`,
     [req.merchantEmail, bankName, accountName, accountNumber],
   );
+  if (!result.rowCount) {
+    return res.status(409).json({ error: "A payout account is already saved. Contact a super admin to change it." });
+  }
   return res.set("Cache-Control", "no-store").json(result.rows[0]);
 });
 
@@ -1716,7 +1713,8 @@ app.post("/v1/floating-balance/transfer-requests", async (req, res) => {
         [req.merchantEmail],
       ),
       client.query(
-        `SELECT COALESCE((SELECT SUM(amount) FROM internal_wallet_adjustments WHERE merchant_email = $1), 0)::numeric AS balance,
+        `SELECT COALESCE((SELECT SUM(amount) FROM internal_wallet_adjustments
+              WHERE merchant_email = $1 AND adjusted_by NOT LIKE 'system:%'), 0)::numeric AS balance,
            COALESCE((SELECT SUM(amount + transfer_fee) FROM floating_transfer_requests WHERE merchant_email = $1 AND status = 'PENDING'), 0)::numeric AS reserved`,
         [req.merchantEmail],
       ),
@@ -1874,7 +1872,7 @@ app.get("/v1/internal-wallet", async (req, res) => {
     `WITH wallet AS (
        SELECT COALESCE(SUM(amount), 0)::numeric AS balance
        FROM internal_wallet_adjustments
-       WHERE merchant_email = $1
+      WHERE merchant_email = $1 AND adjusted_by NOT LIKE 'system:%'
      ), krw_collections AS (
        SELECT
          COALESCE(SUM(p.collection_amount_krw), 0)::numeric AS completed_krw,

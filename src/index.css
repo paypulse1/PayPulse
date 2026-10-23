@@ -224,6 +224,16 @@ h1, h2, p { margin-top: 0; }
 .unsettled-unlock-status-ready { border-color: #b9e5cf; background: #f0fbf5; }
 .unsettled-unlock-status-ready > svg { color: #18864b; }
 .unsettled-unlock-status-ready p { color: #176b40; }
+.unsettled-request-section { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); display: grid; gap: 10px; }
+.unsettled-request-section > div > strong { font-size: 11px; }
+.unsettled-request-section > div > p { margin: 4px 0 0; color: var(--muted); font-size: 8px; line-height: 1.5; }
+.unsettled-request-form { display: grid; gap: 6px; }
+.unsettled-request-form > label { font-size: 9px; font-weight: 700; }
+.unsettled-request-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.unsettled-request-controls input { min-width: 0; width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; }
+.unsettled-request-controls .button { white-space: nowrap; }
+.unsettled-request-form > small { color: var(--muted); font-size: 8px; line-height: 1.5; }
+.unsettled-request-success { margin: 0; color: #176b40; font-size: 9px; }
 .floating-request-list { margin-top: 16px; }
 .floating-request-list > strong { display: block; margin-bottom: 7px; font-size: 9px; }
 .floating-request-list > p { color: var(--muted); font-size: 8px; }

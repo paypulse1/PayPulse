@@ -57,6 +57,7 @@ import {
   getAdminSettings,
   getMerchantActivityTrend,
   getMerchantDashboard,
+  createMerchantFloatingTransferRequest,
   getMerchantSecurityStatus,
   getPaymentLinkIdempotencyKey,
   getPaymentLinkStatus,
@@ -2317,12 +2318,41 @@ function WalletFloatingBalanceCard({
   data: DashboardData;
   balanceVisible: boolean;
 }) {
+  const [requestAmount, setRequestAmount] = useState("");
+  const [requestError, setRequestError] = useState("");
+  const [requestMessage, setRequestMessage] = useState("");
+  const [requestSubmitting, setRequestSubmitting] = useState(false);
   const collectionTargetKrw = 1_000_000;
   const currentCollectionsKrw = Math.max(0, data.cumulativeKrwCollections);
   const collectionProgress = Math.min(100, (currentCollectionsKrw / collectionTargetKrw) * 100);
   const formatKrw = (amount: number) => `₩${Math.floor(amount).toLocaleString("en-US")}`;
+  const [availableToRequest, setAvailableToRequest] = useState(() =>
+    Math.max(0, data.availableFloatingBalance - data.transferFeeFixed),
+  );
+  const maxRequestAmount = Math.min(
+    availableToRequest,
+    Math.max(0, data.availableFloatingBalance - data.transferFeeFixed),
+  );
   const thresholdReached = currentCollectionsKrw >= collectionTargetKrw;
   const unlocked = data.paymentEnvironment === "production" && thresholdReached;
+
+  async function submitTransferRequest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setRequestError("");
+    setRequestMessage("");
+    setRequestSubmitting(true);
+    try {
+      const amount = Number(requestAmount);
+      await createMerchantFloatingTransferRequest({ amount });
+      setAvailableToRequest((available) => Math.max(0, available - amount - data.transferFeeFixed));
+      setRequestAmount("");
+      setRequestMessage("Transfer request sent to a super admin for review.");
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : "Could not submit transfer request.");
+    } finally {
+      setRequestSubmitting(false);
+    }
+  }
 
   return (
     <section className="floating-balance-card">
@@ -2348,9 +2378,38 @@ function WalletFloatingBalanceCard({
         <p>{unlocked
           ? "Unlocked. A super admin will transfer your unsettled funds to your external live SwiftPay PHP wallet. Once they appear in your SwiftPay balance, keep using the usual Transfer screen."
           : data.paymentEnvironment !== "production"
-            ? "Only completed KRW QR collections still backed by your PHP wallet balance count toward unlocking unsettled funds. Any balance deduction reduces this progress. This is a sandbox wallet."
-            : "Once completed KRW QR collections still backed by your live PHP wallet reach ₩1,000,000, your unsettled funds unlock for transfer by a super admin to your external live SwiftPay PHP wallet. Any balance deduction reduces this progress; the payer may use any supported bank or payment app."}</p>
+            ? "The unlock threshold is separate from transfer requests. You can request a transfer before reaching it if you have available admin-set funds. This is a sandbox wallet."
+            : "At ₩1,000,000 in maintained live collections, funds unlock for transfer by a super admin. You can still request a transfer before reaching the threshold if you have available admin-set funds."}</p>
       </div>
+      <section className="unsettled-request-section" aria-labelledby="unsettled-request-heading">
+        <div>
+          <strong id="unsettled-request-heading">Request a transfer</strong>
+          <p>Requests are available before the collection threshold when funds are available.</p>
+        </div>
+        <form className="unsettled-request-form" onSubmit={(event) => void submitTransferRequest(event)}>
+          <label htmlFor="unsettled-request-amount">Amount in PHP</label>
+          <div className="unsettled-request-controls">
+            <input
+              id="unsettled-request-amount"
+              type="number"
+              min="0.01"
+              max={maxRequestAmount.toFixed(2)}
+              step="0.01"
+              value={requestAmount}
+              onChange={(event) => setRequestAmount(event.target.value)}
+              placeholder="0.00"
+              required
+              disabled={requestSubmitting || maxRequestAmount <= 0}
+            />
+            <Button type="submit" icon={<Send size={16} />} disabled={requestSubmitting || maxRequestAmount <= 0}>
+              {requestSubmitting ? "Sending…" : "Send request"}
+            </Button>
+          </div>
+          <small>Available to request: {formatPeso(maxRequestAmount)} after the PHP {data.transferFeeFixed.toFixed(2)} transfer fee.</small>
+        </form>
+        {requestError && <div className="inline-error" role="alert"><AlertCircle size={15} />{requestError}</div>}
+        {requestMessage && <p className="unsettled-request-success" role="status">{requestMessage}</p>}
+      </section>
     </section>
   );
 }
