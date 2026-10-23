@@ -30,6 +30,7 @@ export type DashboardData = {
   availableBalance: string;
   balance: number;
   internalWalletBalance: string;
+  cumulativeKrwCollections: number;
   floatingBalance: number;
   availableFloatingBalance: number;
   transferFeeFixed: number;
@@ -211,6 +212,7 @@ type InternalWalletResponse = {
   balance: number;
   availableBalance: number;
   transferFeeFixed: number;
+  cumulativeKrwCollections: number;
   label: string;
 };
 
@@ -506,6 +508,7 @@ export async function getMerchantDashboard(): Promise<DashboardData> {
     availableBalance: formatMoney(wallet.adjustedBalance ?? wallet.balance),
     balance: wallet.adjustedBalance ?? wallet.balance,
     internalWalletBalance: formatMoney(internalWallet.balance),
+    cumulativeKrwCollections: internalWallet.cumulativeKrwCollections,
     floatingBalance: internalWallet.balance,
     availableFloatingBalance: internalWallet.availableBalance,
     transferFeeFixed: internalWallet.transferFeeFixed,

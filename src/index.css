@@ -78,6 +78,8 @@ h1, h2, p { margin-top: 0; }
 .balance-floating > div { min-width: 0; }
 .balance-floating span, .balance-floating strong { display: block; }
 .balance-floating span { margin-bottom: 5px; color: #a4b5c9; font-size: 8px; }
+.balance-floating .balance-floating-label { display: flex; align-items: center; gap: 5px; }
+.balance-floating-label img { width: auto; height: 12px; }
 .balance-floating strong { overflow-wrap: anywhere; font-size: 13px; letter-spacing: -.02em; }
 
 .quick-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; margin: 15px 0; }
@@ -184,6 +186,7 @@ h1, h2, p { margin-top: 0; }
 .wallet-balance-foot i { width: 6px; height: 6px; border-radius: 50%; background: #8bb7e8; }
 .wallet-ledger-card { margin-bottom: 18px; padding: 13px; display: grid; grid-template-columns: 36px 1fr auto; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
 .wallet-ledger-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 11px; background: #e6eef8; color: #1b4f9c; }
+.wallet-ledger-icon img { width: 27px; height: auto; }
 .wallet-ledger-card strong { display: block; font-size: 10px; }
 .wallet-ledger-card p { margin: 4px 0 0; color: var(--muted); font-size: 8px; line-height: 1.45; }
 .wallet-ledger-card b { font-size: 10px; white-space: nowrap; }
@@ -197,6 +200,13 @@ h1, h2, p { margin-top: 0; }
 .floating-balance-values small, .floating-balance-values strong { display: block; }
 .floating-balance-values small { color: var(--muted); font-size: 8px; }
 .floating-balance-values strong { margin-top: 5px; font-size: 13px; overflow-wrap: anywhere; }
+.collection-progress { margin: 12px 0; }
+.collection-progress p { margin: 0; color: var(--muted); font-size: 9px; }
+.collection-progress p:first-child { margin-bottom: 8px; color: var(--ink); font-size: 12px; }
+.collection-progress p:first-child strong { color: #3478e5; font-weight: 700; }
+.collection-progress p:last-child { margin-top: 8px; font-size: 9px; }
+.collection-progress-track { height: 8px; overflow: hidden; border-radius: 999px; background: #e6e7ea; }
+.collection-progress-track span { display: block; height: 100%; border-radius: inherit; background: #3478e5; transition: width .25s ease; }
 .floating-payout-account { margin-bottom: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
 .floating-payout-account span, .floating-payout-account strong, .floating-payout-account small { display: block; }
 .floating-payout-account span, .floating-payout-account small { color: var(--muted); font-size: 8px; }
@@ -234,7 +244,7 @@ h1, h2, p { margin-top: 0; }
 .transfer-methods-card, .transfer-activity-section { margin-top: 11px; padding: 15px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
 .transfer-methods-card h2 { margin: 0 0 7px; font-size: 12px; }
 .transfer-method-row { padding: 10px 0; display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--line); }
-.transfer-method-logo { width: 76px; height: 34px; flex: 0 0 76px; object-fit: contain; }
+.transfer-method-logo { width: 76px; height: 20px; flex: 0 0 76px; object-fit: contain; }
 .transfer-method-row strong { display: block; font-size: 10px; }
 .transfer-method-row p { margin: 3px 0 0; color: var(--muted); font-size: 8px; line-height: 1.4; }
 .transfer-security-note { margin-top: 11px; padding: 12px; display: flex; align-items: flex-start; gap: 9px; border: 1px solid #cbd9ed; border-radius: 13px; background: #edf3fc; color: #1b4f9c; }

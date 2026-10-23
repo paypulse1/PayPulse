@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Capacitor } from "@capacitor/core";
+import { App as CapacitorApp } from "@capacitor/app";
+import { Browser } from "@capacitor/browser";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { Share } from "@capacitor/share";
 import {
@@ -131,6 +133,48 @@ function isQrNotFoundError(error: unknown) {
   if (!(error instanceof Error)) return false;
   return error.name === "NotFoundException"
     || /no (?:multi.?format )?readers? (?:were )?able to detect/i.test(error.message);
+}
+
+function compareAppVersions(left: string, right: string) {
+  const leftParts = left.split(".").map(Number);
+  const rightParts = right.split(".").map(Number);
+  for (let index = 0; index < 3; index += 1) {
+    if (leftParts[index] !== rightParts[index]) return leftParts[index] - rightParts[index];
+  }
+  return 0;
+}
+
+function UpdateAvailablePrompt({ version, downloadUrl, onDismiss }: {
+  version: string;
+  downloadUrl: string;
+  onDismiss: () => void;
+}) {
+  const [error, setError] = useState("");
+
+  async function openDownload() {
+    setError("");
+    try {
+      await Browser.open({ url: downloadUrl });
+    } catch (openError) {
+      setError(openError instanceof Error ? openError.message : "Could not open the APK download.");
+    }
+  }
+
+  return (
+    <div className="sheet-backdrop" role="presentation">
+      <section className="payment-sheet" role="dialog" aria-modal="true" aria-labelledby="app-update-title">
+        <span className="sheet-handle" />
+        <header className="sheet-header">
+          <div><span className="eyebrow">APP UPDATE</span><h2 id="app-update-title">DRPAY {version} is ready</h2></div>
+          <IconButton label="Remind me later" onClick={onDismiss}><X size={19} /></IconButton>
+        </header>
+        <p className="profile-info-note">Download the latest version to get improvements and fixes. Android will ask you to confirm installation; the update will not install silently.</p>
+        {error && <div className="inline-error" role="alert"><AlertCircle size={15} />{error}</div>}
+        <Button icon={<Download size={16} />} onClick={() => void openDownload()}>Download update</Button>
+        <Button variant="secondary" onClick={onDismiss}>Remind me later</Button>
+      </section>
+    </div>
+  );
 }
 
 function formatPeso(amount: number) {
@@ -1977,7 +2021,10 @@ function HomeView({
         </div>
         <div className="balance-floating">
           <div>
-            <span>Total floating balance</span>
+            <span className="balance-floating-label">
+              <img src="/bank-logos/alipay-plus.svg" alt="Alipay+" />
+              Balance
+            </span>
             <strong>{balanceVisible ? data.internalWalletBalance : "₱ ••••••"}</strong>
           </div>
         </div>
@@ -2203,14 +2250,33 @@ function WalletFloatingBalanceCard({
   onRequestTransfer: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   if (data.availableFloatingBalance <= 0) return null;
+  const collectionTargetKrw = 1_000_000;
+  const currentCollectionsKrw = Math.max(0, data.cumulativeKrwCollections);
+  const remainingCollectionsKrw = Math.max(0, collectionTargetKrw - currentCollectionsKrw);
+  const collectionProgress = Math.min(100, (currentCollectionsKrw / collectionTargetKrw) * 100);
+  const formatKrw = (amount: number) => `₩${Math.floor(amount).toLocaleString("en-US")}`;
 
   return (
     <section className="floating-balance-card">
-      <div className="floating-balance-heading"><span className="wallet-ledger-icon"><WalletCards size={18} /></span><div><strong>Unsettled Funds</strong><p>Your total balance, including funds reserved for pending transfer requests.</p></div></div>
+      <div className="floating-balance-heading"><span className="wallet-ledger-icon"><img src="/bank-logos/alipay-plus.svg" alt="Alipay+" /></span><div><strong>Unsettled Funds</strong><p>Your total balance, including funds reserved for pending transfer requests.</p></div></div>
       <div className="floating-balance-values">
         <div><small>Total balance</small><strong>{balanceVisible ? data.internalWalletBalance : "₱ ••••••"}</strong></div>
       </div>
-      <p className="floating-transfer-fee-note">The merchant should completed the accumolative Payment Collection worth of 500,000 Korean Won before the unsettled funds can be transfered into the merchant wallet ledger.</p>
+      <div className="collection-progress" aria-label={`Cumulative collections: ${formatKrw(currentCollectionsKrw)} of ${formatKrw(collectionTargetKrw)}`}>
+        <p>Current balance <strong>{balanceVisible ? formatKrw(currentCollectionsKrw) : "₩ ••••••"}</strong></p>
+        <div
+          className="collection-progress-track"
+          role="progressbar"
+          aria-label="Cumulative collections toward wallet ledger transfer"
+          aria-valuemin={0}
+          aria-valuemax={collectionTargetKrw}
+          aria-valuenow={Math.min(collectionTargetKrw, Math.floor(currentCollectionsKrw))}
+        >
+          <span style={{ width: `${collectionProgress}%` }} />
+        </div>
+        <p>You can keep up to {balanceVisible ? formatKrw(remainingCollectionsKrw) : "₩ ••••••"} more.</p>
+      </div>
+      <p className="floating-transfer-fee-note">Unsettled funds will be transferred to the merchant’s wallet ledger once cumulative collections reach 1,000,000 KRW.</p>
       {payoutAccount && payoutAccount.bankName ? (
         <div className="floating-payout-account"><span>Saved payout account</span><strong>{payoutAccount.bankName} · {payoutAccount.accountName}</strong><small>Account ending {payoutAccount.accountNumber.slice(-4)}</small></div>
       ) : <p className="floating-payout-missing">Save a bank account in your profile before requesting a transfer.</p>}
@@ -2774,8 +2840,77 @@ export default function App() {
   const [showPaymentLink, setShowPaymentLink] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [updateAvailable, setUpdateAvailable] = useState<{ version: string; downloadUrl: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const dismissedUpdateVersionRef = useRef("");
+
+  useEffect(() => {
+    if (Capacitor.getPlatform() !== "android") return;
+    let active = true;
+    let lastCheckAt = 0;
+    let retryTimer = 0;
+    let requestController: AbortController | null = null;
+
+    async function checkForUpdate() {
+      if (!active || !navigator.onLine || Date.now() - lastCheckAt < 5 * 60 * 1000) return;
+      lastCheckAt = Date.now();
+      requestController = new AbortController();
+      try {
+        const [appInfo, response] = await Promise.all([
+          CapacitorApp.getInfo(),
+          fetch("https://api.github.com/repos/blackhorsecn/drpay-merchant/releases/latest", {
+            headers: { Accept: "application/vnd.github+json" },
+            cache: "no-store",
+            signal: requestController.signal,
+          }),
+        ]);
+        if (!response.ok) throw new Error(`Release check failed (${response.status}).`);
+        const release = await response.json() as {
+          tag_name?: string;
+          draft?: boolean;
+          prerelease?: boolean;
+          assets?: { name?: string; browser_download_url?: string }[];
+        };
+        const versionMatch = /^android-v(\d+\.\d+\.\d+)$/.exec(release.tag_name || "");
+        const apk = release.assets?.find((asset) => asset.name === "drpay.apk");
+        if (!active || release.draft || release.prerelease || !versionMatch || !apk?.browser_download_url) return;
+        const downloadUrl = new URL(apk.browser_download_url);
+        if (downloadUrl.protocol !== "https:" || downloadUrl.hostname !== "github.com") {
+          throw new Error("The latest APK release has an invalid download URL.");
+        }
+        const latestVersion = versionMatch[1];
+        if (compareAppVersions(latestVersion, appInfo.version) > 0
+          && dismissedUpdateVersionRef.current !== latestVersion) {
+          setUpdateAvailable({ version: latestVersion, downloadUrl: downloadUrl.toString() });
+        }
+      } catch (checkError) {
+        if (active && !(checkError instanceof DOMException && checkError.name === "AbortError")) {
+          console.warn("Could not check for an Android app update", checkError);
+        }
+      }
+    }
+
+    const handleOnline = () => {
+      window.clearTimeout(retryTimer);
+      retryTimer = window.setTimeout(() => {
+        lastCheckAt = 0;
+        void checkForUpdate();
+      }, 500);
+    };
+    const handleOffline = () => requestController?.abort();
+
+    void checkForUpdate();
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      active = false;
+      window.clearTimeout(retryTimer);
+      requestController?.abort();
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   const enablePushNotifications = useCallback(async () => {
     if (Capacitor.getPlatform() !== "android") {
@@ -3023,6 +3158,12 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
+  function dismissUpdatePrompt() {
+    if (!updateAvailable) return;
+    dismissedUpdateVersionRef.current = updateAvailable.version;
+    setUpdateAvailable(null);
+  }
+
   const legalPage = getLegalPage(window.location.pathname);
   if (checkoutCode) return <Checkout code={checkoutCode} />;
   if (legalPage) return <LegalPage page={legalPage} />;
@@ -3030,16 +3171,19 @@ export default function App() {
 
   if (!isBackendConfigured()) {
     return (
-      <main className="auth-screen">
-        <div className="auth-brand"><Brand /></div>
-        <section className="auth-card">
-          <span className="auth-mark"><AlertCircle size={27} /></span>
-          <span className="eyebrow">LIVE PAYMENTS DISABLED</span>
-          <h1>Backend connection required</h1>
-          <p>DRPAY is not connected to a merchant backend. Wallet balances, sign-in, collections, and transfers are unavailable until the backend is configured.</p>
-          <div className="inline-error"><Lock size={15} />No simulated balances or transactions are shown.</div>
-        </section>
-      </main>
+      <>
+        <main className="auth-screen">
+          <div className="auth-brand"><Brand /></div>
+          <section className="auth-card">
+            <span className="auth-mark"><AlertCircle size={27} /></span>
+            <span className="eyebrow">LIVE PAYMENTS DISABLED</span>
+            <h1>Backend connection required</h1>
+            <p>DRPAY is not connected to a merchant backend. Wallet balances, sign-in, collections, and transfers are unavailable until the backend is configured.</p>
+            <div className="inline-error"><Lock size={15} />No simulated balances or transactions are shown.</div>
+          </section>
+        </main>
+        {updateAvailable && <UpdateAvailablePrompt {...updateAvailable} onDismiss={dismissUpdatePrompt} />}
+      </>
     );
   }
 
@@ -3062,25 +3206,45 @@ export default function App() {
     return <SuperAdminConsole session={session} onSignOut={signOut} />;
   }
 
-  if (!session) return <SignIn onAuthenticated={handleMerchantAuthenticated} />;
+  if (!session) {
+    return (
+      <>
+        <SignIn onAuthenticated={handleMerchantAuthenticated} />
+        {updateAvailable && <UpdateAvailablePrompt {...updateAvailable} onDismiss={dismissUpdatePrompt} />}
+      </>
+    );
+  }
 
   if (session.role === "merchant" && securityStatus && !securityStatus.pinConfigured) {
-    return <SecuritySetupScreen initialStatus={securityStatus} onComplete={setSecurityStatus} onSignOut={signOut} />;
+    return (
+      <>
+        <SecuritySetupScreen initialStatus={securityStatus} onComplete={setSecurityStatus} onSignOut={signOut} />
+        {updateAvailable && <UpdateAvailablePrompt {...updateAvailable} onDismiss={dismissUpdatePrompt} />}
+      </>
+    );
   }
 
   if (!data && loading) {
-    return <DashboardLoading />;
+    return (
+      <>
+        <DashboardLoading />
+        {updateAvailable && <UpdateAvailablePrompt {...updateAvailable} onDismiss={dismissUpdatePrompt} />}
+      </>
+    );
   }
 
   if (!data) {
     return (
-      <main className="dashboard-error-screen error-screen" role="alert">
-        <AlertCircle size={28} />
-        <h1>Wallet unavailable</h1>
-        <p>{error || "We couldn’t load your merchant wallet."}</p>
-        <Button variant="secondary" onClick={loadDashboard} icon={<RefreshCw size={16} />}>Retry</Button>
-        <Button variant="quiet" onClick={signOut}>Sign out</Button>
-      </main>
+      <>
+        <main className="dashboard-error-screen error-screen" role="alert">
+          <AlertCircle size={28} />
+          <h1>Wallet unavailable</h1>
+          <p>{error || "We couldn’t load your merchant wallet."}</p>
+          <Button variant="secondary" onClick={loadDashboard} icon={<RefreshCw size={16} />}>Retry</Button>
+          <Button variant="quiet" onClick={signOut}>Sign out</Button>
+        </main>
+        {updateAvailable && <UpdateAvailablePrompt {...updateAvailable} onDismiss={dismissUpdatePrompt} />}
+      </>
     );
   }
 
@@ -3220,6 +3384,10 @@ export default function App() {
           </section>
         </div>
       )}
+      {updateAvailable && <UpdateAvailablePrompt {...updateAvailable} onDismiss={() => {
+        dismissedUpdateVersionRef.current = updateAvailable.version;
+        setUpdateAvailable(null);
+      }} />}
     </div>
   );
 }

@@ -78,21 +78,74 @@ const publicCheckoutLimiter = rateLimit({ windowMs: 60 * 1000, limit: 60, standa
 const publicQrImageLimiter = rateLimit({ windowMs: 60 * 1000, limit: 30, standardHeaders: "draft-8", legacyHeaders: false });
 const institutionCache = new Map();
 let paymentInstitutionCache = null;
+function findInstitutionLogoUrl(value, depth = 0) {
+  if (typeof value === "string") {
+    if (value.startsWith("/") && !value.startsWith("//")) return value;
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" ? url.toString() : null;
+    } catch {
+      return null;
+    }
+  }
+  if (!value || typeof value !== "object" || depth >= 3) return null;
+  if (Array.isArray(value)) {
+    for (const item of value.slice(0, 5)) {
+      const logoUrl = findInstitutionLogoUrl(item, depth + 1);
+      if (logoUrl) return logoUrl;
+    }
+    return null;
+  }
+
+  for (const key of [
+    "url",
+    "src",
+    "href",
+    "uri",
+    "path",
+    "secure_url",
+    "contentUrl",
+    "content_url",
+    "logoUrl",
+    "logo_url",
+    "imageUrl",
+    "image_url",
+    "thumbnailUrl",
+    "originalUrl",
+    "original",
+    "default",
+    "large",
+    "medium",
+    "small",
+  ]) {
+    const logoUrl = findInstitutionLogoUrl(value[key], depth + 1);
+    if (logoUrl) return logoUrl;
+  }
+  return null;
+}
+
 function getInstitutionLogoUrl(institution) {
-  const candidates = [
-    institution?.logoUrl,
-    institution?.logo_url,
-    institution?.logo,
-    institution?.iconUrl,
-    institution?.icon_url,
-    institution?.icon,
-    institution?.imageUrl,
-    institution?.image_url,
-  ];
-  return candidates.find((value) =>
-    typeof value === "string"
-    && (value.startsWith("https://") || value.startsWith("/")),
-  ) || null;
+  for (const key of [
+    "logoUrl",
+    "logo_url",
+    "logo",
+    "logoImage",
+    "logo_image",
+    "logos",
+    "brandLogo",
+    "brand_logo",
+    "iconUrl",
+    "icon_url",
+    "icon",
+    "imageUrl",
+    "image_url",
+    "image",
+    "images",
+  ]) {
+    const logoUrl = findInstitutionLogoUrl(institution?.[key]);
+    if (logoUrl) return logoUrl;
+  }
+  return null;
 }
 
 let liveKrwPhpRateCache = null;
@@ -1798,7 +1851,12 @@ app.get("/v1/internal-wallet", async (req, res) => {
   const [result, feeSetting] = await Promise.all([
     pool.query(
     `SELECT COALESCE((SELECT SUM(amount) FROM internal_wallet_adjustments WHERE merchant_email = $1), 0)::float8 AS balance,
-       COALESCE((SELECT SUM(amount + transfer_fee) FROM floating_transfer_requests WHERE merchant_email = $1 AND status = 'PENDING'), 0)::float8 AS reserved`,
+       COALESCE((SELECT SUM(amount + transfer_fee) FROM floating_transfer_requests WHERE merchant_email = $1 AND status = 'PENDING'), 0)::float8 AS reserved,
+       COALESCE((
+         SELECT SUM(NULLIF(REPLACE((regexp_match(title, '·[[:space:]]*([0-9,]+)[[:space:]]*KRW[[:space:]]*@'))[1], ',', ''), '')::numeric)
+         FROM payment_links
+         WHERE merchant_email = $1 AND status = 'EXECUTED'
+       ), 0)::float8 AS cumulative_krw_collections`,
     [req.merchantEmail],
     ),
     pool.query("SELECT setting_value FROM system_settings WHERE setting_key = 'transfer_fee_fixed'"),
@@ -1810,6 +1868,7 @@ app.get("/v1/internal-wallet", async (req, res) => {
     balance,
     availableBalance: balance - result.rows[0].reserved,
     transferFeeFixed,
+    cumulativeKrwCollections: result.rows[0].cumulative_krw_collections,
     label: "Floated Amount",
   });
 });

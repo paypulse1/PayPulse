@@ -7,8 +7,10 @@ import { getInstitutionLogoAsset } from "./lib/institutionLogos";
 export function InstitutionLogo({ institution, className = "" }: { institution: InstitutionBrand; className?: string }) {
   const [failedLogoUrl, setFailedLogoUrl] = useState("");
   const fallbackLogoUrl = getInstitutionLogoAsset(institution.code, institution.name);
-  const logoUrl = institution.logoUrl || fallbackLogoUrl;
-  const nextLogoUrl = logoUrl === institution.logoUrl ? fallbackLogoUrl : undefined;
+  const logoUrl = fallbackLogoUrl || institution.logoUrl;
+  const nextLogoUrl = fallbackLogoUrl && institution.logoUrl !== fallbackLogoUrl
+    ? institution.logoUrl
+    : undefined;
 
   useEffect(() => {
     setFailedLogoUrl("");
