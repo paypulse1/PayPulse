@@ -4,7 +4,7 @@ import "./marketing-home.css";
 type LegalPageKind = "privacy" | "terms" | "contact";
 
 const supportEmail = "support@denpay.cc";
-const lastUpdated = "October 22, 2026";
+const lastUpdated = "October 23, 2026";
 
 function LegalBrand() {
   return (
@@ -46,14 +46,16 @@ function LegalPage({ page }: { page: LegalPageKind }) {
               <li>Payment and transfer details, including amounts, references, status, recipient or payee name, bank or wallet destination, and account details you submit.</li>
               <li>Checkout information supplied by merchants and payers to create or complete a payment request. A payer or payee provides requested information voluntarily when choosing to use a checkout or payment flow.</li>
               <li>Technical information needed to operate the service, such as session and device identifiers, locally stored preferences, and push-notification tokens if you enable notifications.</li>
+              <li>Business verification information, including registration details, beneficial-owner contact and identity details, date of birth, and documents you upload for KYB review.</li>
+              <li>Merchant integration settings, including webhook and callback URLs, event preferences, API key hashes, and delivery status.</li>
               <li>Messages and details you choose to send when contacting support.</li>
             </ul>
 
             <h2>How we use information</h2>
-            <p>We use this information to operate merchant accounts and checkouts; submit, display, and reconcile payment or transfer activity through the configured backend and payment providers; protect accounts and prevent misuse; provide support; and meet applicable legal obligations.</p>
+            <p>We use this information to operate merchant accounts and checkouts; review business and beneficial-owner verification; send configured payment event notifications; submit, display, and reconcile payment or transfer activity through the configured backend and payment providers; protect accounts and prevent misuse; provide support; and meet applicable legal obligations.</p>
 
             <h2>Service providers and sharing</h2>
-            <p>Information necessary for a transaction may be shared with the configured DRPAY backend, SwiftPay, and the relevant bank, wallet, or payment network to provide and confirm that transaction. We may also disclose information where required by law or necessary to protect users, the service, or our legal rights. Those providers may handle information under their own terms and privacy notices.</p>
+            <p>Information necessary for a transaction may be shared with the configured DRPAY backend, SwiftPay, and the relevant bank, wallet, or payment network to provide and confirm that transaction. KYB document files are stored in the configured private Cloudflare R2 bucket and are made available to authorized DRPAY administrators for verification. When merchants configure webhook or callback URLs, selected transaction event details are sent to those destinations. We may also disclose information where required by law or necessary to protect users, the service, or our legal rights. Those providers may handle information under their own terms and privacy notices.</p>
 
             <h2>Storage, security, and retention</h2>
             <p>Some session and preference data is stored in your browser or device. Optional biometric sign-in credentials are kept using the device’s secure credential storage; biometric matching is performed by the device. We use reasonable safeguards appropriate to the service, but no electronic system can be guaranteed completely secure. We retain information for as long as needed to operate the service, resolve disputes, and meet applicable legal and accounting requirements.</p>

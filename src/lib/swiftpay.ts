@@ -25,6 +25,7 @@ export type Transaction = {
   rawStatus: string;
   amount: string;
   numericAmount: number;
+  walletAmount?: number | null;
   description: string;
   canRefund?: boolean;
   refundStatus?: string | null;
@@ -33,6 +34,7 @@ export type Transaction = {
 export type DashboardData = {
   availableBalance: string;
   balance: number;
+  reservedBalance: number;
   internalWalletBalance: string;
   cumulativeKrwCollections: number;
   floatingBalance: number;
@@ -203,11 +205,62 @@ export type FloatingTransferRequest = {
   failureReason: string | null;
 };
 
+export type KybDocument = {
+  id: string;
+  documentType: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedAt: string;
+};
+
+export type KybProfile = {
+  legalBusinessName: string;
+  registrationNumber: string;
+  businessType: string;
+  country: string;
+  businessAddress: string;
+  ownerFullName: string;
+  ownerDateOfBirth: string;
+  ownerNationality: string;
+  ownerEmail: string;
+  ownerPhone: string;
+  status: "PENDING" | "IN_REVIEW" | "APPROVED" | "REJECTED";
+  reviewNotes: string | null;
+  updatedAt: string;
+};
+
+export type MerchantApiKey = {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  scopes: string[];
+  createdAt: string;
+  lastUsedAt?: string | null;
+  revokedAt?: string | null;
+  key?: string;
+};
+
+export type MerchantWebhookSettings = {
+  endpointUrl: string;
+  callbackUrl: string | null;
+  events: string[];
+  enabled: boolean;
+  updatedAt: string;
+  signingSecret?: string;
+};
+
+export type AdminKybApplication = KybProfile & {
+  merchantEmail: string;
+  documents: KybDocument[];
+  createdAt: string;
+};
+
 type WalletBalanceResponse = {
   balance: number;
+  availableBalance?: number;
+  reservedBalance?: number;
   cumulativeKrwCollections: number;
-  adjustedBalance?: number;
-  accountNumber?: string;
   walletMode?: string;
   paymentEnvironment?: "sandbox" | "production";
 };
@@ -237,6 +290,7 @@ type WalletActivityResponse = {
   description: string;
   createdAt: string;
   canRefund: boolean;
+  walletAmount?: number | null;
   refundStatus: string | null;
 };
 
@@ -289,7 +343,20 @@ function cacheCollectionInstitution(id: string, institution: CollectionInstituti
   }
 }
 
-const apiBaseUrl = import.meta.env.VITE_DRPAY_BACKEND_URL || "";
+const defaultApiBaseUrl = import.meta.env.VITE_DRPAY_BACKEND_URL || "";
+const liveApiBaseUrl = import.meta.env.VITE_DRPAY_LIVE_BACKEND_URL || defaultApiBaseUrl;
+const sandboxApiBaseUrl = import.meta.env.VITE_DRPAY_SANDBOX_BACKEND_URL || defaultApiBaseUrl;
+
+function getConfiguredApiBaseUrl() {
+  const hostname = typeof window === "undefined" ? "" : window.location.hostname.toLowerCase();
+  if (hostname === "pay.sandbox.denpay.cc") return sandboxApiBaseUrl;
+  if (hostname === "pay.live.denpay.cc" || hostname === "merchant.denpay.cc") return liveApiBaseUrl;
+  return defaultApiBaseUrl;
+}
+
+export function getApiBaseUrl() {
+  return getConfiguredApiBaseUrl().replace(/\/$/, "") || window.location.origin;
+}
 const SESSION_KEY = "drpay_session";
 const PAYMENT_LINK_KEY = "drpay_pending_payment_link_key";
 const COLLECTION_INSTITUTION_CACHE_KEY = "drpay_collection_institutions";
@@ -298,7 +365,7 @@ const VERIFIED_DEVICE_PREFIX = "drpay_verified_device_";
 const LAST_MERCHANT_EMAIL_KEY = "drpay_last_merchant_email";
 
 export function isBackendConfigured() {
-  return Boolean(apiBaseUrl);
+  return Boolean(getConfiguredApiBaseUrl());
 }
 
 export function getSession(): Session | null {
@@ -368,6 +435,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
 }
 
 async function publicRequest<T>(path: string, options?: RequestInit): Promise<T> {
+  const apiBaseUrl = getConfiguredApiBaseUrl();
   if (!apiBaseUrl) throw new Error("Live transactions are disabled because the DRPAY backend is not configured.");
   const response = await fetch(`${apiBaseUrl.replace(/\/$/, "")}${path}`, {
     ...options,
@@ -377,6 +445,7 @@ async function publicRequest<T>(path: string, options?: RequestInit): Promise<T>
 }
 
 async function backendRequest<T>(path: string, options?: RequestInit): Promise<T> {
+  const apiBaseUrl = getConfiguredApiBaseUrl();
   if (!apiBaseUrl) throw new Error("Live transactions are disabled because the DRPAY backend is not configured.");
   const session = getSession();
   if (!session) throw new Error("A verified DRPAY session is required");
@@ -552,6 +621,7 @@ function toTransaction(item: WalletActivityResponse, index: number): Transaction
     rawStatus: item.status,
     amount: formatMoney(item.amount, true),
     numericAmount: item.amount,
+    walletAmount: item.walletAmount,
     description: item.description,
     canRefund: item.canRefund,
     refundStatus: item.refundStatus,
@@ -567,9 +637,12 @@ export async function getMerchantDashboard(): Promise<DashboardData> {
   const transactions = activity.map(toTransaction);
   const settledCredits = transactions.filter((item) => item.status === "Completed" && item.numericAmount > 0);
   const volume = settledCredits.reduce((sum, item) => sum + item.numericAmount, 0);
+  const balance = wallet.balance;
+  const availableBalance = wallet.availableBalance ?? balance;
   return {
-    availableBalance: formatMoney(wallet.adjustedBalance ?? wallet.balance),
-    balance: wallet.adjustedBalance ?? wallet.balance,
+    availableBalance: formatMoney(availableBalance),
+    balance: availableBalance,
+    reservedBalance: wallet.reservedBalance ?? 0,
     internalWalletBalance: formatMoney(internalWallet.balance),
     cumulativeKrwCollections: wallet.cumulativeKrwCollections,
     floatingBalance: internalWallet.balance,
@@ -578,7 +651,6 @@ export async function getMerchantDashboard(): Promise<DashboardData> {
     grossVolume: formatMoney(volume),
     successfulPayments: String(settledCredits.length),
     averageTransaction: formatMoney(settledCredits.length ? volume / settledCredits.length : 0),
-    accountNumber: wallet.accountNumber,
     walletMode: wallet.walletMode === "pooled" ? "pooled" : "internal",
     paymentEnvironment: wallet.paymentEnvironment === "production" ? "production" : "sandbox",
     transactions,
@@ -691,6 +763,93 @@ export async function updateAdminMerchantAccount(
     method: "PATCH",
     body: JSON.stringify(input),
   });
+}
+
+export async function getMerchantKyb(): Promise<{ profile: KybProfile | null; documents: KybDocument[] }> {
+  return backendRequest("/v1/kyb");
+}
+
+export async function saveMerchantKybProfile(input: Omit<KybProfile, "status" | "reviewNotes" | "updatedAt">) {
+  return backendRequest<{ status: KybProfile["status"]; updatedAt: string }>("/v1/kyb", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function uploadKybDocument(documentType: string, file: File) {
+  const signed = await backendRequest<{
+    documentId: string;
+    uploadUrl: string;
+    objectKey: string;
+    fileName: string;
+    headers: Record<string, string>;
+  }>("/v1/kyb/documents/presign", {
+    method: "POST",
+    body: JSON.stringify({
+      documentType,
+      fileName: file.name,
+      contentType: file.type,
+      sizeBytes: file.size,
+    }),
+  });
+  const upload = await fetch(signed.uploadUrl, { method: "PUT", headers: signed.headers, body: file });
+  if (!upload.ok) throw new Error(`Private document upload failed (${upload.status}).`);
+  return backendRequest<{ uploaded: true; documentType: string }>("/v1/kyb/documents/complete", {
+    method: "POST",
+    body: JSON.stringify({
+      documentId: signed.documentId,
+      objectKey: signed.objectKey,
+      documentType,
+      fileName: signed.fileName,
+      contentType: file.type,
+      sizeBytes: file.size,
+    }),
+  });
+}
+
+export async function getMerchantApiKeys(): Promise<MerchantApiKey[]> {
+  return backendRequest("/v1/api-keys");
+}
+
+export async function createMerchantApiKey(input: { name: string; scopes: string[] }): Promise<MerchantApiKey> {
+  return backendRequest("/v1/api-keys", { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function revokeMerchantApiKey(id: string) {
+  return backendRequest<{ revoked: true }>(`/v1/api-keys/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export async function getMerchantWebhook(): Promise<MerchantWebhookSettings | null> {
+  return backendRequest("/v1/webhook");
+}
+
+export async function saveMerchantWebhook(input: {
+  endpointUrl: string;
+  callbackUrl: string;
+  events: string[];
+}): Promise<MerchantWebhookSettings> {
+  return backendRequest("/v1/webhook", { method: "PUT", body: JSON.stringify(input) });
+}
+
+export async function deleteMerchantWebhook() {
+  return backendRequest<{ deleted: true }>("/v1/webhook", { method: "DELETE" });
+}
+
+export async function getAdminKybApplications(): Promise<AdminKybApplication[]> {
+  return backendRequest("/v1/admin/kyb");
+}
+
+export async function reviewAdminKybApplication(email: string, input: { status: "IN_REVIEW" | "APPROVED" | "REJECTED"; reviewNotes: string }) {
+  return backendRequest<{ merchantEmail: string; status: AdminKybApplication["status"]; reviewNotes: string | null }>(
+    `/v1/admin/kyb/${encodeURIComponent(email)}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  );
+}
+
+export async function getAdminKybDocumentUrl(email: string, documentType: string) {
+  return backendRequest<{ url: string; expiresInSeconds: number }>(
+    `/v1/admin/kyb/${encodeURIComponent(email)}/documents/${encodeURIComponent(documentType)}/url`,
+  );
 }
 
 export async function createTransfer(input: {

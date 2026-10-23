@@ -121,7 +121,7 @@ export default function MarketingHome() {
           <article className="feature-item">
             <span className="feature-icon feature-blue"><CircleDollarSign size={21} /></span>
             <h3>Prepare bank transfers</h3>
-            <p>Transfer from your SwiftPay available balance using a supported bank rail. Review recipient details and approve with your MPIN.</p>
+            <p>Transfer from your merchant ledger using a supported bank rail. Review recipient details and approve with your MPIN.</p>
             <a href="/app">Go to merchant sign in <ChevronRight size={15} /></a>
           </article>
           <article className="feature-item">

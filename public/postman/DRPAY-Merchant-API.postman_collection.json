@@ -1,0 +1,107 @@
+{
+  "info": {
+    "_postman_id": "a7b6d83d-d44c-4fe2-bd81-09f0a95f05e8",
+    "name": "DRPAY Merchant API",
+    "description": "Merchant-scoped DRPAY API. Create keys in Profile > Developer settings. Keys are shown once and should be stored only in a trusted server environment. Never use a live key in browser code.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "https://api.example.com" },
+    { "key": "apiKey", "value": "drp_sandbox_replace_me" },
+    { "key": "checkoutCode", "value": "replace_with_checkout_code" },
+    { "key": "idempotencyKey", "value": "{{$guid}}" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{apiKey}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Wallet",
+      "item": [
+        {
+          "name": "Get balance",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{baseUrl}}/v1/wallet/balance",
+            "description": "Read this merchant's posted PHP ledger balance, available balance after pending-transfer reservations, merchant-scoped unsettled-funds progress, and payment environment. The provider-wide pooled balance is never returned."
+          }
+        },
+        {
+          "name": "Get wallet activity",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/v1/wallet/activity?limit=50&offset=0",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "wallet", "activity"],
+              "query": [
+                { "key": "limit", "value": "50" },
+                { "key": "offset", "value": "0" }
+              ]
+            },
+            "description": "Read this merchant's transactions. Completed rows include walletAmount, the signed net impact on this merchant's ledger after collection fees or refund accounting. limit is capped at 100."
+          }
+        },
+        {
+          "name": "Get internal wallet",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{baseUrl}}/v1/internal-wallet",
+            "description": "Read the merchant's PHP ledger balance and available balance."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "Create payment link",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{idempotencyKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 125.50,\n  \"currency\": \"PHP\",\n  \"description\": \"Order 10042\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/v1/payment-links",
+            "description": "Create a QR Ph hosted checkout. Requires payments:write scope and a unique Idempotency-Key for each payment request. On ambiguous gateway outcomes, reconcile before retrying."
+          }
+        },
+        {
+          "name": "Get payment status",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{baseUrl}}/v1/payment-links/{{checkoutCode}}",
+            "description": "Get a checkout status owned by the authenticated merchant. Requires read scope."
+          }
+        },
+        {
+          "name": "List payment institutions",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{baseUrl}}/v1/payment-institutions"
+          }
+        },
+        {
+          "name": "List disbursement institutions",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": "{{baseUrl}}/v1/disbursement-institutions"
+          }
+        }
+      ]
+    }
+  ]
+}

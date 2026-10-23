@@ -1,4 +1,9 @@
 import { createHash, createHmac, randomBytes, randomInt, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import { lookup } from "node:dns/promises";
+import { BlockList, isIP } from "node:net";
+import https from "node:https";
+import { S3Client, PutObjectCommand, HeadObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import cors from "cors";
@@ -16,8 +21,14 @@ app.use(helmet());
 app.use(express.json({ limit: "24kb" }));
 
 const frontendOrigin = process.env.DRPAY_FRONTEND_ORIGIN;
+const liveCheckoutOrigin = process.env.DRPAY_LIVE_CHECKOUT_ORIGIN || frontendOrigin;
+const sandboxCheckoutOrigin = process.env.DRPAY_SANDBOX_CHECKOUT_ORIGIN || frontendOrigin;
+const publicApiOrigin = process.env.DRPAY_PUBLIC_API_ORIGIN || frontendOrigin;
 const allowedOrigins = new Set([
   frontendOrigin,
+  liveCheckoutOrigin,
+  sandboxCheckoutOrigin,
+  ...(process.env.DRPAY_ADDITIONAL_FRONTEND_ORIGINS || "").split(",").map((origin) => origin.trim()),
   "http://localhost:5173",
   "http://127.0.0.1:5173",
   "https://localhost",
@@ -58,6 +69,21 @@ const fcmServiceAccountPrivateKey = process.env.FCM_SERVICE_ACCOUNT_PRIVATE_KEY?
 const swiftPayAccessKey = process.env.SWIFTPAY_ACCESS_KEY;
 const swiftPaySecretKey = process.env.SWIFTPAY_SECRET_KEY;
 const swiftPayEnvironment = process.env.SWIFTPAY_ENV || "sandbox";
+const checkoutOrigin = swiftPayEnvironment === "production" ? liveCheckoutOrigin : sandboxCheckoutOrigin;
+const r2AccountId = process.env.R2_ACCOUNT_ID;
+const r2AccessKeyId = process.env.R2_ACCESS_KEY_ID;
+const r2SecretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+const r2BucketName = process.env.R2_BUCKET_NAME;
+const r2Client = r2AccountId && r2AccessKeyId && r2SecretAccessKey && r2BucketName
+  ? new S3Client({
+    region: "auto",
+    endpoint: `https://${r2AccountId}.r2.cloudflarestorage.com`,
+    forcePathStyle: true,
+    credentials: { accessKeyId: r2AccessKeyId, secretAccessKey: r2SecretAccessKey },
+  })
+  : null;
+const kybDocumentMaxBytes = 10 * 1024 * 1024;
+const allowedKybDocuments = new Set(["business_registration", "identity_front", "identity_back", "proof_of_address"]);
 const liveMoneyAcknowledgement = process.env.SWIFTPAY_LIVE_MONEY_ACKNOWLEDGED;
 const swiftPayBaseUrl = swiftPayEnvironment === "production"
   ? "https://api.pay.live.swiftpay.ph/api"
@@ -74,6 +100,13 @@ const pinAttemptLimiter = rateLimit({
 });
 const paymentLinkLimiter = rateLimit({ windowMs: 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false });
 const transferLimiter = rateLimit({ windowMs: 60 * 1000, limit: 5, standardHeaders: "draft-8", legacyHeaders: false });
+const merchantApiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 120,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  keyGenerator: (req) => req.apiKeyId || req.ip,
+});
 const publicCheckoutLimiter = rateLimit({ windowMs: 60 * 1000, limit: 60, standardHeaders: "draft-8", legacyHeaders: false });
 const publicQrImageLimiter = rateLimit({ windowMs: 60 * 1000, limit: 30, standardHeaders: "draft-8", legacyHeaders: false });
 const institutionCache = new Map();
@@ -166,6 +199,7 @@ function requiredEnvironment() {
   if (!swiftPayAccessKey) missing.push("SWIFTPAY_ACCESS_KEY");
   if (!swiftPaySecretKey) missing.push("SWIFTPAY_SECRET_KEY");
   if (!frontendOrigin) missing.push("DRPAY_FRONTEND_ORIGIN");
+  if (!checkoutOrigin) missing.push(swiftPayEnvironment === "production" ? "DRPAY_LIVE_CHECKOUT_ORIGIN" : "DRPAY_SANDBOX_CHECKOUT_ORIGIN");
   if (!Number.isFinite(maxTransferAmount) || maxTransferAmount <= 0) missing.push("DRPAY_MAX_TRANSFER_PHP");
   if (!["sandbox", "production"].includes(swiftPayEnvironment)) missing.push("SWIFTPAY_ENV (sandbox or production)");
   if (swiftPayEnvironment === "production" && liveMoneyAcknowledgement !== "I_UNDERSTAND_REAL_MONEY") {
@@ -416,11 +450,46 @@ async function updatePaymentLinkStatus(id, status) {
     await pool.query("UPDATE payment_links SET status = $1, updated_at = NOW() WHERE id = $2", [status, id]);
     if (status === "EXECUTED") await settleSuccessfulCollection(id);
     await queueSuccessfulTransaction("PAYMENT", id);
+    await queueTransactionWebhook("PAYMENT", id);
   }
 
-async function settleSuccessfulCollection(paymentId) {
-  const client = await pool.connect();
-  try {
+async function getMerchantWalletState(db, merchantEmail) {
+  const result = await db.query(
+    `WITH ledger AS (
+       SELECT COALESCE(SUM(amount), 0)::numeric AS balance,
+         COALESCE(SUM(amount) FILTER (WHERE source_type = 'COLLECTION'), 0)::numeric AS collection_credits
+       FROM merchant_wallet_ledger
+       WHERE merchant_email = $1
+     ), collections AS (
+       SELECT COALESCE(SUM(collection_amount_krw), 0)::numeric AS completed_krw
+       FROM payment_links
+       WHERE merchant_email = $1 AND status = 'EXECUTED' AND collection_amount_krw IS NOT NULL
+     ), reservations AS (
+       SELECT COALESCE(SUM(
+         CASE WHEN d.refund_payment_id IS NOT NULL
+           THEN GREATEST(COALESCE(p.amount, d.amount) - COALESCE(f.amount, 0), 0)
+           ELSE d.amount
+         END
+       ), 0)::numeric AS reserved
+       FROM disbursements d
+       LEFT JOIN payment_links p ON p.id = d.refund_payment_id
+       LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
+       WHERE d.merchant_email = $1
+         AND d.status NOT IN ('EXECUTED', 'SUCCESS', 'COMPLETED', 'REJECTED', 'ERROR', 'FAILED', 'CANCELED', 'CANCELLED', 'EXPIRED', 'REVERSED')
+     )
+     SELECT ledger.balance::float8 AS balance,
+       ledger.collection_credits::float8 AS collection_credits,
+       collections.completed_krw::float8 AS completed_krw,
+       reservations.reserved::float8 AS reserved
+     FROM ledger CROSS JOIN collections CROSS JOIN reservations`,
+    [merchantEmail],
+  );
+  return result.rows[0];
+}
+
+  async function settleSuccessfulCollection(paymentId) {
+    const client = await pool.connect();
+    try {
     await client.query("BEGIN");
     const payment = await client.query(
       `SELECT id, merchant_email, reference_no, amount::numeric AS amount, status
@@ -448,6 +517,17 @@ async function settleSuccessfulCollection(paymentId) {
        `,
       [randomUUID(), paymentId, row.merchant_email, feeAmount.toFixed(2)],
     );
+    const fee = await client.query(
+      "SELECT amount FROM platform_fee_ledger WHERE source_type = 'COLLECTION' AND source_id = $1",
+      [paymentId],
+    );
+    const netAmount = Math.max(0, Math.round((grossAmount - Number(fee.rows[0].amount)) * 100) / 100);
+    await client.query(
+      `INSERT INTO merchant_wallet_ledger (id, merchant_email, source_type, source_id, amount, reference_no)
+       VALUES ($1, $2, 'COLLECTION', $3, $4, $5)
+       ON CONFLICT (source_type, source_id) DO NOTHING`,
+      [randomUUID(), row.merchant_email, paymentId, netAmount.toFixed(2), row.reference_no],
+    );
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
@@ -465,14 +545,34 @@ async function updateDisbursementStatus(id, swiftpayId, status, errorMessage) {
       `UPDATE disbursements
        SET swiftpay_id = COALESCE($1, swiftpay_id), status = $2, error_message = $3, updated_at = NOW()
        WHERE id = $4
-       RETURNING refund_payment_id`,
+       RETURNING refund_payment_id, merchant_email, amount, merchant_reference_no`,
       [swiftpayId, status, errorMessage, id],
     );
     const successful = ["EXECUTED", "SUCCESS", "COMPLETED"].includes(String(status).toUpperCase());
     const refundPaymentId = updated.rows[0]?.refund_payment_id;
+    if (successful && updated.rows[0]?.merchant_email) {
+      const walletAmount = refundPaymentId
+        ? await client.query(
+          `SELECT GREATEST(p.amount - COALESCE(f.amount, 0), 0)::numeric AS amount
+           FROM payment_links p
+           LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
+           WHERE p.id = $1`,
+          [refundPaymentId],
+        )
+        : null;
+      const amount = refundPaymentId
+        ? -Number(walletAmount.rows[0]?.amount || 0)
+        : -Number(updated.rows[0].amount);
+      await client.query(
+        `INSERT INTO merchant_wallet_ledger (id, merchant_email, source_type, source_id, amount, reference_no)
+         VALUES ($1, $2, 'DISBURSEMENT', $3, $4, $5)
+         ON CONFLICT (source_type, source_id) DO NOTHING`,
+        [randomUUID(), updated.rows[0].merchant_email, id, amount.toFixed(2), updated.rows[0].merchant_reference_no],
+      );
+    }
     if (successful && refundPaymentId) {
       const payment = await client.query(
-        `SELECT p.merchant_email, p.reference_no, p.amount::numeric AS amount,
+        `SELECT p.reference_no, p.amount::numeric AS amount,
            COALESCE(f.amount, 0)::numeric AS fee_amount,
            d.merchant_reference_no, d.refund_ledger_reversed_at
          FROM payment_links p
@@ -489,13 +589,6 @@ async function updateDisbursementStatus(id, swiftpayId, status, errorMessage) {
         if (!Number.isFinite(netAmount) || netAmount < 0) {
           throw new Error("The collection refund ledger amount is invalid.");
         }
-        if (netAmount > 0) {
-          await client.query(
-            `INSERT INTO internal_wallet_adjustments (id, merchant_email, amount, reason, adjusted_by)
-             VALUES ($1, $2, $3, $4, 'system:collection-refund')`,
-            [randomUUID(), row.merchant_email, (-netAmount).toFixed(2), `Refund of collection ${row.reference_no}; transfer ${row.merchant_reference_no}`],
-          );
-        }
         await client.query(
           "UPDATE disbursements SET refund_ledger_reversed_at = NOW() WHERE id = $1",
           [id],
@@ -510,6 +603,7 @@ async function updateDisbursementStatus(id, swiftpayId, status, errorMessage) {
     client.release();
   }
   await queueSuccessfulTransaction("DISBURSEMENT", id);
+  await queueTransactionWebhook("DISBURSEMENT", id);
 }
 
 async function dispatchTransactionNotifications() {
@@ -667,6 +761,16 @@ async function initializeDatabase() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE (source_type, source_id)
     );
+    CREATE TABLE IF NOT EXISTS merchant_wallet_ledger (
+      id UUID PRIMARY KEY,
+      merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      source_type TEXT NOT NULL CHECK (source_type IN ('COLLECTION', 'DISBURSEMENT')),
+      source_id UUID NOT NULL,
+      amount NUMERIC(18, 2) NOT NULL,
+      reference_no TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (source_type, source_id)
+    );
     CREATE TABLE IF NOT EXISTS merchant_payout_accounts (
       merchant_email TEXT PRIMARY KEY REFERENCES merchant_accounts(email) ON DELETE CASCADE,
       bank_name TEXT NOT NULL,
@@ -674,6 +778,84 @@ async function initializeDatabase() {
       account_number TEXT NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS merchant_kyb_profiles (
+      merchant_email TEXT PRIMARY KEY REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      legal_business_name TEXT NOT NULL,
+      registration_number TEXT NOT NULL,
+      business_type TEXT NOT NULL,
+      country TEXT NOT NULL,
+      business_address TEXT NOT NULL,
+      owner_full_name TEXT NOT NULL,
+      owner_date_of_birth DATE NOT NULL,
+      owner_nationality TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      owner_phone TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'IN_REVIEW', 'APPROVED', 'REJECTED')),
+      review_notes TEXT,
+      reviewed_by TEXT,
+      reviewed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS merchant_kyb_documents (
+      id UUID PRIMARY KEY,
+      merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      document_type TEXT NOT NULL CHECK (document_type IN ('business_registration', 'identity_front', 'identity_back', 'proof_of_address')),
+      object_key TEXT NOT NULL UNIQUE,
+      file_name TEXT NOT NULL,
+      content_type TEXT NOT NULL,
+      size_bytes BIGINT NOT NULL CHECK (size_bytes > 0 AND size_bytes <= 10485760),
+      uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (merchant_email, document_type)
+    );
+    CREATE TABLE IF NOT EXISTS merchant_kyb_uploads (
+      id UUID PRIMARY KEY,
+      merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      document_type TEXT NOT NULL CHECK (document_type IN ('business_registration', 'identity_front', 'identity_back', 'proof_of_address')),
+      object_key TEXT NOT NULL UNIQUE,
+      file_name TEXT NOT NULL,
+      content_type TEXT NOT NULL,
+      size_bytes BIGINT NOT NULL CHECK (size_bytes > 0 AND size_bytes <= 10485760),
+      expires_at TIMESTAMPTZ NOT NULL,
+      completed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS merchant_kyb_uploads_expiry_idx
+      ON merchant_kyb_uploads (expires_at) WHERE completed_at IS NULL;
+    CREATE TABLE IF NOT EXISTS merchant_api_keys (
+      id UUID PRIMARY KEY,
+      merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      key_prefix TEXT NOT NULL,
+      key_hash TEXT NOT NULL UNIQUE,
+      scopes TEXT[] NOT NULL DEFAULT ARRAY['read'],
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_used_at TIMESTAMPTZ,
+      revoked_at TIMESTAMPTZ
+    );
+    CREATE TABLE IF NOT EXISTS merchant_webhook_settings (
+      merchant_email TEXT PRIMARY KEY REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      endpoint_url TEXT NOT NULL,
+      events TEXT[] NOT NULL,
+      signing_secret TEXT NOT NULL,
+      callback_url TEXT,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS merchant_webhook_deliveries (
+      id UUID PRIMARY KEY,
+      merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      event_type TEXT NOT NULL,
+      resource_id UUID NOT NULL,
+      payload JSONB NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      delivered_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (merchant_email, event_type, resource_id)
+    );
+    CREATE INDEX IF NOT EXISTS merchant_webhook_deliveries_pending_idx
+      ON merchant_webhook_deliveries (next_attempt_at) WHERE delivered_at IS NULL;
     CREATE TABLE IF NOT EXISTS floating_transfer_requests (
       id UUID PRIMARY KEY,
       merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email),
@@ -753,6 +935,8 @@ async function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS disbursements_created_at_idx ON disbursements (created_at DESC);
     CREATE INDEX IF NOT EXISTS internal_wallet_adjustments_merchant_created_idx
       ON internal_wallet_adjustments (merchant_email, created_at DESC);
+    CREATE INDEX IF NOT EXISTS merchant_wallet_ledger_merchant_created_idx
+      ON merchant_wallet_ledger (merchant_email, created_at DESC);
     CREATE INDEX IF NOT EXISTS floating_transfer_requests_merchant_status_idx
       ON floating_transfer_requests (merchant_email, status, requested_at DESC);
     CREATE INDEX IF NOT EXISTS floating_transfer_requests_status_created_idx
@@ -838,6 +1022,36 @@ async function initializeDatabase() {
       [authEmail],
     );
   }
+  await pool.query(
+    `UPDATE payment_links
+     SET payment_url = $1 || '/checkout/' || code
+     WHERE payment_token IS NOT NULL
+       AND payment_url IS DISTINCT FROM $1 || '/checkout/' || code`,
+    [checkoutOrigin.replace(/\/$/, "")],
+  );
+  await pool.query(`
+    INSERT INTO merchant_wallet_ledger (id, merchant_email, source_type, source_id, amount, reference_no, created_at)
+    SELECT gen_random_uuid(), p.merchant_email, 'COLLECTION', p.id,
+      GREATEST(p.amount - COALESCE(f.amount, 0), 0), p.reference_no, p.created_at
+    FROM payment_links p
+    LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
+    WHERE p.status = 'EXECUTED' AND p.merchant_email IS NOT NULL
+    ON CONFLICT (source_type, source_id) DO NOTHING
+  `);
+  await pool.query(`
+    INSERT INTO merchant_wallet_ledger (id, merchant_email, source_type, source_id, amount, reference_no, created_at)
+    SELECT gen_random_uuid(), d.merchant_email, 'DISBURSEMENT', d.id,
+      CASE WHEN d.refund_payment_id IS NOT NULL
+        THEN -GREATEST(COALESCE(p.amount, d.amount) - COALESCE(f.amount, 0), 0)
+        ELSE -d.amount
+      END,
+      d.merchant_reference_no, d.created_at
+    FROM disbursements d
+    LEFT JOIN payment_links p ON p.id = d.refund_payment_id
+    LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
+    WHERE d.status IN ('EXECUTED', 'SUCCESS', 'COMPLETED') AND d.merchant_email IS NOT NULL
+    ON CONFLICT (source_type, source_id) DO NOTHING
+  `);
   if (process.env.DRPAY_KRW_TO_PHP_RATE !== undefined) {
     const configuredRate = Number(process.env.DRPAY_KRW_TO_PHP_RATE);
     if (Number.isFinite(configuredRate) && configuredRate > 0) {
@@ -930,6 +1144,42 @@ function paymentStatusFromResponse(data) {
 async function requireMerchant(req, res, next) {
   const match = /^Bearer (.+)$/.exec(req.get("authorization") || "");
   if (!match || !jwtSecret) return res.status(401).json({ error: "Sign in is required." });
+  if (match[1].startsWith("drp_")) {
+    if (!match[1].startsWith(`drp_${swiftPayEnvironment}_`)) {
+      return res.status(401).json({ error: "The API key is invalid or belongs to another payment environment." });
+    }
+    const keyHash = createHash("sha256").update(match[1]).digest("hex");
+    const result = await pool.query(
+      `SELECT k.id, k.merchant_email, k.scopes, a.active
+       FROM merchant_api_keys k JOIN merchant_accounts a ON a.email = k.merchant_email
+       WHERE k.key_hash = $1 AND k.revoked_at IS NULL`,
+      [keyHash],
+    );
+    const apiKey = result.rows[0];
+    if (!apiKey?.active) return res.status(401).json({ error: "The API key is invalid or revoked." });
+    if (req.method === "GET" && !apiKey.scopes.includes("read")) {
+      return res.status(403).json({ error: "This API key does not have read permission." });
+    }
+    const allowedReadPaths = new Set([
+      "/wallet/balance",
+      "/wallet/activity",
+      "/internal-wallet",
+      "/disbursement-institutions",
+      "/payment-institutions",
+    ]);
+    const allowedWrite = req.method === "POST" && req.path === "/payment-links" && apiKey.scopes.includes("payments:write");
+    if (req.method !== "GET" && !allowedWrite) {
+      return res.status(403).json({ error: "This API key does not have permission for this operation." });
+    }
+    if (req.method === "GET" && !allowedReadPaths.has(req.path) && !/^\/payment-links\/[A-Za-z0-9_-]{40,50}$/.test(req.path)) {
+      return res.status(403).json({ error: "This API key does not have permission for this operation." });
+    }
+    req.merchantEmail = apiKey.merchant_email;
+    req.apiKey = true;
+    req.apiKeyId = apiKey.id;
+    await pool.query("UPDATE merchant_api_keys SET last_used_at = NOW() WHERE id = $1", [apiKey.id]);
+    return merchantApiLimiter(req, res, next);
+  }
   let payload;
   try {
     ({ payload } = await jwtVerify(match[1], jwtSecret, { algorithms: ["HS256"] }));
@@ -946,6 +1196,188 @@ async function requireMerchant(req, res, next) {
   if (!account.rows[0]?.active) return res.status(401).json({ error: "This merchant account is disabled." });
   req.merchantEmail = payload.sub;
   return next();
+}
+
+const blockedIpv6Subnets = new BlockList();
+for (const [subnet, prefix] of [
+  ["::", 128],
+  ["::1", 128],
+  ["::ffff:0:0", 96],
+  ["64:ff9b::", 96],
+  ["64:ff9b:1::", 48],
+  ["100::", 64],
+  ["2001::", 23],
+  ["2001:db8::", 32],
+  ["2002::", 16],
+  ["3fff::", 20],
+  ["fc00::", 7],
+  ["fe80::", 10],
+  ["ff00::", 8],
+]) blockedIpv6Subnets.addSubnet(subnet, prefix, "ipv6");
+
+function isPublicAddress(address) {
+  if (isIP(address) === 6) {
+    const globalUnicast = /^[23]/.test(address);
+    return globalUnicast && !blockedIpv6Subnets.check(address, "ipv6");
+  }
+  if (isIP(address) !== 4) return false;
+  const [a, b] = address.split(".").map(Number);
+  const c = Number(address.split(".")[2]);
+  return !(a === 0 || a === 10 || a === 127 || a >= 224
+    || (a === 100 && b >= 64 && b <= 127)
+    || (a === 169 && b === 254)
+    || (a === 172 && b >= 16 && b <= 31)
+    || (a === 192 && (b === 0 || b === 168))
+    || (a === 192 && b === 88 && c === 99)
+    || (a === 198 && (b === 18 || b === 19 || b === 51))
+    || (a === 203 && b === 0));
+}
+
+async function validateWebhookUrl(value) {
+  if (typeof value !== "string" || value.length > 2048) return false;
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:" || url.username || url.password || (url.port && url.port !== "443")) return false;
+  const hostname = url.hostname.toLowerCase();
+  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local") || isIP(hostname)) return false;
+  try {
+    const addresses = await lookup(hostname, { all: true, verbatim: true });
+    return addresses.length > 0 && addresses.every(({ address }) => isPublicAddress(address));
+  } catch {
+    return false;
+  }
+}
+
+function sendWebhookRequest(url, payload, signature) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    void lookup(parsed.hostname, { all: true, verbatim: true }).then((addresses) => {
+      if (!addresses.length || addresses.some(({ address }) => !isPublicAddress(address))) {
+        throw new Error("Webhook destination resolved to a non-public address.");
+      }
+      const address = addresses[0].address;
+      const body = JSON.stringify(payload);
+      const request = https.request({
+        hostname: parsed.hostname,
+        port: 443,
+        path: `${parsed.pathname}${parsed.search}`,
+        method: "POST",
+        servername: parsed.hostname,
+        lookup: (_hostname, _options, callback) => callback(null, address, isIP(address)),
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body),
+          "DRPAY-Signature": `sha256=${signature}`,
+          "DRPAY-Event": payload.type,
+        },
+        timeout: 8000,
+      }, (response) => {
+        response.resume();
+        response.on("end", () => {
+          if (response.statusCode && response.statusCode >= 200 && response.statusCode < 300) resolve();
+          else reject(new Error(`Webhook endpoint returned HTTP ${response.statusCode || "unknown"}.`));
+        });
+      });
+      request.on("timeout", () => request.destroy(new Error("Webhook request timed out.")));
+      request.on("error", reject);
+      request.end(body);
+    }).catch(reject);
+  });
+}
+
+async function queueTransactionWebhook(transactionType, transactionId) {
+  const query = transactionType === "PAYMENT"
+    ? `SELECT merchant_email, id, reference_no, amount, currency, status FROM payment_links WHERE id = $1`
+    : `SELECT merchant_email, id, merchant_reference_no AS reference_no, amount, 'PHP' AS currency, status FROM disbursements WHERE id = $1`;
+  const result = await pool.query(query, [transactionId]);
+  const transaction = result.rows[0];
+  if (!transaction?.merchant_email) return;
+  const status = String(transaction.status).toUpperCase();
+  const succeeded = transactionType === "PAYMENT"
+    ? status === "EXECUTED"
+    : ["EXECUTED", "SUCCESS", "COMPLETED"].includes(status);
+  const failed = ["FAILED", "REJECTED", "ERROR", "CANCELED", "CANCELLED", "EXPIRED"].includes(status);
+  if (!succeeded && !failed) return;
+  const eventType = `${transactionType === "PAYMENT" ? "payment" : "disbursement"}.${succeeded ? "succeeded" : "failed"}`;
+  const configured = await pool.query(
+    `SELECT 1 FROM merchant_webhook_settings
+     WHERE merchant_email = $1 AND enabled = TRUE AND $2 = ANY(events)
+       AND (endpoint_url <> '' OR callback_url IS NOT NULL)`,
+    [transaction.merchant_email, eventType],
+  );
+  if (!configured.rowCount) return;
+  const payload = { id: randomUUID(), type: eventType, createdAt: new Date().toISOString(), data: {
+    id: transaction.id,
+    reference: transaction.reference_no,
+    amount: Number(transaction.amount),
+    currency: transaction.currency,
+    status,
+  } };
+  await pool.query(
+    `INSERT INTO merchant_webhook_deliveries (id, merchant_email, event_type, resource_id, payload)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (merchant_email, event_type, resource_id) DO NOTHING`,
+    [payload.id, transaction.merchant_email, eventType, transactionId, JSON.stringify(payload)],
+  );
+}
+
+async function dispatchMerchantWebhooks() {
+  const deliveries = await pool.query(
+    `SELECT d.id, d.merchant_email, d.event_type, d.payload, d.attempts,
+       s.endpoint_url, s.callback_url, s.signing_secret, s.events
+     FROM merchant_webhook_deliveries d
+     JOIN merchant_webhook_settings s ON s.merchant_email = d.merchant_email AND s.enabled = TRUE
+     WHERE d.delivered_at IS NULL AND d.next_attempt_at <= NOW()
+       AND d.attempts < 8 AND d.event_type = ANY(s.events)
+     ORDER BY d.created_at ASC LIMIT 25`,
+  );
+  for (const delivery of deliveries.rows) {
+    const body = JSON.stringify(delivery.payload);
+    const signature = createHmac("sha256", delivery.signing_secret).update(body).digest("hex");
+    const urls = [...new Set([delivery.endpoint_url, delivery.callback_url].filter(Boolean))];
+    let failure = false;
+    for (const url of urls) {
+      try {
+        if (!await validateWebhookUrl(url)) throw new Error("Webhook destination is not an allowed public HTTPS URL.");
+        await sendWebhookRequest(url, delivery.payload, signature);
+      } catch (error) {
+        failure = true;
+        console.error("Merchant webhook delivery failed", delivery.id, error.message);
+      }
+    }
+    if (!failure) {
+      await pool.query("UPDATE merchant_webhook_deliveries SET delivered_at = NOW(), attempts = attempts + 1 WHERE id = $1", [delivery.id]);
+    } else {
+      const delaySeconds = Math.min(3600, 30 * (2 ** delivery.attempts));
+      await pool.query(
+        `UPDATE merchant_webhook_deliveries
+         SET attempts = attempts + 1, next_attempt_at = NOW() + ($2 * INTERVAL '1 second')
+         WHERE id = $1`,
+        [delivery.id, delaySeconds],
+      );
+    }
+  }
+}
+
+async function cleanExpiredKybUploads() {
+  if (!r2Client || !r2BucketName) return;
+  const expired = await pool.query(
+    `SELECT id, object_key FROM merchant_kyb_uploads
+     WHERE expires_at <= NOW() AND completed_at IS NULL
+     ORDER BY expires_at ASC LIMIT 100`,
+  );
+  for (const upload of expired.rows) {
+    try {
+      await r2Client.send(new DeleteObjectCommand({ Bucket: r2BucketName, Key: upload.object_key }));
+      await pool.query("DELETE FROM merchant_kyb_uploads WHERE id = $1 AND completed_at IS NULL", [upload.id]);
+    } catch (error) {
+      console.error("Could not clean up an expired private KYB upload", upload.id, error.name || "storage error");
+    }
+  }
 }
 
 async function requireSuperAdmin(req, res, next) {
@@ -1574,6 +2006,86 @@ app.patch("/v1/admin/merchants/:email", async (req, res) => {
   }
 });
 
+app.get("/v1/admin/kyb", async (_req, res) => {
+  const result = await pool.query(
+    `SELECT p.merchant_email AS "merchantEmail", p.legal_business_name AS "legalBusinessName",
+       p.registration_number AS "registrationNumber", p.business_type AS "businessType", p.country,
+       p.business_address AS "businessAddress", p.owner_full_name AS "ownerFullName",
+       p.owner_date_of_birth::text AS "ownerDateOfBirth", p.owner_nationality AS "ownerNationality",
+       p.owner_email AS "ownerEmail", p.owner_phone AS "ownerPhone", p.status, p.review_notes AS "reviewNotes",
+       p.created_at AS "createdAt", p.updated_at AS "updatedAt",
+       COALESCE(json_agg(json_build_object(
+         'id', d.id, 'documentType', d.document_type, 'fileName', d.file_name,
+         'contentType', d.content_type, 'sizeBytes', d.size_bytes, 'uploadedAt', d.uploaded_at
+       )) FILTER (WHERE d.id IS NOT NULL), '[]'::json) AS documents
+     FROM merchant_kyb_profiles p
+     LEFT JOIN merchant_kyb_documents d ON d.merchant_email = p.merchant_email
+     GROUP BY p.merchant_email
+     ORDER BY p.updated_at DESC`,
+  );
+  return res.set("Cache-Control", "no-store").json(result.rows);
+});
+
+app.get("/v1/admin/kyb/:email/documents/:documentType/url", async (req, res) => {
+  if (!r2Client || !r2BucketName) return res.status(503).json({ error: "Private document storage is not configured." });
+  const email = typeof req.params.email === "string" ? req.params.email.trim().toLowerCase() : "";
+  const documentType = req.params.documentType;
+  if (!allowedKybDocuments.has(documentType)) return res.status(400).json({ error: "Invalid KYB document type." });
+  const result = await pool.query(
+    `SELECT object_key, file_name FROM merchant_kyb_documents
+     WHERE merchant_email = $1 AND document_type = $2`,
+    [email, documentType],
+  );
+  if (!result.rowCount) return res.status(404).json({ error: "KYB document not found." });
+  try {
+    const url = await getSignedUrl(
+      r2Client,
+      new GetObjectCommand({
+        Bucket: r2BucketName,
+        Key: result.rows[0].object_key,
+        ResponseContentDisposition: `attachment; filename="${result.rows[0].file_name.replace(/["\\]/g, "_")}"`,
+      }),
+      { expiresIn: 60 },
+    );
+    return res.set("Cache-Control", "no-store").json({ url, expiresInSeconds: 60 });
+  } catch (error) {
+    console.error("Could not create KYB document download", error.name || "storage error");
+    return res.status(503).json({ error: "The KYB document is temporarily unavailable." });
+  }
+});
+
+app.patch("/v1/admin/kyb/:email", async (req, res) => {
+  const email = typeof req.params.email === "string" ? req.params.email.trim().toLowerCase() : "";
+  const status = req.body?.status;
+  const reviewNotes = typeof req.body?.reviewNotes === "string" ? req.body.reviewNotes.trim() : "";
+  if (!["IN_REVIEW", "APPROVED", "REJECTED"].includes(status)
+    || reviewNotes.length > 1000 || (status === "REJECTED" && !reviewNotes)) {
+    return res.status(400).json({ error: "Choose a valid KYB review status. Rejected applications require review notes." });
+  }
+  if (status === "APPROVED") {
+    const requiredDocuments = await pool.query(
+      `SELECT COUNT(DISTINCT document_type)::int AS count
+       FROM merchant_kyb_documents
+       WHERE merchant_email = $1
+         AND document_type IN ('business_registration', 'identity_front', 'identity_back')`,
+      [email],
+    );
+    if (requiredDocuments.rows[0].count !== 3) {
+      return res.status(409).json({ error: "A business registration certificate and both owner identity images are required before approval." });
+    }
+  }
+  const result = await pool.query(
+    `UPDATE merchant_kyb_profiles
+     SET status = $2, review_notes = $3, reviewed_by = $4, reviewed_at = NOW(), updated_at = NOW()
+     WHERE merchant_email = $1
+     RETURNING merchant_email AS "merchantEmail", status, review_notes AS "reviewNotes",
+       reviewed_by AS "reviewedBy", reviewed_at AS "reviewedAt"`,
+    [email, status, reviewNotes || null, req.adminEmail],
+  );
+  if (!result.rowCount) return res.status(404).json({ error: "KYB application not found." });
+  return res.json(result.rows[0]);
+});
+
 app.get("/v1/public/checkout/:code/qr.png", publicQrImageLimiter, async (req, res) => {
   const code = req.params.code;
   if (!/^[A-Za-z0-9_-]{40,50}$/.test(code)) return res.status(404).json({ error: "Checkout not found." });
@@ -1646,6 +2158,316 @@ app.get("/v1/public/checkout/:code", publicCheckoutLimiter, async (req, res) => 
 });
 
 app.use("/v1", requireMerchant);
+
+app.get("/v1/kyb", async (req, res) => {
+  const [profile, documents] = await Promise.all([
+    pool.query(
+      `SELECT legal_business_name AS "legalBusinessName", registration_number AS "registrationNumber",
+         business_type AS "businessType", country, business_address AS "businessAddress",
+         owner_full_name AS "ownerFullName", owner_date_of_birth::text AS "ownerDateOfBirth",
+         owner_nationality AS "ownerNationality", owner_email AS "ownerEmail", owner_phone AS "ownerPhone",
+         status, review_notes AS "reviewNotes", updated_at AS "updatedAt"
+       FROM merchant_kyb_profiles WHERE merchant_email = $1`,
+      [req.merchantEmail],
+    ),
+    pool.query(
+      `SELECT id, document_type AS "documentType", file_name AS "fileName",
+         content_type AS "contentType", size_bytes::bigint AS "sizeBytes", uploaded_at AS "uploadedAt"
+       FROM merchant_kyb_documents WHERE merchant_email = $1 ORDER BY uploaded_at ASC`,
+      [req.merchantEmail],
+    ),
+  ]);
+  return res.set("Cache-Control", "no-store").json({ profile: profile.rows[0] || null, documents: documents.rows });
+});
+
+app.put("/v1/kyb", async (req, res) => {
+  const approved = await pool.query(
+    "SELECT 1 FROM merchant_kyb_profiles WHERE merchant_email = $1 AND status = 'APPROVED'",
+    [req.merchantEmail],
+  );
+  if (approved.rowCount) return res.status(409).json({ error: "Your KYB profile is approved. Contact DRPAY support to request a verified profile change." });
+  const fields = {
+    legalBusinessName: req.body?.legalBusinessName,
+    registrationNumber: req.body?.registrationNumber,
+    businessType: req.body?.businessType,
+    country: req.body?.country,
+    businessAddress: req.body?.businessAddress,
+    ownerFullName: req.body?.ownerFullName,
+    ownerDateOfBirth: req.body?.ownerDateOfBirth,
+    ownerNationality: req.body?.ownerNationality,
+    ownerEmail: typeof req.body?.ownerEmail === "string" ? req.body.ownerEmail.trim().toLowerCase() : "",
+    ownerPhone: req.body?.ownerPhone,
+  };
+  if (Object.values(fields).some((value) => typeof value !== "string" || !value.trim() || value.length > 200)
+    || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.ownerEmail)
+    || !/^\d{4}-\d{2}-\d{2}$/.test(fields.ownerDateOfBirth)
+    || Number.isNaN(Date.parse(`${fields.ownerDateOfBirth}T00:00:00Z`))
+    || new Date(`${fields.ownerDateOfBirth}T00:00:00Z`).toISOString().slice(0, 10) !== fields.ownerDateOfBirth
+    || new Date(`${fields.ownerDateOfBirth}T00:00:00Z`) >= new Date()) {
+    return res.status(400).json({ error: "Complete each required business and beneficial-owner field with valid details." });
+  }
+  const result = await pool.query(
+    `INSERT INTO merchant_kyb_profiles (
+       merchant_email, legal_business_name, registration_number, business_type, country, business_address,
+       owner_full_name, owner_date_of_birth, owner_nationality, owner_email, owner_phone, status, updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PENDING', NOW())
+     ON CONFLICT (merchant_email) DO UPDATE SET
+       legal_business_name = EXCLUDED.legal_business_name,
+       registration_number = EXCLUDED.registration_number,
+       business_type = EXCLUDED.business_type,
+       country = EXCLUDED.country,
+       business_address = EXCLUDED.business_address,
+       owner_full_name = EXCLUDED.owner_full_name,
+       owner_date_of_birth = EXCLUDED.owner_date_of_birth,
+       owner_nationality = EXCLUDED.owner_nationality,
+       owner_email = EXCLUDED.owner_email,
+       owner_phone = EXCLUDED.owner_phone,
+       status = 'PENDING', review_notes = NULL, reviewed_by = NULL, reviewed_at = NULL, updated_at = NOW()
+     RETURNING status, updated_at AS "updatedAt"`,
+    [req.merchantEmail, ...Object.values(fields)],
+  );
+  return res.json(result.rows[0]);
+});
+
+app.post("/v1/kyb/documents/presign", async (req, res) => {
+  if (!r2Client || !r2BucketName) return res.status(503).json({ error: "Private document storage is not configured on this server." });
+  const documentType = req.body?.documentType;
+  const fileName = typeof req.body?.fileName === "string" ? req.body.fileName.trim() : "";
+  const contentType = req.body?.contentType;
+  const sizeBytes = Number(req.body?.sizeBytes);
+  if (!allowedKybDocuments.has(documentType)
+    || !fileName || fileName.length > 180 || /[/\\\u0000-\u001f]/.test(fileName)
+    || !["application/pdf", "image/jpeg", "image/png"].includes(contentType)
+    || !Number.isSafeInteger(sizeBytes) || sizeBytes <= 0 || sizeBytes > kybDocumentMaxBytes) {
+    return res.status(400).json({ error: "Upload a PDF, JPEG, or PNG document no larger than 10 MB." });
+  }
+  const profile = await pool.query("SELECT status FROM merchant_kyb_profiles WHERE merchant_email = $1", [req.merchantEmail]);
+  if (!profile.rowCount) return res.status(409).json({ error: "Save the KYB business and owner details before uploading documents." });
+  if (profile.rows[0].status === "APPROVED") return res.status(409).json({ error: "Your KYB profile is approved. Contact DRPAY support to request a verified document change." });
+  const objectKey = `kyb/${randomUUID()}`;
+  const documentId = randomUUID();
+  const safeName = fileName.replace(/[^\w .()-]/g, "_").slice(0, 180);
+  await pool.query(
+    `INSERT INTO merchant_kyb_uploads
+       (id, merchant_email, document_type, object_key, file_name, content_type, size_bytes, expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW() + INTERVAL '5 minutes')`,
+    [documentId, req.merchantEmail, documentType, objectKey, safeName, contentType, sizeBytes],
+  );
+  try {
+    const uploadUrl = await getSignedUrl(
+      r2Client,
+      new PutObjectCommand({
+        Bucket: r2BucketName,
+        Key: objectKey,
+        ContentType: contentType,
+        ContentLength: sizeBytes,
+        Metadata: { "document-id": documentId },
+      }),
+      { expiresIn: 300 },
+    );
+    return res.set("Cache-Control", "no-store").json({
+      documentId,
+      uploadUrl,
+      objectKey,
+      fileName: safeName,
+      headers: { "Content-Type": contentType },
+      expiresInSeconds: 300,
+    });
+  } catch (error) {
+    await pool.query("DELETE FROM merchant_kyb_uploads WHERE id = $1", [documentId]);
+    console.error("Could not create private KYB document upload", error.name || "storage error");
+    return res.status(503).json({ error: "Private document upload is temporarily unavailable." });
+  }
+});
+
+app.post("/v1/kyb/documents/complete", async (req, res) => {
+  if (!r2Client || !r2BucketName) return res.status(503).json({ error: "Private document storage is not configured on this server." });
+  const { documentId, objectKey, documentType, fileName, contentType, sizeBytes } = req.body || {};
+  if (!/^[0-9a-f-]{36}$/i.test(documentId || "")
+    || typeof objectKey !== "string" || !objectKey.startsWith("kyb/")
+    || !allowedKybDocuments.has(documentType)
+    || typeof fileName !== "string" || fileName.length > 180
+    || !["application/pdf", "image/jpeg", "image/png"].includes(contentType)
+    || !Number.isSafeInteger(Number(sizeBytes)) || Number(sizeBytes) <= 0 || Number(sizeBytes) > kybDocumentMaxBytes) {
+    return res.status(400).json({ error: "The uploaded document details are invalid." });
+  }
+  const reservationResult = await pool.query(
+    `SELECT document_type, object_key, file_name, content_type, size_bytes
+     FROM merchant_kyb_uploads
+     WHERE id = $1 AND merchant_email = $2 AND object_key = $3
+       AND expires_at > NOW() AND completed_at IS NULL`,
+    [documentId, req.merchantEmail, objectKey],
+  );
+  const reservation = reservationResult.rows[0];
+  if (!reservation
+    || reservation.document_type !== documentType
+    || reservation.file_name !== fileName
+    || reservation.content_type !== contentType
+    || Number(reservation.size_bytes) !== Number(sizeBytes)) {
+    return res.status(409).json({ error: "This document upload is invalid or expired. Request a new upload URL." });
+  }
+  const profile = await pool.query("SELECT status FROM merchant_kyb_profiles WHERE merchant_email = $1", [req.merchantEmail]);
+  if (!profile.rowCount) return res.status(409).json({ error: "Save the KYB business and owner details before uploading documents." });
+  if (profile.rows[0].status === "APPROVED") {
+    await r2Client.send(new DeleteObjectCommand({ Bucket: r2BucketName, Key: objectKey })).catch((error) => {
+      console.error("Could not clean up a KYB upload for an approved profile", error.name || "storage error");
+    });
+    return res.status(409).json({ error: "Your KYB profile is approved. Contact DRPAY support to request a verified document change." });
+  }
+  try {
+    const object = await r2Client.send(new HeadObjectCommand({ Bucket: r2BucketName, Key: objectKey }));
+    if (Number(object.ContentLength) !== Number(sizeBytes) || object.ContentType !== contentType
+      || object.Metadata?.["document-id"] !== documentId) {
+      return res.status(400).json({ error: "The stored document does not match the uploaded file details." });
+    }
+    const prefix = await r2Client.send(new GetObjectCommand({ Bucket: r2BucketName, Key: objectKey, Range: "bytes=0-7" }));
+    const bytes = Buffer.from(await prefix.Body.transformToByteArray());
+    const validSignature = contentType === "application/pdf"
+      ? bytes.subarray(0, 5).toString("ascii") === "%PDF-"
+      : contentType === "image/jpeg"
+        ? bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+        : bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    if (!validSignature) {
+      await r2Client.send(new DeleteObjectCommand({ Bucket: r2BucketName, Key: objectKey }));
+      return res.status(400).json({ error: "The uploaded file does not match its declared document type." });
+    }
+    const client = await pool.connect();
+    let oldObjectKey = null;
+    try {
+      await client.query("BEGIN");
+      const lockedUpload = await client.query(
+        `SELECT id FROM merchant_kyb_uploads
+         WHERE id = $1 AND merchant_email = $2 AND expires_at > NOW() AND completed_at IS NULL
+         FOR UPDATE`,
+        [documentId, req.merchantEmail],
+      );
+      if (!lockedUpload.rowCount) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "This document upload is invalid, expired, or already used." });
+      }
+      const old = await client.query(
+        "SELECT object_key FROM merchant_kyb_documents WHERE merchant_email = $1 AND document_type = $2",
+        [req.merchantEmail, documentType],
+      );
+      oldObjectKey = old.rows[0]?.object_key || null;
+      await client.query(
+        `INSERT INTO merchant_kyb_documents (id, merchant_email, document_type, object_key, file_name, content_type, size_bytes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (merchant_email, document_type) DO UPDATE SET
+           id = EXCLUDED.id, object_key = EXCLUDED.object_key, file_name = EXCLUDED.file_name,
+           content_type = EXCLUDED.content_type, size_bytes = EXCLUDED.size_bytes, uploaded_at = NOW()`,
+        [documentId, req.merchantEmail, documentType, objectKey, reservation.file_name, reservation.content_type, Number(reservation.size_bytes)],
+      );
+      await client.query(
+        "UPDATE merchant_kyb_profiles SET status = 'PENDING', review_notes = NULL, reviewed_by = NULL, reviewed_at = NULL, updated_at = NOW() WHERE merchant_email = $1",
+        [req.merchantEmail],
+      );
+      await client.query("UPDATE merchant_kyb_uploads SET completed_at = NOW() WHERE id = $1", [documentId]);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+    if (oldObjectKey && oldObjectKey !== objectKey) {
+      await r2Client.send(new DeleteObjectCommand({ Bucket: r2BucketName, Key: oldObjectKey })).catch((error) => {
+        console.error("Could not remove replaced KYB document from private storage", error.name || "storage error");
+      });
+    }
+    return res.status(201).json({ uploaded: true, documentType });
+  } catch (error) {
+    console.error("Could not verify private KYB document upload", error.name || "storage error");
+    return res.status(503).json({ error: "The uploaded document could not be verified. Try again." });
+  }
+});
+
+app.get("/v1/api-keys", async (req, res) => {
+  const result = await pool.query(
+    `SELECT id, name, key_prefix AS "keyPrefix", scopes, created_at AS "createdAt",
+       last_used_at AS "lastUsedAt", revoked_at AS "revokedAt"
+     FROM merchant_api_keys WHERE merchant_email = $1 ORDER BY created_at DESC`,
+    [req.merchantEmail],
+  );
+  return res.set("Cache-Control", "no-store").json(result.rows);
+});
+
+app.post("/v1/api-keys", async (req, res) => {
+  const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+  const scopes = req.body?.scopes;
+  const validScopes = Array.isArray(scopes) && scopes.length > 0
+    && scopes.every((scope) => ["read", "payments:write"].includes(scope))
+    && new Set(scopes).size === scopes.length;
+  if (!name || name.length > 80 || !validScopes) {
+    return res.status(400).json({ error: "Enter a key name and select valid API permissions." });
+  }
+  const activeKeys = await pool.query(
+    "SELECT COUNT(*)::int AS count FROM merchant_api_keys WHERE merchant_email = $1 AND revoked_at IS NULL",
+    [req.merchantEmail],
+  );
+  if (activeKeys.rows[0].count >= 10) return res.status(409).json({ error: "Revoke an existing API key before creating another. Each merchant can have up to 10 active keys." });
+  const key = `drp_${swiftPayEnvironment}_${randomBytes(32).toString("hex")}`;
+  const result = await pool.query(
+    `INSERT INTO merchant_api_keys (id, merchant_email, name, key_prefix, key_hash, scopes)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, name, key_prefix AS "keyPrefix", scopes, created_at AS "createdAt"`,
+    [randomUUID(), req.merchantEmail, name, key.slice(0, 16), createHash("sha256").update(key).digest("hex"), scopes],
+  );
+  return res.set("Cache-Control", "no-store").status(201).json({ ...result.rows[0], key });
+});
+
+app.delete("/v1/api-keys/:id", async (req, res) => {
+  const result = await pool.query(
+    `UPDATE merchant_api_keys SET revoked_at = NOW()
+     WHERE id = $1 AND merchant_email = $2 AND revoked_at IS NULL RETURNING id`,
+    [req.params.id, req.merchantEmail],
+  );
+  if (!result.rowCount) return res.status(404).json({ error: "Active API key not found." });
+  return res.json({ revoked: true });
+});
+
+app.get("/v1/webhook", async (req, res) => {
+  const result = await pool.query(
+    `SELECT endpoint_url AS "endpointUrl", callback_url AS "callbackUrl", events, enabled,
+       updated_at AS "updatedAt"
+     FROM merchant_webhook_settings WHERE merchant_email = $1`,
+    [req.merchantEmail],
+  );
+  return res.set("Cache-Control", "no-store").json(result.rows[0] || null);
+});
+
+app.put("/v1/webhook", async (req, res) => {
+  const endpointUrl = typeof req.body?.endpointUrl === "string" ? req.body.endpointUrl.trim() : "";
+  const callbackUrl = typeof req.body?.callbackUrl === "string" && req.body.callbackUrl.trim()
+    ? req.body.callbackUrl.trim()
+    : null;
+  const events = req.body?.events;
+  const allowedEvents = new Set(["payment.succeeded", "payment.failed", "disbursement.succeeded", "disbursement.failed"]);
+  if (!Array.isArray(events) || !events.length || events.some((event) => !allowedEvents.has(event))
+    || new Set(events).size !== events.length) {
+    return res.status(400).json({ error: "Select one or more supported webhook events." });
+  }
+  if (!await validateWebhookUrl(endpointUrl) || (callbackUrl && !await validateWebhookUrl(callbackUrl))) {
+    return res.status(400).json({ error: "Webhook and callback URLs must be public HTTPS endpoints." });
+  }
+  const signingSecret = `whsec_${randomBytes(32).toString("hex")}`;
+  const result = await pool.query(
+    `INSERT INTO merchant_webhook_settings (merchant_email, endpoint_url, callback_url, events, signing_secret, enabled, updated_at)
+     VALUES ($1, $2, $3, $4, $5, TRUE, NOW())
+     ON CONFLICT (merchant_email) DO UPDATE SET
+       endpoint_url = EXCLUDED.endpoint_url, callback_url = EXCLUDED.callback_url, events = EXCLUDED.events,
+       signing_secret = EXCLUDED.signing_secret, enabled = TRUE, updated_at = NOW()
+     RETURNING endpoint_url AS "endpointUrl", callback_url AS "callbackUrl", events, enabled,
+       updated_at AS "updatedAt"`,
+    [req.merchantEmail, endpointUrl, callbackUrl, events, signingSecret],
+  );
+  return res.set("Cache-Control", "no-store").json({ ...result.rows[0], signingSecret });
+});
+
+app.delete("/v1/webhook", async (req, res) => {
+  await pool.query("DELETE FROM merchant_webhook_settings WHERE merchant_email = $1", [req.merchantEmail]);
+  return res.json({ deleted: true });
+});
 
 app.get("/v1/floating-balance/payout-account", async (req, res) => {
   const result = await pool.query(
@@ -1898,30 +2720,15 @@ app.get("/v1/wallet/activity/trend", async (req, res) => {
       `WITH days AS (
          SELECT generate_series(CURRENT_DATE - INTERVAL '6 days', CURRENT_DATE, INTERVAL '1 day')::date AS day
        ), activity AS (
-         SELECT created_at::date AS day, amount, 'COLLECTION' AS activity_type
-         FROM payment_links
-         WHERE merchant_email = $1 AND status = 'EXECUTED'
-           AND created_at >= (SELECT created_at FROM merchant_accounts WHERE email = $1)
+         SELECT created_at::date AS day, amount, source_type AS activity_type
+         FROM merchant_wallet_ledger
+         WHERE merchant_email = $1
            AND created_at >= CURRENT_DATE - INTERVAL '6 days'
            AND created_at < CURRENT_DATE + INTERVAL '1 day'
-         UNION ALL
-         SELECT created_at::date AS day, amount, 'TRANSFER' AS activity_type
-         FROM disbursements
-         WHERE merchant_email = $1 AND status IN ('EXECUTED', 'SUCCESS', 'COMPLETED')
-           AND created_at >= (SELECT created_at FROM merchant_accounts WHERE email = $1)
-           AND created_at >= CURRENT_DATE - INTERVAL '6 days'
-           AND created_at < CURRENT_DATE + INTERVAL '1 day'
-         UNION ALL
-         SELECT COALESCE(reviewed_at, requested_at)::date AS day, amount, 'TRANSFER' AS activity_type
-         FROM floating_transfer_requests
-         WHERE merchant_email = $1 AND status = 'SUCCESSFUL'
-           AND COALESCE(reviewed_at, requested_at) >= (SELECT created_at FROM merchant_accounts WHERE email = $1)
-           AND COALESCE(reviewed_at, requested_at) >= CURRENT_DATE - INTERVAL '6 days'
-           AND COALESCE(reviewed_at, requested_at) < CURRENT_DATE + INTERVAL '1 day'
        )
        SELECT to_char(days.day, 'YYYY-MM-DD') AS date,
          COALESCE(SUM(activity.amount) FILTER (WHERE activity.activity_type = 'COLLECTION'), 0)::float8 AS collections,
-         COALESCE(SUM(activity.amount) FILTER (WHERE activity.activity_type = 'TRANSFER'), 0)::float8 AS transfers
+         COALESCE(SUM(ABS(activity.amount)) FILTER (WHERE activity.activity_type = 'DISBURSEMENT'), 0)::float8 AS transfers
        FROM days
        LEFT JOIN activity ON activity.day = days.day
        GROUP BY days.day
@@ -1993,34 +2800,28 @@ app.get("/v1/exchange-rates/krw-php", async (_req, res) => {
   }
 });
 
-app.get("/v1/wallet/balance", async (_req, res) => {
+app.get("/v1/wallet/balance", async (req, res) => {
   try {
-    const [{ data }, collections] = await Promise.all([
-      swiftPayRequest("/disbursements/account"),
-      pool.query(
-        `SELECT COALESCE(SUM(p.collection_amount_krw), 0)::numeric AS completed_krw,
-           COALESCE(SUM(GREATEST(p.amount - COALESCE(f.amount, 0), 0)), 0)::numeric AS settled_php
-         FROM payment_links p
-         LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
-         WHERE p.status = 'EXECUTED' AND p.collection_amount_krw IS NOT NULL`,
-      ),
-    ]);
-    const balance = Number(data.balance);
-    const completedKrw = Number(collections.rows[0].completed_krw);
-    const settledPhp = Number(collections.rows[0].settled_php);
-    const cumulativeKrwCollections = settledPhp > 0
-      ? completedKrw * Math.min(1, Math.max(0, balance / settledPhp))
+    const wallet = await getMerchantWalletState(pool, req.merchantEmail);
+    const balance = Number(wallet.balance);
+    const reservedBalance = Number(wallet.reserved);
+    const availableBalance = balance - reservedBalance;
+    const completedKrw = Number(wallet.completed_krw);
+    const collectionCredits = Number(wallet.collection_credits);
+    const cumulativeKrwCollections = collectionCredits > 0
+      ? completedKrw * Math.min(1, Math.max(0, availableBalance / collectionCredits))
       : 0;
-    return res.json({
+    return res.set("Cache-Control", "no-store").json({
       balance,
-      accountNumber: data.number,
+      availableBalance,
+      reservedBalance,
       walletMode: "pooled",
       paymentEnvironment: swiftPayEnvironment,
       cumulativeKrwCollections,
     });
   } catch (error) {
-    console.error("Wallet balance lookup failed", error.status || "network error");
-    return res.status(error.status === 401 ? 502 : 503).json({ error: "Merchant wallet is temporarily unavailable." });
+    console.error("Merchant wallet ledger lookup failed", error.code || error.message);
+    return res.status(503).json({ error: "Merchant wallet is temporarily unavailable." });
   }
 });
 
@@ -2107,6 +2908,7 @@ async function reconcilePending() {
     }),
   ]);
   await dispatchTransactionNotifications();
+  await dispatchMerchantWebhooks();
   } finally {
     reconcilingPending = false;
   }
@@ -2122,6 +2924,12 @@ function startNotificationWorker() {
     });
   }, 30_000);
   timer.unref();
+  const kybCleanupTimer = setInterval(() => {
+    void cleanExpiredKybUploads().catch((error) => {
+      console.error("Private KYB upload cleanup failed", error.name || "storage error");
+    });
+  }, 5 * 60_000);
+  kybCleanupTimer.unref();
 }
 
 async function getRefundTransferDetails(paymentId, merchantEmail) {
@@ -2239,13 +3047,15 @@ app.get("/v1/wallet/activity", async (req, res) => {
         NULL::text AS "recipientName", NULL::text AS "recipientAccountNumber",
         NULL::text AS remarks, FALSE AS "isRefund",
         CASE WHEN p.payment_token IS NULL THEN 'Payment link' ELSE 'QR Ph checkout' END AS channel,
-        p.status, p.amount::float8 AS amount,
+        p.status, p.amount::float8 AS amount, wallet.amount::float8 AS "walletAmount",
         p.created_at AS "createdAt", 'PAYMENT_LINK' AS "transactionType",
         (p.status = 'EXECUTED' AND p.payment_token IS NOT NULL AND p.amount <= $4
           AND EXISTS (SELECT 1 FROM platform_fee_ledger f WHERE f.source_type = 'COLLECTION' AND f.source_id = p.id)
           AND (refund.status IS NULL OR refund.status IN ('REJECTED', 'ERROR', 'FAILED', 'CANCELED', 'CANCELLED'))) AS "canRefund",
         refund.status AS "refundStatus"
       FROM payment_links p
+      LEFT JOIN merchant_wallet_ledger wallet
+        ON wallet.source_type = 'COLLECTION' AND wallet.source_id = p.id AND wallet.merchant_email = p.merchant_email
       LEFT JOIN LATERAL (
         SELECT d.status FROM disbursements d
         WHERE d.refund_payment_id = p.id
@@ -2259,10 +3069,12 @@ app.get("/v1/wallet/activity", async (req, res) => {
         NULL::text AS "institutionName", NULL::text AS "institutionLogoUrl",
         d.recipient_name AS "recipientName", d.recipient_account_number AS "recipientAccountNumber",
         d.remarks, (d.refund_payment_id IS NOT NULL) AS "isRefund",
-        d.channel, d.status, -d.amount::float8 AS amount,
+        d.channel, d.status, -d.amount::float8 AS amount, wallet.amount::float8 AS "walletAmount",
         d.created_at AS "createdAt", 'DISBURSEMENT' AS "transactionType",
         FALSE AS "canRefund", NULL::text AS "refundStatus"
       FROM disbursements d
+      LEFT JOIN merchant_wallet_ledger wallet
+        ON wallet.source_type = 'DISBURSEMENT' AND wallet.source_id = d.id AND wallet.merchant_email = d.merchant_email
       LEFT JOIN payment_links p ON p.id = d.refund_payment_id
       WHERE d.merchant_email = $3
         AND d.created_at >= (SELECT created_at FROM merchant_accounts WHERE email = $3)
@@ -2346,9 +3158,11 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
     if (row.payment_url) return res.json({
       id: row.id,
       code: row.code,
-      paymentUrl: row.payment_url,
+      paymentUrl: row.payment_token
+        ? new URL(`/checkout/${row.code}`, checkoutOrigin).toString()
+        : row.payment_url,
       qrCode: qrPayload,
-      qrImageUrl: row.payment_token ? new URL(`/v1/public/checkout/${row.code}/qr.png`, frontendOrigin).toString() : undefined,
+      qrImageUrl: row.payment_token ? new URL(`/v1/public/checkout/${row.code}/qr.png`, publicApiOrigin).toString() : undefined,
       status: row.status,
       amount: Number(row.amount),
       currency: row.currency,
@@ -2384,7 +3198,7 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
     }
     const status = data.paymentStatus || "PENDING";
     if (!validPaymentStatus(status)) throw new Error("SwiftPay returned an invalid initial payment status.");
-    const checkoutUrl = new URL(`/checkout/${code}`, frontendOrigin).toString();
+    const checkoutUrl = new URL(`/checkout/${code}`, checkoutOrigin).toString();
     const actualAmount = Number(data.amount ?? amount);
     if (!Number.isFinite(actualAmount) || actualAmount <= 0) throw new Error("SwiftPay returned an invalid payment amount.");
     await pool.query(
@@ -2393,7 +3207,8 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
     );
     if (status === "EXECUTED") await settleSuccessfulCollection(id);
     await queueSuccessfulTransaction("PAYMENT", id);
-    const qrImageUrl = new URL(`/v1/public/checkout/${code}/qr.png`, frontendOrigin).toString();
+    await queueTransactionWebhook("PAYMENT", id);
+    const qrImageUrl = new URL(`/v1/public/checkout/${code}/qr.png`, publicApiOrigin).toString();
     return res.status(201).json({ id, code, paymentUrl: checkoutUrl, qrCode: data.qrCode, qrImageUrl, status, amount: actualAmount, currency: "PHP" });
   } catch (error) {
     const isAmbiguous = !error.status || error.status >= 500;
@@ -2525,26 +3340,45 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
     .update(JSON.stringify(requestFingerprintFields))
     .digest("hex");
   const activeRequest = await pool.query(`SELECT merchant_reference_no, status FROM disbursements
-    WHERE merchant_email = $1 AND request_fingerprint = $2 AND status IN ('REQUESTING', 'PENDING', 'OUTCOME_UNKNOWN') LIMIT 1`, [req.merchantEmail, requestFingerprint]);
+    WHERE merchant_email = $1 AND request_fingerprint = $2
+      AND status NOT IN ('EXECUTED', 'SUCCESS', 'COMPLETED', 'REJECTED', 'ERROR', 'FAILED', 'CANCELED', 'CANCELLED', 'EXPIRED', 'REVERSED')
+    LIMIT 1`, [req.merchantEmail, requestFingerprint]);
   if (activeRequest.rowCount) return res.status(409).json({ error: `A matching transfer is already ${activeRequest.rows[0].status.toLowerCase()}. Check wallet activity before creating another.` });
 
   await pool.query("DELETE FROM used_step_up_tokens WHERE expires_at <= NOW()");
-  const consumedStepUp = await pool.query(
-    `INSERT INTO used_step_up_tokens (jti, merchant_email, expires_at)
-     VALUES ($1, $2, to_timestamp($3))
-     ON CONFLICT (jti) DO NOTHING RETURNING jti`,
-    [stepUpPayload.jti, req.merchantEmail, stepUpPayload.exp],
-  );
-  if (!consumedStepUp.rowCount) return res.status(403).json({ error: "This security confirmation has already been used. Verify again." });
 
   const id = randomUUID();
   const merchantReferenceNo = `DRP-${randomUUID()}`;
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    const merchant = await client.query(
+      "SELECT email FROM merchant_accounts WHERE email = $1 AND active = TRUE FOR UPDATE",
+      [req.merchantEmail],
+    );
+    if (!merchant.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(401).json({ error: "This merchant account is no longer active." });
+    }
+    const matchingRequest = await client.query(
+      `SELECT status FROM disbursements
+       WHERE merchant_email = $1 AND request_fingerprint = $2
+         AND status NOT IN ('EXECUTED', 'SUCCESS', 'COMPLETED', 'REJECTED', 'ERROR', 'FAILED', 'CANCELED', 'CANCELLED', 'EXPIRED', 'REVERSED')
+       LIMIT 1`,
+      [req.merchantEmail, requestFingerprint],
+    );
+    if (matchingRequest.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: `A matching transfer is already ${matchingRequest.rows[0].status.toLowerCase()}. Check wallet activity before creating another.` });
+    }
+    let walletDebitAmount = amount;
     if (refundPaymentId) {
       const collection = await client.query(
-        "SELECT status FROM payment_links WHERE id = $1 AND merchant_email = $2 FOR UPDATE",
+        `SELECT p.status, GREATEST(p.amount - COALESCE(f.amount, 0), 0)::numeric AS net_amount
+         FROM payment_links p
+         LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
+         WHERE p.id = $1 AND p.merchant_email = $2
+         FOR UPDATE OF p`,
         [refundPaymentId, req.merchantEmail],
       );
       if (collection.rows[0]?.status !== "EXECUTED") {
@@ -2561,6 +3395,25 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
         await client.query("ROLLBACK");
         return res.status(409).json({ error: "A refund transfer for this collection is already in progress or complete." });
       }
+      walletDebitAmount = Number(collection.rows[0].net_amount);
+    }
+    const wallet = await getMerchantWalletState(client, req.merchantEmail);
+    const availableBalance = Number(wallet.balance) - Number(wallet.reserved);
+    if (availableBalance + 0.000001 < walletDebitAmount) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        error: `Insufficient merchant wallet balance. PHP ${Math.max(0, availableBalance).toFixed(2)} is available after pending transfers.`,
+      });
+    }
+    const consumedStepUp = await client.query(
+      `INSERT INTO used_step_up_tokens (jti, merchant_email, expires_at)
+       VALUES ($1, $2, to_timestamp($3))
+       ON CONFLICT (jti) DO NOTHING RETURNING jti`,
+      [stepUpPayload.jti, req.merchantEmail, stepUpPayload.exp],
+    );
+    if (!consumedStepUp.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ error: "This security confirmation has already been used. Verify again." });
     }
     await client.query(
       `INSERT INTO disbursements

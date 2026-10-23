@@ -52,9 +52,12 @@ import {
   getKrwPhpQuote,
   getAdminInternalWallet,
   getAdminFloatingTransferRequests,
+  getAdminKybApplications,
+  getAdminKybDocumentUrl,
   getAdminInternalWallets,
   getAdminMerchantAccounts,
   getAdminSettings,
+  getApiBaseUrl,
   getMerchantActivityTrend,
   getMerchantDashboard,
   createMerchantFloatingTransferRequest,
@@ -80,7 +83,9 @@ import {
   updateAdminMerchantAccount,
   updateAdminSettings,
   reviewAdminFloatingTransferRequest,
+  reviewAdminKybApplication,
   type AdminMerchantAccount,
+  type AdminKybApplication,
   type AdminInternalWallet,
   type AdminInternalWalletSummary,
   type FloatingTransferRequest,
@@ -119,6 +124,7 @@ import MarketingHome from "./MarketingHome";
 import LegalPage, { getLegalPage } from "./LegalPages";
 import QrPaymentDisplay, { InstitutionLogo } from "./QrPaymentDisplay";
 import InstitutionSelectionScreen from "./InstitutionSelectionScreen";
+import { DeveloperSetupPanel, KybSetupPanel } from "./MerchantSetup";
 
 function isTerminalPaymentStatus(status: string) {
   return ["PAID", "EXECUTED", "INACTIVE", "CANCELED", "REJECTED", "EXPIRED", "FAILED"].includes(status.toUpperCase());
@@ -178,6 +184,78 @@ function UpdateAvailablePrompt({ version, downloadUrl, onDismiss }: {
 
 function formatPeso(amount: number) {
   return `₱${amount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatWalletMovement(amount: number) {
+  const sign = amount < 0 ? "−" : amount > 0 ? "+" : "";
+  return `${sign}${formatPeso(Math.abs(amount))}`;
+}
+
+function PaymentLinkActions({ url }: { url: string }) {
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  async function copyLink() {
+    setError("");
+    try {
+      await navigator.clipboard.writeText(url);
+      setMessage("Payment link copied.");
+    } catch {
+      setMessage("");
+      setError("Could not copy the payment link. Open it and copy the URL from your browser.");
+    }
+  }
+
+  async function shareLink() {
+    setError("");
+    setMessage("");
+    try {
+      if (Capacitor.isNativePlatform()) {
+        await Share.share({ title: "Payment link", url, dialogTitle: "Share payment link" });
+      } else if (navigator.share) {
+        await navigator.share({ title: "Payment link", url });
+      } else {
+        await copyLink();
+      }
+    } catch (shareError) {
+      if (shareError instanceof Error && shareError.name === "AbortError") return;
+      setError(shareError instanceof Error ? shareError.message : "Could not share this payment link.");
+    }
+  }
+
+  return (
+    <section className="payment-link-share" aria-label="Share payment link">
+      <span className="eyebrow">YOUR HOSTED CHECKOUT LINK</span>
+      <a href={url} target="_blank" rel="noopener noreferrer">{url}</a>
+      <div className="payment-link-share-actions">
+        <Button variant="secondary" icon={<Copy size={15} />} onClick={() => void copyLink()}>Copy link</Button>
+        <Button variant="secondary" icon={<Share2 size={15} />} onClick={() => void shareLink()}>Share link</Button>
+      </div>
+      {message && <p className="payment-link-share-message" role="status">{message}</p>}
+      {error && <p className="payment-link-share-error" role="alert">{error}</p>}
+    </section>
+  );
+}
+
+function ApiCodeBlock({ title, code }: { title: string; code: string }) {
+  const [copyState, setCopyState] = useState("");
+
+  async function copyCode() {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopyState("Copied");
+    } catch {
+      setCopyState("Copy unavailable; select the code to copy.");
+    }
+  }
+
+  return (
+    <section className="api-code-block">
+      <header><strong>{title}</strong><button type="button" onClick={() => void copyCode()}><Copy size={13} /> Copy</button></header>
+      <pre><code>{code}</code></pre>
+      {copyState && <p role="status">{copyState}</p>}
+    </section>
+  );
 }
 
 function useBalanceVisibility() {
@@ -334,6 +412,7 @@ function DashboardLoading() {
 }
 
 function TransactionRow({ transaction, onClick }: { transaction: Transaction; onClick?: () => void }) {
+  const walletAmount = transaction.walletAmount ?? transaction.numericAmount;
   return (
     <button className="transaction-row" onClick={onClick}>
       {transaction.institutionCode
@@ -353,7 +432,7 @@ function TransactionRow({ transaction, onClick }: { transaction: Transaction; on
         <small>{transaction.channel} · {transaction.date.split(",")[0]}</small>
       </span>
       <span className="transaction-value">
-        <strong>{transaction.amount}</strong>
+        <strong>{formatWalletMovement(walletAmount)}</strong>
         <StatusBadge status={transaction.status} />
       </span>
       <ChevronRight size={16} />
@@ -633,7 +712,7 @@ function SuperAdminSignIn({ onAuthenticated }: { onAuthenticated: (session: Sess
 }
 
 function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
-  const [activePage, setActivePage] = useState<"overview" | "merchants" | "ledger" | "requests" | "settings">("overview");
+  const [activePage, setActivePage] = useState<"overview" | "merchants" | "kyb" | "ledger" | "requests" | "settings">("overview");
   const [settings, setSettings] = useState<AdminSettings>({
     krwToPhpRate: null,
     usdtAddress: "",
@@ -646,6 +725,8 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
   const [editingMerchant, setEditingMerchant] = useState<(AdminMerchantAccount & { originalEmail: string }) | null>(null);
   const [internalWallets, setInternalWallets] = useState<AdminInternalWalletSummary[]>([]);
   const [transferRequests, setTransferRequests] = useState<FloatingTransferRequest[]>([]);
+  const [kybApplications, setKybApplications] = useState<AdminKybApplication[]>([]);
+  const [kybReviewNotes, setKybReviewNotes] = useState<Record<string, string>>({});
   const [merchantSearch, setMerchantSearch] = useState("");
   const [merchantFilter, setMerchantFilter] = useState<"all" | "active" | "disabled">("all");
   const [selectedWalletEmail, setSelectedWalletEmail] = useState("");
@@ -677,16 +758,18 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
     setLoading(true);
     setError("");
     try {
-      const [nextSettings, nextMerchants, nextWallets, nextTransferRequests] = await Promise.all([
+      const [nextSettings, nextMerchants, nextWallets, nextTransferRequests, nextKybApplications] = await Promise.all([
         getAdminSettings(),
         getAdminMerchantAccounts(),
         getAdminInternalWallets(),
         getAdminFloatingTransferRequests(),
+        getAdminKybApplications(),
       ]);
       setSettings(nextSettings);
       setMerchants(nextMerchants);
       setInternalWallets(nextWallets);
       setTransferRequests(nextTransferRequests);
+      setKybApplications(nextKybApplications);
       setSelectedWalletEmail((current) => nextWallets.some((wallet) => wallet.email === current)
         ? current
         : nextWallets[0]?.email || "");
@@ -848,6 +931,42 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
     }
   }
 
+  async function reviewKyb(application: AdminKybApplication, status: "IN_REVIEW" | "APPROVED" | "REJECTED") {
+    const reviewNotes = kybReviewNotes[application.merchantEmail]?.trim() || "";
+    if (status === "REJECTED" && !reviewNotes) {
+      setError("Add review notes before rejecting a KYB application.");
+      return;
+    }
+    setError("");
+    setNotice("");
+    setReviewingRequestId(application.merchantEmail);
+    try {
+      await reviewAdminKybApplication(application.merchantEmail, { status, reviewNotes });
+      setKybApplications((current) => current.map((item) => item.merchantEmail === application.merchantEmail
+        ? { ...item, status, reviewNotes: reviewNotes || null }
+        : item));
+      setNotice(`KYB application ${status.replace("_", " ").toLowerCase()}.`);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not update the KYB review.");
+    } finally {
+      setReviewingRequestId("");
+    }
+  }
+
+  async function openKybDocument(application: AdminKybApplication, documentType: string) {
+    setError("");
+    const documentWindow = window.open("about:blank", "_blank");
+    if (documentWindow) documentWindow.opener = null;
+    try {
+      const result = await getAdminKybDocumentUrl(application.merchantEmail, documentType);
+      if (documentWindow) documentWindow.location.href = result.url;
+      else throw new Error("Allow pop-ups to view the private KYB document.");
+    } catch (requestError) {
+      documentWindow?.close();
+      setError(requestError instanceof Error ? requestError.message : "Could not open the KYB document.");
+    }
+  }
+
   return (
     <main className="admin-screen">
       <header className="admin-header">
@@ -859,8 +978,8 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
         <div className="page-title">
           <span className="eyebrow">CONTROL PLANE</span>
           <div className="admin-page-heading">
-            <div><h1>{activePage === "overview" ? "Backoffice overview" : activePage === "merchants" ? "Merchant accounts" : activePage === "ledger" ? "Floating balance" : activePage === "requests" ? "Transfer requests" : "Collection settings"}</h1>
-            <p>{activePage === "overview" ? "Monitor merchant access and floating balances." : activePage === "merchants" ? "Create merchant access and manage account status." : activePage === "ledger" ? "Adjust merchant floating balances and review their audit entries." : activePage === "requests" ? "Mark requests successful or failed and arrange payouts for successful requests." : "Configure collection references used by the merchant app."}</p></div>
+            <div><h1>{activePage === "overview" ? "Backoffice overview" : activePage === "merchants" ? "Merchant accounts" : activePage === "kyb" ? "KYB applications" : activePage === "ledger" ? "Floating balance" : activePage === "requests" ? "Transfer requests" : "Collection settings"}</h1>
+            <p>{activePage === "overview" ? "Monitor merchant access and floating balances." : activePage === "merchants" ? "Create merchant access and manage account status." : activePage === "kyb" ? "Review merchant business and beneficial-owner verification." : activePage === "ledger" ? "Adjust merchant floating balances and review their audit entries." : activePage === "requests" ? "Mark requests successful or failed and arrange payouts for successful requests." : "Configure collection references used by the merchant app."}</p></div>
             <Button variant="secondary" icon={<RefreshCw size={15} />} onClick={() => void loadConsole()} disabled={loading}>Refresh</Button>
           </div>
         </div>
@@ -868,6 +987,7 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
           {([
             ["overview", "Overview", Home],
             ["merchants", "Merchants", Users],
+            ["kyb", `KYB${kybApplications.filter((application) => application.status === "PENDING" || application.status === "IN_REVIEW").length ? ` (${kybApplications.filter((application) => application.status === "PENDING" || application.status === "IN_REVIEW").length})` : ""}`, ShieldCheck],
             ["ledger", "Floating balance", WalletCards],
             ["requests", `Transfer requests${transferRequests.filter((request) => request.status === "PENDING").length ? ` (${transferRequests.filter((request) => request.status === "PENDING").length})` : ""}`, Send],
             ["settings", "Settings", Settings],
@@ -968,6 +1088,35 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
                   </article>
                 ))}
               </div>
+            </section>}
+            {activePage === "kyb" && <section className="admin-card">
+              <div className="admin-card-heading"><span className="setting-icon"><ShieldCheck size={19} /></span><div><h2>Merchant identity and business checks</h2><p>Private documents are served through short-lived signed download URLs.</p></div></div>
+              {kybApplications.length === 0 ? <p className="admin-empty">No KYB applications have been submitted.</p> : (
+                <div className="admin-kyb-list">
+                  {kybApplications.map((application) => (
+                    <article className="admin-kyb-application" key={application.merchantEmail}>
+                      <div className="admin-kyb-heading"><div><strong>{application.legalBusinessName}</strong><small>{application.merchantEmail} · {application.status.replace("_", " ")}</small></div></div>
+                      <dl>
+                        <div><dt>Registration</dt><dd>{application.registrationNumber} · {application.businessType}</dd></div>
+                        <div><dt>Business address</dt><dd>{application.businessAddress}, {application.country}</dd></div>
+                        <div><dt>Beneficial owner</dt><dd>{application.ownerFullName} · Born {application.ownerDateOfBirth} · {application.ownerNationality}</dd></div>
+                        <div><dt>Owner contact</dt><dd>{application.ownerEmail} · {application.ownerPhone}</dd></div>
+                      </dl>
+                      <div className="admin-kyb-documents">
+                        {application.documents.map((document) => <button key={document.id} type="button" className="admin-text-action" onClick={() => void openKybDocument(application, document.documentType)}>{document.documentType.replace(/_/g, " ")} · {document.fileName}</button>)}
+                        {application.documents.length === 0 && <span>No documents submitted</span>}
+                      </div>
+                      <label className="admin-kyb-notes"><span>Review notes (required when rejecting)</span><textarea value={kybReviewNotes[application.merchantEmail] ?? application.reviewNotes ?? ""} onChange={(event) => setKybReviewNotes((current) => ({ ...current, [application.merchantEmail]: event.target.value }))} maxLength={1000} rows={2} /></label>
+                      <div className="admin-kyb-actions">
+                        <Button variant="secondary" disabled={reviewingRequestId === application.merchantEmail} onClick={() => void reviewKyb(application, "IN_REVIEW")}>Mark in review</Button>
+                        <Button disabled={reviewingRequestId === application.merchantEmail || application.documents.length < 3} onClick={() => void reviewKyb(application, "APPROVED")}>Approve</Button>
+                        <Button variant="secondary" disabled={reviewingRequestId === application.merchantEmail || !kybReviewNotes[application.merchantEmail]?.trim()} onClick={() => void reviewKyb(application, "REJECTED")}>Reject</Button>
+                      </div>
+                      {application.documents.length < 3 && <small className="admin-kyb-missing">Approval requires the registration certificate and both identity images.</small>}
+                    </article>
+                  ))}
+                </div>
+              )}
             </section>}
             {activePage === "settings" && <section className="admin-card">
               <div className="admin-card-heading"><span className="setting-icon"><Settings size={19} /></span><div><h2>Collection and fee configuration</h2><p>Collection fees reduce merchant net collections; fixed transfer fees apply only on successful settlements.</p></div></div>
@@ -1152,7 +1301,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
         <span className="sheet-handle" />
         <header className="sheet-header">
           <div>
-            <span className="eyebrow">DRPAY · SELF-HOSTED QR CHECKOUT</span>
+            <span className="eyebrow">DRPAY · SELF-HOSTED CHECKOUT</span>
             <h2 id="sheet-title">{result ? "Collection ready" : selectingInstitution ? "Choose payment app" : "Collect payment"}</h2>
           </div>
           <IconButton label="Close" onClick={onClose}>
@@ -1180,10 +1329,11 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
                 <p>
                   {currency === "KRW"
                     ? `Collect KRW ${Number(amount).toLocaleString("en-US")} (about PHP ${Number(result.amount || 0).toLocaleString("en-PH", { minimumFractionDigits: 2 })} at the reference rate). Show this QR to the customer to scan.`
-                    : `Show this QR to collect PHP ${Number(result.amount || amount).toLocaleString("en-PH", { minimumFractionDigits: 2 })}.`}
+                    : `Show this QR or share the hosted payment link to collect PHP ${Number(result.amount || amount).toLocaleString("en-PH", { minimumFractionDigits: 2 })}.`}
                 </p>
                 <span className={`payment-state state-${paymentStatus.toLowerCase()}`}>{isConfirmedPaymentStatus(paymentStatus) ? "Payment confirmed by SwiftPay" : `Checkout status: ${paymentStatus || result.status || "PENDING"}`}</span>
                 <QrPaymentDisplay value={result.qrCode} institution={selectedInstitution || undefined} />
+                <PaymentLinkActions url={result.paymentUrl} />
                 <Button onClick={onClose}>Done</Button>
               </>
             )}
@@ -1244,7 +1394,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
               </div>
             )}
             <div className="accepted-channels">
-              <span>Customers scan the QR Ph code on your DRPAY checkout page. KRW amounts are converted to PHP using the displayed reference rate.</span>
+              <span>Generate a QR and a shareable link to your own DRPAY-hosted checkout page. KRW amounts are converted to PHP using the displayed reference rate.</span>
             </div>
             <Button
               type="submit"
@@ -1252,7 +1402,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
               disabled={submitting || currency === "USDT" || (currency === "KRW" && (!krwPhpQuote || quoteLoading))}
               icon={<Link2 size={18} />}
             >
-              {submitting ? "Creating checkout…" : "Create self-hosted checkout"}
+              {submitting ? "Creating checkout…" : "Create QR and payment link"}
             </Button>
           </form>
         )}
@@ -1410,6 +1560,9 @@ function TransactionSheet({
         </section>
         <dl className="detail-list">
           <div><dt>Provider status</dt><dd>{transaction.rawStatus}</dd></div>
+          {transaction.walletAmount !== undefined && transaction.walletAmount !== null && (
+            <div><dt>Merchant ledger impact</dt><dd>{formatWalletMovement(transaction.walletAmount)}</dd></div>
+          )}
           <div><dt>Channel</dt><dd>{transaction.channel}</dd></div>
           <div><dt>Date</dt><dd>{transaction.date}</dd></div>
           <div><dt>Description</dt><dd>{transaction.description || "—"}</dd></div>
@@ -2055,10 +2208,10 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
     <div className="sheet-backdrop" role="presentation" onMouseDown={onClose}>
       <section className="payment-sheet" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
         <span className="sheet-handle" />
-        <header className="sheet-header"><div><span className="eyebrow">POOLED MERCHANT TOOL</span><h2>{url ? "QR checkout" : selectingInstitution ? "Choose payment app" : "QR checkout"}</h2></div><IconButton label="Close" onClick={onClose}><X size={19} /></IconButton></header>
-        {url ? <div className="link-result"><div className="result-icon"><QrCode size={23} /></div><strong>Scan to collect payment</strong><p>Show this QR to your customer to scan.</p><span className={`payment-state state-${paymentStatus.toLowerCase()}`}>{isConfirmedPaymentStatus(paymentStatus) ? "Payment confirmed by SwiftPay" : `Checkout status: ${paymentStatus || "PENDING"}`}</span><QrPaymentDisplay value={qrCode} institution={selectedInstitution || undefined} /><Button variant="quiet" onClick={onClose}>Done</Button></div> :
+        <header className="sheet-header"><div><span className="eyebrow">SELF-HOSTED CHECKOUT</span><h2>{url ? "Payment link ready" : selectingInstitution ? "Choose payment app" : "Create payment link"}</h2></div><IconButton label="Close" onClick={onClose}><X size={19} /></IconButton></header>
+        {url ? <div className="link-result"><div className="result-icon"><Link2 size={23} /></div><strong>Payment link ready</strong><p>Share this DRPAY-hosted checkout page with your customer.</p><span className={`payment-state state-${paymentStatus.toLowerCase()}`}>{isConfirmedPaymentStatus(paymentStatus) ? "Payment confirmed by SwiftPay" : `Checkout status: ${paymentStatus || "PENDING"}`}</span><PaymentLinkActions url={url} /><QrPaymentDisplay value={qrCode} institution={selectedInstitution || undefined} /><Button variant="quiet" onClick={onClose}>Done</Button></div> :
           selectingInstitution ? <InstitutionSelectionScreen onBack={() => setSelectingInstitution(false)} onConfirm={(institution) => void createCheckout(institution)} busy={busy} submissionError={error} /> :
-          <form onSubmit={submit}><label><span>Description</span><input value={description} onChange={(event) => setDescription(event.target.value)} required /></label><label><span>Fixed amount</span><div className="amount-field"><span>₱</span><input type="number" min="1" step=".01" value={amount} onChange={(event) => setAmount(event.target.value)} required /><small>PHP</small></div></label>{error && <div className="inline-error"><AlertCircle size={15} />{error}</div>}<Button type="submit" disabled={busy}>{busy ? "Creating…" : "Create QR checkout"}</Button></form>}
+          <form onSubmit={submit}><label><span>Description</span><input value={description} onChange={(event) => setDescription(event.target.value)} required /></label><label><span>Fixed amount</span><div className="amount-field"><span>₱</span><input type="number" min="1" step=".01" value={amount} onChange={(event) => setAmount(event.target.value)} required /><small>PHP</small></div></label>{error && <div className="inline-error"><AlertCircle size={15} />{error}</div>}<Button type="submit" disabled={busy}>{busy ? "Creating…" : "Create payment link"}</Button></form>}
       </section>
     </div>
   );
@@ -2101,7 +2254,7 @@ function HomeView({
           <div>
             <span className="balance-floating-label">
               <img src="/bank-logos/alipay-plus.svg" alt="Alipay+" />
-              Balance
+              Floating balance
             </span>
             <strong>{balanceVisible ? data.internalWalletBalance : "₱ ••••••"}</strong>
           </div>
@@ -2306,9 +2459,12 @@ function WalletBalancePanel({
       </div>
       <strong className="wallet-balance-value">{balanceVisible ? data.availableBalance : "₱ ••••••"}</strong>
       <div className="wallet-balance-foot">
-        <span><i /> SwiftPay payout account</span>
+        <span><i /> Merchant wallet ledger</span>
         <span>{data.paymentEnvironment === "production" ? "Live" : "Sandbox"}</span>
       </div>
+      {data.reservedBalance > 0 && (
+        <p className="wallet-reserved-note">{formatPeso(data.reservedBalance)} reserved for pending transfers</p>
+      )}
     </section>
   );
 }
@@ -2403,10 +2559,10 @@ function WalletFloatingBalanceCard({
       <div className={`unsettled-unlock-status ${unlocked ? "unsettled-unlock-status-ready" : ""}`} role="status">
         <ShieldCheck size={16} />
         <p>{unlocked
-          ? "Unlocked. This progress is shared across merchants and decreases by the KRW equivalent of successful transfers. A super admin will transfer your unsettled funds to your external live SwiftPay PHP wallet."
+          ? "Unlocked for this merchant. Progress reflects your own completed collections and remaining ledger balance. A super admin will transfer your unsettled funds separately."
           : data.paymentEnvironment !== "production"
-            ? "All merchants share this progress, and successful transfers reduce it by their KRW equivalent. You can request a transfer before the threshold if admin-set funds are available. This is a sandbox wallet."
-            : "At ₩1,000,000 in shared maintained collections, funds unlock for transfer by a super admin. Successful transfers reduce progress by their KRW equivalent. Requests are available before the threshold if admin-set funds are available."}</p>
+            ? "This progress reflects your merchant's own collections and available ledger balance. You can request a floating-balance transfer before the threshold if admin-set funds are available. This is a sandbox environment."
+            : "At ₩1,000,000 in this merchant's maintained collections, funds unlock for transfer by a super admin. Your successful transfers reduce progress. Requests are available before the threshold if admin-set floating funds are available."}</p>
       </div>
       <section className="unsettled-request-section" aria-label="Request payout">
         <Button icon={<Send size={16} />} onClick={() => void submitTransferRequest()} disabled={requestSubmitting || maxRequestAmount <= 0}>
@@ -2485,8 +2641,8 @@ function WalletView({
     () => data.transactions.filter((item) => {
       const matchesFilter =
         filter === "All activity" ||
-        (filter === "Money in" && item.numericAmount > 0) ||
-        (filter === "Money out" && item.numericAmount < 0) ||
+        (filter === "Money in" && (item.walletAmount ?? item.numericAmount) > 0) ||
+        (filter === "Money out" && (item.walletAmount ?? item.numericAmount) < 0) ||
         item.status === filter;
       const matchesQuery = `${item.reference} ${item.customer} ${item.description}`.toLowerCase().includes(query.toLowerCase());
       return matchesFilter && matchesQuery;
@@ -2553,7 +2709,7 @@ function TransfersView({
         <div>
           <span>Available balance</span>
           <strong>{balanceVisible ? data.availableBalance : "₱ ••••••"}</strong>
-          <small>Provided by your SwiftPay payout account</small>
+          <small>Available in your merchant ledger</small>
         </div>
         <Button icon={<Send size={17} />} onClick={onTransfer}>New transfer</Button>
       </section>
@@ -2611,11 +2767,13 @@ function MoreView({
 }) {
   const items = [
     { label: "Merchant profile", description: "Business and account details", icon: Store, action: () => onInfo("Merchant profile") },
-    ...(data.walletMode === "pooled" ? [{ label: "QR checkouts", description: "Create a self-hosted QR Ph checkout", icon: QrCode, action: onPaymentLink }] : []),
+    ...(data.walletMode === "pooled" ? [{ label: "Payment link", description: "Create and share your branded hosted checkout", icon: Link2, action: onPaymentLink }] : []),
     { label: "Transfer banks", description: "InstaPay and PESONet", icon: CreditCard, action: () => onInfo("Transfer banks") },
     { label: "Statements", description: "View and download wallet activity", icon: ReceiptText, action: () => onInfo("Statements") },
     { label: "Notifications", description: "Email and push alerts", icon: Bell, action: () => onInfo("Notifications") },
     { label: "Security", description: "Session and device protection", icon: ShieldCheck, action: () => onInfo("Security") },
+    { label: "KYB verification", description: "Business and owner verification", icon: ShieldCheck, action: () => onInfo("KYB verification") },
+    { label: "Developer settings", description: "API keys, webhooks, and callbacks", icon: KeyRound, action: () => onInfo("Developer settings") },
     { label: "API documentation", description: "Merchant integration guide", icon: Settings, action: () => onInfo("API documentation") },
     { label: "Help center", description: "DRPAY merchant support", icon: CircleHelp, action: () => onInfo("Help center") },
   ];
@@ -2626,7 +2784,7 @@ function MoreView({
         <span className="profile-avatar">DV</span>
         <div>
           <strong>{session.email}</strong>
-          <span>{session.role.replace("_", " ")} · {data.walletMode} PHP wallet</span>
+          <span>{session.role.replace("_", " ")} · Merchant ledger</span>
           <span className="merchant-verified-badge"><ShieldCheck size={12} aria-hidden="true" /> Verified</span>
         </div>
         <ShieldCheck size={20} />
@@ -2734,12 +2892,12 @@ function ProfileInfoPage({
             </div>
             <dl className="detail-list">
               <div><dt>Account role</dt><dd>{session.role.replace("_", " ")}</dd></div>
-              <div><dt>Wallet type</dt><dd>{data.walletMode === "pooled" ? "Pooled wallet" : "Internal ledger"}</dd></div>
-              <div><dt>Account number</dt><dd>{data.accountNumber ? `•••• ${data.accountNumber.slice(-4)}` : "Not provided"}</dd></div>
+              <div><dt>Wallet type</dt><dd>Merchant operational ledger</dd></div>
               <div><dt>Available balance</dt><dd>{balanceVisible ? data.availableBalance : "₱ ••••••"}</dd></div>
               <div><dt>Environment</dt><dd>{data.paymentEnvironment === "production" ? "Live" : "Sandbox"}</dd></div>
             </dl>
-            <div className="profile-info-intro"><strong>Unsettled funds release</strong><p>After the live-wallet collection threshold is reached, a super admin transfers unlocked funds to your external live SwiftPay PHP wallet. Your regular transfer flow remains unchanged.</p></div>
+            <div className="profile-info-intro"><strong>Your merchant ledger</strong><p>Collections, transfers, pending reservations, and activity are tracked separately for this merchant. The admin-funded floating balance remains a separate wallet.</p></div>
+            <div className="profile-info-intro"><strong>Unsettled funds release</strong><p>Your collection progress is based on this merchant’s activity. A super admin separately transfers unlocked unsettled funds; that pooled settlement account is not your merchant ledger balance.</p></div>
           </>
         )}
 
@@ -2845,18 +3003,160 @@ function ProfileInfoPage({
           </>
         )}
 
+        {title === "KYB verification" && <KybSetupPanel />}
+
+        {title === "Developer settings" && <DeveloperSetupPanel />}
+
         {title === "API documentation" && (
-          <>
-            <div className="profile-info-intro"><strong>Merchant API reference</strong><p>The merchant app calls your configured DRPAY backend. Authenticated endpoints use the merchant session; provider credentials remain server-side.</p></div>
-            <div className="profile-guide-list">
-              <div><span>GET</span><p><strong>/v1/wallet/balance</strong>Retrieve the merchant wallet balance.</p></div>
-              <div><span>GET</span><p><strong>/v1/wallet/activity</strong>Read wallet transactions with limit and offset pagination.</p></div>
-              <div><span>GET</span><p><strong>/v1/disbursement-institutions</strong>List supported transfer destinations and rails.</p></div>
-              <div><span>POST</span><p><strong>/v1/payment-links</strong>Create a PHP hosted checkout using an idempotency key.</p></div>
-              <div><span>POST</span><p><strong>/v1/disbursements</strong>Submit a transfer with MPIN step-up authorization and an idempotency key.</p></div>
+          <div className="api-docs">
+            <div className="profile-info-intro">
+              <strong>Integrate your DRPAY wallet and collections</strong>
+              <p>Read your merchant-specific PHP wallet, create a QR-backed hosted payment link from your platform, and confirm payment status. Your customer pays on a DRPAY-hosted checkout page; your server receives the link and returns it to your customer.</p>
             </div>
-            <p className="profile-info-note">These routes are served by your configured backend. Ask your DRPAY administrator for the API base URL and integration access. Never expose SwiftPay secret keys in client code.</p>
-          </>
+
+            <section className="api-docs-section">
+              <h3>1. Set up API access</h3>
+              <p>Create a key in <strong>Profile → Developer settings</strong>. Use <code>read</code> to retrieve your wallet and activity. Use <code>payments:write</code> to create collections; choose both scopes to use the complete integration. Keys are environment-specific.</p>
+              <div className="api-docs-base"><span>API base URL for this session</span><code>{getApiBaseUrl()}</code><small>Environment: {data.paymentEnvironment === "production" ? "Production / live money" : "Sandbox / test money"}</small></div>
+              <p>Use the base URL shown above for this environment. Store the key in your server's secret manager and send it as a Bearer token over HTTPS. Never put the key or SwiftPay credentials in browser code, a mobile app, source control, or client-side environment variables.</p>
+              <ApiCodeBlock title="Server environment variables" code={`DRPAY_API_BASE_URL=${getApiBaseUrl()}
+DRPAY_API_KEY=your_environment_specific_key`} />
+            </section>
+
+            <section className="api-docs-section">
+              <h3>2. Read wallet balance</h3>
+              <p><code>GET /v1/wallet/balance</code> returns this merchant's operational ledger only. <code>balance</code> is the posted ledger amount; <code>availableBalance</code> subtracts reservations for transfers still in progress. Admin-funded floating balance is a separate wallet.</p>
+              <ApiCodeBlock title="Request" code={`curl "$DRPAY_API_BASE_URL/v1/wallet/balance" \\
+  -H "Authorization: Bearer $DRPAY_API_KEY" \\
+  -H "Accept: application/json"`} />
+              <ApiCodeBlock title="200 response" code={`{
+  "balance": 1250.50,
+  "availableBalance": 1000.50,
+  "reservedBalance": 250.00,
+  "walletMode": "pooled",
+  "paymentEnvironment": "production",
+  "cumulativeKrwCollections": 420000
+}`} />
+              <p>Collection credits are posted net of platform fees. Successful transfers debit the ledger. Pending or unknown-outcome transfers reduce available balance until resolved. Do not treat the shared provider account as your merchant balance.</p>
+            </section>
+
+            <section className="api-docs-section">
+              <h3>3. Create a collection on your platform</h3>
+              <p><code>POST /v1/payment-links</code> creates a fixed PHP QR Ph payment and a self-hosted DRPAY checkout page. The response includes <code>paymentUrl</code> to redirect your customer to, <code>qrCode</code> for rendering a QR in your own experience, and <code>qrImageUrl</code> for the QR image. Checkout links use your environment's branded host: <code>{data.paymentEnvironment === "production" ? "pay.live.denpay.cc" : "pay.sandbox.denpay.cc"}</code>.</p>
+              <p>Generate a new, unique idempotency key for each intended payment (at least 16 characters). If the request times out, retry the same payment with the same key; do not create another payment with a new key until you have checked its outcome.</p>
+              <ApiCodeBlock title="Request" code={`curl -X POST "$DRPAY_API_BASE_URL/v1/payment-links" \\
+  -H "Authorization: Bearer $DRPAY_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -H "Idempotency-Key: invoice-1048-attempt-1" \\
+  -d '{
+    "amount": 125.50,
+    "currency": "PHP",
+    "description": "Invoice 1048"
+  }'`} />
+              <ApiCodeBlock title="201 response" code={`{
+  "id": "payment-record-uuid",
+  "code": "opaque_checkout_code",
+  "paymentUrl": "https://pay.live.denpay.cc/checkout/opaque_checkout_code",
+  "qrCode": "qrph://...",
+  "qrImageUrl": "https://drpay-live-api.onrender.com/v1/public/checkout/opaque_checkout_code/qr.png",
+  "status": "PENDING",
+  "amount": 125.50,
+  "currency": "PHP"
+}`} />
+              <p>The API creates the QR payment, so no SwiftPay credentials or payment data need to touch your frontend. The hosted page displays your payment request, QR, secure checkout branding, reference, and payment status. In production mode, payment collection moves real money.</p>
+            </section>
+
+            <section className="api-docs-section">
+              <h3>4. Example: create the link from your server</h3>
+              <p>Call DRPAY from a trusted backend route, then return only the safe payment URL and reference to your browser or app. This example uses Node.js 18+:</p>
+              <ApiCodeBlock title="Node.js server example" code={`import { createHash } from "node:crypto";
+
+export async function createInvoiceCheckout({ amount, invoiceId }) {
+  const idempotencyKey = createHash("sha256")
+    .update("invoice:" + invoiceId + ":collection")
+    .digest("hex");
+  const response = await fetch(
+    process.env.DRPAY_API_BASE_URL + "/v1/payment-links",
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + process.env.DRPAY_API_KEY,
+        "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey
+      },
+      body: JSON.stringify({
+        amount,
+        currency: "PHP",
+        description: "Invoice " + invoiceId
+      })
+    }
+  );
+
+  const result = await response.json();
+  if (!response.ok) {
+    throw new Error(result.error || "Could not create payment link");
+  }
+  return {
+    paymentUrl: result.paymentUrl,
+    reference: result.code,
+    status: result.status
+  };
+}`} />
+              <p>On your own frontend, redirect the customer to the returned <code>paymentUrl</code> or show it as a payment button/link. Keep the idempotency key associated with your invoice so retries reuse it.</p>
+            </section>
+
+            <section className="api-docs-section">
+              <h3>5. Check payment status</h3>
+              <p>Use <code>GET /v1/payment-links/:code</code> from your server to refresh the status of a link owned by your merchant account. Poll at a reasonable interval, or configure a webhook for server-to-server updates. Treat only <code>EXECUTED</code> as paid.</p>
+              <ApiCodeBlock title="Request" code={`curl "$DRPAY_API_BASE_URL/v1/payment-links/CHECKOUT_CODE" \\
+  -H "Authorization: Bearer $DRPAY_API_KEY" \\
+  -H "Accept: application/json"`} />
+              <ApiCodeBlock title="Response" code={`{
+  "code": "opaque_checkout_code",
+  "paymentUrl": "https://pay.live.denpay.cc/checkout/opaque_checkout_code",
+  "status": "EXECUTED",
+  "amount": 125.50,
+  "currency": "PHP",
+  "referenceNo": "DRP-..."
+}`} />
+              <p>Status values include <code>PENDING</code>, <code>EXECUTED</code>, <code>CANCELED</code>, <code>REJECTED</code>, and <code>EXPIRED</code>. A successful response to link creation means the checkout was created, not that the customer has paid.</p>
+            </section>
+
+            <section className="api-docs-section">
+              <h3>6. Wallet activity</h3>
+              <p><code>GET /v1/wallet/activity?limit=50&amp;offset=0</code> returns this merchant's latest transactions. <code>limit</code> is 1–100. Use offset pagination. The transaction <code>amount</code> is the gross payment or transfer amount; <code>walletAmount</code> is the signed posted ledger impact after fees/refund accounting, and is null until posted.</p>
+              <ApiCodeBlock title="Request" code={`curl "$DRPAY_API_BASE_URL/v1/wallet/activity?limit=50&offset=0" \\
+  -H "Authorization: Bearer $DRPAY_API_KEY"`} />
+              <p>Each returned item includes <code>id</code>, <code>referenceNo</code>, <code>amount</code>, <code>walletAmount</code>, <code>status</code>, <code>channel</code>, <code>transactionType</code>, <code>description</code>, and <code>createdAt</code>. Additional transfer details may include recipient and institution fields.</p>
+            </section>
+
+            <section className="api-docs-section">
+              <h3>Endpoints and permissions</h3>
+              <div className="api-docs-endpoints">
+                <div><b>GET</b><code>/v1/wallet/balance</code><span>read · merchant wallet balance</span></div>
+                <div><b>GET</b><code>/v1/wallet/activity</code><span>read · merchant transactions</span></div>
+                <div><b>POST</b><code>/v1/payment-links</code><span>payments:write · create QR checkout and link</span></div>
+                <div><b>GET</b><code>/v1/payment-links/:code</code><span>read · refresh owned payment status</span></div>
+                <div><b>GET</b><code>/v1/payment-institutions</code><span>read · collection institution list</span></div>
+                <div><b>GET</b><code>/v1/disbursement-institutions</code><span>read · transfer institution list</span></div>
+                <div><b>GET</b><code>/v1/internal-wallet</code><span>read · separate admin-funded floating wallet</span></div>
+              </div>
+              <p>API keys are limited to 120 requests per minute. API keys cannot initiate disbursements or access other merchants' records.</p>
+            </section>
+
+            <section className="api-docs-section">
+              <h3>Payment webhooks</h3>
+              <p>Configure a public HTTPS webhook in <strong>Profile → Developer settings</strong> to receive <code>payment.succeeded</code> and <code>payment.failed</code> events. Verify <code>DRPAY-Signature</code> using HMAC-SHA256 over the exact raw request body and your webhook signing secret. Deduplicate by event <code>id</code>; return a 2xx response after safely recording the event. Failed deliveries retry with exponential backoff, up to eight attempts.</p>
+            </section>
+
+            <section className="api-docs-section">
+              <h3>Errors and safe retries</h3>
+              <p>Errors use <code>{"{ \"error\": \"...\" }"}</code>. Common HTTP statuses: <code>400</code> invalid input, <code>401</code> invalid key, <code>403</code> missing scope, <code>404</code> unknown/foreign payment link, <code>409</code> idempotency or wallet conflict, <code>429</code> rate limit, <code>503</code> temporary service or ambiguous provider outcome.</p>
+              <p>For an ambiguous create result or timeout, keep the original idempotency key and reconcile through wallet activity or payment status before attempting another collection. Do not mark an invoice paid based only on the customer's return to your site—verify the status via authenticated API or a verified webhook.</p>
+            </section>
+
+            <p className="profile-info-note">Import the <a href="/postman/DRPAY-Merchant-API.postman_collection.json" download>Postman collection</a> for ready-to-run requests. Configure its base URL for the chosen API environment and use a matching merchant API key.</p>
+          </div>
         )}
 
         {title === "Help center" && (
@@ -2886,8 +3186,9 @@ const tabs = [
 
 export default function App() {
   const checkoutCode = /^\/checkout\/([A-Za-z0-9_-]{40,50})\/?$/.exec(window.location.pathname)?.[1] || "";
+  const isMerchantHost = window.location.hostname.toLowerCase() === "merchant.denpay.cc";
   const isAdminConsole = window.location.pathname === "/admin" || window.location.pathname.startsWith("/admin/");
-  const isDashboard = Capacitor.isNativePlatform() || window.location.pathname === "/app" || window.location.pathname.startsWith("/app/");
+  const isDashboard = isMerchantHost || Capacitor.isNativePlatform() || window.location.pathname === "/app" || window.location.pathname.startsWith("/app/");
   const [session, setSession] = useState<Session | null>(() => isDashboard || isAdminConsole ? getSession() : null);
   const [data, setData] = useState<DashboardData | null>(null);
   const [securityStatus, setSecurityStatus] = useState<MerchantSecurityStatus | null>(null);

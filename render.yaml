@@ -17,7 +17,15 @@ services:
       - key: DATABASE_SSL
         value: "false"
       - key: DRPAY_FRONTEND_ORIGIN
-        value: https://drpay-web.onrender.com
+        value: https://merchant.denpay.cc
+      - key: DRPAY_ADDITIONAL_FRONTEND_ORIGINS
+        value: https://pay.live.denpay.cc,https://pay.sandbox.denpay.cc,https://drpay-web.onrender.com
+      - key: DRPAY_LIVE_CHECKOUT_ORIGIN
+        value: https://pay.live.denpay.cc
+      - key: DRPAY_SANDBOX_CHECKOUT_ORIGIN
+        value: https://pay.sandbox.denpay.cc
+      - key: DRPAY_PUBLIC_API_ORIGIN
+        value: https://drpay-api.onrender.com
       - key: DRPAY_MERCHANT_EMAIL
         sync: false
       - key: DRPAY_SUPER_ADMIN_EMAIL
@@ -40,6 +48,73 @@ services:
         sync: false
       - key: SWIFTPAY_SECRET_KEY
         sync: false
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET_NAME
+        sync: false
+  - type: web
+    name: drpay-live-api
+    runtime: node
+    plan: starter
+    region: oregon
+    buildCommand: corepack enable && corepack prepare pnpm@10.34.3 --activate && pnpm install --frozen-lockfile && pnpm check:api
+    startCommand: pnpm start:api
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: drpay-live-postgres
+          property: connectionString
+      - key: DATABASE_SSL
+        value: "false"
+      - key: DRPAY_FRONTEND_ORIGIN
+        value: https://merchant.denpay.cc
+      - key: DRPAY_ADDITIONAL_FRONTEND_ORIGINS
+        value: https://pay.live.denpay.cc,https://pay.sandbox.denpay.cc,https://drpay-web.onrender.com
+      - key: DRPAY_LIVE_CHECKOUT_ORIGIN
+        value: https://pay.live.denpay.cc
+      - key: DRPAY_SANDBOX_CHECKOUT_ORIGIN
+        value: https://pay.sandbox.denpay.cc
+      - key: DRPAY_PUBLIC_API_ORIGIN
+        value: https://drpay-live-api.onrender.com
+      - key: DRPAY_MERCHANT_EMAIL
+        sync: false
+      - key: DRPAY_SUPER_ADMIN_EMAIL
+        sync: false
+      - key: DRPAY_SUPER_ADMIN_PASSWORD
+        sync: false
+      - key: DRPAY_PASSWORD_SALT
+        sync: false
+      - key: DRPAY_JWT_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false
+      - key: DRPAY_MAX_TRANSFER_PHP
+        value: "100000"
+      - key: SWIFTPAY_ENV
+        value: production
+      - key: SWIFTPAY_LIVE_MONEY_ACKNOWLEDGED
+        value: I_UNDERSTAND_REAL_MONEY
+      - key: SWIFTPAY_ACCESS_KEY
+        sync: false
+      - key: SWIFTPAY_SECRET_KEY
+        sync: false
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET_NAME
+        sync: false
   - type: web
     name: drpay-web
     runtime: static
@@ -50,9 +125,16 @@ services:
         value: 22
       - key: VITE_DRPAY_BACKEND_URL
         value: https://drpay-api.onrender.com
+      - key: VITE_DRPAY_LIVE_BACKEND_URL
+        value: https://drpay-live-api.onrender.com
+      - key: VITE_DRPAY_SANDBOX_BACKEND_URL
+        value: https://drpay-api.onrender.com
       - key: VITE_ANDROID_APK_URL
         sync: false
     routes:
+      - type: rewrite
+        source: /checkout/*
+        destination: /index.html
       - type: rewrite
         source: /app
         destination: /index.html
@@ -82,5 +164,10 @@ databases:
   - name: drpay-postgres
     databaseName: drpay
     user: drpay
+    plan: basic-256mb
+    region: oregon
+  - name: drpay-live-postgres
+    databaseName: drpay_live
+    user: drpay_live
     plan: basic-256mb
     region: oregon
