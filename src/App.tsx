@@ -1119,7 +1119,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
       const description = currency === "KRW" && krwPhpQuote
         ? `${name} · ${enteredAmount.toLocaleString("en-US")} KRW @ ${krwPhpQuote.rate} PHP/KRW`
         : name;
-      const response = await createPaymentLink({ amount: phpAmount, description }, idempotencyKey);
+      const response = await createPaymentLink({ amount: phpAmount, description, institution }, idempotencyKey);
       setResult(response);
       clearPaymentLinkIdempotencyKey();
     } catch (requestError) {
@@ -1259,20 +1259,79 @@ function TransactionSheet({
   transaction,
   onClose,
   onComplete,
+  onRepeatTransfer,
 }: {
   transaction: Transaction;
   onClose: () => void;
   onComplete: () => void;
+  onRepeatTransfer: (details: TransferQrDetails) => void;
 }) {
   const [refundDetails, setRefundDetails] = useState<CollectionRefundDetails | null>(null);
   const [refundPin, setRefundPin] = useState("");
   const [refundLoading, setRefundLoading] = useState(false);
   const [refundSubmitting, setRefundSubmitting] = useState(false);
   const [refundError, setRefundError] = useState("");
+  const [receiptError, setReceiptError] = useState("");
   const [refundIdempotencyKey, setRefundIdempotencyKey] = useState(() => crypto.randomUUID());
 
   async function copyReference() {
     await navigator.clipboard?.writeText(transaction.reference);
+  }
+
+  const isTransfer = transaction.numericAmount < 0;
+  const canRepeatTransfer = isTransfer
+    && !transaction.isRefund
+    && Boolean(transaction.institutionCode && transaction.recipientName && transaction.recipientAccountNumber);
+  const receiptText = [
+    "DRPAY TRANSFER RECEIPT",
+    "",
+    `Amount: ${formatPeso(Math.abs(transaction.numericAmount))}`,
+    `Status: ${transaction.rawStatus}`,
+    `Reference: ${transaction.reference}`,
+    `Network: ${transaction.channel}`,
+    `Institution: ${transaction.institutionName || transaction.customer}`,
+    ...(transaction.recipientName ? [`Recipient: ${transaction.recipientName}`] : []),
+    ...(transaction.recipientAccountNumber ? [`Account ending: ${transaction.recipientAccountNumber.slice(-4)}`] : []),
+    ...(transaction.remarks ? [`Remarks: ${transaction.remarks}`] : []),
+    `Date: ${transaction.date}`,
+    "",
+    "This receipt reflects the transfer status reported by the payment provider.",
+  ].join("\n");
+
+  function downloadReceipt() {
+    const receiptUrl = URL.createObjectURL(new Blob([receiptText], { type: "text/plain;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = receiptUrl;
+    link.download = `drpay-transfer-${transaction.reference.replace(/[^a-zA-Z0-9_-]/g, "_")}.txt`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(receiptUrl), 1000);
+  }
+
+  async function shareReceipt() {
+    setReceiptError("");
+    try {
+      const { value } = await Share.canShare();
+      if (!value) throw new Error("Sharing is not available on this device. Download the receipt instead.");
+      await Share.share({
+        title: "DRPAY transfer receipt",
+        text: receiptText,
+        dialogTitle: "Share transfer receipt",
+      });
+    } catch (shareError) {
+      setReceiptError(shareError instanceof Error ? shareError.message : "Could not share the receipt. Download it instead.");
+    }
+  }
+
+  function repeatTransfer() {
+    if (!canRepeatTransfer || !transaction.institutionCode || !transaction.recipientName || !transaction.recipientAccountNumber) return;
+    onRepeatTransfer({
+      bank: transaction.institutionCode,
+      accountNumber: transaction.recipientAccountNumber,
+      fullName: transaction.recipientName,
+      channel: transaction.channel === "PESONET" ? "PESONET" : "INSTAPAY",
+    });
   }
 
   async function loadRefundDetails() {
@@ -1330,16 +1389,38 @@ function TransactionSheet({
           <div><span className="eyebrow">TRANSACTION DETAILS</span><h2>{transaction.customer}</h2></div>
           <IconButton label="Close" onClick={onClose}><X size={19} /></IconButton>
         </header>
-        <div className={`detail-amount ${transaction.numericAmount >= 0 ? "credit" : "debit"}`}>{transaction.amount}</div>
-        <StatusBadge status={transaction.status} />
+        <section className="transaction-detail-hero">
+          {transaction.institutionCode && transaction.institutionName && (
+            <InstitutionLogo institution={{
+              code: transaction.institutionCode,
+              name: transaction.institutionName,
+              logoUrl: transaction.institutionLogoUrl,
+            }} className="transaction-detail-logo" />
+          )}
+          <div>
+            <div className={`detail-amount ${transaction.numericAmount >= 0 ? "credit" : "debit"}`}>{transaction.amount}</div>
+            <StatusBadge status={transaction.status} />
+          </div>
+        </section>
         <dl className="detail-list">
           <div><dt>Provider status</dt><dd>{transaction.rawStatus}</dd></div>
           <div><dt>Channel</dt><dd>{transaction.channel}</dd></div>
           <div><dt>Date</dt><dd>{transaction.date}</dd></div>
           <div><dt>Description</dt><dd>{transaction.description || "—"}</dd></div>
+          {transaction.recipientName && <div><dt>Recipient</dt><dd>{transaction.recipientName}</dd></div>}
+          {transaction.recipientAccountNumber && <div><dt>Account</dt><dd>Ending {transaction.recipientAccountNumber.slice(-4)}</dd></div>}
+          {transaction.remarks && <div><dt>Remarks</dt><dd>{transaction.remarks}</dd></div>}
           <div><dt>Reference</dt><dd><button onClick={copyReference}>{transaction.reference}<Copy size={14} /></button></dd></div>
         </dl>
         <p className="detail-note"><ShieldCheck size={15} /> Status was last reconciled by the DRPAY server with SwiftPay.</p>
+        {isTransfer && (
+          <div className="transaction-receipt-actions">
+            {canRepeatTransfer && <Button variant="secondary" icon={<RefreshCw size={15} />} onClick={repeatTransfer}>Repeat transfer</Button>}
+            <Button variant="secondary" icon={<Download size={15} />} onClick={downloadReceipt}>Download receipt</Button>
+            <Button variant="secondary" icon={<Share2 size={15} />} onClick={() => void shareReceipt()}>Share receipt</Button>
+            {receiptError && <div className="inline-error" role="alert"><AlertCircle size={14} />{receiptError}</div>}
+          </div>
+        )}
         {refundCompleted && <div className="refund-status refund-status-complete"><ShieldCheck size={15} />Refund transfer completed.</div>}
         {refundInProgress && <div className="refund-status"><LoaderCircle size={15} className="spin" />Refund transfer is being processed. Check Wallet activity for its latest status.</div>}
         {transaction.canRefund && !refundDetails && (
@@ -1948,7 +2029,7 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setError("");
     try {
-      const result = await createPaymentLink({ amount: Number(amount), description }, idempotencyKey);
+      const result = await createPaymentLink({ amount: Number(amount), description, institution }, idempotencyKey);
       setUrl(result.paymentUrl);
       setQrCode(result.qrCode || "");
       setCode(result.code);
@@ -1984,7 +2065,7 @@ function HomeView({
   onScan,
   onActivity,
   onTransaction,
-  onWalletDetails,
+  onWithdraw,
 }: {
   data: DashboardData;
   onRequestPayment: () => void;
@@ -1992,7 +2073,7 @@ function HomeView({
   onScan: () => void;
   onActivity: () => void;
   onTransaction: (transaction: Transaction) => void;
-  onWalletDetails: () => void;
+  onWithdraw: () => void;
 }) {
   const { balanceVisible, toggleBalanceVisibility } = useBalanceVisibility();
 
@@ -2010,15 +2091,6 @@ function HomeView({
           </button>
         </div>
         <strong className="balance-value">{balanceVisible ? data.availableBalance : "₱ ••••••"}</strong>
-        <div className="balance-bottom">
-          <span>
-            <i />
-            SwiftPay account connected
-          </span>
-          <button onClick={onWalletDetails}>
-            Wallet details <ChevronRight size={14} />
-          </button>
-        </div>
         <div className="balance-floating">
           <div>
             <span className="balance-floating-label">
@@ -2027,6 +2099,9 @@ function HomeView({
             </span>
             <strong>{balanceVisible ? data.internalWalletBalance : "₱ ••••••"}</strong>
           </div>
+          <button type="button" className="balance-withdraw-button" onClick={onWithdraw}>
+            Withdraw
+          </button>
         </div>
       </section>
 
@@ -2252,7 +2327,6 @@ function WalletFloatingBalanceCard({
   if (data.availableFloatingBalance <= 0) return null;
   const collectionTargetKrw = 1_000_000;
   const currentCollectionsKrw = Math.max(0, data.cumulativeKrwCollections);
-  const remainingCollectionsKrw = Math.max(0, collectionTargetKrw - currentCollectionsKrw);
   const collectionProgress = Math.min(100, (currentCollectionsKrw / collectionTargetKrw) * 100);
   const formatKrw = (amount: number) => `₩${Math.floor(amount).toLocaleString("en-US")}`;
 
@@ -2263,7 +2337,7 @@ function WalletFloatingBalanceCard({
         <div><small>Total balance</small><strong>{balanceVisible ? data.internalWalletBalance : "₱ ••••••"}</strong></div>
       </div>
       <div className="collection-progress" aria-label={`Cumulative collections: ${formatKrw(currentCollectionsKrw)} of ${formatKrw(collectionTargetKrw)}`}>
-        <p>Current balance <strong>{balanceVisible ? formatKrw(currentCollectionsKrw) : "₩ ••••••"}</strong></p>
+        <p>Current Collection <strong>{balanceVisible ? formatKrw(currentCollectionsKrw) : "₩ ••••••"}</strong></p>
         <div
           className="collection-progress-track"
           role="progressbar"
@@ -2274,7 +2348,6 @@ function WalletFloatingBalanceCard({
         >
           <span style={{ width: `${collectionProgress}%` }} />
         </div>
-        <p>You can keep up to {balanceVisible ? formatKrw(remainingCollectionsKrw) : "₩ ••••••"} more.</p>
       </div>
       <p className="floating-transfer-fee-note">Unsettled funds will be transferred to the merchant’s wallet ledger once cumulative collections reach 1,000,000 KRW.</p>
       {payoutAccount && payoutAccount.bankName ? (
@@ -3277,10 +3350,7 @@ export default function App() {
                 onScan={() => setShowScanner(true)}
                 onActivity={() => setActiveTab("Wallet")}
                 onTransaction={setSelectedTransaction}
-                onWalletDetails={() => {
-                  setProfileSection("Merchant profile");
-                  setActiveTab("Profile");
-                }}
+                onWithdraw={() => setActiveTab("Wallet")}
               />
             )}
             {activeTab === "Wallet" && <WalletView
@@ -3353,7 +3423,18 @@ export default function App() {
         />
       )}
       {showPaymentLink && <PaymentLinkSheet onClose={() => { setShowPaymentLink(false); void loadDashboard(); }} />}
-      {selectedTransaction && <TransactionSheet transaction={selectedTransaction} onClose={() => setSelectedTransaction(null)} onComplete={() => void loadDashboard()} />}
+      {selectedTransaction && (
+        <TransactionSheet
+          transaction={selectedTransaction}
+          onClose={() => setSelectedTransaction(null)}
+          onComplete={() => void loadDashboard()}
+          onRepeatTransfer={(details) => {
+            setSelectedTransaction(null);
+            setTransferQrPrefill(details);
+            setShowTransfer(true);
+          }}
+        />
+      )}
       {biometricOfferEmail && session?.role === "merchant" && session.email === biometricOfferEmail && securityStatus?.pinConfigured && (
         <BiometricEnrollmentPrompt
           busy={biometricBusy}

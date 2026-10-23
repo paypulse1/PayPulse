@@ -16,6 +16,10 @@ export type Transaction = {
   institutionCode?: string;
   institutionName?: string;
   institutionLogoUrl?: string;
+  recipientName?: string;
+  recipientAccountNumber?: string;
+  remarks?: string;
+  isRefund?: boolean;
   date: string;
   status: "Completed" | "Pending" | "Failed";
   rawStatus: string;
@@ -222,6 +226,10 @@ type WalletActivityResponse = {
   institutionCode?: string;
   institutionName?: string;
   institutionLogoUrl?: string;
+  recipientName?: string;
+  recipientAccountNumber?: string;
+  remarks?: string;
+  isRefund?: boolean;
   amount: number;
   status: string;
   channel: string;
@@ -484,6 +492,10 @@ function toTransaction(item: WalletActivityResponse, index: number): Transaction
     institutionCode: item.institutionCode,
     institutionName: item.institutionName,
     institutionLogoUrl: item.institutionLogoUrl,
+    recipientName: item.recipientName,
+    recipientAccountNumber: item.recipientAccountNumber,
+    remarks: item.remarks,
+    isRefund: item.isRefund,
     date: new Date(item.createdAt).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
     status: toStatus(item.status),
     rawStatus: item.status,
@@ -657,13 +669,21 @@ export async function createTransfer(input: {
 }
 
 export async function createPaymentLink(
-  input: { amount: number; description: string },
+  input: { amount: number; description: string; institution?: PaymentInstitution },
   idempotencyKey: string = crypto.randomUUID(),
 ): Promise<PaymentLinkResult> {
   return backendRequest<PaymentLinkResult>("/v1/payment-links", {
     method: "POST",
     headers: { "Idempotency-Key": idempotencyKey },
-    body: JSON.stringify({ amount: input.amount, currency: "PHP", description: input.description, referenceNo: `LINK-${Date.now()}` }),
+    body: JSON.stringify({
+      amount: input.amount,
+      currency: "PHP",
+      description: input.description,
+      referenceNo: `LINK-${Date.now()}`,
+      institutionCode: input.institution?.code,
+      institutionName: input.institution?.name,
+      institutionLogoUrl: input.institution?.logoUrl,
+    }),
   });
 }
 

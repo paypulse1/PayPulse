@@ -704,6 +704,9 @@ async function initializeDatabase() {
       title TEXT NOT NULL,
       amount NUMERIC(18, 2) NOT NULL CHECK (amount > 0),
       currency TEXT NOT NULL DEFAULT 'PHP',
+      payment_institution_code TEXT,
+      payment_institution_name TEXT,
+      payment_institution_logo_url TEXT,
       payment_url TEXT,
       checkout_type TEXT NOT NULL DEFAULT 'PAYMENT_LINK',
       payment_token TEXT,
@@ -720,6 +723,9 @@ async function initializeDatabase() {
       amount NUMERIC(18, 2) NOT NULL CHECK (amount > 0),
       channel TEXT NOT NULL CHECK (channel IN ('INSTAPAY', 'PESONET')),
       institution_code TEXT NOT NULL,
+      recipient_name TEXT,
+      recipient_account_number TEXT,
+      remarks TEXT,
       request_fingerprint TEXT,
       status TEXT NOT NULL,
       error_message TEXT,
@@ -773,8 +779,14 @@ async function initializeDatabase() {
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS checkout_type TEXT NOT NULL DEFAULT 'PAYMENT_LINK';
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_token TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS qr_payload TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_institution_code TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_institution_name TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_institution_logo_url TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS merchant_email TEXT REFERENCES merchant_accounts(email) ON DELETE CASCADE;
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS request_fingerprint TEXT;
+    ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS recipient_name TEXT;
+    ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS recipient_account_number TEXT;
+    ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS remarks TEXT;
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS merchant_email TEXT REFERENCES merchant_accounts(email) ON DELETE CASCADE;
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS refund_payment_id UUID REFERENCES payment_links(id);
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS refund_ledger_reversed_at TIMESTAMPTZ;
@@ -2190,8 +2202,11 @@ app.get("/v1/wallet/activity", async (req, res) => {
   try {
     await reconcilePending();
     const { rows } = await pool.query(`
-      SELECT p.id::text, p.reference_no AS "referenceNo", NULL::text AS "institutionCode", p.title AS description,
-        NULL::text AS "institutionName", NULL::text AS "institutionLogoUrl",
+      SELECT p.id::text, p.reference_no AS "referenceNo",
+        p.payment_institution_code AS "institutionCode", p.title AS description,
+        p.payment_institution_name AS "institutionName", p.payment_institution_logo_url AS "institutionLogoUrl",
+        NULL::text AS "recipientName", NULL::text AS "recipientAccountNumber",
+        NULL::text AS remarks, FALSE AS "isRefund",
         CASE WHEN p.payment_token IS NULL THEN 'Payment link' ELSE 'QR Ph checkout' END AS channel,
         p.status, p.amount::float8 AS amount,
         p.created_at AS "createdAt", 'PAYMENT_LINK' AS "transactionType",
@@ -2210,6 +2225,8 @@ app.get("/v1/wallet/activity", async (req, res) => {
       SELECT d.id::text, d.merchant_reference_no AS "referenceNo", d.institution_code AS "institutionCode",
         CASE WHEN d.refund_payment_id IS NOT NULL THEN 'Refund of collection ' || p.reference_no ELSE d.institution_code END AS description,
         NULL::text AS "institutionName", NULL::text AS "institutionLogoUrl",
+        d.recipient_name AS "recipientName", d.recipient_account_number AS "recipientAccountNumber",
+        d.remarks, (d.refund_payment_id IS NOT NULL) AS "isRefund",
         d.channel, d.status, -d.amount::float8 AS amount,
         d.created_at AS "createdAt", 'DISBURSEMENT' AS "transactionType",
         FALSE AS "canRefund", NULL::text AS "refundStatus"
@@ -2255,9 +2272,23 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
   const submittedAmount = Number(req.body?.amount);
   const amount = Number.isFinite(submittedAmount) ? Math.round(submittedAmount * 100) / 100 : Number.NaN;
   const title = typeof req.body?.description === "string" ? req.body.description.trim().slice(0, 100) : "";
+  const institutionCode = typeof req.body?.institutionCode === "string" ? req.body.institutionCode.trim().toUpperCase() : "";
+  const institutionName = typeof req.body?.institutionName === "string" ? req.body.institutionName.trim() : "";
+  const submittedLogoUrl = req.body?.institutionLogoUrl;
+  const hasInstitution = [req.body?.institutionCode, req.body?.institutionName, submittedLogoUrl]
+    .some((value) => value != null && value !== "");
+  const institutionLogoUrl = submittedLogoUrl == null || submittedLogoUrl === ""
+    ? null
+    : getInstitutionLogoUrl({ logoUrl: submittedLogoUrl });
   const idempotencyKey = req.get("Idempotency-Key");
   if (!validIdempotencyKey(idempotencyKey)) return res.status(400).json({ error: "A valid Idempotency-Key header is required." });
   if (!Number.isFinite(amount) || Math.abs(submittedAmount - amount) > 1e-7 || amount <= 0 || amount > 1_000_000 || !title) return res.status(400).json({ error: "Enter a description and a valid PHP amount with no more than two decimal places." });
+  if (hasInstitution && (
+    !/^[A-Z0-9_-]{1,64}$/.test(institutionCode)
+    || !institutionName
+    || institutionName.length > 120
+    || (submittedLogoUrl != null && submittedLogoUrl !== "" && !institutionLogoUrl)
+  )) return res.status(400).json({ error: "The selected payment institution is invalid." });
 
   const existing = await pool.query("SELECT * FROM payment_links WHERE idempotency_key = $1 AND merchant_email = $2", [idempotencyKey, req.merchantEmail]);
   if (existing.rowCount) {
@@ -2291,8 +2322,12 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
   const referenceNo = `DRP-${randomUUID()}`;
   const code = randomBytes(32).toString("base64url");
   try {
-    await pool.query(`INSERT INTO payment_links (id, idempotency_key, reference_no, code, title, amount, checkout_type, status, merchant_email)
-      VALUES ($1, $2, $3, $4, $5, $6, 'DIRECT_QRPH', 'CREATING', $7)`, [id, idempotencyKey, referenceNo, code, title, amount, req.merchantEmail]);
+    await pool.query(`INSERT INTO payment_links (
+      id, idempotency_key, reference_no, code, title, amount,
+      payment_institution_code, payment_institution_name, payment_institution_logo_url,
+      checkout_type, status, merchant_email
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'DIRECT_QRPH', 'CREATING', $10)`,
+    [id, idempotencyKey, referenceNo, code, title, amount, institutionCode || null, institutionName || null, institutionLogoUrl, req.merchantEmail]);
   } catch (error) {
     if (error.code === "23505") return res.status(409).json({ error: "The checkout outcome is unknown. Check wallet activity before retrying." });
     throw error;
@@ -2491,9 +2526,9 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
     }
     await client.query(
       `INSERT INTO disbursements
-       (id, idempotency_key, merchant_reference_no, amount, channel, institution_code, request_fingerprint, status, merchant_email, refund_payment_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'REQUESTING', $8, $9)`,
-      [id, idempotencyKey, merchantReferenceNo, amount, channel, institutionCode, requestFingerprint, req.merchantEmail, refundPaymentId || null],
+       (id, idempotency_key, merchant_reference_no, amount, channel, institution_code, recipient_name, recipient_account_number, remarks, request_fingerprint, status, merchant_email, refund_payment_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'REQUESTING', $11, $12)`,
+      [id, idempotencyKey, merchantReferenceNo, amount, channel, institutionCode, fullName, accountNumber, remarks, requestFingerprint, req.merchantEmail, refundPaymentId || null],
     );
     await client.query("COMMIT");
   } catch (error) {

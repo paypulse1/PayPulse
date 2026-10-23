@@ -81,6 +81,8 @@ h1, h2, p { margin-top: 0; }
 .balance-floating .balance-floating-label { display: flex; align-items: center; gap: 5px; }
 .balance-floating-label img { width: auto; height: 12px; }
 .balance-floating strong { overflow-wrap: anywhere; font-size: 13px; letter-spacing: -.02em; }
+.balance-floating .balance-withdraw-button { flex: 0 0 auto; padding: 6px 10px; border: 1px solid rgba(255,255,255,.24); border-radius: 8px; background: rgba(255,255,255,.08); color: white; font-size: 9px; font-weight: 700; }
+.balance-floating .balance-withdraw-button:active { background: rgba(255,255,255,.16); }
 
 .quick-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; margin: 15px 0; }
 .quick-action { padding: 0; border: 0; background: transparent; display: grid; justify-items: center; gap: 7px; }
@@ -204,7 +206,6 @@ h1, h2, p { margin-top: 0; }
 .collection-progress p { margin: 0; color: var(--muted); font-size: 9px; }
 .collection-progress p:first-child { margin-bottom: 8px; color: var(--ink); font-size: 12px; }
 .collection-progress p:first-child strong { color: #3478e5; font-weight: 700; }
-.collection-progress p:last-child { margin-top: 8px; font-size: 9px; }
 .collection-progress-track { height: 8px; overflow: hidden; border-radius: 999px; background: #e6e7ea; }
 .collection-progress-track span { display: block; height: 100%; border-radius: inherit; background: #3478e5; transition: width .25s ease; }
 .floating-payout-account { margin-bottom: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
@@ -426,6 +427,11 @@ h1, h2, p { margin-top: 0; }
 .detail-amount { margin: 6px 0 8px; font-size: 29px; font-weight: 800; letter-spacing: -.05em; }
 .detail-amount.credit { color: var(--success); }
 .detail-amount.debit { color: var(--ink); }
+.transaction-detail-hero { min-height: 118px; margin: -5px 0 17px; padding: 18px; display: flex; align-items: center; justify-content: center; gap: 17px; border: 1px solid var(--line); border-radius: 16px; background: linear-gradient(145deg, #f8fafd, #fff); text-align: center; }
+.transaction-detail-logo { width: 56px; height: 56px; padding: 8px; border: 1px solid var(--line); border-radius: 14px; background: #fff; object-fit: contain; }
+.transaction-receipt-actions { margin: 16px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.transaction-receipt-actions .button { width: 100%; min-height: 42px; padding-inline: 8px; font-size: 9px; }
+.transaction-receipt-actions .inline-error { grid-column: 1 / -1; }
 .detail-list { margin: 20px 0; border-block: 1px solid var(--line); }
 .detail-list > div { min-height: 46px; display: flex; align-items: center; justify-content: space-between; gap: 15px; border-bottom: 1px solid var(--line); }
 .detail-list > div:last-child { border: 0; }
