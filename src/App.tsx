@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Capacitor } from "@capacitor/core";
 import { PushNotifications } from "@capacitor/push-notifications";
+import { Share } from "@capacitor/share";
 import {
   AlertCircle,
   ArrowDownLeft,
@@ -27,6 +28,7 @@ import {
   RefreshCw,
   ReceiptText,
   Search,
+  Share2,
   Send,
   Settings,
   ShieldCheck,
@@ -1365,6 +1367,18 @@ function TransferSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<TransferResult | null>(null);
+  const [receiptDetails, setReceiptDetails] = useState<{
+    amount: number;
+    channel: "INSTAPAY" | "PESONET";
+    institutionName: string;
+    accountNumber: string;
+    recipientName: string;
+    remarks: string;
+    reference: string;
+    status: string;
+    createdAt: string;
+  } | null>(null);
+  const [receiptActionError, setReceiptActionError] = useState("");
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
   useEffect(() => {
@@ -1396,10 +1410,22 @@ function TransferSheet({
   async function submitWithAuthorization() {
     setBusy(true);
     setError("");
+    setReceiptActionError("");
     try {
       const authorization = await authorizeTransferWithPin(transferAuthorization, pin);
       const response = await createTransfer({ ...transferAuthorization, stepUpToken: authorization.stepUpToken });
       setResult(response);
+      setReceiptDetails({
+        amount: Number(amount),
+        channel,
+        institutionName: selectedBank?.name || bank,
+        accountNumber: account,
+        recipientName: name,
+        remarks,
+        reference: response.referenceNo || response.id || "Not provided",
+        status: response.status,
+        createdAt: new Date().toISOString(),
+      });
       onComplete();
     } catch (requestError) {
       const message = requestError instanceof Error ? requestError.message : "Transfer failed";
@@ -1424,6 +1450,52 @@ function TransferSheet({
   const channelAvailable = channel === "INSTAPAY"
     ? selectedBank?.instapayEnabled !== false
     : selectedBank?.pesonetEnabled !== false;
+  const receiptText = receiptDetails ? [
+    "DRPAY TRANSFER RECEIPT",
+    "",
+    `Amount: ${formatPeso(receiptDetails.amount)}`,
+    `Status: ${receiptDetails.status}`,
+    `Reference: ${receiptDetails.reference}`,
+    `Network: ${receiptDetails.channel}`,
+    `Institution: ${receiptDetails.institutionName}`,
+    `Recipient: ${receiptDetails.recipientName}`,
+    `Account: ending ${receiptDetails.accountNumber.slice(-4)}`,
+    `Remarks: ${receiptDetails.remarks}`,
+    `Date: ${new Date(receiptDetails.createdAt).toLocaleString()}`,
+    "",
+    "This receipt confirms the transfer request status shown above. A pending request is not proof of settlement.",
+  ].join("\n") : "";
+
+  function downloadTransferReceipt() {
+    if (!receiptText || !receiptDetails) return;
+    const receiptUrl = URL.createObjectURL(new Blob([receiptText], { type: "text/plain;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = receiptUrl;
+    link.download = `drpay-transfer-${receiptDetails.reference.replace(/[^a-zA-Z0-9_-]/g, "_")}.txt`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(receiptUrl), 1000);
+  }
+
+  async function shareTransferReceipt() {
+    if (!receiptText) return;
+    setReceiptActionError("");
+    try {
+      const { value } = await Share.canShare();
+      if (!value) {
+        setReceiptActionError("Sharing is not available on this device. Download the receipt instead.");
+        return;
+      }
+      await Share.share({
+        title: "DRPAY transfer receipt",
+        text: receiptText,
+        dialogTitle: "Share transfer receipt",
+      });
+    } catch (shareError) {
+      setReceiptActionError(shareError instanceof Error ? shareError.message : "Could not share the transfer receipt. Download it instead.");
+    }
+  }
 
   function selectBank(code: string) {
     const institution = institutions.find((item) => item.code === code);
@@ -1452,6 +1524,24 @@ function TransferSheet({
             <strong>{result.outcomeUnknown ? "Outcome needs review" : ["REJECTED", "ERROR", "FAILED", "CANCELED", "CANCELLED"].includes(result.status.toUpperCase()) ? "Transfer not sent" : ["EXECUTED", "SUCCESS", "COMPLETED"].includes(result.status.toUpperCase()) ? "Transfer settled" : "Transfer accepted for processing"}</strong>
             <p>{result.outcomeUnknown ? "The provider response was ambiguous. Do not retry until the transfer is reconciled." : ["REJECTED", "ERROR", "FAILED", "CANCELED", "CANCELLED"].includes(result.status.toUpperCase()) ? result.message || "SwiftPay rejected the transfer." : ["EXECUTED", "SUCCESS", "COMPLETED"].includes(result.status.toUpperCase()) ? result.message || "SwiftPay confirmed settlement." : result.message || "Provider acceptance is not final settlement. Track the terminal status in Wallet activity."}</p>
             <span className="payment-state">Status: {result.status}</span>
+            {receiptDetails && !result.outcomeUnknown && !["REJECTED", "ERROR", "FAILED", "CANCELED", "CANCELLED"].includes(result.status.toUpperCase()) && (
+              <>
+                <dl className="detail-list">
+                  <div><dt>Amount</dt><dd>{formatPeso(receiptDetails.amount)}</dd></div>
+                  <div><dt>Reference</dt><dd>{receiptDetails.reference}</dd></div>
+                  <div><dt>Recipient</dt><dd>{receiptDetails.recipientName}</dd></div>
+                  <div><dt>Institution</dt><dd>{receiptDetails.institutionName}</dd></div>
+                  <div><dt>Account</dt><dd>Ending {receiptDetails.accountNumber.slice(-4)}</dd></div>
+                  <div><dt>Network</dt><dd>{receiptDetails.channel}</dd></div>
+                  <div><dt>Date</dt><dd>{new Date(receiptDetails.createdAt).toLocaleString()}</dd></div>
+                </dl>
+                <div className="result-actions">
+                  <Button variant="secondary" icon={<Download size={15} />} onClick={downloadTransferReceipt}>Download receipt</Button>
+                  <Button variant="secondary" icon={<Share2 size={15} />} onClick={() => void shareTransferReceipt()}>Share receipt</Button>
+                </div>
+                {receiptActionError && <div className="inline-error" role="alert"><AlertCircle size={14} />{receiptActionError}</div>}
+              </>
+            )}
             <Button onClick={onClose}>Done</Button>
           </div>
         ) : bankPickerOpen ? (
