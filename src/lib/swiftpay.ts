@@ -240,9 +240,59 @@ type WalletActivityResponse = {
   refundStatus: string | null;
 };
 
+type CollectionInstitution = {
+  code: string;
+  name: string;
+  logoUrl?: string;
+};
+
+function getCachedCollectionInstitution(id: string): CollectionInstitution | undefined {
+  if (typeof localStorage === "undefined") return undefined;
+  const serialized = localStorage.getItem(COLLECTION_INSTITUTION_CACHE_KEY);
+  if (!serialized) return undefined;
+  try {
+    const entries: unknown = JSON.parse(serialized);
+    if (!Array.isArray(entries)) return undefined;
+    const match = entries.find((entry) =>
+      entry && typeof entry === "object" && "id" in entry && entry.id === id,
+    );
+    if (!match || typeof match !== "object" || !("institution" in match)) return undefined;
+    const institution = match.institution;
+    if (!institution || typeof institution !== "object" || !("code" in institution) || !("name" in institution)) return undefined;
+    if (typeof institution.code !== "string" || typeof institution.name !== "string") return undefined;
+    return {
+      code: institution.code,
+      name: institution.name,
+      logoUrl: "logoUrl" in institution && typeof institution.logoUrl === "string" ? institution.logoUrl : undefined,
+    };
+  } catch (error) {
+    console.error("Could not read cached collection institution branding", error);
+    return undefined;
+  }
+}
+
+function cacheCollectionInstitution(id: string, institution: CollectionInstitution) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const serialized = localStorage.getItem(COLLECTION_INSTITUTION_CACHE_KEY);
+    const entries: unknown = serialized ? JSON.parse(serialized) : [];
+    const validEntries = Array.isArray(entries)
+      ? entries.filter((entry) => entry && typeof entry === "object" && "id" in entry && typeof entry.id === "string")
+      : [];
+    const nextEntries = [
+      { id, institution },
+      ...validEntries.filter((entry) => entry.id !== id),
+    ].slice(0, 100);
+    localStorage.setItem(COLLECTION_INSTITUTION_CACHE_KEY, JSON.stringify(nextEntries));
+  } catch (error) {
+    console.error("Could not cache collection institution branding for activity", error);
+  }
+}
+
 const apiBaseUrl = import.meta.env.VITE_DRPAY_BACKEND_URL || "";
 const SESSION_KEY = "drpay_session";
 const PAYMENT_LINK_KEY = "drpay_pending_payment_link_key";
+const COLLECTION_INSTITUTION_CACHE_KEY = "drpay_collection_institutions";
 const DEVICE_TOKEN_PREFIX = "drpay_device_";
 const VERIFIED_DEVICE_PREFIX = "drpay_verified_device_";
 const LAST_MERCHANT_EMAIL_KEY = "drpay_last_merchant_email";
@@ -479,6 +529,7 @@ function toStatus(status: string): Transaction["status"] {
 function toTransaction(item: WalletActivityResponse, index: number): Transaction {
   const isCredit = item.amount >= 0;
   const type = item.transactionType.toUpperCase();
+  const cachedInstitution = type.includes("PAYMENT") ? getCachedCollectionInstitution(item.id) : undefined;
   return {
     id: item.id,
     customer: type.includes("DISBURSEMENT")
@@ -489,9 +540,9 @@ function toTransaction(item: WalletActivityResponse, index: number): Transaction
     color: ["lime", "blue", "peach", "violet", "mint"][index % 5] as Transaction["color"],
     reference: item.referenceNo,
     channel: type.includes("DISBURSEMENT") ? item.channel : type.includes("DEPOSIT") ? "Bank" : item.channel,
-    institutionCode: item.institutionCode,
-    institutionName: item.institutionName,
-    institutionLogoUrl: item.institutionLogoUrl,
+    institutionCode: item.institutionCode || cachedInstitution?.code,
+    institutionName: item.institutionName || cachedInstitution?.name,
+    institutionLogoUrl: item.institutionLogoUrl || cachedInstitution?.logoUrl,
     recipientName: item.recipientName,
     recipientAccountNumber: item.recipientAccountNumber,
     remarks: item.remarks,
@@ -672,7 +723,7 @@ export async function createPaymentLink(
   input: { amount: number; description: string; institution?: PaymentInstitution },
   idempotencyKey: string = crypto.randomUUID(),
 ): Promise<PaymentLinkResult> {
-  return backendRequest<PaymentLinkResult>("/v1/payment-links", {
+  const result = await backendRequest<PaymentLinkResult>("/v1/payment-links", {
     method: "POST",
     headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify({
@@ -685,6 +736,10 @@ export async function createPaymentLink(
       institutionLogoUrl: input.institution?.logoUrl,
     }),
   });
+  if (input.institution && result.id) {
+    cacheCollectionInstitution(result.id, input.institution);
+  }
+  return result;
 }
 
 export async function getPaymentLinkStatus(code: string): Promise<PaymentLinkResult> {

@@ -346,7 +346,9 @@ function TransactionRow({ transaction, onClick }: { transaction: Transaction; on
             }}
             className="transaction-institution-logo"
           />
-        : <span className={`transaction-avatar avatar-${transaction.color}`}>{transaction.initials}</span>}
+        : <span className={`transaction-avatar avatar-${transaction.color}`}>
+            {transaction.channel === "QR Ph checkout" ? <QrCode size={18} aria-hidden="true" /> : transaction.initials}
+          </span>}
       <span className="transaction-copy">
         <strong>{transaction.customer}</strong>
         <small>{transaction.channel} · {transaction.date.split(",")[0]}</small>
@@ -2324,7 +2326,6 @@ function WalletFloatingBalanceCard({
   requestNotice: string;
   onRequestTransfer: (event: FormEvent<HTMLFormElement>) => void;
 }) {
-  if (data.availableFloatingBalance <= 0) return null;
   const collectionTargetKrw = 1_000_000;
   const currentCollectionsKrw = Math.max(0, data.cumulativeKrwCollections);
   const collectionProgress = Math.min(100, (currentCollectionsKrw / collectionTargetKrw) * 100);
@@ -2413,10 +2414,16 @@ function WalletView({
   data,
   onTransaction,
   onRefresh,
+  showUnsettledFunds,
+  onOpenUnsettledFunds,
+  onCloseUnsettledFunds,
 }: {
   data: DashboardData;
   onTransaction: (transaction: Transaction) => void;
   onRefresh: () => void;
+  showUnsettledFunds: boolean;
+  onOpenUnsettledFunds: () => void;
+  onCloseUnsettledFunds: () => void;
 }) {
   const [filter, setFilter] = useState("All activity");
   const [query, setQuery] = useState("");
@@ -2467,18 +2474,39 @@ function WalletView({
     [data.transactions, filter, query],
   );
 
+  if (showUnsettledFunds) {
+    return (
+      <section className="wallet-page wallet-unsettled-page">
+        <Button variant="quiet" icon={<ChevronLeft size={17} />} onClick={onCloseUnsettledFunds}>Back to Wallet</Button>
+        <div className="wallet-subpage-heading">
+          <span className="eyebrow">WALLET</span>
+          <h2>Unsettled Funds</h2>
+          <p>Review your current collection progress and request a payout to your saved bank account.</p>
+        </div>
+        <WalletFloatingBalanceCard
+          data={data}
+          balanceVisible={balanceVisible}
+          payoutAccount={payoutAccount}
+          requestBusy={requestBusy}
+          requestError={requestError}
+          requestNotice={requestNotice}
+          onRequestTransfer={requestFloatingBalanceTransfer}
+        />
+      </section>
+    );
+  }
+
   return (
     <section className="wallet-page">
       <WalletBalancePanel data={data} balanceVisible={balanceVisible} onToggleBalanceVisibility={toggleBalanceVisibility} />
-      <WalletFloatingBalanceCard
-        data={data}
-        balanceVisible={balanceVisible}
-        payoutAccount={payoutAccount}
-        requestBusy={requestBusy}
-        requestError={requestError}
-        requestNotice={requestNotice}
-        onRequestTransfer={requestFloatingBalanceTransfer}
-      />
+      <button type="button" className="wallet-unsettled-entry" onClick={onOpenUnsettledFunds}>
+        <span className="wallet-ledger-icon"><img src="/bank-logos/alipay-plus.svg" alt="" /></span>
+        <span className="wallet-unsettled-entry-copy">
+          <strong>Unsettled Funds</strong>
+          <small>View collection progress and request a payout</small>
+        </span>
+        <ChevronRight size={18} />
+      </button>
       <WalletActivitySection
         transactions={transactions}
         totalTransactions={data.transactions.length}
@@ -2895,6 +2923,7 @@ export default function App() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [securityStatus, setSecurityStatus] = useState<MerchantSecurityStatus | null>(null);
   const [activeTab, setActiveTab] = useState("Home");
+  const [walletSubscreen, setWalletSubscreen] = useState<"overview" | "unsettled-funds">("overview");
   const [profileSection, setProfileSection] = useState("");
   const [pushPermission, setPushPermission] = useState("prompt");
   const [pushRegistrationState, setPushRegistrationState] = useState<"idle" | "registering" | "registered" | "error">("idle");
@@ -3326,7 +3355,7 @@ export default function App() {
       <main className="mobile-app">
         <header className="app-header">
           <h1 className="app-header-title">
-            {activeTab === "Home" ? "Dashboard" : activeTab === "Transfer" ? "Transfers" : activeTab === "Profile" ? profileSection || "Profile" : activeTab}
+            {activeTab === "Home" ? "Dashboard" : activeTab === "Transfer" ? "Transfers" : activeTab === "Profile" ? profileSection || "Profile" : activeTab === "Wallet" && walletSubscreen === "unsettled-funds" ? "Unsettled Funds" : activeTab}
           </h1>
           <div className="header-actions">
             <span className={`live-pill environment-${data.paymentEnvironment}`}><i />{data.paymentEnvironment === "production" ? "Live" : "Sandbox"}</span>
@@ -3350,13 +3379,16 @@ export default function App() {
                 onScan={() => setShowScanner(true)}
                 onActivity={() => setActiveTab("Wallet")}
                 onTransaction={setSelectedTransaction}
-                onWithdraw={() => setActiveTab("Wallet")}
+                onWithdraw={() => { setWalletSubscreen("unsettled-funds"); setActiveTab("Wallet"); }}
               />
             )}
             {activeTab === "Wallet" && <WalletView
               data={data}
               onTransaction={setSelectedTransaction}
               onRefresh={() => { void loadDashboard(); }}
+              showUnsettledFunds={walletSubscreen === "unsettled-funds"}
+              onOpenUnsettledFunds={() => setWalletSubscreen("unsettled-funds")}
+              onCloseUnsettledFunds={() => setWalletSubscreen("overview")}
             />}
             {activeTab === "Transfer" && (
               <TransfersView data={data} onTransfer={() => setShowTransfer(true)} onTransaction={setSelectedTransaction} />
@@ -3393,7 +3425,14 @@ export default function App() {
               <button
                 key={label}
                 className={`${activeTab === label ? "active" : ""} ${isPay ? "pay-tab" : ""}`}
-                onClick={() => isPay ? setShowPayment(true) : setActiveTab(label)}
+                onClick={() => {
+                  if (isPay) {
+                    setShowPayment(true);
+                    return;
+                  }
+                  setWalletSubscreen("overview");
+                  setActiveTab(label);
+                }}
               >
                 <span><Icon size={isPay ? 23 : 20} strokeWidth={isPay ? 2.4 : 1.9} /></span>
                 <small>{label}</small>

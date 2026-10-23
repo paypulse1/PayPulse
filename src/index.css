@@ -192,6 +192,15 @@ h1, h2, p { margin-top: 0; }
 .wallet-ledger-card strong { display: block; font-size: 10px; }
 .wallet-ledger-card p { margin: 4px 0 0; color: var(--muted); font-size: 8px; line-height: 1.45; }
 .wallet-ledger-card b { font-size: 10px; white-space: nowrap; }
+.wallet-unsettled-entry { width: 100%; min-height: 68px; margin-bottom: 18px; padding: 12px; display: flex; align-items: center; gap: 11px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); text-align: left; }
+.wallet-unsettled-entry > svg { flex: 0 0 auto; color: var(--muted); }
+.wallet-unsettled-entry-copy { min-width: 0; flex: 1; display: grid; gap: 4px; }
+.wallet-unsettled-entry-copy strong { font-size: 10px; }
+.wallet-unsettled-entry-copy small { color: var(--muted); font-size: 8px; }
+.wallet-subpage-heading { margin: 12px 2px 14px; }
+.wallet-subpage-heading h2 { margin: 4px 0 5px; font-size: 18px; letter-spacing: -.04em; }
+.wallet-subpage-heading p { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.wallet-unsettled-page > .floating-balance-card { margin-bottom: 0; }
 .floating-balance-card { margin-bottom: 18px; padding: 15px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
 .floating-balance-heading { display: flex; align-items: center; gap: 10px; }
 .floating-balance-heading strong, .floating-balance-heading p { display: block; margin: 0; }
@@ -245,7 +254,7 @@ h1, h2, p { margin-top: 0; }
 .transfer-methods-card, .transfer-activity-section { margin-top: 11px; padding: 15px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
 .transfer-methods-card h2 { margin: 0 0 7px; font-size: 12px; }
 .transfer-method-row { padding: 10px 0; display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--line); }
-.transfer-method-logo { width: 76px; height: 20px; flex: 0 0 76px; object-fit: contain; }
+.transfer-method-logo { width: 60px; height: 20px; flex: 0 0 60px; object-fit: contain; }
 .transfer-method-row strong { display: block; font-size: 10px; }
 .transfer-method-row p { margin: 3px 0 0; color: var(--muted); font-size: 8px; line-height: 1.4; }
 .transfer-security-note { margin-top: 11px; padding: 12px; display: flex; align-items: flex-start; gap: 9px; border: 1px solid #cbd9ed; border-radius: 13px; background: #edf3fc; color: #1b4f9c; }

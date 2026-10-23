@@ -1,7 +1,5 @@
 const institutionLogoAssets: Record<string, string> = {
   ALIPAY: "/bank-logos/alipay.svg",
-  ALIPAYCONNECT: "/bank-logos/alipay.svg",
-  "ALIPAY CONNECT": "/bank-logos/alipay.svg",
   KR_KAKAOPAY: "/bank-logos/kakaopay.png",
   KR_NAVERPAY: "/bank-logos/naverpay.png",
   KR_TOSS: "/bank-logos/toss.png",
