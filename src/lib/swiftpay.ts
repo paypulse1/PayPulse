@@ -350,7 +350,7 @@ const sandboxApiBaseUrl = import.meta.env.VITE_DRPAY_SANDBOX_BACKEND_URL || defa
 function getConfiguredApiBaseUrl() {
   const hostname = typeof window === "undefined" ? "" : window.location.hostname.toLowerCase();
   if (hostname === "pay.sandbox.denpay.cc") return sandboxApiBaseUrl;
-  if (hostname === "pay.live.denpay.cc" || hostname === "merchant.denpay.cc") return liveApiBaseUrl;
+  if (hostname === "pay.live.denpay.cc" || hostname === "merchant.denpay.cc" || hostname === "live.merchant.swiftpay.site") return liveApiBaseUrl;
   return defaultApiBaseUrl;
 }
 

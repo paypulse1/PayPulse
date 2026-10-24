@@ -3186,7 +3186,8 @@ const tabs = [
 
 export default function App() {
   const checkoutCode = /^\/checkout\/([A-Za-z0-9_-]{40,50})\/?$/.exec(window.location.pathname)?.[1] || "";
-  const isMerchantHost = window.location.hostname.toLowerCase() === "merchant.denpay.cc";
+  const hostname = window.location.hostname.toLowerCase();
+  const isMerchantHost = hostname === "merchant.denpay.cc" || hostname === "live.merchant.swiftpay.site";
   const isAdminConsole = window.location.pathname === "/admin" || window.location.pathname.startsWith("/admin/");
   const isDashboard = isMerchantHost || Capacitor.isNativePlatform() || window.location.pathname === "/app" || window.location.pathname.startsWith("/app/");
   const [session, setSession] = useState<Session | null>(() => isDashboard || isAdminConsole ? getSession() : null);
