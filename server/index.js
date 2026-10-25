@@ -16,8 +16,14 @@ app.use(helmet());
 app.use(express.json({ limit: "24kb" }));
 
 const frontendOrigin = process.env.DRPAY_FRONTEND_ORIGIN;
+const liveCheckoutOrigin = process.env.DRPAY_LIVE_CHECKOUT_ORIGIN || frontendOrigin;
+const sandboxCheckoutOrigin = process.env.DRPAY_SANDBOX_CHECKOUT_ORIGIN || frontendOrigin;
+const publicApiOrigin = process.env.DRPAY_PUBLIC_API_ORIGIN || frontendOrigin;
 const allowedOrigins = new Set([
   frontendOrigin,
+  liveCheckoutOrigin,
+  sandboxCheckoutOrigin,
+  ...(process.env.DRPAY_ADDITIONAL_FRONTEND_ORIGINS || "").split(",").map((origin) => origin.trim()),
   "http://localhost:5173",
   "http://127.0.0.1:5173",
   "https://localhost",
@@ -58,6 +64,12 @@ const fcmServiceAccountPrivateKey = process.env.FCM_SERVICE_ACCOUNT_PRIVATE_KEY?
 const swiftPayAccessKey = process.env.SWIFTPAY_ACCESS_KEY;
 const swiftPaySecretKey = process.env.SWIFTPAY_SECRET_KEY;
 const swiftPayEnvironment = process.env.SWIFTPAY_ENV || "sandbox";
+const checkoutOrigin = swiftPayEnvironment === "production" ? liveCheckoutOrigin : sandboxCheckoutOrigin;
+function buildCheckoutUrl(code) {
+  const url = new URL("/", checkoutOrigin);
+  url.searchParams.set("checkout", code);
+  return url.toString();
+}
 const liveMoneyAcknowledgement = process.env.SWIFTPAY_LIVE_MONEY_ACKNOWLEDGED;
 const swiftPayBaseUrl = swiftPayEnvironment === "production"
   ? "https://api.pay.live.swiftpay.ph/api"
@@ -2346,9 +2358,9 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
     if (row.payment_url) return res.json({
       id: row.id,
       code: row.code,
-      paymentUrl: row.payment_url,
+      paymentUrl: row.payment_token ? buildCheckoutUrl(row.code) : row.payment_url,
       qrCode: qrPayload,
-      qrImageUrl: row.payment_token ? new URL(`/v1/public/checkout/${row.code}/qr.png`, frontendOrigin).toString() : undefined,
+      qrImageUrl: row.payment_token ? new URL(`/v1/public/checkout/${row.code}/qr.png`, publicApiOrigin).toString() : undefined,
       status: row.status,
       amount: Number(row.amount),
       currency: row.currency,
@@ -2384,7 +2396,7 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
     }
     const status = data.paymentStatus || "PENDING";
     if (!validPaymentStatus(status)) throw new Error("SwiftPay returned an invalid initial payment status.");
-    const checkoutUrl = new URL(`/checkout/${code}`, frontendOrigin).toString();
+    const checkoutUrl = buildCheckoutUrl(code);
     const actualAmount = Number(data.amount ?? amount);
     if (!Number.isFinite(actualAmount) || actualAmount <= 0) throw new Error("SwiftPay returned an invalid payment amount.");
     await pool.query(
@@ -2393,7 +2405,7 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
     );
     if (status === "EXECUTED") await settleSuccessfulCollection(id);
     await queueSuccessfulTransaction("PAYMENT", id);
-    const qrImageUrl = new URL(`/v1/public/checkout/${code}/qr.png`, frontendOrigin).toString();
+    const qrImageUrl = new URL(`/v1/public/checkout/${code}/qr.png`, publicApiOrigin).toString();
     return res.status(201).json({ id, code, paymentUrl: checkoutUrl, qrCode: data.qrCode, qrImageUrl, status, amount: actualAmount, currency: "PHP" });
   } catch (error) {
     const isAmbiguous = !error.status || error.status >= 500;
@@ -2413,7 +2425,7 @@ app.get("/v1/payment-links/:code", async (req, res) => {
       await updatePaymentLinkStatus(record.rows[0].id, status);
       return res.json({
         code: record.rows[0].code,
-        paymentUrl: record.rows[0].payment_url,
+        paymentUrl: buildCheckoutUrl(record.rows[0].code),
         status,
         amount: Number(record.rows[0].amount),
         currency: record.rows[0].currency,
