@@ -70,6 +70,11 @@ const swiftPayAccessKey = process.env.SWIFTPAY_ACCESS_KEY;
 const swiftPaySecretKey = process.env.SWIFTPAY_SECRET_KEY;
 const swiftPayEnvironment = process.env.SWIFTPAY_ENV || "sandbox";
 const checkoutOrigin = swiftPayEnvironment === "production" ? liveCheckoutOrigin : sandboxCheckoutOrigin;
+function buildCheckoutUrl(code) {
+  const url = new URL("/", checkoutOrigin);
+  url.searchParams.set("checkout", code);
+  return url.toString();
+}
 const r2AccountId = process.env.R2_ACCOUNT_ID;
 const r2AccessKeyId = process.env.R2_ACCESS_KEY_ID;
 const r2SecretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
@@ -3159,7 +3164,7 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
       id: row.id,
       code: row.code,
       paymentUrl: row.payment_token
-        ? new URL(`/checkout/${row.code}`, checkoutOrigin).toString()
+        ? buildCheckoutUrl(row.code)
         : row.payment_url,
       qrCode: qrPayload,
       qrImageUrl: row.payment_token ? new URL(`/v1/public/checkout/${row.code}/qr.png`, publicApiOrigin).toString() : undefined,
@@ -3198,7 +3203,7 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
     }
     const status = data.paymentStatus || "PENDING";
     if (!validPaymentStatus(status)) throw new Error("SwiftPay returned an invalid initial payment status.");
-    const checkoutUrl = new URL(`/checkout/${code}`, checkoutOrigin).toString();
+    const checkoutUrl = buildCheckoutUrl(code);
     const actualAmount = Number(data.amount ?? amount);
     if (!Number.isFinite(actualAmount) || actualAmount <= 0) throw new Error("SwiftPay returned an invalid payment amount.");
     await pool.query(
@@ -3228,7 +3233,7 @@ app.get("/v1/payment-links/:code", async (req, res) => {
       await updatePaymentLinkStatus(record.rows[0].id, status);
       return res.json({
         code: record.rows[0].code,
-        paymentUrl: record.rows[0].payment_url,
+        paymentUrl: buildCheckoutUrl(record.rows[0].code),
         status,
         amount: Number(record.rows[0].amount),
         currency: record.rows[0].currency,

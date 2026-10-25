@@ -134,9 +134,9 @@ function isConfirmedPaymentStatus(status: string) {
   return ["PAID", "EXECUTED"].includes(status.toUpperCase());
 }
 
-function isQrNotFoundError(error: unknown) {
+function isQrDecodeMiss(error: unknown) {
   if (!(error instanceof Error)) return false;
-  return error.name === "NotFoundException"
+  return ["NotFoundException", "ChecksumException", "FormatException"].includes(error.name)
     || /no (?:multi.?format )?readers? (?:were )?able to detect/i.test(error.message);
 }
 
@@ -2014,16 +2014,21 @@ function ScannerSheet({
     let stopScanner: (() => void) | undefined;
     void import("@zxing/browser").then(({ BrowserQRCodeReader }) => {
       if (!active || !videoRef.current) return;
-      return new BrowserQRCodeReader().decodeFromVideoDevice(undefined, videoRef.current, (result, error) => {
-        if (!active) return;
-        if (result) {
-          active = false;
-          stopScanner?.();
-          handlePayload(result.getText());
-        } else if (error && !isQrNotFoundError(error)) {
-          setCameraError(error.message || "Could not read the camera QR code.");
-        }
-      });
+      return new BrowserQRCodeReader().decodeFromConstraints(
+        { video: { facingMode: { ideal: "environment" } } },
+        videoRef.current,
+        (result, error) => {
+          if (!active) return;
+          if (result) {
+            active = false;
+            stopScanner?.();
+            setCameraError("");
+            handlePayload(result.getText());
+          } else if (error && !isQrDecodeMiss(error)) {
+            setCameraError("The camera could not read the QR code. Improve the lighting, hold the phone steady, and try again.");
+          }
+        },
+      );
     }).then((controls) => {
       if (!controls) return;
       if (active) stopScanner = () => controls.stop();
@@ -2072,7 +2077,7 @@ function ScannerSheet({
       const result = await new BrowserQRCodeReader().decodeFromImageUrl(imageUrl);
       handlePayload(result.getText());
     } catch (error) {
-      setCameraError(isQrNotFoundError(error)
+      setCameraError(isQrDecodeMiss(error)
         ? "No QR code was found in that image."
         : error instanceof Error ? `Could not read the uploaded QR: ${error.message}` : "Could not read the uploaded QR.");
     } finally {
@@ -3185,7 +3190,9 @@ const tabs = [
 ];
 
 export default function App() {
-  const checkoutCode = /^\/checkout\/([A-Za-z0-9_-]{40,50})\/?$/.exec(window.location.pathname)?.[1] || "";
+  const pathCheckoutCode = /^\/checkout\/([A-Za-z0-9_-]{40,50})\/?$/.exec(window.location.pathname)?.[1] || "";
+  const queryCheckoutCode = new URLSearchParams(window.location.search).get("checkout") || "";
+  const checkoutCode = pathCheckoutCode || (/^[A-Za-z0-9_-]{40,50}$/.test(queryCheckoutCode) ? queryCheckoutCode : "");
   const hostname = window.location.hostname.toLowerCase();
   const isMerchantHost = hostname === "merchant.denpay.cc" || hostname === "live.merchant.swiftpay.site";
   const isAdminConsole = window.location.pathname === "/admin" || window.location.pathname.startsWith("/admin/");
