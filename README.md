@@ -44,6 +44,8 @@ Merchants can hide or show balances using the dashboard or wallet visibility con
 
 Confirmed successful incoming QR payments and outgoing transfers are emailed to the merchant account that created the transaction, using the existing Resend sender configuration. The API reconciles pending transactions and retries queued email delivery.
 
+Merchants can also enter a customer email when creating a QR checkout. DRPAY queues a payment-request email with the hosted checkout link, then sends a separate confirmation only after SwiftPay confirms the payment as executed. Leaving the customer email blank disables these customer emails.
+
 Android push alerts use Capacitor Push Notifications and Firebase Cloud Messaging. Create a Firebase Android app with package ID `ph.drpays.merchant`, place its `google-services.json` in `android/app/`, and configure `FCM_PROJECT_ID`, `FCM_SERVICE_ACCOUNT_EMAIL`, and `FCM_SERVICE_ACCOUNT_PRIVATE_KEY` on the API service. Grant the service account permission to send Firebase Cloud Messaging messages. After signing in, the app requests notification permission and registers the device token with the API. Rebuild and reinstall the Android app after adding Firebase configuration. Push delivery remains disabled until the Firebase client and server configuration are both present; email notifications continue independently.
 
 ## Payment behavior

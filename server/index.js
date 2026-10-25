@@ -341,6 +341,68 @@ async function sendTransactionEmail(notification) {
     }
   }
 
+async function sendCustomerPaymentEmail(payment, kind) {
+  const completed = kind === "completed";
+  const amount = `PHP ${Number(payment.amount).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const title = escapeEmailHtml(payment.title);
+  const reference = escapeEmailHtml(payment.reference_no);
+  const safeAmount = escapeEmailHtml(amount);
+  const paymentUrl = buildCheckoutUrl(payment.code);
+  const safePaymentUrl = escapeEmailHtml(paymentUrl);
+  const subject = completed ? "DRPAY payment confirmed" : "DRPAY payment request";
+  const heading = completed ? "Payment confirmed" : "A payment is requested";
+  const description = completed
+    ? "Your payment has been confirmed by the payment provider."
+    : "Please open the secure checkout below to complete your payment.";
+  const text = [
+    "DRPAY",
+    "",
+    heading,
+    `Description: ${payment.title}`,
+    `Amount: ${amount}`,
+    `Reference: ${payment.reference_no}`,
+    ...(completed ? [] : [`Checkout: ${paymentUrl}`]),
+    "",
+    description,
+  ].join("\n");
+  const html = `
+    <div style="margin:0;padding:32px 16px;background:#f4f7fc;font-family:Arial,Helvetica,sans-serif;color:#0b1f3a">
+      <div style="max-width:480px;margin:0 auto">
+        <div style="padding:0 4px 18px;color:#0b1f3a;font-size:17px;font-weight:700;letter-spacing:1px">DRPAY</div>
+        <div style="padding:28px;background:#fff;border:1px solid #d8e1ed;border-radius:16px">
+          <div style="margin-bottom:10px;color:#52647c;font-size:10px;font-weight:700;letter-spacing:1.3px">${completed ? "PAYMENT UPDATE" : "PAYMENT REQUEST"}</div>
+          <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3">${heading}</h1>
+          <p style="margin:0 0 18px;color:#52647c;font-size:13px;line-height:1.6">${description}</p>
+          <div style="padding:16px;background:#f8f9f5;border:1px solid #d8e1ed;border-radius:11px">
+            <div style="color:#52647c;font-size:11px">Description</div>
+            <div style="margin-top:4px;font-size:15px;font-weight:700;overflow-wrap:anywhere">${title}</div>
+            <div style="margin-top:14px;color:#52647c;font-size:11px">Amount</div>
+            <div style="margin-top:4px;font-size:20px;font-weight:700">${safeAmount}</div>
+            <div style="margin-top:14px;color:#52647c;font-size:11px">Reference</div>
+            <div style="margin-top:4px;font-size:12px;font-weight:700;overflow-wrap:anywhere">${reference}</div>
+          </div>
+          ${completed ? "" : `<p style="margin:22px 0 0"><a href="${safePaymentUrl}" style="display:inline-block;padding:13px 20px;background:#163c2a;border-radius:9px;color:#fff;font-size:14px;font-weight:700;text-decoration:none">Open secure checkout</a></p><p style="margin:14px 0 0;color:#52647c;font-size:11px;line-height:1.6;overflow-wrap:anywhere">If the button doesn’t work, copy this link: <a href="${safePaymentUrl}" style="color:#163c2a">${safePaymentUrl}</a></p>`}
+        </div>
+        <p style="margin:14px 4px 0;color:#52647c;font-size:11px">Automated message from DRPAY. Do not share your banking credentials or one-time codes.</p>
+      </div>
+    </div>
+  `;
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer " + resendApiKey,
+      "Content-Type": "application/json",
+      "Idempotency-Key": `drpay-${kind}-${payment.id}`,
+    },
+    body: JSON.stringify({ from: resendFromEmail, to: [payment.customer_email], subject, text, html }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) {
+    console.error("Resend customer payment email failed", { status: response.status, kind });
+    throw new Error("Customer payment email delivery failed.");
+  }
+}
+
 function fcmConfigured() {
     return Boolean(fcmProjectId && fcmServiceAccountEmail && fcmServiceAccountPrivateKey);
   }
@@ -576,6 +638,42 @@ async function dispatchTransactionNotifications() {
   }
 }
 
+async function dispatchCustomerPaymentEmails() {
+  const { rows } = await pool.query(
+    `SELECT id, code, title, reference_no, amount::float8 AS amount, customer_email, status,
+       customer_payment_request_sent_at, customer_payment_completed_sent_at
+     FROM payment_links
+     WHERE customer_email IS NOT NULL
+       AND payment_token IS NOT NULL
+       AND payment_url IS NOT NULL
+       AND status NOT IN ('FAILED', 'CANCELED', 'REJECTED', 'EXPIRED')
+       AND (customer_payment_request_sent_at IS NULL
+         OR (status = 'EXECUTED' AND customer_payment_completed_sent_at IS NULL))
+     ORDER BY created_at ASC
+     LIMIT 25`,
+  );
+  for (const payment of rows) {
+    let requestSent = Boolean(payment.customer_payment_request_sent_at);
+    if (!requestSent) {
+      try {
+        await sendCustomerPaymentEmail(payment, "request");
+        await pool.query("UPDATE payment_links SET customer_payment_request_sent_at = NOW() WHERE id = $1 AND customer_payment_request_sent_at IS NULL", [payment.id]);
+        requestSent = true;
+      } catch (error) {
+        console.error("Customer payment request email remains queued", { paymentId: payment.id, message: error.message });
+      }
+    }
+    if (requestSent && payment.status === "EXECUTED" && !payment.customer_payment_completed_sent_at) {
+      try {
+        await sendCustomerPaymentEmail(payment, "completed");
+        await pool.query("UPDATE payment_links SET customer_payment_completed_sent_at = NOW() WHERE id = $1 AND customer_payment_completed_sent_at IS NULL", [payment.id]);
+      } catch (error) {
+        console.error("Customer payment completion email remains queued", { paymentId: payment.id, message: error.message });
+      }
+    }
+  }
+}
+
 function passwordMatchesWithSalt(candidate, expectedPassword, salt) {
   const expected = scryptSync(expectedPassword, salt, 64);
   const actual = scryptSync(candidate, salt, 64);
@@ -795,7 +893,18 @@ async function initializeDatabase() {
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_institution_code TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_institution_name TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_institution_logo_url TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS customer_email TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS customer_payment_request_sent_at TIMESTAMPTZ;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS customer_payment_completed_sent_at TIMESTAMPTZ;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS merchant_email TEXT REFERENCES merchant_accounts(email) ON DELETE CASCADE;
+    CREATE INDEX IF NOT EXISTS payment_links_customer_email_pending_idx
+      ON payment_links (created_at ASC)
+      WHERE customer_email IS NOT NULL
+        AND payment_token IS NOT NULL
+        AND payment_url IS NOT NULL
+        AND status NOT IN ('FAILED', 'CANCELED', 'REJECTED', 'EXPIRED')
+        AND (customer_payment_request_sent_at IS NULL
+          OR (status = 'EXECUTED' AND customer_payment_completed_sent_at IS NULL));
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS request_fingerprint TEXT;
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS recipient_name TEXT;
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS recipient_account_number TEXT;
@@ -2119,6 +2228,7 @@ async function reconcilePending() {
     }),
   ]);
   await dispatchTransactionNotifications();
+  await dispatchCustomerPaymentEmails();
   } finally {
     reconcilingPending = false;
   }
@@ -2321,6 +2431,8 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
   const title = typeof req.body?.description === "string" ? req.body.description.trim().slice(0, 100) : "";
   const institutionCode = typeof req.body?.institutionCode === "string" ? req.body.institutionCode.trim().toUpperCase() : "";
   const institutionName = typeof req.body?.institutionName === "string" ? req.body.institutionName.trim() : "";
+  const submittedCustomerEmail = req.body?.customerEmail;
+  const customerEmail = typeof submittedCustomerEmail === "string" ? submittedCustomerEmail.trim().toLowerCase() : "";
   const submittedLogoUrl = req.body?.institutionLogoUrl;
   const hasInstitution = [req.body?.institutionCode, req.body?.institutionName, submittedLogoUrl]
     .some((value) => value != null && value !== "");
@@ -2333,6 +2445,11 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
   if (submittedKrwAmount !== undefined && (!Number.isSafeInteger(collectionAmountKrw) || collectionAmountKrw <= 0)) {
     return res.status(400).json({ error: "Enter a valid whole-number KRW collection amount." });
   }
+  if (submittedCustomerEmail != null && submittedCustomerEmail !== "" && (
+    typeof submittedCustomerEmail !== "string"
+    || customerEmail.length > 254
+    || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)
+  )) return res.status(400).json({ error: "Enter a valid customer email address." });
   if (hasInstitution && (
     !/^[A-Z0-9_-]{1,64}$/.test(institutionCode)
     || !institutionName
@@ -2375,9 +2492,9 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
     await pool.query(`INSERT INTO payment_links (
       id, idempotency_key, reference_no, code, title, amount, collection_amount_krw,
       payment_institution_code, payment_institution_name, payment_institution_logo_url,
-      checkout_type, status, merchant_email
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'DIRECT_QRPH', 'CREATING', $11)`,
-    [id, idempotencyKey, referenceNo, code, title, amount, collectionAmountKrw, institutionCode || null, institutionName || null, institutionLogoUrl, req.merchantEmail]);
+      checkout_type, status, customer_email, merchant_email
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'DIRECT_QRPH', 'CREATING', $11, $12)`,
+    [id, idempotencyKey, referenceNo, code, title, amount, collectionAmountKrw, institutionCode || null, institutionName || null, institutionLogoUrl, customerEmail || null, req.merchantEmail]);
   } catch (error) {
     if (error.code === "23505") return res.status(409).json({ error: "The checkout outcome is unknown. Check wallet activity before retrying." });
     throw error;
