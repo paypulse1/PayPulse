@@ -15,8 +15,7 @@ import {
 import "./marketing-home.css";
 import LegalPage, { getLegalPage } from "./LegalPages";
 
-const apkUrl = import.meta.env.VITE_ANDROID_APK_URL?.trim()
-  || "https://github.com/blackhorsecn/drpay-merchant/releases/latest/download/drpay.apk";
+const apkUrl = "/drpay.apk";
 
 function Brand() {
   return (

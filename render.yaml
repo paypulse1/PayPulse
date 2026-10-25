@@ -135,8 +135,6 @@ services:
         value: https://drpay-live-api.onrender.com
       - key: VITE_DRPAY_SANDBOX_BACKEND_URL
         value: https://drpay-api.onrender.com
-      - key: VITE_ANDROID_APK_URL
-        sync: false
     routes:
       - type: rewrite
         source: /checkout/*
