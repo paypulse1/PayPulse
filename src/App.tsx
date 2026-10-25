@@ -3063,7 +3063,7 @@ DRPAY_API_KEY=your_environment_specific_key`} />
 
             <section className="api-docs-section">
               <h3>3. Create a collection on your platform</h3>
-              <p><code>POST /v1/payment-links</code> creates a fixed PHP QR Ph payment and a self-hosted DRPAY checkout page. The response includes <code>paymentUrl</code> to redirect your customer to, <code>qrCode</code> for rendering a QR in your own experience, and <code>qrImageUrl</code> for the QR image. Checkout links use your environment's branded host: <code>{data.paymentEnvironment === "production" ? "pay.live.denpay.cc" : "pay.sandbox.denpay.cc"}</code>.</p>
+              <p><code>POST /v1/payment-links</code> creates a fixed PHP QR Ph payment and a self-hosted DRPAY checkout page. The response includes <code>paymentUrl</code> to redirect your customer to, <code>qrCode</code> for rendering a QR in your own experience, and <code>qrImageUrl</code> for the QR image. Optionally include <code>customerEmail</code> to email the customer the checkout link and a separate payment-confirmed notice after SwiftPay reports <code>EXECUTED</code>. Checkout links use your environment’s branded host: <code>{data.paymentEnvironment === "production" ? "pay.live.denpay.cc" : "pay.sandbox.denpay.cc"}</code>.</p>
               <p>Generate a new, unique idempotency key for each intended payment (at least 16 characters). If the request times out, retry the same payment with the same key; do not create another payment with a new key until you have checked its outcome.</p>
               <ApiCodeBlock title="Request" code={`curl -X POST "$DRPAY_API_BASE_URL/v1/payment-links" \\
   -H "Authorization: Bearer $DRPAY_API_KEY" \\
@@ -3072,14 +3072,15 @@ DRPAY_API_KEY=your_environment_specific_key`} />
   -d '{
     "amount": 125.50,
     "currency": "PHP",
-    "description": "Invoice 1048"
+    "description": "Invoice 1048",
+    "customerEmail": "customer@example.com"
   }'`} />
               <ApiCodeBlock title="201 response" code={`{
   "id": "payment-record-uuid",
   "code": "opaque_checkout_code",
-  "paymentUrl": "https://pay.live.denpay.cc/checkout/opaque_checkout_code",
+  "paymentUrl": "https://pay.live.denpay.cc/?checkout=opaque_checkout_code",
   "qrCode": "qrph://...",
-  "qrImageUrl": "https://drpay-live-api.onrender.com/v1/public/checkout/opaque_checkout_code/qr.png",
+  "qrImageUrl": "https://denpay.cc/v1/public/checkout/opaque_checkout_code/qr.png",
   "status": "PENDING",
   "amount": 125.50,
   "currency": "PHP"
@@ -3092,7 +3093,7 @@ DRPAY_API_KEY=your_environment_specific_key`} />
               <p>Call DRPAY from a trusted backend route, then return only the safe payment URL and reference to your browser or app. This example uses Node.js 18+:</p>
               <ApiCodeBlock title="Node.js server example" code={`import { createHash } from "node:crypto";
 
-export async function createInvoiceCheckout({ amount, invoiceId }) {
+export async function createInvoiceCheckout({ amount, invoiceId, customerEmail }) {
   const idempotencyKey = createHash("sha256")
     .update("invoice:" + invoiceId + ":collection")
     .digest("hex");
@@ -3108,7 +3109,8 @@ export async function createInvoiceCheckout({ amount, invoiceId }) {
       body: JSON.stringify({
         amount,
         currency: "PHP",
-        description: "Invoice " + invoiceId
+        description: "Invoice " + invoiceId,
+        customerEmail
       })
     }
   );
@@ -3134,7 +3136,7 @@ export async function createInvoiceCheckout({ amount, invoiceId }) {
   -H "Accept: application/json"`} />
               <ApiCodeBlock title="Response" code={`{
   "code": "opaque_checkout_code",
-  "paymentUrl": "https://pay.live.denpay.cc/checkout/opaque_checkout_code",
+  "paymentUrl": "https://pay.live.denpay.cc/?checkout=opaque_checkout_code",
   "status": "EXECUTED",
   "amount": 125.50,
   "currency": "PHP",
