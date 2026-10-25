@@ -1201,6 +1201,7 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
 function PaymentSheet({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
   const [currency, setCurrency] = useState<"PHP" | "KRW" | "USDT">("PHP");
   const [krwPhpQuote, setKrwPhpQuote] = useState<CurrencyQuote | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
@@ -1272,6 +1273,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
       const response = await createPaymentLink({
         amount: phpAmount,
         description,
+        customerEmail,
         institution,
         collectionAmountKrw: currency === "KRW" ? enteredAmount : undefined,
       }, idempotencyKey);
@@ -1331,6 +1333,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
                     ? `Collect KRW ${Number(amount).toLocaleString("en-US")} (about PHP ${Number(result.amount || 0).toLocaleString("en-PH", { minimumFractionDigits: 2 })} at the reference rate). Show this QR to the customer to scan.`
                     : `Show this QR or share the hosted payment link to collect PHP ${Number(result.amount || amount).toLocaleString("en-PH", { minimumFractionDigits: 2 })}.`}
                 </p>
+                {customerEmail.trim() && <p className="accepted-channels">Payment request queued for {customerEmail.trim()}. We’ll email them again when payment is confirmed.</p>}
                 <span className={`payment-state state-${paymentStatus.toLowerCase()}`}>{isConfirmedPaymentStatus(paymentStatus) ? "Payment confirmed by SwiftPay" : `Checkout status: ${paymentStatus || result.status || "PENDING"}`}</span>
                 <QrPaymentDisplay value={result.qrCode} institution={selectedInstitution || undefined} />
                 <PaymentLinkActions url={result.paymentUrl} />
@@ -1378,6 +1381,18 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
                 />
                 <small>{currency}</small>
               </div>
+            </label>
+            <label>
+              <span>Customer email <small>(optional)</small></span>
+              <input
+                type="email"
+                value={customerEmail}
+                onChange={(event) => setCustomerEmail(event.target.value)}
+                placeholder="customer@example.com"
+                autoComplete="email"
+                maxLength={254}
+              />
+              <small>We’ll email the checkout link and send a payment-confirmed email after the customer pays.</small>
             </label>
             {currency === "KRW" && (
               <div className="currency-quote" aria-live="polite">
@@ -2160,6 +2175,7 @@ function ScannerSheet({
 function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
   const [url, setUrl] = useState("");
   const [qrCode, setQrCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -2193,7 +2209,7 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setError("");
     try {
-      const result = await createPaymentLink({ amount: Number(amount), description, institution }, idempotencyKey);
+      const result = await createPaymentLink({ amount: Number(amount), description, customerEmail, institution }, idempotencyKey);
       setUrl(result.paymentUrl);
       setQrCode(result.qrCode || "");
       setCode(result.code);
@@ -2214,9 +2230,9 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
       <section className="payment-sheet" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
         <span className="sheet-handle" />
         <header className="sheet-header"><div><span className="eyebrow">SELF-HOSTED CHECKOUT</span><h2>{url ? "Payment link ready" : selectingInstitution ? "Choose payment app" : "Create payment link"}</h2></div><IconButton label="Close" onClick={onClose}><X size={19} /></IconButton></header>
-        {url ? <div className="link-result"><div className="result-icon"><Link2 size={23} /></div><strong>Payment link ready</strong><p>Share this DRPAY-hosted checkout page with your customer.</p><span className={`payment-state state-${paymentStatus.toLowerCase()}`}>{isConfirmedPaymentStatus(paymentStatus) ? "Payment confirmed by SwiftPay" : `Checkout status: ${paymentStatus || "PENDING"}`}</span><PaymentLinkActions url={url} /><QrPaymentDisplay value={qrCode} institution={selectedInstitution || undefined} /><Button variant="quiet" onClick={onClose}>Done</Button></div> :
+        {url ? <div className="link-result"><div className="result-icon"><Link2 size={23} /></div><strong>Payment link ready</strong><p>Share this DRPAY-hosted checkout page with your customer.</p>{customerEmail.trim() && <p className="accepted-channels">Payment request queued for {customerEmail.trim()}. We’ll email them again when payment is confirmed.</p>}<span className={`payment-state state-${paymentStatus.toLowerCase()}`}>{isConfirmedPaymentStatus(paymentStatus) ? "Payment confirmed by SwiftPay" : `Checkout status: ${paymentStatus || "PENDING"}`}</span><PaymentLinkActions url={url} /><QrPaymentDisplay value={qrCode} institution={selectedInstitution || undefined} /><Button variant="quiet" onClick={onClose}>Done</Button></div> :
           selectingInstitution ? <InstitutionSelectionScreen onBack={() => setSelectingInstitution(false)} onConfirm={(institution) => void createCheckout(institution)} busy={busy} submissionError={error} /> :
-          <form onSubmit={submit}><label><span>Description</span><input value={description} onChange={(event) => setDescription(event.target.value)} required /></label><label><span>Fixed amount</span><div className="amount-field"><span>₱</span><input type="number" min="1" step=".01" value={amount} onChange={(event) => setAmount(event.target.value)} required /><small>PHP</small></div></label>{error && <div className="inline-error"><AlertCircle size={15} />{error}</div>}<Button type="submit" disabled={busy}>{busy ? "Creating…" : "Create payment link"}</Button></form>}
+          <form onSubmit={submit}><label><span>Description</span><input value={description} onChange={(event) => setDescription(event.target.value)} required /></label><label><span>Fixed amount</span><div className="amount-field"><span>₱</span><input type="number" min="1" step=".01" value={amount} onChange={(event) => setAmount(event.target.value)} required /><small>PHP</small></div></label><label><span>Customer email <small>(optional)</small></span><input type="email" value={customerEmail} onChange={(event) => setCustomerEmail(event.target.value)} placeholder="customer@example.com" autoComplete="email" maxLength={254} /><small>We’ll email the checkout link and send a payment-confirmed email after the customer pays.</small></label>{error && <div className="inline-error"><AlertCircle size={15} />{error}</div>}<Button type="submit" disabled={busy}>{busy ? "Creating…" : "Create payment link"}</Button></form>}
       </section>
     </div>
   );
