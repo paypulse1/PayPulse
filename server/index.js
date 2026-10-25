@@ -662,7 +662,7 @@ async function dispatchTransactionNotifications() {
   }
 }
 
-async function dispatchCustomerPaymentEmails() {
+async function dispatchCustomerPaymentEmails(paymentId = null) {
   const { rows } = await pool.query(
     `SELECT id, code, title, reference_no, amount::float8 AS amount, customer_email, status,
        customer_payment_request_sent_at, customer_payment_completed_sent_at
@@ -670,11 +670,13 @@ async function dispatchCustomerPaymentEmails() {
      WHERE customer_email IS NOT NULL
        AND payment_token IS NOT NULL
        AND payment_url IS NOT NULL
+       AND ($1::uuid IS NULL OR id = $1)
        AND status NOT IN ('FAILED', 'CANCELED', 'REJECTED', 'EXPIRED')
        AND ((status <> 'MANUALLY_PAID' AND customer_payment_request_sent_at IS NULL)
          OR (status IN ('EXECUTED', 'MANUALLY_PAID') AND customer_payment_completed_sent_at IS NULL))
      ORDER BY created_at ASC
      LIMIT 25`,
+    [paymentId],
   );
   for (const payment of rows) {
     let requestSent = Boolean(payment.customer_payment_request_sent_at);
@@ -1391,7 +1393,7 @@ app.post("/v1/admin/payment-links/:id/mark-paid", async (req, res) => {
 
   let notificationQueued = true;
   try {
-    await dispatchCustomerPaymentEmails();
+    await dispatchCustomerPaymentEmails(id);
   } catch (error) {
     notificationQueued = false;
     console.error("Manual payment confirmation email remains queued for retry", { paymentId: id, message: error.message });
@@ -2657,6 +2659,16 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
 app.get("/v1/payment-links/:code", async (req, res) => {
   const record = await pool.query("SELECT * FROM payment_links WHERE code = $1 AND merchant_email = $2", [req.params.code, req.merchantEmail]);
   if (!record.rowCount) return res.status(404).json({ error: "Payment link not found." });
+  if (record.rows[0].status === "MANUALLY_PAID") {
+    return res.set("Cache-Control", "no-store").json({
+      code: record.rows[0].code,
+      paymentUrl: buildCheckoutUrl(record.rows[0].code),
+      status: "MANUALLY_PAID",
+      amount: Number(record.rows[0].amount),
+      currency: record.rows[0].currency,
+      referenceNo: record.rows[0].reference_no,
+    });
+  }
   try {
     if (record.rows[0].payment_token) {
       const { data } = await swiftPayPaymentRequest("/payments/status", record.rows[0].payment_token);
