@@ -349,11 +349,12 @@ async function sendCustomerPaymentEmail(payment, kind) {
   const safeAmount = escapeEmailHtml(amount);
   const paymentUrl = buildCheckoutUrl(payment.code);
   const safePaymentUrl = escapeEmailHtml(paymentUrl);
+  const logoUrl = "https://merchant.denpay.cc/drpay-signature.png";
   const subject = completed ? "DRPAY payment confirmed" : "DRPAY payment request";
-  const heading = completed ? "Payment confirmed" : "A payment is requested";
+  const heading = completed ? "Payment confirmed" : "Your payment request";
   const description = completed
-    ? "Your payment has been confirmed by the payment provider."
-    : "Please open the secure checkout below to complete your payment.";
+    ? "Your payment has been securely confirmed. Keep this email as your receipt."
+    : "A secure payment request is ready for you. Review the details below, then continue to DRPAY checkout.";
   const text = [
     "DRPAY",
     "",
@@ -364,26 +365,38 @@ async function sendCustomerPaymentEmail(payment, kind) {
     ...(completed ? [] : [`Checkout: ${paymentUrl}`]),
     "",
     description,
+    "",
+    "DRPAY will never ask you to share your password, banking PIN, or one-time verification code by email.",
   ].join("\n");
   const html = `
-    <div style="margin:0;padding:32px 16px;background:#f4f7fc;font-family:Arial,Helvetica,sans-serif;color:#0b1f3a">
-      <div style="max-width:480px;margin:0 auto">
-        <div style="padding:0 4px 18px;color:#0b1f3a;font-size:17px;font-weight:700;letter-spacing:1px">DRPAY</div>
-        <div style="padding:28px;background:#fff;border:1px solid #d8e1ed;border-radius:16px">
-          <div style="margin-bottom:10px;color:#52647c;font-size:10px;font-weight:700;letter-spacing:1.3px">${completed ? "PAYMENT UPDATE" : "PAYMENT REQUEST"}</div>
-          <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3">${heading}</h1>
-          <p style="margin:0 0 18px;color:#52647c;font-size:13px;line-height:1.6">${description}</p>
-          <div style="padding:16px;background:#f8f9f5;border:1px solid #d8e1ed;border-radius:11px">
-            <div style="color:#52647c;font-size:11px">Description</div>
-            <div style="margin-top:4px;font-size:15px;font-weight:700;overflow-wrap:anywhere">${title}</div>
-            <div style="margin-top:14px;color:#52647c;font-size:11px">Amount</div>
-            <div style="margin-top:4px;font-size:20px;font-weight:700">${safeAmount}</div>
-            <div style="margin-top:14px;color:#52647c;font-size:11px">Reference</div>
-            <div style="margin-top:4px;font-size:12px;font-weight:700;overflow-wrap:anywhere">${reference}</div>
-          </div>
-          ${completed ? "" : `<p style="margin:22px 0 0"><a href="${safePaymentUrl}" style="display:inline-block;padding:13px 20px;background:#163c2a;border-radius:9px;color:#fff;font-size:14px;font-weight:700;text-decoration:none">Open secure checkout</a></p><p style="margin:14px 0 0;color:#52647c;font-size:11px;line-height:1.6;overflow-wrap:anywhere">If the button doesn’t work, copy this link: <a href="${safePaymentUrl}" style="color:#163c2a">${safePaymentUrl}</a></p>`}
+    <div style="margin:0;padding:36px 16px;background:#f3f6fa;font-family:Arial,Helvetica,sans-serif;color:#12243a">
+      <div style="max-width:520px;margin:0 auto">
+        <div style="padding:0 8px 18px">
+          <img src="${logoUrl}" alt="DRPAY" width="138" style="display:block;width:138px;max-width:100%;height:auto;border:0">
         </div>
-        <p style="margin:14px 4px 0;color:#52647c;font-size:11px">Automated message from DRPAY. Do not share your banking credentials or one-time codes.</p>
+        <div style="overflow:hidden;background:#fff;border:1px solid #dce4ed;border-radius:18px">
+          <div style="height:5px;background:#167354;font-size:0;line-height:0">&nbsp;</div>
+          <div style="padding:30px">
+            <div style="display:inline-block;margin-bottom:14px;padding:6px 10px;background:#eaf5f0;border-radius:20px;color:#176348;font-size:10px;font-weight:700;letter-spacing:1.1px">${completed ? "PAYMENT RECEIPT" : "SECURE PAYMENT REQUEST"}</div>
+            <h1 style="margin:0 0 10px;color:#12243a;font-size:24px;line-height:1.3">${heading}</h1>
+            <p style="margin:0 0 24px;color:#5d6b7d;font-size:14px;line-height:1.65">${description}</p>
+            <div style="padding:20px;background:#f7f9fc;border:1px solid #e2e8f0;border-radius:13px">
+              <div style="color:#66758a;font-size:11px;font-weight:600;letter-spacing:.4px">AMOUNT</div>
+              <div style="margin-top:6px;color:#102b45;font-size:28px;font-weight:700;letter-spacing:-.5px">${safeAmount}</div>
+              <div style="height:1px;margin:18px 0;background:#e2e8f0"></div>
+              <div style="color:#66758a;font-size:11px;font-weight:600;letter-spacing:.4px">PAYMENT FOR</div>
+              <div style="margin-top:5px;color:#1b2e43;font-size:14px;font-weight:600;line-height:1.5;overflow-wrap:anywhere">${title}</div>
+              <div style="margin-top:16px;color:#66758a;font-size:11px;font-weight:600;letter-spacing:.4px">REFERENCE</div>
+              <div style="margin-top:5px;color:#43546a;font-size:12px;font-weight:600;line-height:1.5;overflow-wrap:anywhere">${reference}</div>
+            </div>
+            ${completed ? "" : `<div style="margin-top:24px;text-align:center"><a href="${safePaymentUrl}" style="display:inline-block;padding:14px 24px;background:#176348;border:1px solid #176348;border-radius:9px;color:#fff;font-size:14px;font-weight:700;line-height:1.2;text-decoration:none">Continue to secure checkout</a></div><p style="margin:18px 0 0;color:#6b7888;font-size:12px;line-height:1.6">Button not opening? Copy this secure checkout link into your browser:<br><a href="${safePaymentUrl}" style="color:#176348;overflow-wrap:anywhere">${safePaymentUrl}</a></p>`}
+          </div>
+        </div>
+        <div style="padding:18px 8px 0;color:#718096;font-size:11px;line-height:1.7">
+          <p style="margin:0 0 8px">This is an automated message from DRPAY. We will never ask you to send a password, banking PIN, or one-time verification code by email.</p>
+          <p style="margin:0">If you weren’t expecting this request, you can ignore this message.</p>
+          <p style="margin:12px 0 0;color:#93a0af">© DRPAY · Secure payments</p>
+        </div>
       </div>
     </div>
   `;
@@ -394,7 +407,7 @@ async function sendCustomerPaymentEmail(payment, kind) {
       "Content-Type": "application/json",
       "Idempotency-Key": `drpay-${kind}-${payment.id}`,
     },
-    body: JSON.stringify({ from: resendFromEmail, to: [payment.customer_email], subject, text, html }),
+    body: JSON.stringify({ from: `DRPAY <${resendFromEmail}>`, to: [payment.customer_email], subject, text, html }),
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) {
