@@ -3528,7 +3528,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!isDashboard) return;
+    if (!isDashboard || isAdminConsole) return;
     void loadDashboard();
     // Session changes are the intended refresh boundary.
     // eslint-disable-next-line react-hooks/exhaustive-deps
