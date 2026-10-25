@@ -112,6 +112,10 @@ import {
 import type { MerchantQrDetails, TransferQrDetails } from "./lib/transferQr";
 import { parseScannedQr } from "./lib/transferQr";
 import {
+  downloadTransferReceiptImage,
+  shareTransferReceiptImage,
+} from "./lib/transferReceipt";
+import {
   createBiometricSecret,
   deleteBiometricSecret,
   hasBiometricLogin,
@@ -1568,45 +1572,33 @@ function TransactionSheet({
   const canRepeatTransfer = isTransfer
     && !transaction.isRefund
     && Boolean(transaction.institutionCode && transaction.recipientName && transaction.recipientAccountNumber);
-  const receiptText = [
-    "DRPAY TRANSFER RECEIPT",
-    "",
-    `Amount: ${formatPeso(Math.abs(transaction.numericAmount))}`,
-    `Status: ${transaction.rawStatus}`,
-    `Reference: ${transaction.reference}`,
-    `Network: ${transaction.channel}`,
-    `Institution: ${transaction.institutionName || transaction.customer}`,
-    ...(transaction.recipientName ? [`Recipient: ${transaction.recipientName}`] : []),
-    ...(transaction.recipientAccountNumber ? [`Account ending: ${transaction.recipientAccountNumber.slice(-4)}`] : []),
-    ...(transaction.remarks ? [`Remarks: ${transaction.remarks}`] : []),
-    `Date: ${transaction.date}`,
-    "",
-    "This receipt reflects the transfer status reported by the payment provider.",
-  ].join("\n");
+  const receipt = {
+    amount: Math.abs(transaction.numericAmount),
+    status: transaction.rawStatus,
+    reference: transaction.reference,
+    channel: transaction.channel,
+    institutionName: transaction.institutionName || transaction.customer,
+    recipientName: transaction.recipientName,
+    accountNumber: transaction.recipientAccountNumber,
+    remarks: transaction.remarks,
+    createdAt: transaction.date,
+  };
 
-  function downloadReceipt() {
-    const receiptUrl = URL.createObjectURL(new Blob([receiptText], { type: "text/plain;charset=utf-8" }));
-    const link = document.createElement("a");
-    link.href = receiptUrl;
-    link.download = `drpay-transfer-${transaction.reference.replace(/[^a-zA-Z0-9_-]/g, "_")}.txt`;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(receiptUrl), 1000);
+  async function downloadReceipt() {
+    setReceiptError("");
+    try {
+      await downloadTransferReceiptImage(receipt);
+    } catch (receiptDownloadError) {
+      setReceiptError(receiptDownloadError instanceof Error ? receiptDownloadError.message : "Could not download the transfer receipt image.");
+    }
   }
 
   async function shareReceipt() {
     setReceiptError("");
     try {
-      const { value } = await Share.canShare();
-      if (!value) throw new Error("Sharing is not available on this device. Download the receipt instead.");
-      await Share.share({
-        title: "DRPAY transfer receipt",
-        text: receiptText,
-        dialogTitle: "Share transfer receipt",
-      });
+      await shareTransferReceiptImage(receipt);
     } catch (shareError) {
-      setReceiptError(shareError instanceof Error ? shareError.message : "Could not share the receipt. Download it instead.");
+      setReceiptError(shareError instanceof Error ? shareError.message : "Could not share the transfer receipt image. Download it instead.");
     }
   }
 
@@ -1705,8 +1697,8 @@ function TransactionSheet({
         {isTransfer && (
           <div className="transaction-receipt-actions">
             {canRepeatTransfer && <Button variant="secondary" icon={<RefreshCw size={15} />} onClick={repeatTransfer}>Repeat transfer</Button>}
-            <Button variant="secondary" icon={<Download size={15} />} onClick={downloadReceipt}>Download receipt</Button>
-            <Button variant="secondary" icon={<Share2 size={15} />} onClick={() => void shareReceipt()}>Share receipt</Button>
+            <Button variant="secondary" icon={<Download size={15} />} onClick={() => void downloadReceipt()}>Download receipt image</Button>
+            <Button variant="secondary" icon={<Share2 size={15} />} onClick={() => void shareReceipt()}>Share receipt image</Button>
             {receiptError && <div className="inline-error" role="alert"><AlertCircle size={14} />{receiptError}</div>}
           </div>
         )}
@@ -1864,50 +1856,23 @@ function TransferSheet({
   const channelAvailable = channel === "INSTAPAY"
     ? selectedBank?.instapayEnabled !== false
     : selectedBank?.pesonetEnabled !== false;
-  const receiptText = receiptDetails ? [
-    "DRPAY TRANSFER RECEIPT",
-    "",
-    `Amount: ${formatPeso(receiptDetails.amount)}`,
-    `Status: ${receiptDetails.status}`,
-    `Reference: ${receiptDetails.reference}`,
-    `Network: ${receiptDetails.channel}`,
-    `Institution: ${receiptDetails.institutionName}`,
-    `Recipient: ${receiptDetails.recipientName}`,
-    `Account: ending ${receiptDetails.accountNumber.slice(-4)}`,
-    `Remarks: ${receiptDetails.remarks}`,
-    `Date: ${new Date(receiptDetails.createdAt).toLocaleString()}`,
-    "",
-    "This receipt confirms the transfer request status shown above. A pending request is not proof of settlement.",
-  ].join("\n") : "";
-
-  function downloadTransferReceipt() {
-    if (!receiptText || !receiptDetails) return;
-    const receiptUrl = URL.createObjectURL(new Blob([receiptText], { type: "text/plain;charset=utf-8" }));
-    const link = document.createElement("a");
-    link.href = receiptUrl;
-    link.download = `drpay-transfer-${receiptDetails.reference.replace(/[^a-zA-Z0-9_-]/g, "_")}.txt`;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(receiptUrl), 1000);
+  async function downloadTransferReceipt() {
+    if (!receiptDetails) return;
+    setReceiptActionError("");
+    try {
+      await downloadTransferReceiptImage(receiptDetails);
+    } catch (receiptDownloadError) {
+      setReceiptActionError(receiptDownloadError instanceof Error ? receiptDownloadError.message : "Could not download the transfer receipt image.");
+    }
   }
 
   async function shareTransferReceipt() {
-    if (!receiptText) return;
+    if (!receiptDetails) return;
     setReceiptActionError("");
     try {
-      const { value } = await Share.canShare();
-      if (!value) {
-        setReceiptActionError("Sharing is not available on this device. Download the receipt instead.");
-        return;
-      }
-      await Share.share({
-        title: "DRPAY transfer receipt",
-        text: receiptText,
-        dialogTitle: "Share transfer receipt",
-      });
+      await shareTransferReceiptImage(receiptDetails);
     } catch (shareError) {
-      setReceiptActionError(shareError instanceof Error ? shareError.message : "Could not share the transfer receipt. Download it instead.");
+      setReceiptActionError(shareError instanceof Error ? shareError.message : "Could not share the transfer receipt image. Download it instead.");
     }
   }
 
@@ -1950,8 +1915,8 @@ function TransferSheet({
                   <div><dt>Date</dt><dd>{new Date(receiptDetails.createdAt).toLocaleString()}</dd></div>
                 </dl>
                 <div className="result-actions">
-                  <Button variant="secondary" icon={<Download size={15} />} onClick={downloadTransferReceipt}>Download receipt</Button>
-                  <Button variant="secondary" icon={<Share2 size={15} />} onClick={() => void shareTransferReceipt()}>Share receipt</Button>
+                  <Button variant="secondary" icon={<Download size={15} />} onClick={() => void downloadTransferReceipt()}>Download receipt image</Button>
+                  <Button variant="secondary" icon={<Share2 size={15} />} onClick={() => void shareTransferReceipt()}>Share receipt image</Button>
                 </div>
                 {receiptActionError && <div className="inline-error" role="alert"><AlertCircle size={14} />{receiptActionError}</div>}
               </>
