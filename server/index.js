@@ -349,7 +349,7 @@ async function sendCustomerPaymentEmail(payment, kind) {
   const safeAmount = escapeEmailHtml(amount);
   const paymentUrl = buildCheckoutUrl(payment.code);
   const safePaymentUrl = escapeEmailHtml(paymentUrl);
-  const logoUrl = "https://merchant.denpay.cc/drpay-signature.png";
+  const logoUrl = "https://merchant.denpay.cc/drpay-mark.png";
   const subject = completed ? "DRPAY payment confirmed" : "DRPAY payment request";
   const heading = completed ? "Payment confirmed" : "Your payment request";
   const description = completed
@@ -372,7 +372,10 @@ async function sendCustomerPaymentEmail(payment, kind) {
     <div style="margin:0;padding:36px 16px;background:#f3f6fa;font-family:Arial,Helvetica,sans-serif;color:#12243a">
       <div style="max-width:520px;margin:0 auto">
         <div style="padding:0 8px 18px">
-          <img src="${logoUrl}" alt="DRPAY" width="138" style="display:block;width:138px;max-width:100%;height:auto;border:0">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+            <td style="vertical-align:middle"><img src="${logoUrl}" alt="" width="42" height="39" style="display:block;width:42px;height:39px;border:0"></td>
+            <td style="padding-left:10px;vertical-align:middle;color:#102b45;font-size:21px;font-weight:800;letter-spacing:1.2px">DRPAY</td>
+          </tr></table>
         </div>
         <div style="overflow:hidden;background:#fff;border:1px solid #dce4ed;border-radius:18px">
           <div style="height:5px;background:#167354;font-size:0;line-height:0">&nbsp;</div>
