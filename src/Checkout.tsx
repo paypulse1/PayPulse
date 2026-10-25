@@ -4,6 +4,9 @@ import { getPublicCheckout, type PublicCheckout } from "./lib/swiftpay";
 import QrPaymentDisplay from "./QrPaymentDisplay";
 
 function statusPresentation(checkout: PublicCheckout) {
+  if (checkout.status === "MANUALLY_PAID") {
+    return { label: "Payment confirmed by the merchant", className: "checkout-status-paid", icon: <CheckCircle2 size={18} /> };
+  }
   if (checkout.status === "EXECUTED") {
     return { label: "Payment received", className: "checkout-status-paid", icon: <CheckCircle2 size={18} /> };
   }
@@ -56,7 +59,7 @@ export default function Checkout({ code }: { code: string }) {
     }
   }
 
-  const terminal = checkout && ["EXECUTED", "CANCELED", "REJECTED", "EXPIRED"].includes(checkout.status);
+  const terminal = checkout && ["EXECUTED", "MANUALLY_PAID", "CANCELED", "REJECTED", "EXPIRED"].includes(checkout.status);
   const presentation = checkout ? statusPresentation(checkout) : null;
 
   return (
@@ -100,10 +103,10 @@ export default function Checkout({ code }: { code: string }) {
               <p className="checkout-status-note">You can still scan the QR, but keep this page open while status updates reconnect. Do not submit a second payment.</p>
             )}
 
-            {checkout.status === "EXECUTED" ? (
+            {checkout.status === "EXECUTED" || checkout.status === "MANUALLY_PAID" ? (
               <div className="checkout-complete">
                 <CheckCircle2 size={42} />
-                <strong>Thank you. Your payment is confirmed.</strong>
+                <strong>{checkout.status === "MANUALLY_PAID" ? "The merchant has verified and confirmed your payment." : "Thank you. Your payment is confirmed."}</strong>
                 <span>You may close this page.</span>
               </div>
             ) : checkout.status === "EXPIRED" ? (

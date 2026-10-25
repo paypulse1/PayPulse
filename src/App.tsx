@@ -52,6 +52,7 @@ import {
   getKrwPhpQuote,
   getAdminInternalWallet,
   getAdminFloatingTransferRequests,
+  getAdminPaymentLinks,
   getAdminKybApplications,
   getAdminKybDocumentUrl,
   getAdminInternalWallets,
@@ -84,6 +85,8 @@ import {
   updateAdminSettings,
   reviewAdminFloatingTransferRequest,
   reviewAdminKybApplication,
+  markAdminPaymentLinkPaid,
+  type AdminPaymentLink,
   type AdminMerchantAccount,
   type AdminKybApplication,
   type AdminInternalWallet,
@@ -127,11 +130,11 @@ import InstitutionSelectionScreen from "./InstitutionSelectionScreen";
 import { DeveloperSetupPanel, KybSetupPanel } from "./MerchantSetup";
 
 function isTerminalPaymentStatus(status: string) {
-  return ["PAID", "EXECUTED", "INACTIVE", "CANCELED", "REJECTED", "EXPIRED", "FAILED"].includes(status.toUpperCase());
+  return ["PAID", "EXECUTED", "MANUALLY_PAID", "INACTIVE", "CANCELED", "REJECTED", "EXPIRED", "FAILED"].includes(status.toUpperCase());
 }
 
 function isConfirmedPaymentStatus(status: string) {
-  return ["PAID", "EXECUTED"].includes(status.toUpperCase());
+  return ["PAID", "EXECUTED", "MANUALLY_PAID"].includes(status.toUpperCase());
 }
 
 function isQrDecodeMiss(error: unknown) {
@@ -712,7 +715,7 @@ function SuperAdminSignIn({ onAuthenticated }: { onAuthenticated: (session: Sess
 }
 
 function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
-  const [activePage, setActivePage] = useState<"overview" | "merchants" | "kyb" | "ledger" | "requests" | "settings">("overview");
+  const [activePage, setActivePage] = useState<"overview" | "payments" | "merchants" | "kyb" | "ledger" | "requests" | "settings">("overview");
   const [settings, setSettings] = useState<AdminSettings>({
     krwToPhpRate: null,
     usdtAddress: "",
@@ -725,6 +728,8 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
   const [editingMerchant, setEditingMerchant] = useState<(AdminMerchantAccount & { originalEmail: string }) | null>(null);
   const [internalWallets, setInternalWallets] = useState<AdminInternalWalletSummary[]>([]);
   const [transferRequests, setTransferRequests] = useState<FloatingTransferRequest[]>([]);
+  const [paymentLinks, setPaymentLinks] = useState<AdminPaymentLink[]>([]);
+  const [paymentVerificationNotes, setPaymentVerificationNotes] = useState<Record<string, string>>({});
   const [kybApplications, setKybApplications] = useState<AdminKybApplication[]>([]);
   const [kybReviewNotes, setKybReviewNotes] = useState<Record<string, string>>({});
   const [merchantSearch, setMerchantSearch] = useState("");
@@ -739,6 +744,7 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
   const [savingMerchant, setSavingMerchant] = useState(false);
   const [savingAdjustment, setSavingAdjustment] = useState(false);
   const [reviewingRequestId, setReviewingRequestId] = useState("");
+  const [markingPaymentId, setMarkingPaymentId] = useState("");
   const [failedRequestId, setFailedRequestId] = useState("");
   const [failedRequestReason, setFailedRequestReason] = useState("");
   const [error, setError] = useState("");
@@ -758,18 +764,20 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
     setLoading(true);
     setError("");
     try {
-      const [nextSettings, nextMerchants, nextWallets, nextTransferRequests, nextKybApplications] = await Promise.all([
+      const [nextSettings, nextMerchants, nextWallets, nextTransferRequests, nextKybApplications, nextPaymentLinks] = await Promise.all([
         getAdminSettings(),
         getAdminMerchantAccounts(),
         getAdminInternalWallets(),
         getAdminFloatingTransferRequests(),
         getAdminKybApplications(),
+        getAdminPaymentLinks(),
       ]);
       setSettings(nextSettings);
       setMerchants(nextMerchants);
       setInternalWallets(nextWallets);
       setTransferRequests(nextTransferRequests);
       setKybApplications(nextKybApplications);
+      setPaymentLinks(nextPaymentLinks);
       setSelectedWalletEmail((current) => nextWallets.some((wallet) => wallet.email === current)
         ? current
         : nextWallets[0]?.email || "");
@@ -931,6 +939,35 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
     }
   }
 
+  async function confirmPaymentAsPaid(payment: AdminPaymentLink) {
+    const verificationNote = paymentVerificationNotes[payment.id]?.trim() || "";
+    if (verificationNote.length < 10) {
+      setError("Describe how you independently verified this payment (at least 10 characters).");
+      return;
+    }
+    const reference = `${payment.currency} ${payment.amount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · ${payment.referenceNo}`;
+    if (!window.confirm(`Only continue after independently verifying receipt of ${reference}. This records a manual confirmation; it does not cancel the SwiftPay QR. Make sure this payment will not be paid twice.`)) {
+      return;
+    }
+    setMarkingPaymentId(payment.id);
+    setError("");
+    setNotice("");
+    try {
+      const updated = await markAdminPaymentLinkPaid(payment.id, verificationNote);
+      setPaymentLinks((current) => current.map((item) => item.id === payment.id ? updated : item));
+      setPaymentVerificationNotes((current) => ({ ...current, [payment.id]: "" }));
+      setNotice(updated.customerNotification === "no_customer_email"
+        ? "Payment marked manually paid and recorded in the audit trail. No customer email is on file."
+        : updated.customerNotification === "queued_for_retry"
+          ? "Payment marked manually paid. The customer confirmation email is queued for retry."
+          : "Payment marked manually paid. The customer confirmation email has been queued.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not manually confirm this payment.");
+    } finally {
+      setMarkingPaymentId("");
+    }
+  }
+
   async function reviewKyb(application: AdminKybApplication, status: "IN_REVIEW" | "APPROVED" | "REJECTED") {
     const reviewNotes = kybReviewNotes[application.merchantEmail]?.trim() || "";
     if (status === "REJECTED" && !reviewNotes) {
@@ -978,14 +1015,15 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
         <div className="page-title">
           <span className="eyebrow">CONTROL PLANE</span>
           <div className="admin-page-heading">
-            <div><h1>{activePage === "overview" ? "Backoffice overview" : activePage === "merchants" ? "Merchant accounts" : activePage === "kyb" ? "KYB applications" : activePage === "ledger" ? "Floating balance" : activePage === "requests" ? "Transfer requests" : "Collection settings"}</h1>
-            <p>{activePage === "overview" ? "Monitor merchant access and floating balances." : activePage === "merchants" ? "Create merchant access and manage account status." : activePage === "kyb" ? "Review merchant business and beneficial-owner verification." : activePage === "ledger" ? "Adjust merchant floating balances and review their audit entries." : activePage === "requests" ? "Mark requests successful or failed and arrange payouts for successful requests." : "Configure collection references used by the merchant app."}</p></div>
+            <div><h1>{activePage === "overview" ? "Backoffice overview" : activePage === "payments" ? "QR Ph payments" : activePage === "merchants" ? "Merchant accounts" : activePage === "kyb" ? "KYB applications" : activePage === "ledger" ? "Floating balance" : activePage === "requests" ? "Transfer requests" : "Collection settings"}</h1>
+            <p>{activePage === "overview" ? "Monitor merchant access and floating balances." : activePage === "payments" ? "Review QR checkouts and record independently verified payments." : activePage === "merchants" ? "Create merchant access and manage account status." : activePage === "kyb" ? "Review merchant business and beneficial-owner verification." : activePage === "ledger" ? "Adjust merchant floating balances and review their audit entries." : activePage === "requests" ? "Mark requests successful or failed and arrange payouts for successful requests." : "Configure collection references used by the merchant app."}</p></div>
             <Button variant="secondary" icon={<RefreshCw size={15} />} onClick={() => void loadConsole()} disabled={loading}>Refresh</Button>
           </div>
         </div>
         <nav className="admin-nav" aria-label="Super-admin pages">
           {([
             ["overview", "Overview", Home],
+            ["payments", `Payments${paymentLinks.filter((payment) => payment.status === "PENDING").length ? ` (${paymentLinks.filter((payment) => payment.status === "PENDING").length})` : ""}`, ReceiptText],
             ["merchants", "Merchants", Users],
             ["kyb", `KYB${kybApplications.filter((application) => application.status === "PENDING" || application.status === "IN_REVIEW").length ? ` (${kybApplications.filter((application) => application.status === "PENDING" || application.status === "IN_REVIEW").length})` : ""}`, ShieldCheck],
             ["ledger", "Floating balance", WalletCards],
@@ -1028,6 +1066,42 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
                 </section>
               </>
             )}
+            {activePage === "payments" && <section className="admin-card">
+              <div className="admin-card-heading"><span className="setting-icon"><ReceiptText size={19} /></span><div><h2>Recent QR Ph checkouts</h2><p>Manually confirm only after independently verifying the incoming payment. Manual confirmation does not cancel the SwiftPay QR or add funds to the SwiftPay account.</p></div></div>
+              <div className="admin-transfer-request-list">
+                {paymentLinks.length === 0 ? <p className="admin-empty">No QR Ph checkouts are available.</p> : paymentLinks.map((payment) => {
+                  const manuallyPaid = payment.status === "MANUALLY_PAID";
+                  const statusLabel = manuallyPaid
+                    ? "Manually confirmed"
+                    : payment.status === "EXECUTED"
+                      ? "Paid · SwiftPay"
+                      : payment.status.charAt(0) + payment.status.slice(1).toLowerCase();
+                  const verificationNote = paymentVerificationNotes[payment.id] || "";
+                  return (
+                    <article className="admin-transfer-request" key={payment.id}>
+                      <div className="admin-transfer-request-heading">
+                        <div><strong>{payment.merchantEmail || "Unassigned merchant"}</strong><small>{new Date(payment.createdAt).toLocaleString()}</small></div>
+                        <span className={`admin-status-pill ${payment.status.toLowerCase()}`}>{statusLabel}</span>
+                      </div>
+                      <strong className="admin-transfer-request-amount">{payment.currency} {payment.amount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                      <dl>
+                        <div><dt>Payment for</dt><dd>{payment.title}</dd></div>
+                        <div><dt>Reference</dt><dd>{payment.referenceNo}</dd></div>
+                        <div><dt>Customer email</dt><dd>{payment.customerEmail || "Not provided"}</dd></div>
+                      </dl>
+                      {manuallyPaid ? (
+                        <p className="admin-transfer-failure-reason"><strong>Manual verification audit</strong>{payment.manualPaidReason}<br /><small>By {payment.manuallyPaidBy || "admin"} · {payment.manuallyPaidAt ? new Date(payment.manuallyPaidAt).toLocaleString() : "time unavailable"}</small></p>
+                      ) : payment.status === "PENDING" ? (
+                        <form className="admin-transfer-failure-form" onSubmit={(event) => { event.preventDefault(); void confirmPaymentAsPaid(payment); }}>
+                          <label><span>Independent verification details (required; 10–500 characters)</span><textarea value={verificationNote} onChange={(event) => setPaymentVerificationNotes((current) => ({ ...current, [payment.id]: event.target.value }))} minLength={10} maxLength={500} rows={3} required placeholder="Describe the independently verified payment evidence and reference" /></label>
+                          <Button type="submit" disabled={markingPaymentId === payment.id || verificationNote.trim().length < 10}>{markingPaymentId === payment.id ? "Confirming…" : "Mark manually paid"}</Button>
+                        </form>
+                      ) : null}
+                    </article>
+                  );
+                })}
+              </div>
+            </section>}
             {activePage === "ledger" && <section className="admin-card">
               <div className="admin-card-heading"><span className="setting-icon"><WalletCards size={19} /></span><div><h2>Merchant floating balance</h2><p>PHP balance used for transfer requests. Pending requests reserve funds until marked successful or failed.</p></div></div>
               {merchants.length === 0 ? <p className="admin-empty">Create a merchant account before recording ledger adjustments.</p> : (
@@ -1574,7 +1648,7 @@ function TransactionSheet({
           </div>
         </section>
         <dl className="detail-list">
-          <div><dt>Provider status</dt><dd>{transaction.rawStatus}</dd></div>
+          <div><dt>{transaction.rawStatus === "MANUALLY_PAID" ? "Payment status" : "Provider status"}</dt><dd>{transaction.rawStatus === "MANUALLY_PAID" ? "Manually confirmed by super admin after verification" : transaction.rawStatus}</dd></div>
           {transaction.walletAmount !== undefined && transaction.walletAmount !== null && (
             <div><dt>Merchant ledger impact</dt><dd>{formatWalletMovement(transaction.walletAmount)}</dd></div>
           )}

@@ -3226,6 +3226,16 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
 app.get("/v1/payment-links/:code", async (req, res) => {
   const record = await pool.query("SELECT * FROM payment_links WHERE code = $1 AND merchant_email = $2", [req.params.code, req.merchantEmail]);
   if (!record.rowCount) return res.status(404).json({ error: "Payment link not found." });
+  if (record.rows[0].status === "MANUALLY_PAID") {
+    return res.set("Cache-Control", "no-store").json({
+      code: record.rows[0].code,
+      paymentUrl: buildCheckoutUrl(record.rows[0].code),
+      status: "MANUALLY_PAID",
+      amount: Number(record.rows[0].amount),
+      currency: record.rows[0].currency,
+      referenceNo: record.rows[0].reference_no,
+    });
+  }
   try {
     if (record.rows[0].payment_token) {
       const { data } = await swiftPayPaymentRequest("/payments/status", record.rows[0].payment_token);
