@@ -149,6 +149,10 @@ function isQrDecodeMiss(error: unknown) {
     || /no (?:multi.?format )?readers? (?:were )?able to detect/i.test(error.message);
 }
 
+function isDetectedQrUnreadable(error: unknown) {
+  return error instanceof Error && ["ChecksumException", "FormatException"].includes(error.name);
+}
+
 function compareAppVersions(left: string, right: string) {
   const leftParts = left.split(".").map(Number);
   const rightParts = right.split(".").map(Number);
@@ -2119,7 +2123,7 @@ function ScannerSheet({
             stopScanner?.();
             setCameraError("");
             handlePayload(result.getText());
-          } else if (error && !isQrDecodeMiss(error)) {
+          } else if (isDetectedQrUnreadable(error)) {
             setCameraError("The camera could not read the QR code. Improve the lighting, hold the phone steady, and try again.");
           }
         },
