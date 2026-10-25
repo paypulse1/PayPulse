@@ -135,7 +135,7 @@ export function KybSetupPanel() {
   return (
     <div className="merchant-setup">
       {status && <div className={`kyb-status status-${status.toLowerCase()}`}><strong>{status.replace("_", " ")}</strong>{reviewNotes && <span>{reviewNotes}</span>}</div>}
-      <p className="profile-info-note">Provide your registered business details and beneficial owner information. Documents are uploaded directly to private Cloudflare R2 storage and are only accessible to your merchant account and DRPAY administrators.</p>
+      <p className="profile-info-note">Provide your registered business details and beneficial owner information. Documents are uploaded directly to private Cloudflare R2 storage and are only accessible to your merchant account and authorized DRPAY team members.</p>
       <form className="setup-form" onSubmit={(event) => void saveProfile(event)}>
         <label>Legal business name<input value={profile.legalBusinessName} onChange={(event) => updateField("legalBusinessName", event.target.value)} required maxLength={200} /></label>
         <label>Registration number<input value={profile.registrationNumber} onChange={(event) => updateField("registrationNumber", event.target.value)} required maxLength={200} /></label>

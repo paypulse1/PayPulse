@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
 import {
   AlertCircle,
+  Activity,
+  ArrowUpRight,
+  Clock3,
+  Download,
   Home,
   LoaderCircle,
   Lock,
@@ -17,6 +21,7 @@ import {
 } from "lucide-react"
 import {
   clearSession,
+  getAdminAuditEvents,
   createAdminInternalWalletAdjustment,
   createAdminMerchantAccount,
   getAdminFloatingTransferRequests,
@@ -26,6 +31,7 @@ import {
   getAdminMerchantAccounts,
   getAdminPaymentLinks,
   getAdminSettings,
+  getAdminKybApplications,
   login,
   markAdminPaymentLinkPaid,
   reviewAdminFloatingTransferRequest,
@@ -35,6 +41,7 @@ import {
   updateAdminSettings,
   type AdminInternalWallet,
   type AdminInternalWalletSummary,
+  type AdminAuditEvent,
   type AdminKybApplication,
   type AdminMerchantAccount,
   type AdminPaymentLink,
@@ -43,6 +50,27 @@ import {
   type Session,
 } from "./lib/swiftpay"
 import { Brand, Button, PoweredByFooter } from "./AppPrimitives"
+
+type AdminPage = "overview" | "payments" | "merchants" | "kyb" | "ledger" | "requests" | "audit" | "settings"
+
+type AdminExportRow = {
+  section: string
+  record: string
+  merchant: string
+  status: string
+  amount: string | number
+  currency: string
+  date: string
+  actor: string
+  summary: string
+}
+
+function csvCell(value: string | number) {
+  if (typeof value === "number") return String(value)
+  const text = String(value)
+  const safeText = /^[\s]*[=+\-@]/.test(text) ? `'${text}` : text
+  return `"${safeText.replace(/"/g, '""')}"`
+}
 
 export function SuperAdminSignIn({
   onAuthenticated,
@@ -63,7 +91,7 @@ export function SuperAdminSignIn({
       if (session.role !== "super_admin") {
         clearSession()
         throw new Error(
-          "This account is not authorized for the super-admin console.",
+          "This account is not authorized to access this area.",
         )
       }
       onAuthenticated(session)
@@ -71,7 +99,7 @@ export function SuperAdminSignIn({
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Admin sign-in failed.",
+          : "Sign-in failed.",
       )
     } finally {
       setBusy(false)
@@ -88,11 +116,11 @@ export function SuperAdminSignIn({
           <ShieldCheck size={27} />
         </span>
         <span className="eyebrow">RESTRICTED ACCESS</span>
-        <h1>Super-admin sign in</h1>
-        <p>Use the separately configured DRPAY super-admin account.</p>
+        <h1>DRPAY team sign in</h1>
+        <p>Use your separately configured DRPAY team account.</p>
         <form onSubmit={submit}>
           <label>
-            <span>Admin email</span>
+            <span>Work email</span>
             <input
               type="email"
               value={email}
@@ -129,13 +157,13 @@ export function SuperAdminSignIn({
               )
             }
           >
-            {busy ? "Signing in…" : "Open admin console"}
+            {busy ? "Signing in…" : "Continue"}
           </Button>
         </form>
         <div className="auth-trust">
           <ShieldCheck size={16} />
           <span>
-            Separate one-hour admin session. Provider secrets and payment
+            Separate one-hour team session. Provider secrets and payment
             execution are not exposed here.
           </span>
         </div>
@@ -152,10 +180,7 @@ export function SuperAdminConsole({
   session: Session
   onSignOut: () => void
 }) {
-  const [activePage, setActivePage] =
-    useState<"overview" | "payments" | "merchants" | "kyb" | "ledger" | "requests" | "settings">(
-      "overview",
-    )
+  const [activePage, setActivePage] = useState<AdminPage>("overview")
   const [settings, setSettings] = useState<AdminSettings>({
     krwToPhpRate: null,
     usdtAddress: "",
@@ -172,6 +197,7 @@ export function SuperAdminConsole({
   const [transferRequests, setTransferRequests] =
     useState<FloatingTransferRequest[]>([])
   const [paymentLinks, setPaymentLinks] = useState<AdminPaymentLink[]>([])
+  const [auditEvents, setAuditEvents] = useState<AdminAuditEvent[]>([])
   const [paymentVerificationNotes, setPaymentVerificationNotes] =
     useState<Record<string, string>>({})
   const [kybApplications, setKybApplications] = useState<AdminKybApplication[]>(
@@ -183,6 +209,13 @@ export function SuperAdminConsole({
   const [merchantSearch, setMerchantSearch] = useState("")
   const [merchantFilter, setMerchantFilter] =
     useState<"all" | "active" | "disabled">("all")
+  const [paymentSearch, setPaymentSearch] = useState("")
+  const [paymentStatus, setPaymentStatus] = useState("all")
+  const [kybSearch, setKybSearch] = useState("")
+  const [kybStatus, setKybStatus] = useState("all")
+  const [requestSearch, setRequestSearch] = useState("")
+  const [requestStatus, setRequestStatus] = useState("all")
+  const [auditSearch, setAuditSearch] = useState("")
   const [usdtAddressDrafts, setUsdtAddressDrafts] =
     useState<Record<string, string>>({})
   const [selectedWalletEmail, setSelectedWalletEmail] = useState("")
@@ -220,6 +253,247 @@ export function SuperAdminConsole({
     (total, wallet) => total + wallet.balance,
     0,
   )
+  const pendingTransferRequests = transferRequests.filter(
+    (request) => request.status === "PENDING",
+  )
+  const reservedTransferBalance = pendingTransferRequests.reduce(
+    (total, request) => total + request.amount + request.transferFee,
+    0,
+  )
+  const pendingKybCount = kybApplications.filter(
+    (application) =>
+      application.status === "PENDING" || application.status === "IN_REVIEW",
+  ).length
+  const pendingPaymentCount = paymentLinks.filter(
+    (payment) => payment.status === "PENDING",
+  ).length
+  const filteredPayments = useMemo(() => {
+    const query = paymentSearch.trim().toLowerCase()
+    return paymentLinks.filter((payment) => {
+      const matchesQuery =
+        !query ||
+        [
+          payment.merchantEmail,
+          payment.referenceNo,
+          payment.title,
+          payment.customerEmail,
+        ]
+          .filter(Boolean)
+          .some((value) => value!.toLowerCase().includes(query))
+      return (
+        matchesQuery &&
+        (paymentStatus === "all" ||
+          payment.status.toLowerCase() === paymentStatus)
+      )
+    })
+  }, [paymentLinks, paymentSearch, paymentStatus])
+  const filteredKybApplications = useMemo(() => {
+    const query = kybSearch.trim().toLowerCase()
+    return kybApplications.filter((application) => {
+      const matchesQuery =
+        !query ||
+        [
+          application.merchantEmail,
+          application.legalBusinessName,
+          application.registrationNumber,
+          application.ownerFullName,
+        ].some((value) => value.toLowerCase().includes(query))
+      return (
+        matchesQuery &&
+        (kybStatus === "all" || application.status.toLowerCase() === kybStatus)
+      )
+    })
+  }, [kybApplications, kybSearch, kybStatus])
+  const filteredTransferRequests = useMemo(() => {
+    const query = requestSearch.trim().toLowerCase()
+    return transferRequests.filter((request) => {
+      const matchesQuery =
+        !query ||
+        [
+          request.merchantEmail,
+          request.bankName,
+          request.accountName,
+          request.id,
+          request.failureReason,
+        ]
+          .filter(Boolean)
+          .some((value) => value!.toLowerCase().includes(query))
+      return (
+        matchesQuery &&
+        (requestStatus === "all" ||
+          request.status.toLowerCase() === requestStatus)
+      )
+    })
+  }, [transferRequests, requestSearch, requestStatus])
+  const filteredAuditEvents = useMemo(() => {
+    const query = auditSearch.trim().toLowerCase()
+    return auditEvents.filter(
+      (event) =>
+        !query ||
+        [
+          event.category,
+          event.action,
+          event.target,
+          event.actor || "",
+          event.summary,
+        ].some((value) => value.toLowerCase().includes(query)),
+    )
+  }, [auditEvents, auditSearch])
+
+  async function refreshAuditEvents() {
+    try {
+      setAuditEvents(await getAdminAuditEvents())
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? `Action saved, but audit history could not be refreshed: ${requestError.message}`
+          : "Action saved, but audit history could not be refreshed.",
+      )
+    }
+  }
+
+  function exportCurrentData() {
+    const rows: AdminExportRow[] = []
+    const addPayments = (items: AdminPaymentLink[]) => {
+      rows.push(
+        ...items.map((payment) => ({
+          section: "Payment",
+          record: payment.referenceNo,
+          merchant: payment.merchantEmail || "",
+          status: payment.status,
+          amount: payment.amount,
+          currency: payment.currency,
+          date: payment.createdAt,
+          actor: payment.manuallyPaidBy || "",
+          summary: payment.title,
+        })),
+      )
+    }
+    const addKyb = (items: AdminKybApplication[]) => {
+      rows.push(
+        ...items.map((application) => ({
+          section: "KYB",
+          record: application.merchantEmail,
+          merchant: application.merchantEmail,
+          status: application.status,
+          amount: "",
+          currency: "",
+          date: application.updatedAt,
+          actor: "",
+          summary: application.legalBusinessName,
+        })),
+      )
+    }
+    const addRequests = (items: FloatingTransferRequest[]) => {
+      rows.push(
+        ...items.map((request) => ({
+          section: "Transfer request",
+          record: request.id,
+          merchant: request.merchantEmail || "",
+          status: request.status,
+          amount: request.amount,
+          currency: "PHP",
+          date: request.reviewedAt || request.requestedAt,
+          actor: request.reviewedBy || "",
+          summary:
+            request.failureReason ||
+            `Transfer fee PHP ${request.transferFee.toFixed(2)}`,
+        })),
+      )
+    }
+    const addAudit = (items: AdminAuditEvent[]) => {
+      rows.push(
+        ...items.map((event) => ({
+          section: event.category,
+          record: event.id,
+          merchant: event.target,
+          status: event.action,
+          amount: "",
+          currency: "",
+          date: event.occurredAt,
+          actor: event.actor || "",
+          summary: event.summary,
+        })),
+      )
+    }
+    if (activePage === "payments") addPayments(filteredPayments)
+    else if (activePage === "kyb") addKyb(filteredKybApplications)
+    else if (activePage === "requests") addRequests(filteredTransferRequests)
+    else if (activePage === "audit") addAudit(filteredAuditEvents)
+    else if (activePage === "merchants") {
+      rows.push(
+        ...filteredMerchants.map((merchant) => ({
+          section: "Merchant",
+          record: merchant.email,
+          merchant: merchant.email,
+          status: merchant.active ? "Active" : "Disabled",
+          amount: "",
+          currency: "",
+          date: merchant.updatedAt,
+          actor: "",
+          summary: merchant.businessName,
+        })),
+      )
+    } else if (activePage === "ledger") {
+      rows.push(
+        ...(selectedWallet?.adjustments || []).map((adjustment) => ({
+          section: "Floating balance adjustment",
+          record: adjustment.id,
+          merchant: selectedWalletEmail,
+          status: adjustment.amount < 0 ? "Debit" : "Credit",
+          amount: adjustment.amount,
+          currency: "PHP",
+          date: adjustment.createdAt,
+          actor: adjustment.adjustedBy,
+          summary: adjustment.reason,
+        })),
+      )
+    } else {
+      addPayments(paymentLinks)
+      addKyb(kybApplications)
+      addRequests(transferRequests)
+      addAudit(auditEvents)
+      rows.push(
+        ...merchants.map((merchant) => ({
+          section: "Merchant",
+          record: merchant.email,
+          merchant: merchant.email,
+          status: merchant.active ? "Active" : "Disabled",
+          amount: "",
+          currency: "",
+          date: merchant.updatedAt,
+          actor: "",
+          summary: merchant.businessName,
+        })),
+      )
+    }
+
+    const columns: Array<keyof AdminExportRow> = [
+      "section",
+      "record",
+      "merchant",
+      "status",
+      "amount",
+      "currency",
+      "date",
+      "actor",
+      "summary",
+    ]
+    const csv = [
+      columns.join(","),
+      ...rows.map((row) =>
+        columns.map((column) => csvCell(row[column])).join(","),
+      ),
+    ].join("\r\n")
+    const url = URL.createObjectURL(
+      new Blob([csv], { type: "text/csv;charset=utf-8" }),
+    )
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `drpay-operations-${activePage}-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
 
   async function loadConsole() {
     setLoading(true)
@@ -231,18 +505,24 @@ export function SuperAdminConsole({
         nextWallets,
         nextTransferRequests,
         nextPaymentLinks,
+        nextKybApplications,
+        nextAuditEvents,
       ] = await Promise.all([
         getAdminSettings(),
         getAdminMerchantAccounts(),
         getAdminInternalWallets(),
         getAdminFloatingTransferRequests(),
         getAdminPaymentLinks(),
+        getAdminKybApplications(),
+        getAdminAuditEvents(),
       ])
       setSettings(nextSettings)
       setMerchants(nextMerchants)
       setInternalWallets(nextWallets)
       setTransferRequests(nextTransferRequests)
       setPaymentLinks(nextPaymentLinks)
+      setKybApplications(nextKybApplications)
+      setAuditEvents(nextAuditEvents)
       setSelectedWalletEmail((current) =>
         nextWallets.some((wallet) => wallet.email === current)
           ? current
@@ -252,7 +532,7 @@ export function SuperAdminConsole({
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Could not load admin console data.",
+          : "Could not load console data.",
       )
     } finally {
       setLoading(false)
@@ -299,6 +579,7 @@ export function SuperAdminConsole({
       setNotice(
         "Settings saved. New successful collections and transfer requests use these fee rates.",
       )
+      await refreshAuditEvents()
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -320,6 +601,7 @@ export function SuperAdminConsole({
       setNewEmail("")
       setNotice("Merchant account created.")
       await loadConsole()
+      await refreshAuditEvents()
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -356,6 +638,7 @@ export function SuperAdminConsole({
       setNotice(
         "Merchant profile updated. If the login email changed, the merchant must sign in again using the new email.",
       )
+      await refreshAuditEvents()
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -382,6 +665,7 @@ export function SuperAdminConsole({
         ),
       )
       setNotice(`Merchant account ${account.active ? "disabled" : "enabled"}.`)
+      await refreshAuditEvents()
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -420,6 +704,7 @@ export function SuperAdminConsole({
           ? `TRON mainnet address assigned to ${account.email}. Verify it carefully before sharing.`
           : `TRON mainnet address removed from ${account.email}.`,
       )
+      await refreshAuditEvents()
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -453,6 +738,7 @@ export function SuperAdminConsole({
       setNotice(
         "Floating-balance adjustment recorded. Pending transfer requests remain reserved.",
       )
+      await refreshAuditEvents()
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -494,6 +780,7 @@ export function SuperAdminConsole({
           ? "Request marked successful; the requested amount and fixed transfer fee were debited. Arrange the payout to the displayed bank account outside the app."
           : "Request marked failed. The reserved balance is available to the merchant again.",
       )
+      await refreshAuditEvents()
       try {
         const [wallets, wallet, refreshedSettings] = await Promise.all([
           getAdminInternalWallets(),
@@ -561,6 +848,7 @@ export function SuperAdminConsole({
             ? "Payment marked manually paid. The customer confirmation email is queued for retry."
             : "Payment marked manually paid. The customer confirmation email has been queued.",
       )
+      await refreshAuditEvents()
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -597,6 +885,7 @@ export function SuperAdminConsole({
         ),
       )
       setNotice(`KYB application ${status.replace("_", " ").toLowerCase()}.`)
+      await refreshAuditEvents()
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -637,7 +926,7 @@ export function SuperAdminConsole({
       <header className="admin-header">
         <Brand />
         <div>
-          <span>SUPER ADMIN</span>
+          <span>DRPAY OPERATIONS</span>
           <strong>{session.email}</strong>
         </div>
         <Button
@@ -666,7 +955,9 @@ export function SuperAdminConsole({
                           ? "Floating balance"
                           : activePage === "requests"
                             ? "Transfer requests"
-                            : "Collection settings"}
+                            : activePage === "audit"
+                              ? "Audit history"
+                              : "Collection settings"}
               </h1>
               <p>
                 {activePage === "overview"
@@ -681,20 +972,32 @@ export function SuperAdminConsole({
                           ? "Adjust merchant floating balances and review their audit entries."
                           : activePage === "requests"
                             ? "Mark requests successful or failed and arrange payouts for successful requests."
-                            : "Configure collection references used by the merchant app."}
+                            : activePage === "audit"
+                              ? "Review recorded balance adjustments, transfer decisions, and KYB reviews."
+                              : "Configure collection references used by the merchant app."}
               </p>
             </div>
-            <Button
-              variant="secondary"
-              icon={<RefreshCw size={15} />}
-              onClick={() => void loadConsole()}
-              disabled={loading}
-            >
-              Refresh
-            </Button>
+            <div className="admin-header-actions">
+              <Button
+                variant="secondary"
+                icon={<Download size={15} />}
+                onClick={exportCurrentData}
+                disabled={loading}
+              >
+                Export CSV
+              </Button>
+              <Button
+                variant="secondary"
+                icon={<RefreshCw size={15} />}
+                onClick={() => void loadConsole()}
+                disabled={loading}
+              >
+                Refresh
+              </Button>
+            </div>
           </div>
         </div>
-        <nav className="admin-nav" aria-label="Super-admin pages">
+        <nav className="admin-nav" aria-label="Console pages">
           {([
             ["overview", "Overview", Home],
             [
@@ -733,6 +1036,7 @@ export function SuperAdminConsole({
               }`,
               Send,
             ],
+            ["audit", "Audit history", Activity],
             ["settings", "Settings", Settings],
           ] as const).map(([page, label, Icon]) => (
             <button
@@ -797,17 +1101,35 @@ export function SuperAdminConsole({
                   </article>
                   <article>
                     <span>Pending transfer requests</span>
-                    <strong>
-                      {
-                        transferRequests.filter(
-                          (request) => request.status === "PENDING",
-                        ).length
-                      }
-                    </strong>
-                    <small>Awaiting admin review</small>
+                    <strong>{pendingTransferRequests.length}</strong>
+                    <small>Awaiting team review</small>
                   </article>
                   <article>
-                    <span>Super-admin fee wallet</span>
+                    <span>Available floating balance</span>
+                    <strong>
+                      ₱
+                      {Math.max(
+                        totalLedgerBalance - reservedTransferBalance,
+                        0,
+                      ).toLocaleString("en-PH", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </strong>
+                    <small>After pending transfer reservations · PHP</small>
+                  </article>
+                  <article>
+                    <span>Pending payments</span>
+                    <strong>{pendingPaymentCount}</strong>
+                    <small>Awaiting payment confirmation review</small>
+                  </article>
+                  <article>
+                    <span>KYB applications</span>
+                    <strong>{pendingKybCount}</strong>
+                    <small>Pending or in review</small>
+                  </article>
+                  <article>
+                    <span>Platform fee wallet</span>
                     <strong>
                       ₱
                       {settings.superAdminFeeWallet.toLocaleString("en-PH", {
@@ -839,6 +1161,46 @@ export function SuperAdminConsole({
                       {settings.usdtNetwork || "No receiving network set"}
                     </small>
                   </article>
+                </section>
+                <section className="admin-card">
+                  <div className="admin-card-heading">
+                    <span className="setting-icon">
+                      <Clock3 size={19} />
+                    </span>
+                    <div>
+                      <h2>Needs attention</h2>
+                      <p>
+                        Jump directly to pending reviews and recent changes.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="admin-quick-links">
+                    <button
+                      type="button"
+                      onClick={() => setActivePage("payments")}
+                    >
+                      <span>{pendingPaymentCount}</span> Payments to review{" "}
+                      <ArrowUpRight size={15} />
+                    </button>
+                    <button type="button" onClick={() => setActivePage("kyb")}>
+                      <span>{pendingKybCount}</span> KYB applications{" "}
+                      <ArrowUpRight size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActivePage("requests")}
+                    >
+                      <span>{pendingTransferRequests.length}</span> Transfer
+                      requests <ArrowUpRight size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActivePage("audit")}
+                    >
+                      <span>{auditEvents.length}</span> Recorded audit events{" "}
+                      <ArrowUpRight size={15} />
+                    </button>
+                  </div>
                 </section>
                 <section className="admin-card">
                   <div className="admin-card-heading">
@@ -890,7 +1252,7 @@ export function SuperAdminConsole({
                     Successful collections credit merchants net of the
                     collection fee. Successful floating-balance requests debit
                     the requested amount plus the fixed transfer fee. Both fees
-                    are recorded in the super-admin fee wallet; bank payouts
+                    are recorded in the platform fee wallet; bank payouts
                     remain manually handled outside this app.
                   </p>
                 </section>
@@ -911,13 +1273,43 @@ export function SuperAdminConsole({
                     </p>
                   </div>
                 </div>
+                <div className="admin-list-controls">
+                  <label className="admin-search">
+                    <Search size={16} />
+                    <input
+                      aria-label="Search payments"
+                      value={paymentSearch}
+                      onChange={(event) => setPaymentSearch(event.target.value)}
+                      placeholder="Merchant, reference, title, or customer"
+                    />
+                  </label>
+                  <label className="admin-filter">
+                    <span>Status</span>
+                    <select
+                      value={paymentStatus}
+                      onChange={(event) => setPaymentStatus(event.target.value)}
+                    >
+                      <option value="all">All statuses</option>
+                      <option value="pending">Pending</option>
+                      <option value="executed">Paid · SwiftPay</option>
+                      <option value="manually_paid">Manually confirmed</option>
+                      <option value="failed">Failed</option>
+                      <option value="expired">Expired</option>
+                    </select>
+                  </label>
+                  <small>
+                    {filteredPayments.length} of {paymentLinks.length}
+                  </small>
+                </div>
                 <div className="admin-transfer-request-list">
-                  {paymentLinks.length === 0 ? (
+                  {filteredPayments.length === 0 ? (
                     <p className="admin-empty">
-                      No QR Ph checkouts are available.
+                      {paymentLinks.length
+                        ? "No payments match these filters."
+                        : "No QR Ph checkouts are available."}
                     </p>
                   ) : (
-                    paymentLinks.map((payment) => {
+                    filteredPayments.map((payment) => {
                       const manuallyPaid = payment.status === "MANUALLY_PAID"
                       const statusLabel = manuallyPaid
                         ? "Manually confirmed"
@@ -974,7 +1366,7 @@ export function SuperAdminConsole({
                               {payment.manualPaidReason}
                               <br />
                               <small>
-                                By {payment.manuallyPaidBy || "admin"} ·{" "}
+                                By {payment.manuallyPaidBy || "DRPAY team"} ·{" "}
                                 {payment.manuallyPaidAt
                                   ? new Date(
                                       payment.manuallyPaidAt,
@@ -1182,13 +1574,42 @@ export function SuperAdminConsole({
                     </p>
                   </div>
                 </div>
+                <div className="admin-list-controls">
+                  <label className="admin-search">
+                    <Search size={16} />
+                    <input
+                      aria-label="Search transfer requests"
+                      value={requestSearch}
+                      onChange={(event) => setRequestSearch(event.target.value)}
+                      placeholder="Merchant, bank, account name, or request ID"
+                    />
+                  </label>
+                  <label className="admin-filter">
+                    <span>Status</span>
+                    <select
+                      value={requestStatus}
+                      onChange={(event) => setRequestStatus(event.target.value)}
+                    >
+                      <option value="all">All statuses</option>
+                      <option value="pending">Pending</option>
+                      <option value="successful">Successful</option>
+                      <option value="failed">Failed</option>
+                    </select>
+                  </label>
+                  <small>
+                    {filteredTransferRequests.length} of{" "}
+                    {transferRequests.length}
+                  </small>
+                </div>
                 <div className="admin-transfer-request-list">
-                  {transferRequests.length === 0 ? (
+                  {filteredTransferRequests.length === 0 ? (
                     <p className="admin-empty">
-                      No transfer requests have been submitted.
+                      {transferRequests.length
+                        ? "No requests match these filters."
+                        : "No transfer requests have been submitted."}
                     </p>
                   ) : (
-                    transferRequests.map((request) => (
+                    filteredTransferRequests.map((request) => (
                       <article
                         className="admin-transfer-request"
                         key={request.id}
@@ -1352,142 +1773,241 @@ export function SuperAdminConsole({
                     </p>
                   </div>
                 </div>
+                <div className="admin-list-controls">
+                  <label className="admin-search">
+                    <Search size={16} />
+                    <input
+                      aria-label="Search KYB applications"
+                      value={kybSearch}
+                      onChange={(event) => setKybSearch(event.target.value)}
+                      placeholder="Merchant, legal business, registration, or owner"
+                    />
+                  </label>
+                  <label className="admin-filter">
+                    <span>Status</span>
+                    <select
+                      value={kybStatus}
+                      onChange={(event) => setKybStatus(event.target.value)}
+                    >
+                      <option value="all">All statuses</option>
+                      <option value="pending">Pending</option>
+                      <option value="in_review">In review</option>
+                      <option value="approved">Approved</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                  </label>
+                  <small>
+                    {filteredKybApplications.length} of {kybApplications.length}
+                  </small>
+                </div>
                 {kybApplications.length === 0 ? (
                   <p className="admin-empty">
                     KYB review is not enabled on the current production API, so
-                    applications cannot be loaded yet. Other admin features
+                    applications cannot be loaded yet. Other console features
                     remain available.
                   </p>
                 ) : (
                   <div className="admin-kyb-list">
-                    {kybApplications.map((application) => (
-                      <article
-                        className="admin-kyb-application"
-                        key={application.merchantEmail}
-                      >
-                        <div className="admin-kyb-heading">
-                          <div>
-                            <strong>{application.legalBusinessName}</strong>
-                            <small>
-                              {application.merchantEmail} ·{" "}
-                              {application.status.replace("_", " ")}
-                            </small>
+                    {filteredKybApplications.length === 0 ? (
+                      <p className="admin-empty">
+                        No KYB applications match these filters.
+                      </p>
+                    ) : (
+                      filteredKybApplications.map((application) => (
+                        <article
+                          className="admin-kyb-application"
+                          key={application.merchantEmail}
+                        >
+                          <div className="admin-kyb-heading">
+                            <div>
+                              <strong>{application.legalBusinessName}</strong>
+                              <small>
+                                {application.merchantEmail} ·{" "}
+                                {application.status.replace("_", " ")}
+                              </small>
+                            </div>
                           </div>
-                        </div>
-                        <dl>
-                          <div>
-                            <dt>Registration</dt>
-                            <dd>
-                              {application.registrationNumber} ·{" "}
-                              {application.businessType}
-                            </dd>
+                          <dl>
+                            <div>
+                              <dt>Registration</dt>
+                              <dd>
+                                {application.registrationNumber} ·{" "}
+                                {application.businessType}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>Business address</dt>
+                              <dd>
+                                {application.businessAddress},{" "}
+                                {application.country}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>Beneficial owner</dt>
+                              <dd>
+                                {application.ownerFullName} · Born{" "}
+                                {application.ownerDateOfBirth} ·{" "}
+                                {application.ownerNationality}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>Owner contact</dt>
+                              <dd>
+                                {application.ownerEmail} ·{" "}
+                                {application.ownerPhone}
+                              </dd>
+                            </div>
+                          </dl>
+                          <div className="admin-kyb-documents">
+                            {application.documents.map((document) => (
+                              <button
+                                key={document.id}
+                                type="button"
+                                className="admin-text-action"
+                                onClick={() =>
+                                  void openKybDocument(
+                                    application,
+                                    document.documentType,
+                                  )
+                                }
+                              >
+                                {document.documentType.replace(/_/g, " ")} ·{" "}
+                                {document.fileName}
+                              </button>
+                            ))}
+                            {application.documents.length === 0 && (
+                              <span>No documents submitted</span>
+                            )}
                           </div>
-                          <div>
-                            <dt>Business address</dt>
-                            <dd>
-                              {application.businessAddress},{" "}
-                              {application.country}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt>Beneficial owner</dt>
-                            <dd>
-                              {application.ownerFullName} · Born{" "}
-                              {application.ownerDateOfBirth} ·{" "}
-                              {application.ownerNationality}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt>Owner contact</dt>
-                            <dd>
-                              {application.ownerEmail} ·{" "}
-                              {application.ownerPhone}
-                            </dd>
-                          </div>
-                        </dl>
-                        <div className="admin-kyb-documents">
-                          {application.documents.map((document) => (
-                            <button
-                              key={document.id}
-                              type="button"
-                              className="admin-text-action"
+                          <label className="admin-kyb-notes">
+                            <span>Review notes (required when rejecting)</span>
+                            <textarea
+                              value={
+                                kybReviewNotes[application.merchantEmail] ??
+                                application.reviewNotes ??
+                                ""
+                              }
+                              onChange={(event) =>
+                                setKybReviewNotes((current) => ({
+                                  ...current,
+                                  [application.merchantEmail]:
+                                    event.target.value,
+                                }))
+                              }
+                              maxLength={1000}
+                              rows={2}
+                            />
+                          </label>
+                          <div className="admin-kyb-actions">
+                            <Button
+                              variant="secondary"
+                              disabled={
+                                reviewingRequestId === application.merchantEmail
+                              }
                               onClick={() =>
-                                void openKybDocument(
-                                  application,
-                                  document.documentType,
-                                )
+                                void reviewKyb(application, "IN_REVIEW")
                               }
                             >
-                              {document.documentType.replace(/_/g, " ")} ·{" "}
-                              {document.fileName}
-                            </button>
-                          ))}
-                          {application.documents.length === 0 && (
-                            <span>No documents submitted</span>
+                              Mark in review
+                            </Button>
+                            <Button
+                              disabled={
+                                reviewingRequestId ===
+                                  application.merchantEmail ||
+                                application.documents.length < 3
+                              }
+                              onClick={() =>
+                                void reviewKyb(application, "APPROVED")
+                              }
+                            >
+                              Approve
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              disabled={
+                                reviewingRequestId ===
+                                  application.merchantEmail ||
+                                !kybReviewNotes[
+                                  application.merchantEmail
+                                ]?.trim()
+                              }
+                              onClick={() =>
+                                void reviewKyb(application, "REJECTED")
+                              }
+                            >
+                              Reject
+                            </Button>
+                          </div>
+                          {application.documents.length < 3 && (
+                            <small className="admin-kyb-missing">
+                              Approval requires the registration certificate and
+                              both identity images.
+                            </small>
                           )}
-                        </div>
-                        <label className="admin-kyb-notes">
-                          <span>Review notes (required when rejecting)</span>
-                          <textarea
-                            value={
-                              kybReviewNotes[application.merchantEmail] ??
-                              application.reviewNotes ??
-                              ""
-                            }
-                            onChange={(event) =>
-                              setKybReviewNotes((current) => ({
-                                ...current,
-                                [application.merchantEmail]: event.target.value,
-                              }))
-                            }
-                            maxLength={1000}
-                            rows={2}
-                          />
-                        </label>
-                        <div className="admin-kyb-actions">
-                          <Button
-                            variant="secondary"
-                            disabled={
-                              reviewingRequestId === application.merchantEmail
-                            }
-                            onClick={() =>
-                              void reviewKyb(application, "IN_REVIEW")
-                            }
-                          >
-                            Mark in review
-                          </Button>
-                          <Button
-                            disabled={
-                              reviewingRequestId ===
-                                application.merchantEmail ||
-                              application.documents.length < 3
-                            }
-                            onClick={() =>
-                              void reviewKyb(application, "APPROVED")
-                            }
-                          >
-                            Approve
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            disabled={
-                              reviewingRequestId ===
-                                application.merchantEmail ||
-                              !kybReviewNotes[application.merchantEmail]?.trim()
-                            }
-                            onClick={() =>
-                              void reviewKyb(application, "REJECTED")
-                            }
-                          >
-                            Reject
-                          </Button>
-                        </div>
-                        {application.documents.length < 3 && (
-                          <small className="admin-kyb-missing">
-                            Approval requires the registration certificate and
-                            both identity images.
+                        </article>
+                      ))
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
+            {activePage === "audit" && (
+              <section className="admin-card">
+                <div className="admin-card-heading">
+                  <span className="setting-icon">
+                    <Activity size={19} />
+                  </span>
+                  <div>
+                    <h2>Recorded team activity</h2>
+                    <p>
+                      Balance adjustments, transfer reviews, and the latest KYB
+                      review per application. Showing up to 500 events.
+                    </p>
+                  </div>
+                </div>
+                <div className="admin-list-controls">
+                  <label className="admin-search">
+                    <Search size={16} />
+                    <input
+                      aria-label="Search audit history"
+                      value={auditSearch}
+                      onChange={(event) => setAuditSearch(event.target.value)}
+                      placeholder="Search action, merchant, team member, or details"
+                    />
+                  </label>
+                  <small>
+                    {filteredAuditEvents.length} of {auditEvents.length}
+                  </small>
+                </div>
+                {filteredAuditEvents.length === 0 ? (
+                  <p className="admin-empty">
+                    {auditEvents.length
+                      ? "No audit events match your search."
+                      : "No recorded team activity is available yet."}
+                  </p>
+                ) : (
+                  <div className="admin-audit-list">
+                    {filteredAuditEvents.map((event) => (
+                      <article
+                        className="admin-audit-event"
+                        key={`${event.category}-${event.id}`}
+                      >
+                        <span className="setting-icon">
+                          <Activity size={16} />
+                        </span>
+                        <div>
+                          <div className="admin-audit-heading">
+                            <strong>{event.action}</strong>
+                            <small>
+                              {new Date(event.occurredAt).toLocaleString()}
+                            </small>
+                          </div>
+                          <p>{event.summary}</p>
+                          <small>
+                            {event.category} · {event.target} · By{" "}
+                            {event.actor || "DRPAY team"}
                           </small>
-                        )}
+                        </div>
                       </article>
                     ))}
                   </div>
@@ -1550,12 +2070,12 @@ export function SuperAdminConsole({
                     />
                     <small>
                       Reserved with each pending request, charged only when
-                      marked Successful, and credited to the super-admin fee
+                      marked Successful, and credited to the platform fee
                       wallet.
                     </small>
                   </label>
                   <div className="internal-ledger-balance">
-                    <span>Super-admin fee wallet · PHP</span>
+                    <span>Platform fee wallet · PHP</span>
                     <strong>
                       ₱
                       {settings.superAdminFeeWallet.toLocaleString("en-PH", {

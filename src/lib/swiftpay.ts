@@ -132,7 +132,7 @@ export type AdminPaymentLink = {
   manuallyPaidBy: string | null;
   manuallyPaidAt: string | null;
   manualPaidReason: string | null;
-  customerNotification?: "queued" | "no_customer_email" | "queued_for_retry";
+  customerNotification?: "queued" | "no_customer_email" | "queued_for_retry" | "sent";
 };
 
 export type PublicCheckout = {
@@ -161,6 +161,16 @@ export type AdminSettings = {
   collectionFeePercent: number;
   transferFeeFixed: number;
   superAdminFeeWallet: number;
+};
+
+export type AdminAuditEvent = {
+  id: string;
+  category: string;
+  action: string;
+  target: string;
+  actor: string | null;
+  summary: string;
+  occurredAt: string;
 };
 
 export type AdminMerchantAccount = {
@@ -712,6 +722,10 @@ export async function getKrwPhpQuote(): Promise<CurrencyQuote> {
 
 export async function getAdminSettings(): Promise<AdminSettings> {
   return backendRequest<AdminSettings>("/v1/admin/settings");
+}
+
+export async function getAdminAuditEvents(): Promise<AdminAuditEvent[]> {
+  return backendRequest<AdminAuditEvent[]>("/v1/admin/audit");
 }
 
 export async function getAdminPaymentLinks(): Promise<AdminPaymentLink[]> {

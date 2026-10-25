@@ -361,6 +361,7 @@ function escapeEmailHtml(value) {
 
 async function sendTransactionEmail(notification) {
     const type = notification.transaction_type === "PAYMENT" ? "Incoming payment received" : "Outgoing transfer completed";
+    const manualConfirmation = notification.transaction_type === "PAYMENT" && notification.payment_status === "MANUALLY_PAID";
     const amount = `PHP ${Number(notification.amount).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const reference = escapeEmailHtml(notification.reference_no);
     const safeType = escapeEmailHtml(type);
@@ -372,7 +373,9 @@ async function sendTransactionEmail(notification) {
       `Amount: ${amount}`,
       `Reference: ${notification.reference_no}`,
       "",
-      "This transaction was confirmed as successful by the payment provider.",
+      manualConfirmation
+        ? "The DRPAY team independently verified and manually confirmed this payment."
+        : "This transaction was confirmed as successful by the payment provider.",
     ].join("\n");
     const html = `
       <div style="margin:0;padding:32px 16px;background:#f4f7fc;font-family:Arial,Helvetica,sans-serif;color:#0b1f3a">
@@ -381,7 +384,7 @@ async function sendTransactionEmail(notification) {
           <div style="padding:28px;background:#fff;border:1px solid #d8e1ed;border-radius:16px">
             <div style="margin-bottom:10px;color:#52647c;font-size:10px;font-weight:700;letter-spacing:1.3px">TRANSACTION CONFIRMED</div>
             <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3">${safeType}</h1>
-            <p style="margin:0 0 18px;color:#52647c;font-size:13px;line-height:1.6">The payment provider confirmed this transaction as successful.</p>
+            <p style="margin:0 0 18px;color:#52647c;font-size:13px;line-height:1.6">${manualConfirmation ? "The DRPAY team independently verified and manually confirmed this payment." : "The payment provider confirmed this transaction as successful."}</p>
             <div style="padding:16px;background:#f8f9f5;border:1px solid #d8e1ed;border-radius:11px">
               <div style="color:#52647c;font-size:11px">Amount</div>
               <div style="margin-top:4px;font-size:20px;font-weight:700">${safeAmount}</div>
@@ -407,6 +410,65 @@ async function sendTransactionEmail(notification) {
       throw new Error("Transaction email delivery failed.");
     }
   }
+
+async function sendCustomerPaymentEmail(payment) {
+  const amount = `PHP ${Number(payment.amount).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const title = escapeEmailHtml(payment.title);
+  const reference = escapeEmailHtml(payment.reference_no);
+  const safeAmount = escapeEmailHtml(amount);
+  const confirmationSource = payment.status === "MANUALLY_PAID"
+    ? "The merchant independently verified and confirmed your payment."
+    : "The payment provider confirmed your payment.";
+  const text = [
+    "DRPAY",
+    "",
+    "Payment confirmed",
+    `Payment for: ${payment.title}`,
+    `Amount: ${amount}`,
+    `Reference: ${payment.reference_no}`,
+    "",
+    confirmationSource,
+  ].join("\n");
+  const html = `
+    <div style="margin:0;padding:32px 16px;background:#f4f7fc;font-family:Arial,Helvetica,sans-serif;color:#0b1f3a">
+      <div style="max-width:480px;margin:0 auto">
+        <div style="padding:0 4px 18px;color:#0b1f3a;font-size:17px;font-weight:700;letter-spacing:1px">DRPAY</div>
+        <div style="padding:28px;background:#fff;border:1px solid #d8e1ed;border-radius:16px">
+          <div style="margin-bottom:10px;color:#52647c;font-size:10px;font-weight:700;letter-spacing:1.3px">PAYMENT CONFIRMED</div>
+          <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3">Thank you for your payment</h1>
+          <p style="margin:0 0 18px;color:#52647c;font-size:13px;line-height:1.6">${escapeEmailHtml(confirmationSource)}</p>
+          <div style="padding:16px;background:#f8f9f5;border:1px solid #d8e1ed;border-radius:11px">
+            <div style="color:#52647c;font-size:11px">Payment for</div>
+            <div style="margin-top:4px;font-size:14px;font-weight:700">${title}</div>
+            <div style="margin-top:14px;color:#52647c;font-size:11px">Amount</div>
+            <div style="margin-top:4px;font-size:20px;font-weight:700">${safeAmount}</div>
+            <div style="margin-top:14px;color:#52647c;font-size:11px">Reference</div>
+            <div style="margin-top:4px;font-size:12px;font-weight:700;overflow-wrap:anywhere">${reference}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer " + resendApiKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: resendFromEmail,
+      to: [payment.customer_email],
+      subject: `DRPAY: Payment confirmed · ${payment.reference_no}`,
+      text,
+      html,
+    }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) {
+    console.error("Customer payment confirmation delivery failed", { status: response.status });
+    throw new Error("Customer payment confirmation delivery failed.");
+  }
+}
 
 function fcmConfigured() {
     return Boolean(fcmProjectId && fcmServiceAccountEmail && fcmServiceAccountPrivateKey);
@@ -475,24 +537,38 @@ async function sendTransactionPush(notification, deviceToken) {
 
 async function queueSuccessfulTransaction(transactionType, transactionId) {
     const query = transactionType === "PAYMENT"
-      ? `SELECT merchant_email, reference_no, amount, status FROM payment_links WHERE id = $1`
+      ? `SELECT merchant_email, customer_email, reference_no, amount, status FROM payment_links WHERE id = $1`
       : `SELECT merchant_email, merchant_reference_no AS reference_no, amount, status FROM disbursements WHERE id = $1`;
     const result = await pool.query(query, [transactionId]);
     const transaction = result.rows[0];
     const successful = transactionType === "PAYMENT"
-      ? transaction?.status === "EXECUTED"
+      ? ["EXECUTED", "MANUALLY_PAID"].includes(transaction?.status)
       : ["EXECUTED", "SUCCESS", "COMPLETED"].includes(transaction?.status?.toUpperCase());
-    if (!transaction?.merchant_email || !successful) return;
-    await pool.query(
-      `INSERT INTO transaction_notifications (id, merchant_email, transaction_type, transaction_id, reference_no, amount)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (transaction_type, transaction_id) DO NOTHING`,
-      [randomUUID(), transaction.merchant_email, transactionType, transactionId, transaction.reference_no, transaction.amount],
-    );
+    if (!successful) return;
+    if (transaction?.merchant_email) {
+      await pool.query(
+        `INSERT INTO transaction_notifications (id, merchant_email, transaction_type, transaction_id, reference_no, amount)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (transaction_type, transaction_id) DO NOTHING`,
+        [randomUUID(), transaction.merchant_email, transactionType, transactionId, transaction.reference_no, transaction.amount],
+      );
+    }
+    if (transactionType === "PAYMENT" && transaction?.customer_email) {
+      await pool.query(
+        `INSERT INTO customer_payment_notifications (id, payment_id, customer_email)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (payment_id) DO NOTHING`,
+        [randomUUID(), transactionId, transaction.customer_email],
+      );
+    }
   }
 
 async function updatePaymentLinkStatus(id, status) {
-    await pool.query("UPDATE payment_links SET status = $1, updated_at = NOW() WHERE id = $2", [status, id]);
+    const updated = await pool.query(
+      "UPDATE payment_links SET status = $1, updated_at = NOW() WHERE id = $2 AND status <> 'MANUALLY_PAID' RETURNING id",
+      [status, id],
+    );
+    if (!updated.rowCount) return;
     if (status === "EXECUTED") await settleSuccessfulCollection(id);
     await queueSuccessfulTransaction("PAYMENT", id);
     await queueTransactionWebhook("PAYMENT", id);
@@ -508,7 +584,7 @@ async function getMerchantWalletState(db, merchantEmail) {
      ), collections AS (
        SELECT COALESCE(SUM(collection_amount_krw), 0)::numeric AS completed_krw
        FROM payment_links
-       WHERE merchant_email = $1 AND status = 'EXECUTED' AND collection_amount_krw IS NOT NULL
+       WHERE merchant_email = $1 AND status IN ('EXECUTED', 'MANUALLY_PAID') AND collection_amount_krw IS NOT NULL
      ), reservations AS (
        SELECT COALESCE(SUM(
          CASE WHEN d.refund_payment_id IS NOT NULL
@@ -532,18 +608,19 @@ async function getMerchantWalletState(db, merchantEmail) {
   return result.rows[0];
 }
 
-  async function settleSuccessfulCollection(paymentId) {
-    const client = await pool.connect();
+  async function settleSuccessfulCollection(paymentId, transactionClient = null) {
+    const ownsClient = !transactionClient;
+    const client = transactionClient || await pool.connect();
     try {
-    await client.query("BEGIN");
+    if (ownsClient) await client.query("BEGIN");
     const payment = await client.query(
       `SELECT id, merchant_email, reference_no, amount::numeric AS amount, status
        FROM payment_links WHERE id = $1 FOR UPDATE`,
       [paymentId],
     );
     const row = payment.rows[0];
-    if (!row || row.status !== "EXECUTED" || !row.merchant_email) {
-      await client.query("COMMIT");
+    if (!row || !["EXECUTED", "MANUALLY_PAID"].includes(row.status) || !row.merchant_email) {
+      if (ownsClient) await client.query("COMMIT");
       return;
     }
     const feeSetting = await client.query(
@@ -573,12 +650,12 @@ async function getMerchantWalletState(db, merchantEmail) {
        ON CONFLICT (source_type, source_id) DO NOTHING`,
       [randomUUID(), row.merchant_email, paymentId, netAmount.toFixed(2), row.reference_no],
     );
-    await client.query("COMMIT");
+    if (ownsClient) await client.query("COMMIT");
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (ownsClient) await client.query("ROLLBACK");
     throw error;
   } finally {
-    client.release();
+    if (ownsClient) client.release();
   }
 }
 
@@ -653,9 +730,12 @@ async function updateDisbursementStatus(id, swiftpayId, status, errorMessage) {
 
 async function dispatchTransactionNotifications() {
   const { rows } = await pool.query(`
-    SELECT * FROM transaction_notifications
-    WHERE email_sent_at IS NULL OR push_sent_at IS NULL
-    ORDER BY created_at ASC
+    SELECT n.*, p.status AS payment_status
+    FROM transaction_notifications n
+    LEFT JOIN payment_links p
+      ON n.transaction_type = 'PAYMENT' AND p.id = n.transaction_id
+    WHERE n.email_sent_at IS NULL OR n.push_sent_at IS NULL
+    ORDER BY n.created_at ASC
     LIMIT 25
   `);
   for (const notification of rows) {
@@ -699,6 +779,41 @@ async function dispatchTransactionNotifications() {
       } catch (error) {
         console.error("Transaction push notification remains queued", error.message);
       }
+    }
+  }
+}
+
+async function dispatchCustomerPaymentNotifications() {
+  const pending = await pool.query(
+    `SELECT n.id, n.payment_id, n.customer_email, n.attempts,
+       p.title, p.reference_no, p.amount, p.status
+     FROM customer_payment_notifications n
+     JOIN payment_links p ON p.id = n.payment_id
+     WHERE n.sent_at IS NULL AND n.next_attempt_at <= NOW() AND n.attempts < 8
+     ORDER BY n.created_at ASC
+     LIMIT 25`,
+  );
+  for (const notification of pending.rows) {
+    try {
+      await sendCustomerPaymentEmail(notification);
+      await pool.query(
+        "UPDATE customer_payment_notifications SET sent_at = NOW(), attempts = attempts + 1 WHERE id = $1",
+        [notification.id],
+      );
+    } catch (error) {
+      const delaySeconds = Math.min(3600, 30 * (2 ** notification.attempts));
+      await pool.query(
+        `UPDATE customer_payment_notifications
+         SET attempts = attempts + 1,
+           next_attempt_at = NOW() + ($2 * INTERVAL '1 second')
+         WHERE id = $1`,
+        [notification.id, delaySeconds],
+      );
+      console.error("Customer payment confirmation remains queued for retry", {
+        notificationId: notification.id,
+        attempt: notification.attempts + 1,
+        error: error.message,
+      });
     }
   }
 }
@@ -926,6 +1041,16 @@ async function initializeDatabase() {
       reviewed_at TIMESTAMPTZ,
       reviewed_by TEXT
     );
+    CREATE TABLE IF NOT EXISTS admin_audit_events (
+      id UUID PRIMARY KEY,
+      event_key TEXT NOT NULL UNIQUE,
+      category TEXT NOT NULL,
+      action TEXT NOT NULL,
+      target TEXT NOT NULL,
+      actor TEXT,
+      summary TEXT NOT NULL,
+      occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
     CREATE TABLE IF NOT EXISTS payment_links (
       id UUID PRIMARY KEY,
       idempotency_key TEXT NOT NULL UNIQUE,
@@ -997,6 +1122,8 @@ async function initializeDatabase() {
       ON floating_transfer_requests (merchant_email, status, requested_at DESC);
     CREATE INDEX IF NOT EXISTS floating_transfer_requests_status_created_idx
       ON floating_transfer_requests (status, requested_at ASC);
+    CREATE INDEX IF NOT EXISTS admin_audit_events_occurred_idx
+      ON admin_audit_events (occurred_at DESC);
     ALTER TABLE floating_transfer_requests
       DROP CONSTRAINT IF EXISTS floating_transfer_requests_status_check;
     UPDATE floating_transfer_requests
@@ -1024,6 +1151,22 @@ async function initializeDatabase() {
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_institution_name TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_institution_logo_url TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS merchant_email TEXT REFERENCES merchant_accounts(email) ON DELETE CASCADE;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS customer_email TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS manually_paid_by TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS manually_paid_at TIMESTAMPTZ;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS manual_paid_reason TEXT;
+    CREATE TABLE IF NOT EXISTS customer_payment_notifications (
+      id UUID PRIMARY KEY,
+      payment_id UUID NOT NULL UNIQUE REFERENCES payment_links(id) ON DELETE CASCADE,
+      customer_email TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      sent_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS customer_payment_notifications_pending_idx
+      ON customer_payment_notifications (next_attempt_at)
+      WHERE sent_at IS NULL AND attempts < 8;
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS request_fingerprint TEXT;
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS recipient_name TEXT;
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS recipient_account_number TEXT;
@@ -1069,6 +1212,47 @@ async function initializeDatabase() {
       ON disbursements (request_fingerprint)
       WHERE status IN ('REQUESTING', 'PENDING', 'OUTCOME_UNKNOWN');
   `);
+  await pool.query(`
+    INSERT INTO admin_audit_events
+      (id, event_key, category, action, target, actor, summary, occurred_at)
+    SELECT id, 'wallet-adjustment:' || id::text, 'Floating balance',
+      CASE WHEN amount < 0 THEN 'Balance debited' ELSE 'Balance credited' END,
+      merchant_email, adjusted_by,
+      'PHP ' || TO_CHAR(amount, 'FM999999999999990.00') || ' · ' || reason,
+      created_at
+    FROM internal_wallet_adjustments
+    WHERE adjusted_by NOT LIKE 'system:%'
+    ON CONFLICT (event_key) DO NOTHING
+  `);
+  await pool.query(`
+    INSERT INTO admin_audit_events
+      (id, event_key, category, action, target, actor, summary, occurred_at)
+    SELECT id, 'transfer-review:' || id::text, 'Transfer request',
+      'Request marked ' || LOWER(status), merchant_email, reviewed_by,
+      'PHP ' || TO_CHAR(amount, 'FM999999999999990.00') ||
+        CASE WHEN failure_reason IS NOT NULL THEN ' · ' || failure_reason ELSE '' END,
+      reviewed_at
+    FROM floating_transfer_requests
+    WHERE reviewed_at IS NOT NULL
+    ON CONFLICT (event_key) DO NOTHING
+  `);
+  await pool.query(`
+    INSERT INTO admin_audit_events
+      (id, event_key, category, action, target, actor, summary, occurred_at)
+    SELECT md5('kyb-review:' || merchant_email || ':' || reviewed_at::text)::uuid,
+      'kyb-review:' || merchant_email || ':' || reviewed_at::text,
+      'KYB review', 'Application marked ' || LOWER(REPLACE(status, '_', ' ')),
+      merchant_email, reviewed_by, 'KYB application review recorded', reviewed_at
+    FROM merchant_kyb_profiles
+    WHERE reviewed_at IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM admin_audit_events existing
+        WHERE existing.category = 'KYB review'
+          AND existing.target = merchant_kyb_profiles.merchant_email
+          AND existing.occurred_at = merchant_kyb_profiles.reviewed_at
+      )
+    ON CONFLICT (event_key) DO NOTHING
+  `);
   if (authEmail) {
     await pool.query(
       `INSERT INTO merchant_accounts (email)
@@ -1091,7 +1275,7 @@ async function initializeDatabase() {
       GREATEST(p.amount - COALESCE(f.amount, 0), 0), p.reference_no, p.created_at
     FROM payment_links p
     LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
-    WHERE p.status = 'EXECUTED' AND p.merchant_email IS NOT NULL
+    WHERE p.status IN ('EXECUTED', 'MANUALLY_PAID') AND p.merchant_email IS NOT NULL
     ON CONFLICT (source_type, source_id) DO NOTHING
   `);
   await pool.query(`
@@ -1355,7 +1539,7 @@ async function queueTransactionWebhook(transactionType, transactionId) {
   if (!transaction?.merchant_email) return;
   const status = String(transaction.status).toUpperCase();
   const succeeded = transactionType === "PAYMENT"
-    ? status === "EXECUTED"
+    ? ["EXECUTED", "MANUALLY_PAID"].includes(status)
     : ["EXECUTED", "SUCCESS", "COMPLETED"].includes(status);
   const failed = ["FAILED", "REJECTED", "ERROR", "CANCELED", "CANCELLED", "EXPIRED"].includes(status);
   if (!succeeded && !failed) return;
@@ -1439,14 +1623,14 @@ async function cleanExpiredKybUploads() {
 
 async function requireSuperAdmin(req, res, next) {
   const match = /^Bearer\s+(.+)$/i.exec(req.get("authorization") || "");
-  if (!match || !jwtSecret) return res.status(401).json({ error: "Super-admin sign-in is required." });
+  if (!match || !jwtSecret) return res.status(401).json({ error: "Restricted sign-in is required." });
   try {
     const { payload } = await jwtVerify(match[1], jwtSecret, { algorithms: ["HS256"] });
-    if (payload.sub !== superAdminEmail || payload.role !== "super_admin") throw new Error("Invalid admin session");
+    if (payload.sub !== superAdminEmail || payload.role !== "super_admin") throw new Error("Invalid session");
     req.adminEmail = payload.sub;
     return next();
   } catch {
-    return res.status(401).json({ error: "Your admin session has expired. Sign in again." });
+    return res.status(401).json({ error: "Your session has expired. Sign in again." });
   }
 }
 
@@ -1658,6 +1842,153 @@ app.post("/v1/auth/device/biometric", loginLimiter, async (req, res) => {
 
 app.use("/v1/admin", requireSuperAdmin);
 
+async function recordAdminAuditEvent(client, {
+  eventKey,
+  category,
+  action,
+  target,
+  actor,
+  summary,
+}) {
+  await client.query(
+    `INSERT INTO admin_audit_events
+       (id, event_key, category, action, target, actor, summary)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (event_key) DO NOTHING`,
+    [randomUUID(), eventKey, category, action, target, actor || null, summary],
+  );
+}
+
+app.get("/v1/admin/audit", async (_req, res) => {
+  const result = await pool.query(
+    `SELECT id, category, action, target, actor, summary,
+       occurred_at AS "occurredAt"
+     FROM admin_audit_events
+     ORDER BY occurred_at DESC
+     LIMIT 500`,
+  );
+  return res.set("Cache-Control", "no-store").json(result.rows);
+});
+
+app.get("/v1/admin/payment-links", async (_req, res) => {
+  const result = await pool.query(
+    `SELECT p.id, p.merchant_email AS "merchantEmail",
+       p.customer_email AS "customerEmail", p.reference_no AS "referenceNo",
+       p.title, p.amount::float8 AS amount, p.currency, p.status,
+       p.created_at AS "createdAt", p.manually_paid_by AS "manuallyPaidBy",
+       p.manually_paid_at AS "manuallyPaidAt",
+       p.manual_paid_reason AS "manualPaidReason",
+       CASE WHEN p.customer_email IS NULL THEN 'no_customer_email'
+            WHEN n.sent_at IS NOT NULL THEN 'sent'
+            WHEN n.attempts > 0 THEN 'queued_for_retry'
+            WHEN n.id IS NOT NULL THEN 'queued'
+            ELSE NULL END AS "customerNotification"
+     FROM payment_links p
+     LEFT JOIN customer_payment_notifications n ON n.payment_id = p.id
+     ORDER BY p.created_at DESC
+     LIMIT 500`,
+  );
+  return res.set("Cache-Control", "no-store").json(result.rows);
+});
+
+app.post("/v1/admin/payment-links/:id/mark-paid", async (req, res) => {
+  const paymentId = req.params.id;
+  const verificationNote = typeof req.body?.verificationNote === "string"
+    ? req.body.verificationNote.trim()
+    : "";
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(paymentId)) {
+    return res.status(400).json({ error: "The payment ID is invalid." });
+  }
+  if (verificationNote.length < 10 || verificationNote.length > 500) {
+    return res.status(400).json({ error: "Enter 10–500 characters of independent payment verification details." });
+  }
+
+  const client = await pool.connect();
+  let payment;
+  try {
+    await client.query("BEGIN");
+    const selected = await client.query(
+      `SELECT id, merchant_email, customer_email, reference_no, title,
+         amount::float8 AS amount, currency, status, created_at
+       FROM payment_links WHERE id = $1 FOR UPDATE`,
+      [paymentId],
+    );
+    payment = selected.rows[0];
+    if (!payment) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Payment not found." });
+    }
+    if (payment.status !== "PENDING") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "Only pending payments can be manually confirmed." });
+    }
+
+    const updated = await client.query(
+      `UPDATE payment_links
+       SET status = 'MANUALLY_PAID', manually_paid_by = $1,
+         manually_paid_at = NOW(), manual_paid_reason = $2, updated_at = NOW()
+       WHERE id = $3
+       RETURNING manually_paid_by AS "manuallyPaidBy",
+         manually_paid_at AS "manuallyPaidAt", manual_paid_reason AS "manualPaidReason"`,
+      [req.adminEmail, verificationNote, paymentId],
+    );
+    await settleSuccessfulCollection(paymentId, client);
+    if (payment.merchant_email) {
+      await client.query(
+        `INSERT INTO transaction_notifications
+           (id, merchant_email, transaction_type, transaction_id, reference_no, amount)
+         VALUES ($1, $2, 'PAYMENT', $3, $4, $5)
+         ON CONFLICT (transaction_type, transaction_id) DO NOTHING`,
+        [randomUUID(), payment.merchant_email, paymentId, payment.reference_no, payment.amount],
+      );
+    }
+    if (payment.customer_email) {
+      await client.query(
+        `INSERT INTO customer_payment_notifications (id, payment_id, customer_email)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (payment_id) DO NOTHING`,
+        [randomUUID(), paymentId, payment.customer_email],
+      );
+    }
+    await recordAdminAuditEvent(client, {
+      eventKey: `manual-payment:${paymentId}`,
+      category: "Payment",
+      action: "Payment manually confirmed",
+      target: payment.reference_no,
+      actor: req.adminEmail,
+      summary: verificationNote,
+    });
+    await client.query("COMMIT");
+    payment = { ...payment, status: "MANUALLY_PAID", ...updated.rows[0] };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  try {
+    await queueTransactionWebhook("PAYMENT", paymentId);
+  } catch (error) {
+    console.error("Manually confirmed payment webhook remains unscheduled", error.message);
+  }
+  return res.json({
+    id: payment.id,
+    merchantEmail: payment.merchant_email,
+    customerEmail: payment.customer_email,
+    referenceNo: payment.reference_no,
+    title: payment.title,
+    amount: payment.amount,
+    currency: payment.currency,
+    status: payment.status,
+    createdAt: payment.created_at,
+    manuallyPaidBy: payment.manuallyPaidBy,
+    manuallyPaidAt: payment.manuallyPaidAt,
+    manualPaidReason: payment.manualPaidReason,
+    customerNotification: payment.customer_email ? "queued" : "no_customer_email",
+  });
+});
+
 app.get("/v1/admin/settings", async (_req, res) => {
   const result = await pool.query(
     "SELECT setting_key, setting_value FROM system_settings WHERE setting_key = ANY($1)",
@@ -1732,6 +2063,14 @@ app.put("/v1/admin/settings", async (req, res) => {
         );
       }
     }
+    await recordAdminAuditEvent(client, {
+      eventKey: `settings:${randomUUID()}`,
+      category: "Settings",
+      action: "Collection settings updated",
+      target: "System settings",
+      actor: req.adminEmail,
+      summary: `Collection fee ${collectionFeePercent}%; transfer fee PHP ${transferFeeFixed.toFixed(2)}; ${rate === null ? "automatic KRW/PHP rate" : `manual KRW/PHP rate ${rate}`}; USDT receiving configuration ${usdtAddress ? "updated" : "cleared"}.`,
+    });
     await client.query("COMMIT");
     const feeWallet = await pool.query("SELECT COALESCE(SUM(amount), 0)::float8 AS balance FROM platform_fee_ledger");
     return res.json({
@@ -1842,12 +2181,21 @@ app.post("/v1/admin/internal-wallets/:email/adjustments", async (req, res) => {
       await client.query("ROLLBACK");
       return res.status(409).json({ error: "This adjustment would reduce the floating balance below pending transfer requests." });
     }
+    const adjustmentId = randomUUID();
     const result = await client.query(
       `INSERT INTO internal_wallet_adjustments (id, merchant_email, amount, reason, adjusted_by)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, amount::float8 AS amount, reason, adjusted_by AS "adjustedBy", created_at AS "createdAt"`,
-      [randomUUID(), email, amount.toFixed(2), reason, req.adminEmail],
+      [adjustmentId, email, amount.toFixed(2), reason, req.adminEmail],
     );
+    await recordAdminAuditEvent(client, {
+      eventKey: `wallet-adjustment:${adjustmentId}`,
+      category: "Floating balance",
+      action: amount < 0 ? "Balance debited" : "Balance credited",
+      target: email,
+      actor: req.adminEmail,
+      summary: `PHP ${amount.toFixed(2)} · ${reason}`,
+    });
     await client.query("COMMIT");
     return res.status(201).json(result.rows[0]);
   } catch (error) {
@@ -1923,6 +2271,14 @@ app.post("/v1/admin/floating-transfer-requests/:id/:decision", async (req, res) 
          failure_reason AS "failureReason", transfer_fee::float8 AS "transferFee"`,
       [id, nextStatus, req.adminEmail, nextStatus === "FAILED" ? failureReason : null],
     );
+    await recordAdminAuditEvent(client, {
+      eventKey: `transfer-review:${id}`,
+      category: "Transfer request",
+      action: `Request marked ${nextStatus.toLowerCase()}`,
+      target: email,
+      actor: req.adminEmail,
+      summary: `PHP ${Number(request.rows[0].amount).toFixed(2)} · ${nextStatus === "FAILED" ? failureReason : `Transfer fee PHP ${Number(request.rows[0].transfer_fee).toFixed(2)}`}`,
+    });
     await client.query("COMMIT");
     return res.json(updated.rows[0]);
   } catch (error) {
@@ -1938,8 +2294,10 @@ app.post("/v1/admin/merchants", async (req, res) => {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
     return res.status(400).json({ error: "Enter a valid merchant email address." });
   }
+  const client = await pool.connect();
   try {
-    const result = await pool.query(
+    await client.query("BEGIN");
+    const result = await client.query(
       `INSERT INTO merchant_accounts (email)
        VALUES ($1)
        RETURNING email, active, business_name AS "businessName", contact_person AS "contactPerson",
@@ -1949,10 +2307,22 @@ app.post("/v1/admin/merchants", async (req, res) => {
          created_at AS "createdAt", updated_at AS "updatedAt"`,
       [email],
     );
+    await recordAdminAuditEvent(client, {
+      eventKey: `merchant-created:${email}:${randomUUID()}`,
+      category: "Merchant account",
+      action: "Merchant account created",
+      target: email,
+      actor: req.adminEmail,
+      summary: "Merchant account access was created.",
+    });
+    await client.query("COMMIT");
     return res.status(201).json(result.rows[0]);
   } catch (error) {
+    await client.query("ROLLBACK");
     if (error.code === "23505") return res.status(409).json({ error: "A merchant account with that email already exists." });
     throw error;
+  } finally {
+    client.release();
   }
 });
 
@@ -1968,30 +2338,53 @@ app.put("/v1/admin/merchants/:email/usdt-wallet", async (req, res) => {
   if (address && tronUsdtNetwork !== "mainnet") {
     return res.status(503).json({ error: "Mainnet USDT address assignment is disabled on this API environment." });
   }
-  if (!address) {
-    const result = await pool.query("DELETE FROM merchant_usdt_wallets WHERE merchant_email = $1 RETURNING merchant_email", [email]);
-    if (!result.rowCount) {
-      const merchant = await pool.query("SELECT email FROM merchant_accounts WHERE email = $1", [email]);
-      if (!merchant.rowCount) return res.status(404).json({ error: "Merchant account not found." });
-    }
-    return res.json({ address: null, network: "TRON_MAINNET" });
-  }
+  const client = await pool.connect();
   try {
-    const result = await pool.query(
-      `INSERT INTO merchant_usdt_wallets (merchant_email, address, network, assigned_by)
-       SELECT email, $2, 'TRON_MAINNET', $3 FROM merchant_accounts WHERE email = $1
-       ON CONFLICT (merchant_email) DO UPDATE SET address = EXCLUDED.address,
-         network = EXCLUDED.network, assigned_by = EXCLUDED.assigned_by, updated_at = NOW()
-       RETURNING address, network`,
-      [email, address, req.adminEmail],
-    );
-    if (!result.rowCount) return res.status(404).json({ error: "Merchant account not found." });
-    return res.json(result.rows[0]);
+    await client.query("BEGIN");
+    let wallet;
+    if (!address) {
+      const result = await client.query("DELETE FROM merchant_usdt_wallets WHERE merchant_email = $1 RETURNING merchant_email", [email]);
+      if (!result.rowCount) {
+        const merchant = await client.query("SELECT email FROM merchant_accounts WHERE email = $1", [email]);
+        if (!merchant.rowCount) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({ error: "Merchant account not found." });
+        }
+      }
+      wallet = { address: null, network: "TRON_MAINNET" };
+    } else {
+      const result = await client.query(
+        `INSERT INTO merchant_usdt_wallets (merchant_email, address, network, assigned_by)
+         SELECT email, $2, 'TRON_MAINNET', $3 FROM merchant_accounts WHERE email = $1
+         ON CONFLICT (merchant_email) DO UPDATE SET address = EXCLUDED.address,
+           network = EXCLUDED.network, assigned_by = EXCLUDED.assigned_by, updated_at = NOW()
+         RETURNING address, network`,
+        [email, address, req.adminEmail],
+      );
+      if (!result.rowCount) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Merchant account not found." });
+      }
+      wallet = result.rows[0];
+    }
+    await recordAdminAuditEvent(client, {
+      eventKey: `merchant-usdt-wallet:${randomUUID()}`,
+      category: "Merchant account",
+      action: address ? "TRON mainnet wallet assigned" : "TRON mainnet wallet removed",
+      target: email,
+      actor: req.adminEmail,
+      summary: address ? "Merchant USDT collection address was assigned or updated." : "Merchant USDT collection address was removed.",
+    });
+    await client.query("COMMIT");
+    return res.json(wallet);
   } catch (error) {
+    await client.query("ROLLBACK");
     if (error.code === "23505") {
       return res.status(409).json({ error: "That TRON address is already assigned to another merchant." });
     }
     throw error;
+  } finally {
+    client.release();
   }
 });
 
@@ -2050,6 +2443,14 @@ app.patch("/v1/admin/merchants/:email", async (req, res) => {
       } else {
         await client.query("DELETE FROM merchant_payout_accounts WHERE merchant_email = $1", [nextEmail]);
       }
+      await recordAdminAuditEvent(client, {
+        eventKey: `merchant-profile:${randomUUID()}`,
+        category: "Merchant account",
+        action: "Merchant profile updated",
+        target: nextEmail,
+        actor: req.adminEmail,
+        summary: `Business profile and payout account details ${bankName ? "updated" : "cleared"}.`,
+      });
       await client.query("COMMIT");
       return res.json({ ...updated.rows[0], bankName, accountName, accountNumber });
     } catch (error) {
@@ -2095,6 +2496,14 @@ app.patch("/v1/admin/merchants/:email", async (req, res) => {
        FROM merchant_payout_accounts WHERE merchant_email = $1`,
       [email],
     );
+    await recordAdminAuditEvent(client, {
+      eventKey: `merchant-status:${randomUUID()}`,
+      category: "Merchant account",
+      action: req.body.active ? "Merchant access enabled" : "Merchant access disabled",
+      target: email,
+      actor: req.adminEmail,
+      summary: `Merchant account access was ${req.body.active ? "enabled" : "disabled"}.`,
+    });
     await client.query("COMMIT");
     return res.json({ ...result.rows[0], ...payout.rows[0] });
   } catch (error) {
@@ -2173,16 +2582,37 @@ app.patch("/v1/admin/kyb/:email", async (req, res) => {
       return res.status(409).json({ error: "A business registration certificate and both owner identity images are required before approval." });
     }
   }
-  const result = await pool.query(
-    `UPDATE merchant_kyb_profiles
-     SET status = $2, review_notes = $3, reviewed_by = $4, reviewed_at = NOW(), updated_at = NOW()
-     WHERE merchant_email = $1
-     RETURNING merchant_email AS "merchantEmail", status, review_notes AS "reviewNotes",
-       reviewed_by AS "reviewedBy", reviewed_at AS "reviewedAt"`,
-    [email, status, reviewNotes || null, req.adminEmail],
-  );
-  if (!result.rowCount) return res.status(404).json({ error: "KYB application not found." });
-  return res.json(result.rows[0]);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await client.query(
+      `UPDATE merchant_kyb_profiles
+       SET status = $2, review_notes = $3, reviewed_by = $4, reviewed_at = NOW(), updated_at = NOW()
+       WHERE merchant_email = $1
+       RETURNING merchant_email AS "merchantEmail", status, review_notes AS "reviewNotes",
+         reviewed_by AS "reviewedBy", reviewed_at AS "reviewedAt"`,
+      [email, status, reviewNotes || null, req.adminEmail],
+    );
+    if (!result.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "KYB application not found." });
+    }
+    await recordAdminAuditEvent(client, {
+      eventKey: `kyb-review:${randomUUID()}`,
+      category: "KYB review",
+      action: `Application marked ${status.toLowerCase().replace("_", " ")}`,
+      target: email,
+      actor: req.adminEmail,
+      summary: reviewNotes ? "KYB review notes recorded." : "KYB application review recorded.",
+    });
+    await client.query("COMMIT");
+    return res.json(result.rows[0]);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 });
 
 app.get("/v1/public/checkout/:code/qr.png", publicQrImageLimiter, async (req, res) => {
@@ -2272,7 +2702,7 @@ app.get("/v1/crypto/usdt-wallet", cryptoWalletLimiter, async (req, res) => {
       network: "TRON_MAINNET",
       balance: null,
       configured: ready,
-      message: "A super administrator has not assigned your TRON mainnet address.",
+      message: "The DRPAY team has not assigned your TRON mainnet address.",
     });
   }
   if (assigned.network !== "TRON_MAINNET") {
@@ -2281,7 +2711,7 @@ app.get("/v1/crypto/usdt-wallet", cryptoWalletLimiter, async (req, res) => {
       network: assigned.network,
       balance: null,
       configured: false,
-      message: "This address is marked as a Shasta testnet address. A super administrator must confirm and reassign a production address before mainnet balance lookup.",
+      message: "This address is marked as a Shasta testnet address. The DRPAY team must confirm and reassign a production address before mainnet balance lookup.",
     });
   }
   if (!ready) {
@@ -2679,7 +3109,7 @@ app.put("/v1/floating-balance/payout-account", async (req, res) => {
     [req.merchantEmail, bankName, accountName, accountNumber],
   );
   if (!result.rowCount) {
-    return res.status(409).json({ error: "A payout account is already saved. Contact a super admin to change it." });
+    return res.status(409).json({ error: "A payout account is already saved. Contact the DRPAY team to change it." });
   }
   return res.set("Cache-Control", "no-store").json(result.rows[0]);
 });
@@ -2943,7 +3373,7 @@ app.get("/v1/exchange-rates/krw-php", async (_req, res) => {
       rate,
       date: new Date().toISOString().slice(0, 10),
       updatedAt: new Date().toISOString(),
-      source: "Super-admin configured rate",
+      source: "DRPAY configured rate",
     });
   }
 
@@ -3093,6 +3523,7 @@ async function reconcilePending() {
     }),
   ]);
   await dispatchTransactionNotifications();
+  await dispatchCustomerPaymentNotifications();
   await dispatchMerchantWebhooks();
   } finally {
     reconcilingPending = false;
@@ -3304,6 +3735,7 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
   const submittedKrwAmount = req.body?.collectionAmountKrw;
   const collectionAmountKrw = submittedKrwAmount === undefined ? null : Number(submittedKrwAmount);
   const title = typeof req.body?.description === "string" ? req.body.description.trim().slice(0, 100) : "";
+  const customerEmail = typeof req.body?.customerEmail === "string" ? req.body.customerEmail.trim().toLowerCase() : "";
   const institutionCode = typeof req.body?.institutionCode === "string" ? req.body.institutionCode.trim().toUpperCase() : "";
   const institutionName = typeof req.body?.institutionName === "string" ? req.body.institutionName.trim() : "";
   const submittedLogoUrl = req.body?.institutionLogoUrl;
@@ -3317,6 +3749,9 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
   if (!Number.isFinite(amount) || Math.abs(submittedAmount - amount) > 1e-7 || amount <= 0 || amount > 1_000_000 || !title) return res.status(400).json({ error: "Enter a description and a valid PHP amount with no more than two decimal places." });
   if (submittedKrwAmount !== undefined && (!Number.isSafeInteger(collectionAmountKrw) || collectionAmountKrw <= 0)) {
     return res.status(400).json({ error: "Enter a valid whole-number KRW collection amount." });
+  }
+  if (customerEmail && (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail) || customerEmail.length > 254)) {
+    return res.status(400).json({ error: "Enter a valid customer email address." });
   }
   if (hasInstitution && (
     !/^[A-Z0-9_-]{1,64}$/.test(institutionCode)
@@ -3362,9 +3797,9 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
     await pool.query(`INSERT INTO payment_links (
       id, idempotency_key, reference_no, code, title, amount, collection_amount_krw,
       payment_institution_code, payment_institution_name, payment_institution_logo_url,
-      checkout_type, status, merchant_email
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'DIRECT_QRPH', 'CREATING', $11)`,
-    [id, idempotencyKey, referenceNo, code, title, amount, collectionAmountKrw, institutionCode || null, institutionName || null, institutionLogoUrl, req.merchantEmail]);
+      checkout_type, status, merchant_email, customer_email
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'DIRECT_QRPH', 'CREATING', $11, $12)`,
+    [id, idempotencyKey, referenceNo, code, title, amount, collectionAmountKrw, institutionCode || null, institutionName || null, institutionLogoUrl, req.merchantEmail, customerEmail || null]);
   } catch (error) {
     if (error.code === "23505") return res.status(409).json({ error: "The checkout outcome is unknown. Check wallet activity before retrying." });
     throw error;

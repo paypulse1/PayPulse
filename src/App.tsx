@@ -962,7 +962,7 @@ function TransactionSheet({
           </div>
         </section>
         <dl className="detail-list">
-          <div><dt>{transaction.rawStatus === "MANUALLY_PAID" ? "Payment status" : "Provider status"}</dt><dd>{transaction.rawStatus === "MANUALLY_PAID" ? "Manually confirmed by super admin after verification" : transaction.rawStatus}</dd></div>
+          <div><dt>{transaction.rawStatus === "MANUALLY_PAID" ? "Payment status" : "Provider status"}</dt><dd>{transaction.rawStatus === "MANUALLY_PAID" ? "Manually verified by the DRPAY team" : transaction.rawStatus}</dd></div>
           {transaction.walletAmount !== undefined && transaction.walletAmount !== null && (
             <div><dt>Merchant ledger impact</dt><dd>{formatWalletMovement(transaction.walletAmount)}</dd></div>
           )}
@@ -1899,7 +1899,7 @@ function WalletFloatingBalanceCard({
     try {
       await createMerchantFloatingTransferRequest({ amount });
       setAvailableToRequest((available) => Math.max(0, available - amount - data.transferFeeFixed));
-      setRequestMessage(`${formatPeso(amount)} payout request sent to a super admin for review.`);
+      setRequestMessage(`${formatPeso(amount)} payout request sent to the DRPAY team for review.`);
     } catch (error) {
       setRequestError(error instanceof Error ? error.message : "Could not submit transfer request.");
     } finally {
@@ -1935,16 +1935,16 @@ function WalletFloatingBalanceCard({
               <span>{payoutAccount.bankName}</span>
               <small>{payoutAccount.accountName} ···· {payoutAccount.accountNumber.slice(-4)}</small>
             </>
-          ) : <small>{payoutAccountError || "No payout account saved. Contact your super admin."}</small>}
+          ) : <small>{payoutAccountError || "No payout account saved. Contact the DRPAY team."}</small>}
         </div>
       </div>
       <div className={`unsettled-unlock-status ${unlocked ? "unsettled-unlock-status-ready" : ""}`} role="status">
         <ShieldCheck size={16} />
         <p>{unlocked
-          ? "Unlocked for this merchant. Progress reflects your own completed collections and remaining ledger balance. A super admin will transfer your unsettled funds separately."
+          ? "Unlocked for this merchant. Progress reflects your own completed collections and remaining ledger balance. The DRPAY team will transfer your unsettled funds separately."
           : data.paymentEnvironment !== "production"
-            ? "This progress reflects your merchant's own collections and available ledger balance. You can request a floating-balance transfer before the threshold if admin-set funds are available. This is a sandbox environment."
-            : "At ₩1,000,000 in this merchant's maintained collections, funds unlock for transfer by a super admin. Your successful transfers reduce progress. Requests are available before the threshold if admin-set floating funds are available."}</p>
+            ? "This progress reflects your merchant's own collections and available ledger balance. You can request a floating-balance transfer before the threshold if DRPAY-provided funds are available. This is a sandbox environment."
+            : "At ₩1,000,000 in this merchant's maintained collections, funds unlock for transfer by the DRPAY team. Your successful transfers reduce progress. Requests are available before the threshold if DRPAY-provided floating funds are available."}</p>
       </div>
       <section className="unsettled-request-section" aria-label="Request payout">
         <Button icon={<Send size={16} />} onClick={() => void submitTransferRequest()} disabled={requestSubmitting || maxRequestAmount <= 0}>
@@ -2054,7 +2054,7 @@ function MainnetUsdtWallet() {
         <strong>{loading ? "Loading…" : wallet?.balance === null || !wallet ? "Unavailable" : `${wallet.balance} USDT`}</strong>
       </div>
       <div className="crypto-wallet-address">
-        <span>SUPER ADMIN-ASSIGNED ADDRESS · {wallet?.network === "TRON_SHASTA" ? "TRON SHASTA TESTNET" : "TRC20 MAINNET"}</span>
+        <span>DRPAY-ASSIGNED ADDRESS · {wallet?.network === "TRON_SHASTA" ? "TRON SHASTA TESTNET" : "TRC20 MAINNET"}</span>
         <strong className="crypto-wallet-address-value">{wallet?.address || (loading ? "Loading…" : "Not assigned")}</strong>
         {wallet?.address && <Button variant="secondary" className="crypto-wallet-copy" icon={<Copy size={13} />} onClick={() => void copyAddress()}>Copy address</Button>}
       </div>
@@ -2355,8 +2355,8 @@ function ProfileInfoPage({
               <div><dt>Available balance</dt><dd>{balanceVisible ? data.availableBalance : "₱ ••••••"}</dd></div>
               <div><dt>Environment</dt><dd>{data.paymentEnvironment === "production" ? "Live" : "Sandbox"}</dd></div>
             </dl>
-            <div className="profile-info-intro"><strong>Your merchant ledger</strong><p>Collections, transfers, pending reservations, and activity are tracked separately for this merchant. The admin-funded floating balance remains a separate wallet.</p></div>
-            <div className="profile-info-intro"><strong>Unsettled funds release</strong><p>Your collection progress is based on this merchant’s activity. A super admin separately transfers unlocked unsettled funds; that pooled settlement account is not your merchant ledger balance.</p></div>
+            <div className="profile-info-intro"><strong>Your merchant ledger</strong><p>Collections, transfers, pending reservations, and activity are tracked separately for this merchant. The DRPAY-funded floating balance remains a separate wallet.</p></div>
+            <div className="profile-info-intro"><strong>Unsettled funds release</strong><p>Your collection progress is based on this merchant’s activity. The DRPAY team separately transfers unlocked unsettled funds; that pooled settlement account is not your merchant ledger balance.</p></div>
           </>
         )}
 
@@ -2484,7 +2484,7 @@ DRPAY_API_KEY=your_environment_specific_key`} />
 
             <section className="api-docs-section">
               <h3>2. Read wallet balance</h3>
-              <p><code>GET /v1/wallet/balance</code> returns this merchant's operational ledger only. <code>balance</code> is the posted ledger amount; <code>availableBalance</code> subtracts reservations for transfers still in progress. Admin-funded floating balance is a separate wallet.</p>
+              <p><code>GET /v1/wallet/balance</code> returns this merchant's operational ledger only. <code>balance</code> is the posted ledger amount; <code>availableBalance</code> subtracts reservations for transfers still in progress. The DRPAY-funded floating balance is a separate wallet.</p>
               <ApiCodeBlock title="Request" code={`curl "$DRPAY_API_BASE_URL/v1/wallet/balance" \\
   -H "Authorization: Bearer $DRPAY_API_KEY" \\
   -H "Accept: application/json"`} />
@@ -2501,7 +2501,7 @@ DRPAY_API_KEY=your_environment_specific_key`} />
 
             <section className="api-docs-section">
               <h3>3. Create a collection on your platform</h3>
-              <p><code>POST /v1/payment-links</code> creates a fixed PHP QR Ph payment and a self-hosted DRPAY checkout page. The response includes <code>paymentUrl</code> to redirect your customer to, <code>qrCode</code> for rendering a QR in your own experience, and <code>qrImageUrl</code> for the QR image. Optionally include <code>customerEmail</code> to email the customer the checkout link and a separate payment-confirmed notice after SwiftPay reports <code>EXECUTED</code>. Checkout links use your environment’s branded host: <code>{data.paymentEnvironment === "production" ? "pay.live.denpay.cc" : "pay.sandbox.denpay.cc"}</code>.</p>
+              <p><code>POST /v1/payment-links</code> creates a fixed PHP QR Ph payment and a self-hosted DRPAY checkout page. The response includes <code>paymentUrl</code> to redirect your customer to, <code>qrCode</code> for rendering a QR in your own experience, and <code>qrImageUrl</code> for the QR image. Optionally include <code>customerEmail</code> to email the customer the checkout link and a separate payment-confirmed notice after SwiftPay reports <code>EXECUTED</code> or the DRPAY team independently verifies the payment. Checkout links use your environment’s branded host: <code>{data.paymentEnvironment === "production" ? "pay.live.denpay.cc" : "pay.sandbox.denpay.cc"}</code>.</p>
               <p>Generate a new, unique idempotency key for each intended payment (at least 16 characters). If the request times out, retry the same payment with the same key; do not create another payment with a new key until you have checked its outcome.</p>
               <ApiCodeBlock title="Request" code={`curl -X POST "$DRPAY_API_BASE_URL/v1/payment-links" \\
   -H "Authorization: Bearer $DRPAY_API_KEY" \\
@@ -2600,7 +2600,7 @@ export async function createInvoiceCheckout({ amount, invoiceId, customerEmail }
                 <div><b>GET</b><code>/v1/payment-links/:code</code><span>read · refresh owned payment status</span></div>
                 <div><b>GET</b><code>/v1/payment-institutions</code><span>read · collection institution list</span></div>
                 <div><b>GET</b><code>/v1/disbursement-institutions</code><span>read · transfer institution list</span></div>
-                <div><b>GET</b><code>/v1/internal-wallet</code><span>read · separate admin-funded floating wallet</span></div>
+                <div><b>GET</b><code>/v1/internal-wallet</code><span>read · separate DRPAY-funded floating wallet</span></div>
               </div>
               <p>API keys are limited to 120 requests per minute. API keys cannot initiate disbursements or access other merchants' records.</p>
             </section>
@@ -3032,8 +3032,8 @@ export default function App() {
           <section className="auth-card">
             <span className="auth-mark"><Lock size={25} /></span>
             <span className="eyebrow">ACCESS DENIED</span>
-            <h1>Admin role required</h1>
-            <p>This account cannot access the super-admin console.</p>
+            <h1>Restricted access</h1>
+            <p>This account cannot access this area.</p>
             <Button variant="secondary" onClick={signOut}>Sign out</Button>
           </section>
         </main>
