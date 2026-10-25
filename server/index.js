@@ -381,9 +381,9 @@ async function sendCustomerPaymentEmail(payment, kind) {
           </tr></table>
         </div>
         <div style="overflow:hidden;background:#fff;border:1px solid #dce4ed;border-radius:18px">
-          <div style="height:5px;background:#167354;font-size:0;line-height:0">&nbsp;</div>
+          <div style="height:5px;background:#123b6d;font-size:0;line-height:0">&nbsp;</div>
           <div style="padding:30px">
-            <div style="display:inline-block;margin-bottom:14px;padding:6px 10px;background:#eaf5f0;border-radius:20px;color:#176348;font-size:10px;font-weight:700;letter-spacing:1.1px">${completed ? "PAYMENT RECEIPT" : "SECURE PAYMENT REQUEST"}</div>
+            <div style="display:inline-block;margin-bottom:14px;padding:6px 10px;background:#eaf2fb;border-radius:20px;color:#123b6d;font-size:10px;font-weight:700;letter-spacing:1.1px">${completed ? "PAYMENT RECEIPT" : "SECURE PAYMENT REQUEST"}</div>
             <h1 style="margin:0 0 10px;color:#12243a;font-size:24px;line-height:1.3">${heading}</h1>
             <p style="margin:0 0 24px;color:#5d6b7d;font-size:14px;line-height:1.65">${description}</p>
             <div style="padding:20px;background:#f7f9fc;border:1px solid #e2e8f0;border-radius:13px">
@@ -395,7 +395,7 @@ async function sendCustomerPaymentEmail(payment, kind) {
               <div style="margin-top:16px;color:#66758a;font-size:11px;font-weight:600;letter-spacing:.4px">REFERENCE</div>
               <div style="margin-top:5px;color:#43546a;font-size:12px;font-weight:600;line-height:1.5;overflow-wrap:anywhere">${reference}</div>
             </div>
-            ${completed ? "" : `<div style="margin-top:24px;text-align:center"><a href="${safePaymentUrl}" style="display:inline-block;padding:14px 24px;background:#176348;border:1px solid #176348;border-radius:9px;color:#fff;font-size:14px;font-weight:700;line-height:1.2;text-decoration:none">Continue to secure checkout</a></div><p style="margin:18px 0 0;color:#6b7888;font-size:12px;line-height:1.6">Button not opening? Copy this secure checkout link into your browser:<br><a href="${safePaymentUrl}" style="color:#176348;overflow-wrap:anywhere">${safePaymentUrl}</a></p>`}
+            ${completed ? "" : `<div style="margin-top:24px;text-align:center"><a href="${safePaymentUrl}" style="display:inline-block;padding:14px 24px;background:#123b6d;border:1px solid #123b6d;border-radius:9px;color:#fff;font-size:14px;font-weight:700;line-height:1.2;text-decoration:none">Continue to secure checkout</a></div><p style="margin:18px 0 0;color:#6b7888;font-size:12px;line-height:1.6">Button not opening? Copy this secure checkout link into your browser:<br><a href="${safePaymentUrl}" style="color:#123b6d;overflow-wrap:anywhere">${safePaymentUrl}</a></p>`}
           </div>
         </div>
         <div style="padding:18px 8px 0;color:#718096;font-size:11px;line-height:1.7">
