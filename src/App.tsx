@@ -53,7 +53,6 @@ import {
   getAdminInternalWallet,
   getAdminFloatingTransferRequests,
   getAdminPaymentLinks,
-  getAdminKybApplications,
   getAdminKybDocumentUrl,
   getAdminInternalWallets,
   getAdminMerchantAccounts,
@@ -764,19 +763,17 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
     setLoading(true);
     setError("");
     try {
-      const [nextSettings, nextMerchants, nextWallets, nextTransferRequests, nextKybApplications, nextPaymentLinks] = await Promise.all([
+      const [nextSettings, nextMerchants, nextWallets, nextTransferRequests, nextPaymentLinks] = await Promise.all([
         getAdminSettings(),
         getAdminMerchantAccounts(),
         getAdminInternalWallets(),
         getAdminFloatingTransferRequests(),
-        getAdminKybApplications(),
         getAdminPaymentLinks(),
       ]);
       setSettings(nextSettings);
       setMerchants(nextMerchants);
       setInternalWallets(nextWallets);
       setTransferRequests(nextTransferRequests);
-      setKybApplications(nextKybApplications);
       setPaymentLinks(nextPaymentLinks);
       setSelectedWalletEmail((current) => nextWallets.some((wallet) => wallet.email === current)
         ? current
@@ -1165,7 +1162,7 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
             </section>}
             {activePage === "kyb" && <section className="admin-card">
               <div className="admin-card-heading"><span className="setting-icon"><ShieldCheck size={19} /></span><div><h2>Merchant identity and business checks</h2><p>Private documents are served through short-lived signed download URLs.</p></div></div>
-              {kybApplications.length === 0 ? <p className="admin-empty">No KYB applications have been submitted.</p> : (
+              {kybApplications.length === 0 ? <p className="admin-empty">KYB review is not enabled on the current production API, so applications cannot be loaded yet. Other admin features remain available.</p> : (
                 <div className="admin-kyb-list">
                   {kybApplications.map((application) => (
                     <article className="admin-kyb-application" key={application.merchantEmail}>
