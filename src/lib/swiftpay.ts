@@ -117,6 +117,22 @@ export type PaymentLinkResult = {
   currency?: string;
 };
 
+export type AdminPaymentLink = {
+  id: string;
+  merchantEmail: string | null;
+  customerEmail: string | null;
+  referenceNo: string;
+  title: string;
+  amount: number;
+  currency: string;
+  status: string;
+  createdAt: string;
+  manuallyPaidBy: string | null;
+  manuallyPaidAt: string | null;
+  manualPaidReason: string | null;
+  customerNotification?: "queued" | "no_customer_email" | "queued_for_retry";
+};
+
 export type PublicCheckout = {
   title: string;
   referenceNo: string;
@@ -599,6 +615,17 @@ export async function getKrwPhpQuote(): Promise<CurrencyQuote> {
 
 export async function getAdminSettings(): Promise<AdminSettings> {
   return backendRequest<AdminSettings>("/v1/admin/settings");
+}
+
+export async function getAdminPaymentLinks(): Promise<AdminPaymentLink[]> {
+  return backendRequest<AdminPaymentLink[]>("/v1/admin/payment-links");
+}
+
+export async function markAdminPaymentLinkPaid(id: string, verificationNote: string): Promise<AdminPaymentLink> {
+  return backendRequest<AdminPaymentLink>(`/v1/admin/payment-links/${encodeURIComponent(id)}/mark-paid`, {
+    method: "POST",
+    body: JSON.stringify({ verificationNote }),
+  });
 }
 
 export async function updateAdminSettings(settings: AdminSettings): Promise<AdminSettings> {

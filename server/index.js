@@ -343,6 +343,7 @@ async function sendTransactionEmail(notification) {
 
 async function sendCustomerPaymentEmail(payment, kind) {
   const completed = kind === "completed";
+  const manuallyConfirmed = payment.status === "MANUALLY_PAID";
   const amount = `PHP ${Number(payment.amount).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const title = escapeEmailHtml(payment.title);
   const reference = escapeEmailHtml(payment.reference_no);
@@ -353,7 +354,9 @@ async function sendCustomerPaymentEmail(payment, kind) {
   const subject = completed ? "DRPAY payment confirmed" : "DRPAY payment request";
   const heading = completed ? "Payment confirmed" : "Your payment request";
   const description = completed
-    ? "Your payment has been securely confirmed. Keep this email as your receipt."
+    ? manuallyConfirmed
+      ? "The merchant has confirmed your payment after independently verifying it. Keep this email as your receipt."
+      : "Your payment has been securely confirmed by SwiftPay. Keep this email as your receipt."
     : "A secure payment request is ready for you. Review the details below, then continue to DRPAY checkout.";
   const text = [
     "DRPAY",
@@ -503,23 +506,28 @@ async function queueSuccessfulTransaction(transactionType, transactionId) {
   }
 
 async function updatePaymentLinkStatus(id, status) {
-    await pool.query("UPDATE payment_links SET status = $1, updated_at = NOW() WHERE id = $2", [status, id]);
-    if (status === "EXECUTED") await settleSuccessfulCollection(id);
+    const updated = await pool.query(
+      "UPDATE payment_links SET status = $1, updated_at = NOW() WHERE id = $2 AND status <> 'MANUALLY_PAID' RETURNING id",
+      [status, id],
+    );
+    if (!updated.rowCount) return;
+    if (["EXECUTED", "MANUALLY_PAID"].includes(status)) await settleSuccessfulCollection(id);
     await queueSuccessfulTransaction("PAYMENT", id);
   }
 
-async function settleSuccessfulCollection(paymentId) {
-  const client = await pool.connect();
+async function settleSuccessfulCollection(paymentId, transactionClient = null) {
+  const client = transactionClient || await pool.connect();
+  const ownsTransaction = transactionClient === null;
   try {
-    await client.query("BEGIN");
+    if (ownsTransaction) await client.query("BEGIN");
     const payment = await client.query(
       `SELECT id, merchant_email, reference_no, amount::numeric AS amount, status
        FROM payment_links WHERE id = $1 FOR UPDATE`,
       [paymentId],
     );
     const row = payment.rows[0];
-    if (!row || row.status !== "EXECUTED" || !row.merchant_email) {
-      await client.query("COMMIT");
+    if (!row || !["EXECUTED", "MANUALLY_PAID"].includes(row.status) || !row.merchant_email) {
+      if (ownsTransaction) await client.query("COMMIT");
       return;
     }
     const feeSetting = await client.query(
@@ -538,12 +546,12 @@ async function settleSuccessfulCollection(paymentId) {
        `,
       [randomUUID(), paymentId, row.merchant_email, feeAmount.toFixed(2)],
     );
-    await client.query("COMMIT");
+    if (ownsTransaction) await client.query("COMMIT");
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (ownsTransaction) await client.query("ROLLBACK");
     throw error;
   } finally {
-    client.release();
+    if (ownsTransaction) client.release();
   }
 }
 
@@ -663,14 +671,14 @@ async function dispatchCustomerPaymentEmails() {
        AND payment_token IS NOT NULL
        AND payment_url IS NOT NULL
        AND status NOT IN ('FAILED', 'CANCELED', 'REJECTED', 'EXPIRED')
-       AND (customer_payment_request_sent_at IS NULL
-         OR (status = 'EXECUTED' AND customer_payment_completed_sent_at IS NULL))
+       AND ((status <> 'MANUALLY_PAID' AND customer_payment_request_sent_at IS NULL)
+         OR (status IN ('EXECUTED', 'MANUALLY_PAID') AND customer_payment_completed_sent_at IS NULL))
      ORDER BY created_at ASC
      LIMIT 25`,
   );
   for (const payment of rows) {
     let requestSent = Boolean(payment.customer_payment_request_sent_at);
-    if (!requestSent) {
+    if (!requestSent && payment.status !== "MANUALLY_PAID") {
       try {
         await sendCustomerPaymentEmail(payment, "request");
         await pool.query("UPDATE payment_links SET customer_payment_request_sent_at = NOW() WHERE id = $1 AND customer_payment_request_sent_at IS NULL", [payment.id]);
@@ -679,7 +687,9 @@ async function dispatchCustomerPaymentEmails() {
         console.error("Customer payment request email remains queued", { paymentId: payment.id, message: error.message });
       }
     }
-    if (requestSent && payment.status === "EXECUTED" && !payment.customer_payment_completed_sent_at) {
+    if ((requestSent || payment.status === "MANUALLY_PAID")
+      && ["EXECUTED", "MANUALLY_PAID"].includes(payment.status)
+      && !payment.customer_payment_completed_sent_at) {
       try {
         await sendCustomerPaymentEmail(payment, "completed");
         await pool.query("UPDATE payment_links SET customer_payment_completed_sent_at = NOW() WHERE id = $1 AND customer_payment_completed_sent_at IS NULL", [payment.id]);
@@ -912,6 +922,9 @@ async function initializeDatabase() {
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS customer_email TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS customer_payment_request_sent_at TIMESTAMPTZ;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS customer_payment_completed_sent_at TIMESTAMPTZ;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS manually_paid_by TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS manually_paid_at TIMESTAMPTZ;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS manual_paid_reason TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS merchant_email TEXT REFERENCES merchant_accounts(email) ON DELETE CASCADE;
     CREATE INDEX IF NOT EXISTS payment_links_customer_email_pending_idx
       ON payment_links (created_at ASC)
@@ -919,8 +932,8 @@ async function initializeDatabase() {
         AND payment_token IS NOT NULL
         AND payment_url IS NOT NULL
         AND status NOT IN ('FAILED', 'CANCELED', 'REJECTED', 'EXPIRED')
-        AND (customer_payment_request_sent_at IS NULL
-          OR (status = 'EXECUTED' AND customer_payment_completed_sent_at IS NULL));
+        AND ((status <> 'MANUALLY_PAID' AND customer_payment_request_sent_at IS NULL)
+          OR (status IN ('EXECUTED', 'MANUALLY_PAID') AND customer_payment_completed_sent_at IS NULL));
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS request_fingerprint TEXT;
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS recipient_name TEXT;
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS recipient_account_number TEXT;
@@ -1305,6 +1318,99 @@ app.post("/v1/auth/device/biometric", loginLimiter, async (req, res) => {
 });
 
 app.use("/v1/admin", requireSuperAdmin);
+
+app.get("/v1/admin/payment-links", async (_req, res) => {
+  const result = await pool.query(
+    `SELECT id, merchant_email AS "merchantEmail", customer_email AS "customerEmail",
+       reference_no AS "referenceNo", title, amount::float8 AS amount, currency, status,
+       created_at AS "createdAt", manually_paid_by AS "manuallyPaidBy",
+       manually_paid_at AS "manuallyPaidAt", manual_paid_reason AS "manualPaidReason"
+     FROM payment_links
+     WHERE checkout_type = 'DIRECT_QRPH' AND payment_token IS NOT NULL AND merchant_email IS NOT NULL
+     ORDER BY CASE WHEN status = 'PENDING' THEN 0 ELSE 1 END, created_at DESC
+     LIMIT 100`,
+  );
+  return res.set("Cache-Control", "no-store").json(result.rows);
+});
+
+app.post("/v1/admin/payment-links/:id/mark-paid", async (req, res) => {
+  const { id } = req.params;
+  const reason = typeof req.body?.verificationNote === "string" ? req.body.verificationNote.trim() : "";
+  if (!/^[0-9a-f-]{36}$/i.test(id)) {
+    return res.status(400).json({ error: "Choose a valid payment." });
+  }
+  if (reason.length < 10 || reason.length > 500) {
+    return res.status(400).json({ error: "Enter 10–500 characters describing how the payment was independently verified." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const payment = await client.query(
+      `SELECT id, status, payment_token, checkout_type, merchant_email
+       FROM payment_links WHERE id = $1 FOR UPDATE`,
+      [id],
+    );
+    const row = payment.rows[0];
+    if (!row || row.checkout_type !== "DIRECT_QRPH") {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "QR Ph payment not found." });
+    }
+    if (!row.payment_token) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "This payment does not have an active QR Ph payment token." });
+    }
+    if (!row.merchant_email) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "This payment is not linked to a merchant account and cannot be settled." });
+    }
+    if (row.status !== "PENDING") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "Only a pending payment can be manually confirmed." });
+    }
+    const updated = await client.query(
+      `UPDATE payment_links
+       SET status = 'MANUALLY_PAID', manually_paid_by = $2, manually_paid_at = NOW(),
+         manual_paid_reason = $3, updated_at = NOW()
+       WHERE id = $1 AND status = 'PENDING'
+       RETURNING id`,
+      [id, req.adminEmail, reason],
+    );
+    if (!updated.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "Payment status changed while it was being reviewed. Refresh and check its current status." });
+    }
+    await settleSuccessfulCollection(id, client);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  let notificationQueued = true;
+  try {
+    await dispatchCustomerPaymentEmails();
+  } catch (error) {
+    notificationQueued = false;
+    console.error("Manual payment confirmation email remains queued for retry", { paymentId: id, message: error.message });
+  }
+  const result = await pool.query(
+    `SELECT id, merchant_email AS "merchantEmail", customer_email AS "customerEmail",
+       reference_no AS "referenceNo", title, amount::float8 AS amount, currency, status,
+       created_at AS "createdAt", manually_paid_by AS "manuallyPaidBy",
+       manually_paid_at AS "manuallyPaidAt", manual_paid_reason AS "manualPaidReason"
+     FROM payment_links WHERE id = $1`,
+    [id],
+  );
+  return res.status(notificationQueued ? 200 : 202).set("Cache-Control", "no-store").json({
+    ...result.rows[0],
+    customerNotification: notificationQueued
+      ? result.rows[0].customerEmail ? "queued" : "no_customer_email"
+      : "queued_for_retry",
+  });
+});
 
 app.get("/v1/admin/settings", async (_req, res) => {
   const result = await pool.query(
@@ -1760,7 +1866,7 @@ app.get("/v1/public/checkout/:code", publicCheckoutLimiter, async (req, res) => 
 
   let status = row.status;
   let statusCheckUnavailable = false;
-  if (!["EXECUTED", "CANCELED", "REJECTED", "EXPIRED"].includes(status)) {
+  if (!["EXECUTED", "MANUALLY_PAID", "CANCELED", "REJECTED", "EXPIRED"].includes(status)) {
     try {
       const { data } = await swiftPayPaymentRequest("/payments/status", row.payment_token);
       status = paymentStatusFromResponse(data);
@@ -2037,7 +2143,7 @@ app.get("/v1/wallet/activity/trend", async (req, res) => {
        ), activity AS (
          SELECT created_at::date AS day, amount, 'COLLECTION' AS activity_type
          FROM payment_links
-         WHERE merchant_email = $1 AND status = 'EXECUTED'
+         WHERE merchant_email = $1 AND status IN ('EXECUTED', 'MANUALLY_PAID')
            AND created_at >= (SELECT created_at FROM merchant_accounts WHERE email = $1)
            AND created_at >= CURRENT_DATE - INTERVAL '6 days'
            AND created_at < CURRENT_DATE + INTERVAL '1 day'

@@ -46,6 +46,8 @@ Confirmed successful incoming QR payments and outgoing transfers are emailed to 
 
 Merchants can also enter a customer email when creating a QR checkout. DRPAY queues a payment-request email with the hosted checkout link, then sends a separate confirmation only after SwiftPay confirms the payment as executed. Leaving the customer email blank disables these customer emails.
 
+Super admins can review QR Ph checkouts in the Payments page and manually confirm a payment only after independently verifying it. A 10–500 character verification note is required and stored with the admin identity and timestamp. This uses the distinct `MANUALLY_PAID` status (not SwiftPay's `EXECUTED` status), records the collection fee exactly once, and queues the customer confirmation email without sending an outdated checkout request. Manual confirmation does not cancel the underlying SwiftPay QR or increase the SwiftPay account balance; verify the payment and ensure it will not be paid a second time before confirming.
+
 Android push alerts use Capacitor Push Notifications and Firebase Cloud Messaging. Create a Firebase Android app with package ID `ph.drpays.merchant`, place its `google-services.json` in `android/app/`, and configure `FCM_PROJECT_ID`, `FCM_SERVICE_ACCOUNT_EMAIL`, and `FCM_SERVICE_ACCOUNT_PRIVATE_KEY` on the API service. Grant the service account permission to send Firebase Cloud Messaging messages. After signing in, the app requests notification permission and registers the device token with the API. Rebuild and reinstall the Android app after adding Firebase configuration. Push delivery remains disabled until the Firebase client and server configuration are both present; email notifications continue independently.
 
 ## Payment behavior
