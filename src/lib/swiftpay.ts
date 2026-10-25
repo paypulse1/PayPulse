@@ -393,16 +393,29 @@ export function isBackendConfigured() {
   return Boolean(getConfiguredApiBaseUrl());
 }
 
+function isSession(value: unknown): value is Session {
+  if (!value || typeof value !== "object") return false;
+  const session = value as Partial<Session>;
+  return typeof session.accessToken === "string" && session.accessToken.length > 0
+    && typeof session.expiresAt === "number" && Number.isFinite(session.expiresAt)
+    && typeof session.email === "string" && session.email.length > 0
+    && (session.role === "customer" || session.role === "merchant" || session.role === "super_admin");
+}
+
 export function getSession(): Session | null {
   const stored = sessionStorage.getItem(SESSION_KEY);
   if (!stored) return null;
   try {
-    const session = JSON.parse(stored) as Session;
-    if (session.expiresAt <= Date.now()) {
+    const parsed = JSON.parse(stored) as unknown;
+    if (!isSession(parsed)) {
       sessionStorage.removeItem(SESSION_KEY);
       return null;
     }
-    return session;
+    if (parsed.expiresAt <= Date.now()) {
+      sessionStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+    return parsed;
   } catch {
     sessionStorage.removeItem(SESSION_KEY);
     return null;
@@ -410,6 +423,9 @@ export function getSession(): Session | null {
 }
 
 export function saveSession(session: Session) {
+  if (!isSession(session)) {
+    throw new Error("Invalid DRPAY session.");
+  }
   sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
 }
 
