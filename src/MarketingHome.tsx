@@ -9,6 +9,7 @@ import {
   LockKeyhole,
   QrCode,
   ShieldCheck,
+  Smartphone,
   WalletCards,
 } from "lucide-react";
 import "./marketing-home.css";
@@ -81,13 +82,13 @@ export default function MarketingHome() {
 
       <section className="marketing-hero" aria-labelledby="hero-title">
         <div className="hero-copy">
-          <span className="marketing-eyebrow"><i /> MERCHANT PAYMENTS, IN ONE WORKSPACE</span>
-          <h1 id="hero-title">Accept payments. Keep every step <em>in view.</em></h1>
-          <p>Create hosted payment links and QR Ph checkouts, track provider-confirmed activity, and understand your balances in one merchant workspace.</p>
+          <span className="marketing-eyebrow"><i /> THE MERCHANT WORKSPACE</span>
+          <h1 id="hero-title">Your payments, <em>in good order.</em></h1>
+          <p>Collect with hosted payment links and QR Ph checkouts. Track confirmed activity, review your balances, and prepare bank transfers from one secure workspace.</p>
           <div className="hero-actions">
-            <a className="hero-primary" href="/app">Open merchant workspace <ArrowRight size={17} /></a>
+            <a className="hero-primary" href="/app">Sign in to DRPAY <ArrowRight size={17} /></a>
             {apkUrl ? (
-              <a className="hero-download" href={apkUrl}><Download size={17} />Get the Android app</a>
+              <a className="hero-download" href={apkUrl}><Download size={17} />Download Android app</a>
             ) : (
               <span className="hero-download unavailable" aria-label="Android app is not available"><Download size={17} />Android app unavailable</span>
             )}
@@ -95,6 +96,23 @@ export default function MarketingHome() {
           <div className="hero-assurance"><LockKeyhole size={15} /><span>Email-verified new devices · MPIN-protected transfers · optional biometrics on supported Android devices.</span></div>
         </div>
         <ProductPreview />
+      </section>
+
+      <section className="android-release-band" aria-labelledby="android-release-title">
+        <div className="android-release-icon"><Smartphone size={23} /></div>
+        <div className="android-release-copy">
+          <span className="marketing-eyebrow">DRPAY FOR ANDROID</span>
+          <h2 id="android-release-title">Your workspace, ready to go.</h2>
+          <p>Download the latest signed Android app directly from DRPAY’s GitHub release. Sign in with your merchant account to get started.</p>
+        </div>
+        <div className="android-release-action">
+          {apkUrl ? (
+            <a className="android-release-download" href={apkUrl}><Download size={16} />Download latest APK</a>
+          ) : (
+            <span className="android-release-download unavailable"><Download size={16} />Android app unavailable</span>
+          )}
+          <small>Android only · Always points to the latest release</small>
+        </div>
       </section>
 
       <section className="workflow-strip" id="workflow" aria-labelledby="workflow-title">

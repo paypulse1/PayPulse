@@ -28,6 +28,8 @@ Set these secrets directly in Render when prompted:
 - `RESEND_FROM_EMAIL`: sender address on a domain verified with Resend.
 - `FCM_PROJECT_ID`, `FCM_SERVICE_ACCOUNT_EMAIL`, and `FCM_SERVICE_ACCOUNT_PRIVATE_KEY`: Firebase Cloud Messaging server credentials for Android transaction push alerts. Store the private key as a deployment secret; convert escaped `\n` sequences to newlines at runtime.
 - `SWIFTPAY_ACCESS_KEY` and `SWIFTPAY_SECRET_KEY`: credentials for the selected SwiftPay environment.
+- `TATUM_API_KEY`: server-only Tatum RPC credential. Configure only on `drpay-live-api`; never add it to any `VITE_*` variable.
+- `TRON_USDT_NETWORK`: set to `mainnet` on `drpay-live-api`; the sandbox API blueprint sets it to `disabled`.
 - `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_BUCKET_NAME`: Cloudflare R2 S3-compatible credentials for private KYB documents. Grant the API service only the required bucket read/write permissions. Never make the bucket public or add these values to any `VITE_*` variable.
 - `VITE_ANDROID_APK_URL`: URL of the signed Android APK artifact. The Android wrapper and release workflow are included, but the link stays disabled until CI publishes the first signed release.
 - The live API service requires production SwiftPay credentials and the explicit `SWIFTPAY_LIVE_MONEY_ACKNOWLEDGED=I_UNDERSTAND_REAL_MONEY` acknowledgement. Keep live and sandbox credentials on their respective API services; do not reuse the sandbox database for production.
@@ -53,6 +55,12 @@ Super admins configure a global percentage collection fee and fixed floating-bal
 Each merchant has a separate PHP operational ledger. A completed collection credits that merchant's collection amount after the recorded platform fee; a successful outgoing transfer debits that merchant's ledger. A successful collection refund reverses the merchant's net collection credit while retaining the platform fee. Pending and outcome-unknown transfers reserve the amount they would debit (the net collection credit for a refund), and the API rejects new transfers that exceed the merchant's available ledger balance. Reservations and balance checks are serialized per merchant to prevent concurrent requests from overspending.
 
 The server backfills ledger entries for existing completed, merchant-attributed collections and transfers idempotently at startup. Transactions that cannot be attributed to a merchant are not assigned to any merchant. The underlying SwiftPay provider account may be pooled; its shared provider-wide balance is not returned or displayed as an individual merchant's balance. The separate admin-funded floating balance is not included in this operational ledger.
+
+## USDT mainnet wallet
+
+Super admins can assign one unique TRON mainnet address to each merchant from Merchant accounts. The merchant Wallet screen reads the assigned address's TRC20 USD₮ balance through the server-side Tatum Blockchain RPC Gateway. It uses the official Tether TRON contract `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t` with 6 decimals. Configure `TATUM_API_KEY` and `TRON_USDT_NETWORK=mainnet` only on `drpay-live-api`; the sandbox service is configured with `TRON_USDT_NETWORK=disabled`. Keep the Tatum key in the Render API service's secret environment and never expose it through `VITE_*` or browser code. The API blueprint does not contain the secret value; add it in Render after obtaining it from Tatum. If the key is missing or mainnet is disabled, balance is reported unavailable rather than simulated.
+
+This is a read-only mainnet balance integration that queries real asset holdings. Admins must provision the address securely outside DRPAY, confirm that it belongs to the intended merchant, and assign it to that merchant. Existing Shasta addresses stay marked as testnet and are not queried on mainnet until a super admin deliberately reassigns/confirms them. Address assignments are not proof of ownership. The integration does not create or custody keys, monitor deposit history or finality, or support buy/sell, withdrawals, or fiat settlement. Verify the address and network carefully before sharing it; transactions to the wrong address/network may be irreversible.
 
 Unsettled-funds progress is calculated from the merchant's own completed KRW collections and remaining available operational ledger balance, rather than the common SwiftPay account balance.
 
@@ -101,6 +109,7 @@ Supported merchant-key API routes:
 | `GET` | `/v1/wallet/balance` | `read` | This merchant's posted ledger balance, available balance after pending-transfer reservations, and payment environment |
 | `GET` | `/v1/wallet/activity?limit=50&offset=0` | `read` | This merchant's activity and per-transaction wallet ledger impact; `limit` is 1–100 |
 | `GET` | `/v1/internal-wallet` | `read` | PHP ledger and available balance |
+| `GET` | `/v1/crypto/usdt-wallet` | `read` | Assigned TRON mainnet address and official TRC20 USD₮ balance via Tatum |
 | `GET` | `/v1/payment-institutions` | `read` | Supported collection institutions |
 | `GET` | `/v1/disbursement-institutions` | `read` | Supported transfer institutions |
 | `POST` | `/v1/payment-links` | `payments:write` | Create a hosted QR Ph checkout; requires `Idempotency-Key` |

@@ -62,6 +62,7 @@ import {
   getMerchantDashboard,
   createMerchantFloatingTransferRequest,
   getMerchantPayoutAccount,
+  getMerchantUsdtWallet,
   getMerchantSecurityStatus,
   getPaymentLinkIdempotencyKey,
   getPaymentLinkStatus,
@@ -81,6 +82,7 @@ import {
   setMerchantPin,
   verifyDeviceOtp,
   updateAdminMerchantAccount,
+  updateAdminMerchantUsdtWallet,
   updateAdminSettings,
   reviewAdminFloatingTransferRequest,
   reviewAdminKybApplication,
@@ -96,6 +98,7 @@ import {
   type DashboardData,
   type MerchantActivityTrendPoint,
   type MerchantPayoutAccount,
+  type MerchantUsdtWallet,
   type MerchantSecurityStatus,
   type CurrencyQuote,
   type Institution,
@@ -733,6 +736,7 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
   const [kybReviewNotes, setKybReviewNotes] = useState<Record<string, string>>({});
   const [merchantSearch, setMerchantSearch] = useState("");
   const [merchantFilter, setMerchantFilter] = useState<"all" | "active" | "disabled">("all");
+  const [usdtAddressDrafts, setUsdtAddressDrafts] = useState<Record<string, string>>({});
   const [selectedWalletEmail, setSelectedWalletEmail] = useState("");
   const [selectedWallet, setSelectedWallet] = useState<AdminInternalWallet | null>(null);
   const [adjustmentAmount, setAdjustmentAmount] = useState("");
@@ -741,6 +745,7 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [savingMerchant, setSavingMerchant] = useState(false);
+  const [savingUsdtAddress, setSavingUsdtAddress] = useState("");
   const [savingAdjustment, setSavingAdjustment] = useState(false);
   const [reviewingRequestId, setReviewingRequestId] = useState("");
   const [markingPaymentId, setMarkingPaymentId] = useState("");
@@ -870,6 +875,27 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
       setNotice(`Merchant account ${account.active ? "disabled" : "enabled"}.`);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not update merchant account.");
+    }
+  }
+
+  async function saveMerchantUsdtAddress(event: FormEvent<HTMLFormElement>, account: AdminMerchantAccount) {
+    event.preventDefault();
+    setSavingUsdtAddress(account.email);
+    setError("");
+    setNotice("");
+    try {
+      const result = await updateAdminMerchantUsdtWallet(account.email, usdtAddressDrafts[account.email] ?? account.usdtAddress ?? "");
+      setMerchants((current) => current.map((merchant) => merchant.email === account.email
+        ? { ...merchant, usdtAddress: result.address }
+        : merchant));
+      setUsdtAddressDrafts((current) => ({ ...current, [account.email]: result.address || "" }));
+      setNotice(result.address
+        ? `TRON mainnet address assigned to ${account.email}. Verify it carefully before sharing.`
+        : `TRON mainnet address removed from ${account.email}.`);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not assign the merchant mainnet address.");
+    } finally {
+      setSavingUsdtAddress("");
     }
   }
 
@@ -1232,11 +1258,29 @@ function SuperAdminConsole({ session, onSignOut }: { session: Session; onSignOut
               </div>
               <div className="admin-account-list">
                 {filteredMerchants.map((account) => (
-                  <div className="admin-account-row" key={account.email}>
-                    <div><strong>{account.email}</strong><small>Added {new Date(account.createdAt).toLocaleDateString()} · Updated {new Date(account.updatedAt).toLocaleDateString()}</small></div>
-                    <span className={`admin-status-pill ${account.active ? "active" : "disabled"}`}>{account.active ? "Active" : "Disabled"}</span>
-                    <button type="button" className="admin-text-action" onClick={() => setEditingMerchant({ ...account, originalEmail: account.email })}>Edit profile</button>
-                    <button type="button" className="admin-text-action" onClick={() => void setMerchantActive(account)}>{account.active ? "Disable access" : "Enable access"}</button>
+                  <div className="admin-merchant-account" key={account.email}>
+                    <div className="admin-account-row">
+                      <div><strong>{account.email}</strong><small>Added {new Date(account.createdAt).toLocaleDateString()} · Updated {new Date(account.updatedAt).toLocaleDateString()}</small></div>
+                      <span className={`admin-status-pill ${account.active ? "active" : "disabled"}`}>{account.active ? "Active" : "Disabled"}</span>
+                      <button type="button" className="admin-text-action" onClick={() => setEditingMerchant({ ...account, originalEmail: account.email })}>Edit profile</button>
+                      <button type="button" className="admin-text-action" onClick={() => void setMerchantActive(account)}>{account.active ? "Disable access" : "Enable access"}</button>
+                    </div>
+                    <form className="admin-usdt-address-form" onSubmit={(event) => void saveMerchantUsdtAddress(event, account)}>
+                      <label>
+                        <span>Merchant USDT address · TRON mainnet</span>
+                        <input
+                          value={usdtAddressDrafts[account.email] ?? account.usdtAddress ?? ""}
+                          onChange={(event) => setUsdtAddressDrafts((current) => ({ ...current, [account.email]: event.target.value }))}
+                          placeholder="Assign a TRON mainnet address"
+                          autoComplete="off"
+                          maxLength={64}
+                        />
+                        <small>Confirm the address belongs to this merchant and is for TRON mainnet. TRON address format alone cannot distinguish mainnet from testnet.</small>
+                      </label>
+                      <Button type="submit" variant="secondary" disabled={savingUsdtAddress === account.email}>
+                        {savingUsdtAddress === account.email ? "Saving…" : account.usdtAddress ? "Update address" : "Assign address"}
+                      </Button>
+                    </form>
                   </div>
                 ))}
                 {filteredMerchants.length === 0 && <p className="admin-empty">{merchants.length ? "No accounts match your search." : "No merchant accounts yet."}</p>}
@@ -2713,6 +2757,82 @@ function WalletActivitySection({
   );
 }
 
+function MainnetUsdtWallet() {
+  const [wallet, setWallet] = useState<MerchantUsdtWallet | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+  const [copyMessage, setCopyMessage] = useState("");
+
+  async function loadWallet(refresh = false) {
+    if (refresh) setRefreshing(true);
+    else setLoading(true);
+    setError("");
+    try {
+      setWallet(await getMerchantUsdtWallet());
+    } catch (loadError) {
+      setWallet(null);
+      setError(loadError instanceof Error ? loadError.message : "Could not load the USDT mainnet wallet.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }
+
+  useEffect(() => { void loadWallet(); }, []);
+
+  async function copyAddress() {
+    if (!wallet?.address) return;
+    setCopyMessage("");
+    try {
+      await navigator.clipboard.writeText(wallet.address);
+      setCopyMessage("Mainnet address copied.");
+    } catch {
+      setCopyMessage("Could not copy the address. Select and copy it manually.");
+    }
+  }
+
+  return (
+    <section className="crypto-wallet" aria-labelledby="crypto-wallet-title">
+      <header className="crypto-wallet-header">
+        <div>
+          <span className="eyebrow">CRYPTO WALLET</span>
+          <h2 id="crypto-wallet-title">USDT wallet</h2>
+        </div>
+        <span className={`crypto-wallet-badge ${wallet?.network === "TRON_SHASTA" ? "testnet" : ""}`}>
+          {wallet?.network === "TRON_SHASTA" ? "TESTNET · NO REAL FUNDS" : "TRON MAINNET"}
+        </span>
+      </header>
+      <div className="crypto-wallet-balance">
+        <span>ON-CHAIN USDT BALANCE</span>
+        <strong>{loading ? "Loading…" : wallet?.balance === null || !wallet ? "Unavailable" : `${wallet.balance} USDT`}</strong>
+      </div>
+      <div className="crypto-wallet-address">
+        <span>SUPER ADMIN-ASSIGNED ADDRESS · {wallet?.network === "TRON_SHASTA" ? "TRON SHASTA TESTNET" : "TRC20 MAINNET"}</span>
+        <strong className="crypto-wallet-address-value">{wallet?.address || (loading ? "Loading…" : "Not assigned")}</strong>
+        {wallet?.address && <Button variant="secondary" className="crypto-wallet-copy" icon={<Copy size={13} />} onClick={() => void copyAddress()}>Copy address</Button>}
+      </div>
+      <div className="crypto-wallet-actions" aria-label="Unavailable crypto operations">
+        {["Buy USDT", "Sell USDT", "Deposit", "Withdraw"].map((label) => (
+          <Button key={label} variant="secondary" disabled>{label}</Button>
+        ))}
+      </div>
+      <p className="crypto-wallet-disclaimer">
+        {wallet?.network === "TRON_SHASTA"
+          ? "This address is marked as Shasta testnet and is not queried on mainnet. It must be deliberately reassigned after confirming the production address."
+          : "Read-only real USDT balance from TRON mainnet via Tatum RPC. Verify the address and network before sending; transactions may be irreversible. Buy/sell, deposit monitoring, and withdrawals are not connected."}
+      </p>
+      {loading && <p className="crypto-wallet-feedback" role="status">Loading assigned wallet and mainnet balance…</p>}
+      {!loading && wallet?.message && <p className="crypto-wallet-feedback" role="status">{wallet.message}</p>}
+      {copyMessage && <p className="crypto-wallet-feedback" role="status">{copyMessage}</p>}
+      {error && <p className="crypto-wallet-feedback crypto-wallet-error" role="alert">{error}</p>}
+      <Button variant="quiet" className="crypto-wallet-refresh" disabled={loading || refreshing} onClick={() => void loadWallet(true)}>
+        {refreshing ? "Refreshing…" : "Refresh mainnet balance"}
+      </Button>
+    </section>
+  );
+}
+
 function WalletView({
   data,
   onTransaction,
@@ -2762,6 +2882,7 @@ function WalletView({
   return (
     <section className="wallet-page">
       <WalletBalancePanel data={data} balanceVisible={balanceVisible} onToggleBalanceVisibility={toggleBalanceVisibility} />
+      <MainnetUsdtWallet />
       <button type="button" className="wallet-unsettled-entry" onClick={onOpenUnsettledFunds}>
         <span className="wallet-ledger-icon"><WalletCards size={18} aria-hidden="true" /></span>
         <span className="wallet-unsettled-entry-copy">

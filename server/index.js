@@ -69,11 +69,44 @@ const fcmServiceAccountPrivateKey = process.env.FCM_SERVICE_ACCOUNT_PRIVATE_KEY?
 const swiftPayAccessKey = process.env.SWIFTPAY_ACCESS_KEY;
 const swiftPaySecretKey = process.env.SWIFTPAY_SECRET_KEY;
 const swiftPayEnvironment = process.env.SWIFTPAY_ENV || "sandbox";
+const tatumApiKey = process.env.TATUM_API_KEY;
+const tronUsdtNetwork = process.env.TRON_USDT_NETWORK || "disabled";
+const tronMainnetUsdtContract = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
+const tronMainnetUsdtDecimals = 6;
 const checkoutOrigin = swiftPayEnvironment === "production" ? liveCheckoutOrigin : sandboxCheckoutOrigin;
 function buildCheckoutUrl(code) {
   const url = new URL("/", checkoutOrigin);
   url.searchParams.set("checkout", code);
   return url.toString();
+}
+
+function tronAddressPayload(address) {
+  if (typeof address !== "string" || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address)) return null;
+  const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  let decoded = 0n;
+  for (const character of address) {
+    const digit = alphabet.indexOf(character);
+    if (digit < 0) return null;
+    decoded = decoded * 58n + BigInt(digit);
+  }
+  let hex = decoded.toString(16);
+  if (hex.length % 2) hex = `0${hex}`;
+  const leadingZeroBytes = address.match(/^1*/)?.[0].length || 0;
+  const bytes = Buffer.concat([Buffer.alloc(leadingZeroBytes), Buffer.from(hex, "hex")]);
+  if (bytes.length !== 25) return null;
+  const payload = bytes.subarray(0, 21);
+  const checksum = createHash("sha256").update(createHash("sha256").update(payload).digest()).digest().subarray(0, 4);
+  if (payload[0] !== 0x41 || !checksum.equals(bytes.subarray(21))) return null;
+  return payload;
+}
+
+function formatTokenBalance(rawHex, decimals) {
+  if (typeof rawHex !== "string" || !/^[0-9a-f]+$/i.test(rawHex)) return null;
+  const raw = BigInt(`0x${rawHex}`);
+  const divisor = 10n ** BigInt(decimals);
+  const whole = raw / divisor;
+  const fraction = (raw % divisor).toString().padStart(decimals, "0").replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : String(whole);
 }
 const r2AccountId = process.env.R2_ACCOUNT_ID;
 const r2AccessKeyId = process.env.R2_ACCESS_KEY_ID;
@@ -111,6 +144,13 @@ const merchantApiLimiter = rateLimit({
   standardHeaders: "draft-8",
   legacyHeaders: false,
   keyGenerator: (req) => req.apiKeyId || req.ip,
+});
+const cryptoWalletLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 20,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  keyGenerator: (req) => req.merchantEmail,
 });
 const publicCheckoutLimiter = rateLimit({ windowMs: 60 * 1000, limit: 60, standardHeaders: "draft-8", legacyHeaders: false });
 const publicQrImageLimiter = rateLimit({ windowMs: 60 * 1000, limit: 30, standardHeaders: "draft-8", legacyHeaders: false });
@@ -687,6 +727,17 @@ async function initializeDatabase() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS merchant_usdt_wallets (
+      merchant_email TEXT PRIMARY KEY REFERENCES merchant_accounts(email) ON DELETE CASCADE ON UPDATE CASCADE,
+      address TEXT NOT NULL UNIQUE,
+      network TEXT NOT NULL DEFAULT 'TRON_MAINNET' CHECK (network IN ('TRON_SHASTA', 'TRON_MAINNET')),
+      assigned_by TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    ALTER TABLE merchant_usdt_wallets DROP CONSTRAINT IF EXISTS merchant_usdt_wallets_network_check;
+    ALTER TABLE merchant_usdt_wallets ADD CONSTRAINT merchant_usdt_wallets_network_check
+      CHECK (network IN ('TRON_SHASTA', 'TRON_MAINNET'));
     CREATE TABLE IF NOT EXISTS merchant_security (
       email TEXT PRIMARY KEY REFERENCES merchant_accounts(email) ON DELETE CASCADE,
       pin_salt TEXT,
@@ -1169,6 +1220,7 @@ async function requireMerchant(req, res, next) {
       "/wallet/balance",
       "/wallet/activity",
       "/internal-wallet",
+      "/crypto/usdt-wallet",
       "/disbursement-institutions",
       "/payment-institutions",
     ]);
@@ -1706,9 +1758,11 @@ app.get("/v1/admin/merchants", async (_req, res) => {
        COALESCE(payout.bank_name, '') AS "bankName",
        COALESCE(payout.account_name, '') AS "accountName",
        COALESCE(payout.account_number, '') AS "accountNumber",
+       crypto.address AS "usdtAddress",
        merchant.created_at AS "createdAt", merchant.updated_at AS "updatedAt"
      FROM merchant_accounts merchant
      LEFT JOIN merchant_payout_accounts payout ON payout.merchant_email = merchant.email
+     LEFT JOIN merchant_usdt_wallets crypto ON crypto.merchant_email = merchant.email
      ORDER BY merchant.created_at DESC`,
   );
   return res.json(result.rows);
@@ -1891,12 +1945,52 @@ app.post("/v1/admin/merchants", async (req, res) => {
        RETURNING email, active, business_name AS "businessName", contact_person AS "contactPerson",
          phone_number AS "phoneNumber", business_address AS "businessAddress",
          '' AS "bankName", '' AS "accountName", '' AS "accountNumber",
+         NULL AS "usdtAddress",
          created_at AS "createdAt", updated_at AS "updatedAt"`,
       [email],
     );
     return res.status(201).json(result.rows[0]);
   } catch (error) {
     if (error.code === "23505") return res.status(409).json({ error: "A merchant account with that email already exists." });
+    throw error;
+  }
+});
+
+app.put("/v1/admin/merchants/:email/usdt-wallet", async (req, res) => {
+  const email = typeof req.params.email === "string" ? req.params.email.trim().toLowerCase() : "";
+  const address = typeof req.body?.address === "string" ? req.body.address.trim() : "";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+    return res.status(400).json({ error: "Choose a valid merchant account." });
+  }
+  if (address && !tronAddressPayload(address)) {
+    return res.status(400).json({ error: "Enter a valid TRON address with a valid Base58Check checksum." });
+  }
+  if (address && tronUsdtNetwork !== "mainnet") {
+    return res.status(503).json({ error: "Mainnet USDT address assignment is disabled on this API environment." });
+  }
+  if (!address) {
+    const result = await pool.query("DELETE FROM merchant_usdt_wallets WHERE merchant_email = $1 RETURNING merchant_email", [email]);
+    if (!result.rowCount) {
+      const merchant = await pool.query("SELECT email FROM merchant_accounts WHERE email = $1", [email]);
+      if (!merchant.rowCount) return res.status(404).json({ error: "Merchant account not found." });
+    }
+    return res.json({ address: null, network: "TRON_MAINNET" });
+  }
+  try {
+    const result = await pool.query(
+      `INSERT INTO merchant_usdt_wallets (merchant_email, address, network, assigned_by)
+       SELECT email, $2, 'TRON_MAINNET', $3 FROM merchant_accounts WHERE email = $1
+       ON CONFLICT (merchant_email) DO UPDATE SET address = EXCLUDED.address,
+         network = EXCLUDED.network, assigned_by = EXCLUDED.assigned_by, updated_at = NOW()
+       RETURNING address, network`,
+      [email, address, req.adminEmail],
+    );
+    if (!result.rowCount) return res.status(404).json({ error: "Merchant account not found." });
+    return res.json(result.rows[0]);
+  } catch (error) {
+    if (error.code === "23505") {
+      return res.status(409).json({ error: "That TRON address is already assigned to another merchant." });
+    }
     throw error;
   }
 });
@@ -2163,6 +2257,92 @@ app.get("/v1/public/checkout/:code", publicCheckoutLimiter, async (req, res) => 
 });
 
 app.use("/v1", requireMerchant);
+
+app.get("/v1/crypto/usdt-wallet", cryptoWalletLimiter, async (req, res) => {
+  const wallet = await pool.query(
+    "SELECT address, network FROM merchant_usdt_wallets WHERE merchant_email = $1",
+    [req.merchantEmail],
+  );
+  const assigned = wallet.rows[0];
+  const mainnetEnabled = tronUsdtNetwork === "mainnet";
+  const ready = Boolean(mainnetEnabled && tatumApiKey);
+  if (!assigned) {
+    return res.set("Cache-Control", "no-store").json({
+      address: null,
+      network: "TRON_MAINNET",
+      balance: null,
+      configured: ready,
+      message: "A super administrator has not assigned your TRON mainnet address.",
+    });
+  }
+  if (assigned.network !== "TRON_MAINNET") {
+    return res.set("Cache-Control", "no-store").json({
+      address: assigned.address,
+      network: assigned.network,
+      balance: null,
+      configured: false,
+      message: "This address is marked as a Shasta testnet address. A super administrator must confirm and reassign a production address before mainnet balance lookup.",
+    });
+  }
+  if (!ready) {
+    return res.set("Cache-Control", "no-store").json({
+      address: assigned.address,
+      network: "TRON_MAINNET",
+      balance: null,
+      configured: false,
+      message: "Mainnet USDT balance lookup is disabled or Tatum is not configured on this API service.",
+    });
+  }
+  const addressPayload = tronAddressPayload(assigned.address);
+  const contractPayload = tronAddressPayload(tronMainnetUsdtContract);
+  if (!addressPayload || !contractPayload) {
+    return res.status(503).set("Cache-Control", "no-store").json({
+      address: assigned.address,
+      network: "TRON_MAINNET",
+      balance: null,
+      configured: false,
+      message: "The assigned wallet address or official TRON USDT contract is invalid.",
+    });
+  }
+  try {
+    const response = await fetch("https://tron-mainnet.gateway.tatum.io/wallet/triggerconstantcontract", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": tatumApiKey },
+      body: JSON.stringify({
+        owner_address: assigned.address,
+        contract_address: tronMainnetUsdtContract,
+        function_selector: "balanceOf(address)",
+        parameter: addressPayload.subarray(1).toString("hex").padStart(64, "0"),
+        visible: true,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) throw new Error(`Tatum returned HTTP ${response.status}`);
+    const result = await response.json();
+    const rawBalance = result?.constant_result?.[0];
+    if (result?.Error || result?.result?.result !== true || typeof rawBalance !== "string") {
+      throw new Error("Tatum did not return a valid TRC20 contract result");
+    }
+    const balance = formatTokenBalance(rawBalance, tronMainnetUsdtDecimals);
+    if (balance === null) throw new Error("Tatum returned an invalid token balance");
+    return res.set("Cache-Control", "no-store").json({
+      address: assigned.address,
+      network: "TRON_MAINNET",
+      balance,
+      configured: true,
+      message: null,
+    });
+  } catch (error) {
+    console.error("TRON mainnet USDT balance lookup failed", error.name || "RPC error");
+    return res.status(503).set("Cache-Control", "no-store").json({
+      address: assigned.address,
+      network: "TRON_MAINNET",
+      balance: null,
+      configured: true,
+      message: "Could not retrieve the mainnet USDT balance. Try again shortly.",
+    });
+  }
+});
 
 app.get("/v1/kyb", async (req, res) => {
   const [profile, documents] = await Promise.all([

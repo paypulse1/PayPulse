@@ -8,6 +8,7 @@
   --surface-soft: #f8f9f5;
   --ink: #0b1f3a;
   --muted: #52647c;
+  --link: #1b4f9c;
   --line: #d8e1ed;
   --accent: #d5b16d;
   --accent-soft: #f7eedc;
@@ -187,6 +188,29 @@ h1, h2, p { margin-top: 0; }
 .wallet-balance-foot > span:first-child { display: inline-flex; align-items: center; gap: 6px; }
 .wallet-balance-foot i { width: 6px; height: 6px; border-radius: 50%; background: #8bb7e8; }
 .wallet-reserved-note { margin: 8px 0 0; color: #c1cbd8; font-size: 9px; text-align: right; }
+.crypto-wallet { margin-bottom: 12px; padding: 15px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.crypto-wallet-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.crypto-wallet-header .eyebrow { margin-bottom: 4px; }
+.crypto-wallet-header h2 { margin: 0; font-size: 14px; }
+.crypto-wallet-badge { padding: 5px 7px; border-radius: 999px; background: var(--success-soft); color: var(--success); font-size: 7px; font-weight: 800; letter-spacing: .06em; white-space: nowrap; }
+.crypto-wallet-badge.testnet { background: var(--warning-soft); color: var(--warning); }
+.crypto-wallet-balance { margin: 14px 0 10px; padding: 12px; border-radius: 12px; background: #eef4ff; }
+.crypto-wallet-balance > span, .crypto-wallet-address > span { display: block; color: var(--muted); font-size: 7px; font-weight: 800; letter-spacing: .1em; }
+.crypto-wallet-balance > strong { display: block; margin-top: 5px; color: var(--ink); font-size: 21px; letter-spacing: -.04em; }
+.crypto-wallet-balance small { font-size: 10px; letter-spacing: 0; }
+.crypto-wallet-address { padding: 10px 11px; border: 1px dashed var(--line); border-radius: 10px; }
+.crypto-wallet-address strong, .crypto-wallet-address small { display: block; }
+.crypto-wallet-address strong { margin-top: 5px; font-size: 9px; }
+.crypto-wallet-address .crypto-wallet-address-value { overflow-wrap: anywhere; font: 8px "DM Mono", monospace; line-height: 1.6; }
+.crypto-wallet-address .crypto-wallet-copy { min-height: 32px; margin-top: 7px; padding: 6px 8px; font-size: 8px; }
+.crypto-wallet-address small { margin-top: 4px; color: var(--muted); font-size: 8px; line-height: 1.5; }
+.admin-usdt-address-form label > small { display: block; margin-top: 5px; color: var(--warning); font-size: 7px; line-height: 1.45; }
+.crypto-wallet-actions { margin-top: 10px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.crypto-wallet-actions .button { min-height: 36px; padding: 7px; font-size: 8px; }
+.crypto-wallet-disclaimer { margin: 9px 0 0; color: var(--muted); font-size: 7px; line-height: 1.5; }
+.crypto-wallet-feedback { margin: 8px 0 0; padding: 9px; border-radius: 9px; background: var(--surface-soft); color: var(--muted); font-size: 8px; line-height: 1.5; }
+.crypto-wallet-error { background: var(--danger-soft); color: var(--danger); }
+.crypto-wallet-refresh { min-height: 32px; margin-top: 7px; padding: 6px 8px; font-size: 8px; }
 .wallet-ledger-card { margin-bottom: 18px; padding: 13px; display: grid; grid-template-columns: 36px 1fr auto; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
 .wallet-ledger-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 11px; background: #e6eef8; color: #1b4f9c; }
 .wallet-ledger-icon img { width: 27px; height: auto; }
@@ -436,7 +460,7 @@ h1, h2, p { margin-top: 0; }
 .result-actions > * { flex: 1; }
 .payment-link-share { margin: 14px 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); text-align: left; }
 .payment-link-share > .eyebrow { display: block; margin-bottom: 7px; }
-.payment-link-share > a { display: block; overflow-wrap: anywhere; color: var(--blue); font: 8px "DM Mono", monospace; line-height: 1.55; text-decoration: underline; }
+.payment-link-share > a { display: block; overflow-wrap: anywhere; color: var(--link); font: 8px "DM Mono", monospace; line-height: 1.55; text-decoration: underline; }
 .payment-link-share-actions { display: flex; gap: 8px; margin-top: 10px; }
 .payment-link-share-actions > * { flex: 1; }
 .payment-link-share-message, .payment-link-share-error { margin: 8px 0 0; font-size: 8px; line-height: 1.45; }
@@ -747,6 +771,13 @@ h1, h2, p { margin-top: 0; }
 .admin-account-row strong, .admin-account-row small { display: block; }
 .admin-account-row strong { overflow-wrap: anywhere; font-size: 9px; }
 .admin-account-row small { margin-top: 4px; color: var(--muted); font-size: 7px; }
+.admin-merchant-account { border-bottom: 1px solid var(--line); }
+.admin-merchant-account .admin-account-row { border-bottom: 0; }
+.admin-usdt-address-form { padding: 0 0 10px; display: flex; align-items: flex-end; gap: 8px; }
+.admin-usdt-address-form label { min-width: 0; flex: 1; }
+.admin-usdt-address-form label > span { display: block; margin-bottom: 5px; color: var(--muted); font-size: 7px; font-weight: 700; }
+.admin-usdt-address-form input { width: 100%; height: 35px; padding: 0 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); font: 8px "DM Mono", monospace; }
+.admin-usdt-address-form .button { min-height: 35px; padding: 6px 9px; font-size: 8px; }
 .admin-status-pill { padding: 5px 8px; border-radius: 999px; font-size: 7px; font-weight: 800; white-space: nowrap; }
 .admin-status-pill.active { background: var(--success-soft); color: var(--success); }
 .admin-status-pill.disabled { background: var(--danger-soft); color: var(--danger); }

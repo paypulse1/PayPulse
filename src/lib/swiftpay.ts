@@ -173,8 +173,17 @@ export type AdminMerchantAccount = {
   bankName: string;
   accountName: string;
   accountNumber: string;
+  usdtAddress: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type MerchantUsdtWallet = {
+  address: string | null;
+  network: "TRON_MAINNET" | "TRON_SHASTA";
+  balance: string | null;
+  configured: boolean;
+  message: string | null;
 };
 
 export type AdminInternalWalletSummary = {
@@ -709,6 +718,17 @@ export async function updateAdminSettings(settings: AdminSettings): Promise<Admi
 
 export async function getAdminMerchantAccounts(): Promise<AdminMerchantAccount[]> {
   return backendRequest<AdminMerchantAccount[]>("/v1/admin/merchants");
+}
+
+export async function updateAdminMerchantUsdtWallet(email: string, address: string): Promise<{ address: string | null; network: string }> {
+  return backendRequest(`/v1/admin/merchants/${encodeURIComponent(email)}/usdt-wallet`, {
+    method: "PUT",
+    body: JSON.stringify({ address }),
+  });
+}
+
+export async function getMerchantUsdtWallet(): Promise<MerchantUsdtWallet> {
+  return backendRequest<MerchantUsdtWallet>("/v1/crypto/usdt-wallet");
 }
 
 export async function getAdminInternalWallets(): Promise<AdminInternalWalletSummary[]> {
