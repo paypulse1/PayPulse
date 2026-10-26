@@ -3934,7 +3934,6 @@ function MoreView({
       </Button>
       <div className="powered-by">
         <Brand />
-        <span>Secure payments powered by SwiftPay</span>
       </div>
       <nav className="app-legal-links" aria-label="Legal and support">
         <a href="/privacy">Privacy Policy</a>

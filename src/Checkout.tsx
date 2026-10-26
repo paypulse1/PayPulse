@@ -137,7 +137,6 @@ export default function Checkout({ code }: { code: string }) {
                   <li>Choose QR payment and scan the code above.</li>
                   <li>Confirm the PHP amount before completing payment.</li>
                 </ol>
-                <p>Pay this QR only once. DRPAY will update this page when SwiftPay confirms payment.</p>
               </div>
             )}
 
