@@ -44,6 +44,8 @@ Merchants can hide or show balances using the dashboard or wallet visibility con
 
 Confirmed successful incoming QR payments and outgoing transfers are emailed to the merchant account that created the transaction, using the existing Resend sender configuration. The API reconciles pending transactions and retries queued email delivery.
 
+Merchants can view and mark transaction alerts as read in the notification inbox. Email, push, payment, and transfer alert preferences are available in the app; all are enabled by default.
+
 Merchants can also enter a customer email when creating a QR checkout. DRPAY queues a payment-request email with the hosted checkout link, then sends a separate confirmation only after SwiftPay confirms the payment as executed. Leaving the customer email blank disables these customer emails.
 
 Super admins can review QR Ph checkouts in the Payments page and manually confirm a payment only after independently verifying it. A 10–500 character verification note is required and stored with the admin identity and timestamp. This uses the distinct `MANUALLY_PAID` status (not SwiftPay's `EXECUTED` status), records the collection fee exactly once, and queues the customer confirmation email without sending an outdated checkout request. Manual confirmation does not cancel the underlying SwiftPay QR or increase the SwiftPay account balance; verify the payment and ensure it will not be paid a second time before confirming.

@@ -612,13 +612,41 @@ async function updateDisbursementStatus(id, swiftpayId, status, errorMessage) {
 
 async function dispatchTransactionNotifications() {
   const { rows } = await pool.query(`
-    SELECT * FROM transaction_notifications
-    WHERE email_sent_at IS NULL OR push_sent_at IS NULL
-    ORDER BY created_at ASC
+    SELECT n.*,
+      COALESCE(preferences.email_enabled, TRUE) AS email_enabled,
+      COALESCE(preferences.push_enabled, TRUE) AS push_enabled,
+      COALESCE(
+        CASE WHEN n.transaction_type = 'PAYMENT'
+          THEN preferences.payments_enabled ELSE preferences.transfers_enabled END,
+        TRUE
+      ) AS event_enabled
+    FROM transaction_notifications n
+    LEFT JOIN merchant_notification_preferences preferences
+      ON preferences.merchant_email = n.merchant_email
+    WHERE n.email_sent_at IS NULL OR n.push_sent_at IS NULL
+    ORDER BY n.created_at ASC
     LIMIT 25
   `);
   for (const notification of rows) {
-    if (!notification.email_sent_at) {
+    if (!notification.event_enabled) {
+      if (!notification.email_sent_at || !notification.push_sent_at) {
+        await pool.query(
+          `UPDATE transaction_notifications
+           SET email_sent_at = COALESCE(email_sent_at, NOW()),
+               push_sent_at = COALESCE(push_sent_at, NOW())
+           WHERE id = $1`,
+          [notification.id],
+        );
+      }
+      continue;
+    }
+    if (!notification.email_enabled && !notification.email_sent_at) {
+      await pool.query(
+        "UPDATE transaction_notifications SET email_sent_at = NOW() WHERE id = $1",
+        [notification.id],
+      );
+    }
+    if (notification.email_enabled && !notification.email_sent_at) {
       try {
         await sendTransactionEmail(notification);
         await pool.query("UPDATE transaction_notifications SET email_sent_at = NOW() WHERE id = $1", [notification.id]);
@@ -626,7 +654,13 @@ async function dispatchTransactionNotifications() {
         console.error("Transaction email notification remains queued", error.message);
       }
     }
-    if (!notification.push_sent_at && fcmConfigured()) {
+    if (!notification.push_enabled && !notification.push_sent_at) {
+      await pool.query(
+        "UPDATE transaction_notifications SET push_sent_at = NOW() WHERE id = $1",
+        [notification.id],
+      );
+    }
+    if (notification.push_enabled && !notification.push_sent_at && fcmConfigured()) {
       try {
         const devices = await pool.query("SELECT token FROM merchant_push_devices WHERE merchant_email = $1", [notification.merchant_email]);
         for (const device of devices.rows) {
@@ -869,6 +903,14 @@ async function initializeDatabase() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS merchant_notification_preferences (
+      merchant_email TEXT PRIMARY KEY REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      email_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      push_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      payments_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      transfers_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
     CREATE TABLE IF NOT EXISTS transaction_notifications (
       id UUID PRIMARY KEY,
       merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
@@ -881,6 +923,7 @@ async function initializeDatabase() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE (transaction_type, transaction_id)
     );
+    ALTER TABLE transaction_notifications ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;
     CREATE TABLE IF NOT EXISTS transaction_push_deliveries (
       notification_id UUID NOT NULL REFERENCES transaction_notifications(id) ON DELETE CASCADE,
       token TEXT NOT NULL,
@@ -977,6 +1020,11 @@ async function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS merchant_push_devices_email_idx ON merchant_push_devices (merchant_email);
     CREATE INDEX IF NOT EXISTS transaction_notifications_pending_idx
       ON transaction_notifications (created_at) WHERE email_sent_at IS NULL OR push_sent_at IS NULL;
+    CREATE INDEX IF NOT EXISTS transaction_notifications_merchant_created_idx
+      ON transaction_notifications (merchant_email, created_at DESC);
+    CREATE INDEX IF NOT EXISTS transaction_notifications_merchant_unread_idx
+      ON transaction_notifications (merchant_email, created_at DESC)
+      WHERE read_at IS NULL;
     CREATE UNIQUE INDEX IF NOT EXISTS disbursements_active_fingerprint_idx
       ON disbursements (request_fingerprint)
       WHERE status IN ('REQUESTING', 'PENDING', 'OUTCOME_UNKNOWN');
@@ -2021,6 +2069,145 @@ app.post("/v1/notifications/push-token/remove", async (req, res) => {
   if (token.length < 32 || token.length > 4096) return res.status(400).json({ error: "A valid push token is required." });
   await pool.query("DELETE FROM merchant_push_devices WHERE token = $1 AND merchant_email = $2", [token, req.merchantEmail]);
   return res.json({ removed: true });
+});
+
+app.get("/v1/notifications/inbox", async (req, res) => {
+  if (req.apiKey) {
+    return res.status(403).json({
+      error: "Sign in to your merchant account to view notifications.",
+    });
+  }
+  const limit = Math.min(
+    Math.max(Number.parseInt(req.query.limit, 10) || 20, 1),
+    50,
+  );
+  const offset = Math.max(Number.parseInt(req.query.offset, 10) || 0, 0);
+  const [notifications, unreadResult] = await Promise.all([
+    pool.query(
+      `SELECT n.id, n.transaction_type AS type, n.reference_no AS reference,
+         n.amount::float8 AS amount, n.created_at AS "createdAt",
+         n.read_at AS "readAt",
+         CASE WHEN n.transaction_type = 'PAYMENT' THEN 'Payment received'
+           ELSE 'Transfer completed' END AS title,
+         COALESCE(NULLIF(p.title, ''), NULLIF(d.remarks, ''),
+           CASE WHEN n.transaction_type = 'PAYMENT' THEN 'Merchant payment'
+             ELSE 'Bank transfer' END) AS description
+       FROM transaction_notifications n
+       LEFT JOIN payment_links p
+         ON n.transaction_type = 'PAYMENT' AND p.id = n.transaction_id
+       LEFT JOIN disbursements d
+         ON n.transaction_type = 'DISBURSEMENT' AND d.id = n.transaction_id
+       WHERE n.merchant_email = $1
+       ORDER BY n.created_at DESC, n.id DESC
+       LIMIT $2 OFFSET $3`,
+      [req.merchantEmail, limit + 1, offset],
+    ),
+    pool.query(
+      `SELECT COUNT(*)::int AS count FROM transaction_notifications
+       WHERE merchant_email = $1 AND read_at IS NULL`,
+      [req.merchantEmail],
+    ),
+  ]);
+  const hasMore = notifications.rows.length > limit;
+  return res.set("Cache-Control", "no-store").json({
+    notifications: notifications.rows.slice(0, limit),
+    unreadCount: unreadResult.rows[0].count,
+    hasMore,
+  });
+});
+
+app.post("/v1/notifications/inbox/read-all", async (req, res) => {
+  if (req.apiKey) {
+    return res.status(403).json({
+      error: "Sign in to your merchant account to update notifications.",
+    });
+  }
+  const result = await pool.query(
+    `UPDATE transaction_notifications SET read_at = NOW()
+     WHERE merchant_email = $1 AND read_at IS NULL`,
+    [req.merchantEmail],
+  );
+  const unread = await pool.query(
+    `SELECT COUNT(*)::int AS count FROM transaction_notifications
+     WHERE merchant_email = $1 AND read_at IS NULL`,
+    [req.merchantEmail],
+  );
+  return res.set("Cache-Control", "no-store").json({
+    updated: result.rowCount,
+    unreadCount: unread.rows[0].count,
+  });
+});
+
+app.post("/v1/notifications/inbox/:id/read", async (req, res) => {
+  if (req.apiKey) {
+    return res.status(403).json({
+      error: "Sign in to your merchant account to update notifications.",
+    });
+  }
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      req.params.id,
+    )
+  ) {
+    return res.status(400).json({ error: "Choose a valid notification." });
+  }
+  const result = await pool.query(
+    `UPDATE transaction_notifications SET read_at = COALESCE(read_at, NOW())
+     WHERE id = $1 AND merchant_email = $2
+     RETURNING read_at AS "readAt"`,
+    [req.params.id, req.merchantEmail],
+  );
+  if (!result.rows[0]) {
+    return res.status(404).json({ error: "Notification not found." });
+  }
+  return res.set("Cache-Control", "no-store").json(result.rows[0]);
+});
+
+app.get("/v1/notifications/preferences", async (req, res) => {
+  const result = await pool.query(
+    `SELECT COALESCE(email_enabled, TRUE) AS "emailEnabled",
+       COALESCE(push_enabled, TRUE) AS "pushEnabled",
+       COALESCE(payments_enabled, TRUE) AS "paymentsEnabled",
+       COALESCE(transfers_enabled, TRUE) AS "transfersEnabled"
+     FROM merchant_notification_preferences WHERE merchant_email = $1`,
+    [req.merchantEmail],
+  );
+  return res.set("Cache-Control", "no-store").json(
+    result.rows[0] || {
+      emailEnabled: true,
+      pushEnabled: true,
+      paymentsEnabled: true,
+      transfersEnabled: true,
+    },
+  );
+});
+
+app.put("/v1/notifications/preferences", async (req, res) => {
+  const { emailEnabled, pushEnabled, paymentsEnabled, transfersEnabled } =
+    req.body || {};
+  if (
+    [emailEnabled, pushEnabled, paymentsEnabled, transfersEnabled].some(
+      (value) => typeof value !== "boolean",
+    )
+  ) {
+    return res.status(400).json({
+      error: "Choose valid transaction notification preferences.",
+    });
+  }
+  const result = await pool.query(
+    `INSERT INTO merchant_notification_preferences
+       (merchant_email, email_enabled, push_enabled, payments_enabled, transfers_enabled, updated_at)
+     VALUES ($1, $2, $3, $4, $5, NOW())
+     ON CONFLICT (merchant_email) DO UPDATE SET
+       email_enabled = EXCLUDED.email_enabled,
+       push_enabled = EXCLUDED.push_enabled,
+       payments_enabled = EXCLUDED.payments_enabled,
+       transfers_enabled = EXCLUDED.transfers_enabled, updated_at = NOW()
+     RETURNING email_enabled AS "emailEnabled", push_enabled AS "pushEnabled",
+       payments_enabled AS "paymentsEnabled", transfers_enabled AS "transfersEnabled"`,
+    [req.merchantEmail, emailEnabled, pushEnabled, paymentsEnabled, transfersEnabled],
+  );
+  return res.set("Cache-Control", "no-store").json(result.rows[0]);
 });
 
 app.post("/v1/security/biometric", async (req, res) => {
