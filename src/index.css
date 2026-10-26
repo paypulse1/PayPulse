@@ -231,14 +231,20 @@ h1, h2, p { margin-top: 0; }
 .wallet-ledger-card strong { display: block; font-size: 10px; }
 .wallet-ledger-card p { margin: 4px 0 0; color: var(--muted); font-size: 8px; line-height: 1.45; }
 .wallet-ledger-card b { font-size: 10px; white-space: nowrap; }
-.wallet-unsettled-entry { width: 100%; min-height: 68px; margin-bottom: 18px; padding: 12px; display: flex; align-items: center; gap: 11px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); text-align: left; }
-.wallet-unsettled-entry > svg { flex: 0 0 auto; color: var(--muted); }
-.wallet-unsettled-entry-copy { min-width: 0; flex: 1; display: grid; gap: 4px; }
-.wallet-unsettled-entry-copy strong { font-size: 10px; }
-.wallet-unsettled-entry-copy small { color: var(--muted); font-size: 8px; }
+.wallet-destination-list { margin-bottom: 18px; display: grid; gap: 8px; }
+.wallet-destination-entry { width: 100%; min-height: 68px; padding: 12px; display: flex; align-items: center; gap: 11px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); text-align: left; }
+.wallet-destination-entry > svg { flex: 0 0 auto; color: var(--muted); }
+.wallet-destination-entry-copy { min-width: 0; flex: 1; display: grid; gap: 4px; }
+.wallet-destination-entry-copy strong { font-size: 10px; }
+.wallet-destination-entry-copy small { color: var(--muted); font-size: 8px; }
+.wallet-destination-entry:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+@media (hover: hover) and (pointer: fine) {
+  .wallet-destination-entry:hover { border-color: #bdcbe0; background: #f8fafd; }
+}
 .wallet-subpage-heading { margin: 12px 2px 14px; }
 .wallet-subpage-heading h2 { margin: 4px 0 5px; font-size: 18px; letter-spacing: -.04em; }
 .wallet-subpage-heading p { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.wallet-usdt-page .crypto-wallet { margin-top: 10px; }
 .wallet-unsettled-page > .floating-balance-card { margin-bottom: 0; }
 .floating-balance-card { margin-bottom: 18px; padding: 15px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
 .floating-balance-heading { display: flex; align-items: center; gap: 10px; }

@@ -22,6 +22,7 @@ import {
   ChevronRight,
   CircleHelp,
   Copy,
+  Coins,
   CreditCard,
   Download,
   Eye,
@@ -3615,17 +3616,17 @@ function WalletView({
   onWithdraw,
   onTransaction,
   onExportActivity,
-  showUnsettledFunds,
-  onOpenUnsettledFunds,
-  onCloseUnsettledFunds,
+  subscreen,
+  onOpenSubscreen,
+  onCloseSubscreen,
 }: {
   data: DashboardData
   onWithdraw: () => void
   onTransaction: (transaction: Transaction) => void
   onExportActivity: (fromDate: string, toDate: string) => void
-  showUnsettledFunds: boolean
-  onOpenUnsettledFunds: () => void
-  onCloseUnsettledFunds: () => void
+  subscreen: "overview" | "usdt" | "unsettled-balance"
+  onOpenSubscreen: (subscreen: "usdt" | "unsettled-balance") => void
+  onCloseSubscreen: () => void
 }) {
   const [filter, setFilter] = useState("All activity")
   const [query, setQuery] = useState("")
@@ -3713,19 +3714,34 @@ function WalletView({
     [activity, filter, query],
   )
 
-  if (showUnsettledFunds) {
+  if (subscreen === "usdt") {
+    return (
+      <section className="wallet-page wallet-usdt-page">
+        <Button
+          variant="quiet"
+          icon={<ChevronLeft size={17} />}
+          onClick={onCloseSubscreen}
+        >
+          Back to Wallet
+        </Button>
+        <MainnetUsdtWallet />
+      </section>
+    )
+  }
+
+  if (subscreen === "unsettled-balance") {
     return (
       <section className="wallet-page wallet-unsettled-page">
         <Button
           variant="quiet"
           icon={<ChevronLeft size={17} />}
-          onClick={onCloseUnsettledFunds}
+          onClick={onCloseSubscreen}
         >
           Back to Wallet
         </Button>
         <div className="wallet-subpage-heading">
           <span className="eyebrow">WALLET</span>
-          <h2>Unsettled Funds</h2>
+          <h2>Unsettled Balance</h2>
           <p>
             Track your Alipay+ collection threshold for transferring unsettled
             funds to your live SwiftPay PHP wallet.
@@ -3747,21 +3763,36 @@ function WalletView({
         onToggleBalanceVisibility={toggleBalanceVisibility}
         onWithdraw={onWithdraw}
       />
-      <MainnetUsdtWallet />
-      <button
-        type="button"
-        className="wallet-unsettled-entry"
-        onClick={onOpenUnsettledFunds}
-      >
-        <span className="wallet-ledger-icon">
-          <WalletCards size={18} aria-hidden="true" />
-        </span>
-        <span className="wallet-unsettled-entry-copy">
-          <strong>Unsettled Funds</strong>
-          <small>Track your live-wallet threshold and fund release</small>
-        </span>
-        <ChevronRight size={18} />
-      </button>
+      <nav className="wallet-destination-list" aria-label="Wallet screens">
+        <button
+          type="button"
+          className="wallet-destination-entry"
+          onClick={() => onOpenSubscreen("usdt")}
+        >
+          <span className="wallet-ledger-icon">
+            <Coins size={18} aria-hidden="true" />
+          </span>
+          <span className="wallet-destination-entry-copy">
+            <strong>USDT Wallet</strong>
+            <small>View your assigned TRON wallet and deposits</small>
+          </span>
+          <ChevronRight size={18} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="wallet-destination-entry"
+          onClick={() => onOpenSubscreen("unsettled-balance")}
+        >
+          <span className="wallet-ledger-icon">
+            <WalletCards size={18} aria-hidden="true" />
+          </span>
+          <span className="wallet-destination-entry-copy">
+            <strong>Unsettled Balance</strong>
+            <small>Track collection progress and fund release</small>
+          </span>
+          <ChevronRight size={18} aria-hidden="true" />
+        </button>
+      </nav>
       <WalletActivitySection
         transactions={transactions}
         totalTransactions={activity.length}
@@ -4994,7 +5025,7 @@ export default function App() {
     useState<MerchantSecurityStatus | null>(null)
   const [activeTab, setActiveTab] = useState("Home")
   const [walletSubscreen, setWalletSubscreen] =
-    useState<"overview" | "unsettled-funds">("overview")
+    useState<"overview" | "usdt" | "unsettled-balance">("overview")
   const [profileSection, setProfileSection] = useState("")
   const [pushPermission, setPushPermission] = useState("prompt")
   const [pushRegistrationState, setPushRegistrationState] =
@@ -5786,10 +5817,12 @@ export default function App() {
                 ? "Transfers"
                 : activeTab === "Profile"
                   ? profileSection || "Profile"
-                  : activeTab === "Wallet" &&
-                      walletSubscreen === "unsettled-funds"
-                    ? "Unsettled Funds"
-                    : activeTab}
+                  : activeTab === "Wallet" && walletSubscreen === "usdt"
+                    ? "USDT"
+                    : activeTab === "Wallet" &&
+                        walletSubscreen === "unsettled-balance"
+                      ? "Unsettled Balance"
+                      : activeTab}
           </h1>
           <div className="header-actions">
             <IconButton
@@ -5853,7 +5886,13 @@ export default function App() {
             key={activeTab}
             className="page-transition"
             role="region"
-            aria-label={`${activeTab} page`}
+            aria-label={`${
+              activeTab === "Wallet" && walletSubscreen !== "overview"
+                ? walletSubscreen === "usdt"
+                  ? "USDT"
+                  : "Unsettled Balance"
+                : activeTab
+            } page`}
           >
             {activeTab === "Home" && (
               <HomeView
@@ -5873,11 +5912,9 @@ export default function App() {
                 onExportActivity={(fromDate, toDate) =>
                   void exportActivity(fromDate, toDate)
                 }
-                showUnsettledFunds={walletSubscreen === "unsettled-funds"}
-                onOpenUnsettledFunds={() =>
-                  setWalletSubscreen("unsettled-funds")
-                }
-                onCloseUnsettledFunds={() => setWalletSubscreen("overview")}
+                subscreen={walletSubscreen}
+                onOpenSubscreen={(subscreen) => setWalletSubscreen(subscreen)}
+                onCloseSubscreen={() => setWalletSubscreen("overview")}
               />
             )}
             {activeTab === "Transfer" && (
