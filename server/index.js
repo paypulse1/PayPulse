@@ -7,6 +7,10 @@ import { rateLimit } from "express-rate-limit";
 import helmet from "helmet";
 import { importPKCS8, SignJWT, jwtVerify } from "jose";
 import pg from "pg";
+import {
+  calculateMerchantAvailableBalance,
+  getMerchantWalletState,
+} from "./wallet-ledger.js";
 
 const { Pool } = pg;
 const app = express();
@@ -546,6 +550,27 @@ async function settleSuccessfulCollection(paymentId, transactionClient = null) {
        `,
       [randomUUID(), paymentId, row.merchant_email, feeAmount.toFixed(2)],
     );
+    const postedFee = await client.query(
+      "SELECT amount FROM platform_fee_ledger WHERE source_type = 'COLLECTION' AND source_id = $1",
+      [paymentId],
+    );
+    const netAmount = Math.max(
+      0,
+      Math.round((grossAmount - Number(postedFee.rows[0]?.amount || 0)) * 100) / 100,
+    );
+    await client.query(
+      `INSERT INTO merchant_wallet_ledger
+         (id, merchant_email, source_type, source_id, amount, reference_no)
+       VALUES ($1, $2, 'COLLECTION', $3, $4, $5)
+       ON CONFLICT (source_type, source_id) DO NOTHING`,
+      [
+        randomUUID(),
+        row.merchant_email,
+        paymentId,
+        netAmount.toFixed(2),
+        row.reference_no,
+      ],
+    );
     if (ownsTransaction) await client.query("COMMIT");
   } catch (error) {
     if (ownsTransaction) await client.query("ROLLBACK");
@@ -563,11 +588,28 @@ async function updateDisbursementStatus(id, swiftpayId, status, errorMessage) {
       `UPDATE disbursements
        SET swiftpay_id = COALESCE($1, swiftpay_id), status = $2, error_message = $3, updated_at = NOW()
        WHERE id = $4
-       RETURNING refund_payment_id`,
+       RETURNING refund_payment_id, merchant_email, merchant_reference_no, amount`,
       [swiftpayId, status, errorMessage, id],
     );
     const successful = ["EXECUTED", "SUCCESS", "COMPLETED"].includes(String(status).toUpperCase());
+    const reversed = String(status).toUpperCase() === "REVERSED";
     const refundPaymentId = updated.rows[0]?.refund_payment_id;
+    const disbursement = updated.rows[0];
+    if (successful && disbursement?.merchant_email && !refundPaymentId) {
+      await client.query(
+        `INSERT INTO merchant_wallet_ledger
+           (id, merchant_email, source_type, source_id, amount, reference_no)
+         VALUES ($1, $2, 'DISBURSEMENT', $3, $4, $5)
+         ON CONFLICT (source_type, source_id) DO NOTHING`,
+        [
+          randomUUID(),
+          disbursement.merchant_email,
+          id,
+          (-Number(disbursement.amount)).toFixed(2),
+          disbursement.merchant_reference_no,
+        ],
+      );
+    }
     if (successful && refundPaymentId) {
       const payment = await client.query(
         `SELECT p.merchant_email, p.reference_no, p.amount::numeric AS amount,
@@ -576,7 +618,7 @@ async function updateDisbursementStatus(id, swiftpayId, status, errorMessage) {
          FROM payment_links p
          JOIN disbursements d ON d.id = $2
          LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
-         WHERE p.id = $1
+         WHERE p.id = $1 AND p.merchant_email = d.merchant_email
          FOR UPDATE OF d`,
         [refundPaymentId, id],
       );
@@ -587,6 +629,19 @@ async function updateDisbursementStatus(id, swiftpayId, status, errorMessage) {
         if (!Number.isFinite(netAmount) || netAmount < 0) {
           throw new Error("The collection refund ledger amount is invalid.");
         }
+        await client.query(
+          `INSERT INTO merchant_wallet_ledger
+             (id, merchant_email, source_type, source_id, amount, reference_no)
+           VALUES ($1, $2, 'DISBURSEMENT', $3, $4, $5)
+           ON CONFLICT (source_type, source_id) DO NOTHING`,
+          [
+            randomUUID(),
+            row.merchant_email,
+            id,
+            (-netAmount).toFixed(2),
+            row.merchant_reference_no,
+          ],
+        );
         if (netAmount > 0) {
           await client.query(
             `INSERT INTO internal_wallet_adjustments (id, merchant_email, amount, reason, adjusted_by)
@@ -597,6 +652,31 @@ async function updateDisbursementStatus(id, swiftpayId, status, errorMessage) {
         await client.query(
           "UPDATE disbursements SET refund_ledger_reversed_at = NOW() WHERE id = $1",
           [id],
+        );
+      }
+    }
+    if (reversed && disbursement?.merchant_email) {
+      const debit = await client.query(
+        `SELECT amount, reference_no
+         FROM merchant_wallet_ledger
+         WHERE source_type = 'DISBURSEMENT' AND source_id = $1
+           AND merchant_email = $2`,
+        [id, disbursement.merchant_email],
+      );
+      const debitAmount = Number(debit.rows[0]?.amount);
+      if (Number.isFinite(debitAmount) && debitAmount < 0) {
+        await client.query(
+          `INSERT INTO merchant_wallet_ledger
+             (id, merchant_email, source_type, source_id, amount, reference_no)
+           VALUES ($1, $2, 'DISBURSEMENT_REVERSAL', $3, $4, $5)
+           ON CONFLICT (source_type, source_id) DO NOTHING`,
+          [
+            randomUUID(),
+            disbursement.merchant_email,
+            id,
+            (-debitAmount).toFixed(2),
+            debit.rows[0].reference_no,
+          ],
         );
       }
     }
@@ -839,6 +919,23 @@ async function initializeDatabase() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE (source_type, source_id)
     );
+    CREATE TABLE IF NOT EXISTS merchant_wallet_ledger (
+      id UUID PRIMARY KEY,
+      merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      source_type TEXT NOT NULL CHECK (source_type IN ('COLLECTION', 'DISBURSEMENT', 'DISBURSEMENT_REVERSAL')),
+      source_id UUID NOT NULL,
+      amount NUMERIC(18, 2) NOT NULL,
+      reference_no TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (source_type, source_id)
+    );
+    CREATE INDEX IF NOT EXISTS merchant_wallet_ledger_merchant_created_idx
+      ON merchant_wallet_ledger (merchant_email, created_at DESC);
+    ALTER TABLE merchant_wallet_ledger
+      DROP CONSTRAINT IF EXISTS merchant_wallet_ledger_source_type_check;
+    ALTER TABLE merchant_wallet_ledger
+      ADD CONSTRAINT merchant_wallet_ledger_source_type_check
+      CHECK (source_type IN ('COLLECTION', 'DISBURSEMENT', 'DISBURSEMENT_REVERSAL'));
     CREATE TABLE IF NOT EXISTS merchant_payout_accounts (
       merchant_email TEXT PRIMARY KEY REFERENCES merchant_accounts(email) ON DELETE CASCADE,
       bank_name TEXT NOT NULL,
@@ -1038,6 +1135,36 @@ async function initializeDatabase() {
       [authEmail],
     );
   }
+  await pool.query(`
+    INSERT INTO merchant_wallet_ledger
+      (id, merchant_email, source_type, source_id, amount, reference_no, created_at)
+    SELECT gen_random_uuid(), p.merchant_email, 'COLLECTION', p.id,
+      GREATEST(p.amount - COALESCE(f.amount, 0), 0), p.reference_no, p.created_at
+    FROM payment_links p
+    LEFT JOIN platform_fee_ledger f
+      ON f.source_type = 'COLLECTION' AND f.source_id = p.id
+    WHERE p.status IN ('EXECUTED', 'MANUALLY_PAID')
+      AND p.merchant_email IS NOT NULL
+    ON CONFLICT (source_type, source_id) DO NOTHING
+  `);
+  await pool.query(`
+    INSERT INTO merchant_wallet_ledger
+      (id, merchant_email, source_type, source_id, amount, reference_no, created_at)
+    SELECT gen_random_uuid(), d.merchant_email, 'DISBURSEMENT', d.id,
+      CASE WHEN d.refund_payment_id IS NOT NULL
+        THEN -GREATEST(COALESCE(p.amount, d.amount) - COALESCE(f.amount, 0), 0)
+        ELSE -d.amount
+      END,
+      d.merchant_reference_no, d.created_at
+    FROM disbursements d
+    LEFT JOIN payment_links p
+      ON p.id = d.refund_payment_id AND p.merchant_email = d.merchant_email
+    LEFT JOIN platform_fee_ledger f
+      ON f.source_type = 'COLLECTION' AND f.source_id = p.id
+    WHERE d.status IN ('EXECUTED', 'SUCCESS', 'COMPLETED')
+      AND d.merchant_email IS NOT NULL
+    ON CONFLICT (source_type, source_id) DO NOTHING
+  `);
   if (process.env.DRPAY_KRW_TO_PHP_RATE !== undefined) {
     const configuredRate = Number(process.env.DRPAY_KRW_TO_PHP_RATE);
     if (Number.isFinite(configuredRate) && configuredRate > 0) {
@@ -2425,34 +2552,32 @@ app.get("/v1/exchange-rates/krw-php", async (_req, res) => {
   }
 });
 
-app.get("/v1/wallet/balance", async (_req, res) => {
+app.get("/v1/wallet/balance", async (req, res) => {
   try {
-    const [{ data }, collections] = await Promise.all([
-      swiftPayRequest("/disbursements/account"),
-      pool.query(
-        `SELECT COALESCE(SUM(p.collection_amount_krw), 0)::numeric AS completed_krw,
-           COALESCE(SUM(GREATEST(p.amount - COALESCE(f.amount, 0), 0)), 0)::numeric AS settled_php
-         FROM payment_links p
-         LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
-         WHERE p.status = 'EXECUTED' AND p.collection_amount_krw IS NOT NULL`,
-      ),
-    ]);
-    const balance = Number(data.balance);
-    const completedKrw = Number(collections.rows[0].completed_krw);
-    const settledPhp = Number(collections.rows[0].settled_php);
-    const cumulativeKrwCollections = settledPhp > 0
-      ? completedKrw * Math.min(1, Math.max(0, balance / settledPhp))
-      : 0;
-    return res.json({
+    const wallet = await getMerchantWalletState(pool, req.merchantEmail);
+    const balance = Number(wallet.balance);
+    const reservedBalance = Number(wallet.reserved);
+    const availableBalance = calculateMerchantAvailableBalance(
       balance,
-      accountNumber: data.number,
+      reservedBalance,
+    );
+    const completedKrw = Number(wallet.completed_krw);
+    const collectionCredits = Number(wallet.collection_credits);
+    const cumulativeKrwCollections = collectionCredits > 0
+      ? completedKrw * Math.min(1, Math.max(0, availableBalance / collectionCredits))
+      : 0;
+    return res.set("Cache-Control", "no-store").json({
+      balance,
+      availableBalance,
+      reservedBalance,
       walletMode: "pooled",
+      walletAccounting: "merchant_ledger",
       paymentEnvironment: swiftPayEnvironment,
       cumulativeKrwCollections,
     });
   } catch (error) {
-    console.error("Wallet balance lookup failed", error.status || "network error");
-    return res.status(error.status === 401 ? 502 : 503).json({ error: "Merchant wallet is temporarily unavailable." });
+    console.error("Merchant wallet ledger lookup failed", error.code || error.message);
+    return res.status(503).json({ error: "Merchant wallet is temporarily unavailable." });
   }
 });
 
@@ -2979,38 +3104,68 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
   if (activeRequest.rowCount) return res.status(409).json({ error: `A matching transfer is already ${activeRequest.rows[0].status.toLowerCase()}. Check wallet activity before creating another.` });
 
   await pool.query("DELETE FROM used_step_up_tokens WHERE expires_at <= NOW()");
-  const consumedStepUp = await pool.query(
-    `INSERT INTO used_step_up_tokens (jti, merchant_email, expires_at)
-     VALUES ($1, $2, to_timestamp($3))
-     ON CONFLICT (jti) DO NOTHING RETURNING jti`,
-    [stepUpPayload.jti, req.merchantEmail, stepUpPayload.exp],
-  );
-  if (!consumedStepUp.rowCount) return res.status(403).json({ error: "This security confirmation has already been used. Verify again." });
-
   const id = randomUUID();
   const merchantReferenceNo = `DRP-${randomUUID()}`;
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    const merchant = await client.query(
+      "SELECT email FROM merchant_accounts WHERE email = $1 FOR UPDATE",
+      [req.merchantEmail],
+    );
+    if (!merchant.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ error: "Merchant wallet is not available for this account." });
+    }
+    let walletDebitAmount = amount;
     if (refundPaymentId) {
       const collection = await client.query(
-        "SELECT status FROM payment_links WHERE id = $1 AND merchant_email = $2 FOR UPDATE",
+        `SELECT p.status,
+           GREATEST(p.amount - COALESCE(f.amount, 0), 0)::numeric AS net_amount
+         FROM payment_links p
+         LEFT JOIN platform_fee_ledger f
+           ON f.source_type = 'COLLECTION' AND f.source_id = p.id
+         WHERE p.id = $1 AND p.merchant_email = $2
+         FOR UPDATE OF p`,
         [refundPaymentId, req.merchantEmail],
       );
       if (collection.rows[0]?.status !== "EXECUTED") {
         await client.query("ROLLBACK");
         return res.status(409).json({ error: "Only completed collections can be refunded." });
       }
+      walletDebitAmount = Number(collection.rows[0].net_amount);
       const previousRefund = await client.query(
-        `SELECT status FROM disbursements WHERE refund_payment_id = $1
+        `SELECT status FROM disbursements
+         WHERE refund_payment_id = $1 AND merchant_email = $2
          ORDER BY created_at DESC LIMIT 1`,
-        [refundPaymentId],
+        [refundPaymentId, req.merchantEmail],
       );
       const previousStatus = previousRefund.rows[0]?.status;
       if (previousStatus && !["REJECTED", "ERROR", "FAILED", "CANCELED", "CANCELLED"].includes(previousStatus.toUpperCase())) {
         await client.query("ROLLBACK");
         return res.status(409).json({ error: "A refund transfer for this collection is already in progress or complete." });
       }
+    }
+    const wallet = await getMerchantWalletState(client, req.merchantEmail);
+    const availableBalance = calculateMerchantAvailableBalance(
+      wallet.balance,
+      wallet.reserved,
+    );
+    if (availableBalance + 0.000001 < walletDebitAmount) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        error: `Insufficient merchant wallet balance. PHP ${Math.max(0, availableBalance).toFixed(2)} is available after pending transfers.`,
+      });
+    }
+    const consumedStepUp = await client.query(
+      `INSERT INTO used_step_up_tokens (jti, merchant_email, expires_at)
+       VALUES ($1, $2, to_timestamp($3))
+       ON CONFLICT (jti) DO NOTHING RETURNING jti`,
+      [stepUpPayload.jti, req.merchantEmail, stepUpPayload.exp],
+    );
+    if (!consumedStepUp.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ error: "This security confirmation has already been used. Verify again." });
     }
     await client.query(
       `INSERT INTO disbursements

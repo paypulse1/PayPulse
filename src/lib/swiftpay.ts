@@ -42,6 +42,7 @@ export type DashboardData = {
   successfulPayments: string;
   averageTransaction: string;
   accountNumber?: string;
+  walletAccounting: "merchant_ledger" | "internal_ledger" | "provider_wallet";
   walletMode: "internal" | "pooled" | "customer";
   paymentEnvironment: "sandbox" | "production";
   transactions: Transaction[];
@@ -221,9 +222,11 @@ export type FloatingTransferRequest = {
 
 type WalletBalanceResponse = {
   balance: number;
+  availableBalance?: number;
   cumulativeKrwCollections: number;
   adjustedBalance?: number;
   accountNumber?: string;
+  walletAccounting?: string;
   walletMode?: string;
   paymentEnvironment?: "sandbox" | "production";
 };
@@ -583,9 +586,10 @@ export async function getMerchantDashboard(): Promise<DashboardData> {
   const transactions = activity.map(toTransaction);
   const settledCredits = transactions.filter((item) => item.status === "Completed" && item.numericAmount > 0);
   const volume = settledCredits.reduce((sum, item) => sum + item.numericAmount, 0);
+  const availableBalance = wallet.availableBalance ?? wallet.adjustedBalance ?? wallet.balance;
   return {
-    availableBalance: formatMoney(wallet.adjustedBalance ?? wallet.balance),
-    balance: wallet.adjustedBalance ?? wallet.balance,
+    availableBalance: formatMoney(availableBalance),
+    balance: availableBalance,
     internalWalletBalance: formatMoney(internalWallet.balance),
     cumulativeKrwCollections: wallet.cumulativeKrwCollections,
     floatingBalance: internalWallet.balance,
@@ -595,6 +599,11 @@ export async function getMerchantDashboard(): Promise<DashboardData> {
     successfulPayments: String(settledCredits.length),
     averageTransaction: formatMoney(settledCredits.length ? volume / settledCredits.length : 0),
     accountNumber: wallet.accountNumber,
+    walletAccounting: wallet.walletAccounting === "merchant_ledger"
+      ? "merchant_ledger"
+      : wallet.walletMode === "pooled"
+        ? "provider_wallet"
+        : "internal_ledger",
     walletMode: wallet.walletMode === "pooled" ? "pooled" : "internal",
     paymentEnvironment: wallet.paymentEnvironment === "production" ? "production" : "sandbox",
     transactions,

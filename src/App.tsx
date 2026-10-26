@@ -2642,7 +2642,7 @@ function MoreView({
         <span className="profile-avatar">DV</span>
         <div>
           <strong>{session.email}</strong>
-          <span>{session.role.replace("_", " ")} · {data.walletMode} PHP wallet</span>
+          <span>{session.role.replace("_", " ")} · {data.walletAccounting === "merchant_ledger" ? "merchant-specific PHP ledger" : data.walletMode + " PHP wallet"}</span>
           <span className="merchant-verified-badge"><ShieldCheck size={12} aria-hidden="true" /> Verified</span>
         </div>
         <ShieldCheck size={20} />
@@ -2750,11 +2750,12 @@ function ProfileInfoPage({
             </div>
             <dl className="detail-list">
               <div><dt>Account role</dt><dd>{session.role.replace("_", " ")}</dd></div>
-              <div><dt>Wallet type</dt><dd>{data.walletMode === "pooled" ? "Pooled wallet" : "Internal ledger"}</dd></div>
+              <div><dt>Wallet type</dt><dd>{data.walletAccounting === "merchant_ledger" ? "Merchant-specific DRPAY ledger" : data.walletAccounting === "provider_wallet" ? "Pooled provider wallet" : "Internal ledger"}</dd></div>
               <div><dt>Account number</dt><dd>{data.accountNumber ? `•••• ${data.accountNumber.slice(-4)}` : "Not provided"}</dd></div>
               <div><dt>Available balance</dt><dd>{balanceVisible ? data.availableBalance : "₱ ••••••"}</dd></div>
               <div><dt>Environment</dt><dd>{data.paymentEnvironment === "production" ? "Live" : "Sandbox"}</dd></div>
             </dl>
+            <div className="profile-info-intro"><strong>Merchant wallet accounting</strong><p>Your DRPAY balance is calculated from collections attributed to this merchant, less completed transfers and pending requests. SwiftPay settlement still uses DRPAY's pooled provider account.</p></div>
             <div className="profile-info-intro"><strong>Unsettled funds release</strong><p>After the live-wallet collection threshold is reached, a super admin transfers unlocked funds to your external live SwiftPay PHP wallet. Your regular transfer flow remains unchanged.</p></div>
           </>
         )}
