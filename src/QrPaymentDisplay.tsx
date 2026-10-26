@@ -80,10 +80,10 @@ export default function QrPaymentDisplay({ value, institution }: { value?: strin
           <span>Paying with <strong>{institution.name}</strong></span>
         </div>
       )}
-      <img className="qr-preview" src={image} alt="Scan this QR Ph payment code" />
+      <img className="qr-preview" src={image} alt="Scan this QRPH payment code" />
       {institution && (
         <p className="qr-brand-note">
-          The selected institution is shown for display; the QR Ph payment details remain unchanged.
+          The selected institution is shown for display; the QRPH payment details remain unchanged.
         </p>
       )}
     </div>

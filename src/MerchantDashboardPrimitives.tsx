@@ -113,7 +113,10 @@ export function TransactionRow({
       <span className="transaction-copy">
         <strong>{transaction.customer}</strong>
         <small>
-          {transaction.channel} · {transaction.date.split(",")[0]}
+          {transaction.channel === "QR Ph checkout"
+            ? "QRPH checkout"
+            : transaction.channel}{" "}
+          · {transaction.date.split(",")[0]}
         </small>
       </span>
       <span className="transaction-value">

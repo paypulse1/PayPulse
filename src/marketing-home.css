@@ -71,7 +71,7 @@
 .preview-main { padding: 20px; }
 .preview-heading { display: flex; align-items: center; justify-content: space-between; }
 .preview-heading div > span, .preview-heading div > strong { display: block; }
-.preview-heading div > span { color: #7e897e; font: 500 7px "DM Mono", monospace; letter-spacing: .07em; }
+.preview-heading div > span { color: var(--m-muted); font: 500 7px "DM Mono", monospace; letter-spacing: .07em; }
 .preview-heading div > strong { margin-top: 5px; font-size: 14px; }
 .preview-avatar { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 6px; background: #e7eee0; color: var(--m-green); font-size: 9px; font-weight: 800; }
 .preview-balance { margin-top: 16px; padding: 16px; border-radius: 10px; background: linear-gradient(125deg, #071429, #1b4f9c); color: white; }
@@ -88,25 +88,22 @@
 .preview-action-transfer { background: #e6eef8; color: #1b4f9c; }
 .preview-action-activity { background: #eef1f5; color: var(--m-ink); }
 .preview-actions strong { font-size: 8px; }
-.preview-actions small { color: #7c8982; font-size: 6px; text-align: center; }
+.preview-actions small { color: var(--m-muted); font-size: 6px; text-align: center; }
 .preview-activity { padding: 13px 14px 4px; border: 1px solid #e2e9e4; border-radius: 10px; background: white; }
 .preview-activity-title { margin-bottom: 7px; display: flex; justify-content: space-between; align-items: center; }
 .preview-activity-title strong { font-size: 9px; }
-.preview-activity-title span { color: #788578; font: 500 6px "DM Mono", monospace; letter-spacing: .05em; }
+.preview-activity-title span { color: var(--m-muted); font: 500 6px "DM Mono", monospace; letter-spacing: .05em; }
 .preview-activity-row { min-height: 48px; display: grid; grid-template-columns: 28px 1fr auto; align-items: center; gap: 8px; border-top: 1px solid #edf0e9; }
 .activity-icon { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px; }
 .activity-icon.income { background: #e8f5ee; color: #16724a; }
 .activity-icon.payout { background: #f7eedc; color: #8a671c; }
 .preview-activity-row > span:nth-child(2) strong, .preview-activity-row > span:nth-child(2) small { display: block; }
 .preview-activity-row > span:nth-child(2) strong { font-size: 8px; }
-.preview-activity-row > span:nth-child(2) small { margin-top: 3px; color: #7c887d; font-size: 6px; }
+.preview-activity-row > span:nth-child(2) small { margin-top: 3px; color: var(--m-muted); font-size: 6px; }
 .preview-activity-row > b { color: #4b7d47; font-size: 7px; }
 .preview-note { position: relative; z-index: 2; width: fit-content; margin: 12px 0 0 auto; padding: 9px 12px; display: flex; align-items: center; gap: 7px; border: 1px solid rgba(11,31,58,.08); border-radius: 8px; background: var(--m-lime); color: var(--m-ink); font-size: 8px; font-weight: 700; }
-.preview-orbit-one { animation: preview-orbit 24s linear infinite; }
-.preview-orbit-two { animation: preview-orbit 17s linear infinite reverse; }
 .preview-window { transition: transform .45s cubic-bezier(.2,.75,.25,1), box-shadow .45s ease; }
-.preview-balance { background-size: 150% 150%; animation: preview-balance-glow 8s ease-in-out infinite alternate; }
-.preview-balance > div:last-child i { box-shadow: 0 0 0 0 rgb(44 145 96 / 34%); animation: preview-status-pulse 2.5s ease-out infinite; }
+.preview-balance { background-size: 150% 150%; }
 
 .merchant-scenes { width: min(100% - 64px, 1180px); margin: 0 auto 78px; padding: 42px 0 0; border-top: 1px solid var(--m-line); }
 .merchant-scenes-heading { margin-bottom: 27px; display: flex; align-items: end; justify-content: space-between; gap: 26px; }
@@ -224,10 +221,6 @@
 .legal-footer > span { text-align: right; }
 
 @keyframes marketing-enter { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes preview-orbit { to { transform: rotate(360deg); } }
-@keyframes preview-balance-glow { to { background-position: 100% 55%; } }
-@keyframes preview-status-pulse { 70%, 100% { box-shadow: 0 0 0 7px transparent; } }
-
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
   .preview-wrap:hover .preview-window { transform: translateY(-5px) rotateX(1deg); box-shadow: 0 36px 82px rgba(11,31,58,.19); }
   .merchant-scene-card:hover { transform: translateY(-5px); box-shadow: 0 20px 42px rgb(11 31 58 / 12%); }

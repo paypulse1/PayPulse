@@ -162,7 +162,7 @@ export default function Checkout({ code }: { code: string }) {
             loading="lazy"
           />
         </div>
-        <span>Payments are processed through SwiftPay QR Ph.</span>
+        <span>Payments are processed through SwiftPay QRPH.</span>
         <nav aria-label="Legal and support">
           <a href="/privacy">Privacy</a>
           <a href="/terms">Terms</a>

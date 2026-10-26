@@ -34,7 +34,7 @@ export default function PaymentAdminSection({
           <ReceiptText size={19} />
         </span>
         <div>
-          <h2>Recent QR Ph checkouts</h2>
+          <h2>Recent QRPH Checkouts</h2>
           <p>
             Manually confirm only after independently verifying the incoming
             payment. Manual confirmation does not cancel the SwiftPay QR or add
@@ -75,7 +75,7 @@ export default function PaymentAdminSection({
           <p className="admin-empty">
             {totalPayments
               ? "No payments match these filters."
-              : "No QR Ph checkouts are available."}
+              : "No QRPH checkouts are available."}
           </p>
         ) : (
           payments.map((payment) => {

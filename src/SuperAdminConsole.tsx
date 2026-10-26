@@ -860,7 +860,7 @@ export function SuperAdminConsole({
                 {activePage === "overview"
                   ? "Operations overview"
                   : activePage === "payments"
-                    ? "QR Ph payments"
+                    ? "QRPH payments"
                     : activePage === "merchants"
                       ? "Merchant accounts"
                       : activePage === "kyb"
@@ -1239,7 +1239,7 @@ export function SuperAdminConsole({
                       <small>
                         {selectedWallet
                           ? `₱${selectedWallet.availableBalance.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} available after pending requests`
-                          : "Loading available balance…"}
+                          : "Loading Available Balance…"}
                       </small>
                     </div>
                     <form

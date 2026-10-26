@@ -55,7 +55,7 @@ function ProductPreview() {
           </div>
           <div className="preview-balance">
             <div className="preview-balance-top">
-              <span>AVAILABLE BALANCE</span>
+              <span>Available Balance</span>
               <LockKeyhole size={13} />
             </div>
             <strong>••••••••</strong>
@@ -89,7 +89,7 @@ function ProductPreview() {
           </div>
           <div className="preview-activity">
             <div className="preview-activity-title">
-              <strong>Recent activity</strong>
+              <strong>Recent Activity</strong>
               <span>EXAMPLE ONLY</span>
             </div>
             <div className="preview-activity-row">
@@ -98,7 +98,7 @@ function ProductPreview() {
               </span>
               <span>
                 <strong>Incoming payment</strong>
-                <small>QR Ph collection</small>
+                <small>QRPH collection</small>
               </span>
               <b>Received</b>
             </div>
@@ -181,7 +181,7 @@ export default function MarketingHome() {
             Your payments, <em>in good order.</em>
           </h1>
           <p>
-            Collect with hosted payment links and QR Ph checkouts. Track
+            Collect with hosted payment links and QRPH checkouts. Track
             confirmed activity, review your balances, and prepare bank transfers
             from one secure workspace.
           </p>
@@ -261,7 +261,7 @@ export default function MarketingHome() {
           <span>01</span>
           <strong>Share a checkout</strong>
           <small>
-            Create a hosted payment link or QR Ph checkout for your customer.
+            Create a hosted payment link or QRPH checkout for your customer.
           </small>
         </div>
         <ArrowRight className="workflow-arrow" size={18} aria-hidden="true" />
@@ -609,7 +609,7 @@ export default function MarketingHome() {
             </span>
             <h3>Request payments</h3>
             <p>
-              Create a hosted payment request and share a checkout link or QR Ph
+              Create a hosted payment request and share a checkout link or QRPH
               code. Follow its status through provider confirmation.
             </p>
             <a href="/?signin=1">

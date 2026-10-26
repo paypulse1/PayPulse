@@ -125,6 +125,7 @@ import QrPaymentDisplay, { InstitutionLogo } from "./QrPaymentDisplay"
 import InstitutionSelectionScreen from "./InstitutionSelectionScreen"
 import { DeveloperSetupPanel, KybSetupPanel } from "./MerchantSetup"
 import { Brand, Button } from "./AppPrimitives"
+import AccessibleDialog from "./AccessibleDialog"
 import { SuperAdminConsole } from "./SuperAdminConsole"
 import MerchantSignIn from "./MerchantSignIn"
 import MerchantNotificationInbox from "./MerchantNotificationInbox"
@@ -208,11 +209,10 @@ function UpdateAvailablePrompt({
 
   return (
     <div className="sheet-backdrop" role="presentation">
-      <section
+      <AccessibleDialog
         className="payment-sheet"
-        role="dialog"
-        aria-modal="true"
         aria-labelledby="app-update-title"
+        onRequestClose={onDismiss}
       >
         <span className="sheet-handle" />
         <header className="sheet-header">
@@ -244,7 +244,7 @@ function UpdateAvailablePrompt({
         <Button variant="secondary" onClick={onDismiss}>
           Remind me later
         </Button>
-      </section>
+      </AccessibleDialog>
     </div>
   )
 }
@@ -386,6 +386,66 @@ function useBalanceVisibility() {
   }, [balanceVisible, storageKey])
 
   return { balanceVisible, toggleBalanceVisibility }
+}
+
+function AvailableBalanceCard({
+  data,
+  balanceVisible,
+  onToggleBalanceVisibility,
+  onWithdraw,
+}: {
+  data: DashboardData
+  balanceVisible: boolean
+  onToggleBalanceVisibility: () => void
+  onWithdraw?: () => void
+}) {
+  return (
+    <section
+      className={`balance-card ${onWithdraw ? "balance-card-wallet" : ""}`}
+    >
+      <div className="balance-top">
+        <span>Available Balance</span>
+        <div className="balance-top-actions">
+          <span className="balance-bank-brand">
+            <img src="/powered-by/netbank.png" alt="Netbank" />
+          </span>
+          <button
+            type="button"
+            onClick={onToggleBalanceVisibility}
+            aria-label={balanceVisible ? "Hide balances" : "Show balances"}
+            aria-pressed={!balanceVisible}
+          >
+            <Eye size={15} /> PHP
+          </button>
+        </div>
+      </div>
+      <strong className="balance-value">
+        {balanceVisible ? data.availableBalance : "₱ ••••••"}
+      </strong>
+      {onWithdraw && (
+        <div className="balance-card-footer">
+          <div className="balance-card-footer-copy">
+            <span>
+              <i /> {data.paymentEnvironment === "production" ? "Live" : "Sandbox"}{" "}
+              merchant ledger
+            </span>
+            {data.reservedBalance > 0 && (
+              <small>
+                {formatPeso(data.reservedBalance)} reserved for pending transfers
+              </small>
+            )}
+          </div>
+          <button
+            type="button"
+            className="balance-card-withdraw"
+            onClick={onWithdraw}
+          >
+            <Send size={14} /> Withdraw
+          </button>
+        </div>
+      )}
+    </section>
+  )
 }
 
 function IconButton({
@@ -576,11 +636,10 @@ function BiometricEnrollmentPrompt({
 }) {
   return (
     <div className="sheet-backdrop biometric-backdrop">
-      <section
+      <AccessibleDialog
         className="payment-sheet biometric-prompt"
-        role="dialog"
-        aria-modal="true"
         aria-labelledby="biometric-prompt-title"
+        onRequestClose={busy ? undefined : onSkip}
       >
         <span className="sheet-handle" />
         <span className="biometric-prompt-icon">
@@ -615,7 +674,7 @@ function BiometricEnrollmentPrompt({
         <Button variant="quiet" disabled={busy} onClick={onSkip}>
           Not now
         </Button>
-      </section>
+      </AccessibleDialog>
     </div>
   )
 }
@@ -738,11 +797,10 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="sheet-backdrop" role="presentation" onMouseDown={onClose}>
-      <section
+      <AccessibleDialog
         className="payment-sheet"
-        role="dialog"
-        aria-modal="true"
         aria-labelledby="sheet-title"
+        onRequestClose={onClose}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <span className="sheet-handle" />
@@ -946,7 +1004,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
             </Button>
           </form>
         )}
-      </section>
+      </AccessibleDialog>
     </div>
   )
 }
@@ -1119,10 +1177,10 @@ function TransactionSheet({
 
   return (
     <div className="sheet-backdrop" role="presentation" onMouseDown={onClose}>
-      <section
+      <AccessibleDialog
         className="payment-sheet detail-sheet"
-        role="dialog"
-        aria-modal="true"
+        aria-label="Transaction details"
+        onRequestClose={onClose}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <span className="sheet-handle" />
@@ -1346,7 +1404,7 @@ function TransactionSheet({
           </div>
         )}
         <Button onClick={onClose}>Done</Button>
-      </section>
+      </AccessibleDialog>
     </div>
   )
 }
@@ -1557,10 +1615,10 @@ function TransferSheet({
 
   return (
     <div className="sheet-backdrop" role="presentation" onMouseDown={onClose}>
-      <section
+      <AccessibleDialog
         className="payment-sheet"
-        role="dialog"
-        aria-modal="true"
+        aria-label="Bank transfer"
+        onRequestClose={onClose}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <span className="sheet-handle" />
@@ -2101,7 +2159,7 @@ function TransferSheet({
             </Button>
           </form>
         )}
-      </section>
+      </AccessibleDialog>
     </div>
   )
 }
@@ -2125,7 +2183,7 @@ function ScannerSheet({
     const scannedQr = parseScannedQr(payload)
     if (!scannedQr) {
       setCameraError(
-        "This QR format is not recognized. Scan a QR Ph P2P recipient code or QR Ph P2M merchant code.",
+        "This QR format is not recognized. Scan a QRPH P2P recipient code or QRPH P2M merchant code.",
       )
       return
     }
@@ -2257,10 +2315,10 @@ function ScannerSheet({
 
   return (
     <div className="sheet-backdrop" role="presentation" onMouseDown={onClose}>
-      <section
+      <AccessibleDialog
         className="payment-sheet scanner-sheet"
-        role="dialog"
-        aria-modal="true"
+        aria-label="QR scanner"
+        onRequestClose={onClose}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <span className="sheet-handle" />
@@ -2271,7 +2329,7 @@ function ScannerSheet({
               {mode === "scan"
                 ? "Scan a QR"
                 : mode === "collect"
-                  ? "Open-amount QR Ph"
+                  ? "Open-amount QRPH"
                   : "Merchant QR details"}
             </h2>
           </div>
@@ -2290,7 +2348,7 @@ function ScannerSheet({
               />
               <span className="scanner-frame" aria-hidden="true" />
               <span className="scanner-hint">
-                Scan a QR Ph recipient or merchant code
+                Scan a QRPH recipient or merchant code
               </span>
             </div>
             {cameraError && (
@@ -2343,10 +2401,10 @@ function ScannerSheet({
           </>
         ) : mode === "collect" ? (
           <div className="static-qr-collection">
-            <p>Customer enters the amount in their QR Ph payment app.</p>
+            <p>Customer enters the amount in their QRPH payment app.</p>
             <img
               src="/static-qrph.jpg"
-              alt="SwiftPay static QR Ph merchant code"
+              alt="SwiftPay static QRPH merchant code"
             />
             <a
               className="button button-secondary"
@@ -2364,7 +2422,7 @@ function ScannerSheet({
             <span className="merchant-qr-icon">
               <QrCode size={24} />
             </span>
-            <strong>QR Ph merchant code</strong>
+            <strong>QRPH merchant code</strong>
             <dl className="detail-list">
               <div>
                 <dt>Merchant</dt>
@@ -2410,7 +2468,7 @@ function ScannerSheet({
             </Button>
           </div>
         )}
-      </section>
+      </AccessibleDialog>
     </div>
   )
 }
@@ -2482,10 +2540,10 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
   }
   return (
     <div className="sheet-backdrop" role="presentation" onMouseDown={onClose}>
-      <section
+      <AccessibleDialog
         className="payment-sheet"
-        role="dialog"
-        aria-modal="true"
+        aria-label="Create payment link"
+        onRequestClose={onClose}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <span className="sheet-handle" />
@@ -2593,7 +2651,7 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
             </Button>
           </form>
         )}
-      </section>
+      </AccessibleDialog>
     </div>
   )
 }
@@ -2617,26 +2675,11 @@ function HomeView({
 
   return (
     <>
-      <section className="balance-card">
-        <div className="balance-top">
-          <span>AVAILABLE BALANCE</span>
-          <div className="balance-top-actions">
-            <span className="balance-bank-brand">
-              <img src="/powered-by/netbank.png" alt="Netbank" />
-            </span>
-            <button
-              onClick={toggleBalanceVisibility}
-              aria-label={balanceVisible ? "Hide balances" : "Show balances"}
-              aria-pressed={!balanceVisible}
-            >
-              <Eye size={15} /> PHP
-            </button>
-          </div>
-        </div>
-        <strong className="balance-value">
-          {balanceVisible ? data.availableBalance : "₱ ••••••"}
-        </strong>
-      </section>
+      <AvailableBalanceCard
+        data={data}
+        balanceVisible={balanceVisible}
+        onToggleBalanceVisibility={toggleBalanceVisibility}
+      />
 
       <section className="quick-actions" aria-label="Quick actions">
         <QuickAction
@@ -2665,7 +2708,7 @@ function HomeView({
         <header className="section-header">
           <div>
             <span className="eyebrow">RECENT WALLET ACTIVITY</span>
-            <h2>Money movement</h2>
+            <h2>Money Movement</h2>
           </div>
           <button className="period-button">
             Latest 50 <ChevronDown size={14} />
@@ -2675,12 +2718,10 @@ function HomeView({
           <div>
             <span>Incoming payments</span>
             <strong>{data.grossVolume}</strong>
-            <small>Confirmed credits</small>
           </div>
           <div>
             <span>Completed payments</span>
             <strong>{data.successfulPayments}</strong>
-            <small>Provider-confirmed collections</small>
           </div>
         </div>
         <div className="average-row">
@@ -2695,7 +2736,7 @@ function HomeView({
         <header className="section-header">
           <div>
             <span className="eyebrow">ACTIVITY</span>
-            <h2>Recent activity</h2>
+            <h2>Recent Activity</h2>
           </div>
           <button className="text-button" onClick={onActivity}>
             See all
@@ -2793,7 +2834,7 @@ function MerchantActivityChart() {
       <header className="section-header">
         <div>
           <span className="eyebrow">LAST 7 DAYS</span>
-          <h2 id="merchant-trend-title">Collections & transfers</h2>
+          <h2 id="merchant-trend-title">Collections & Transfers</h2>
         </div>
         <span className="merchant-trend-live">
           <i /> LIVE · 10 SEC
@@ -2932,44 +2973,12 @@ function WalletBalancePanel({
   onWithdraw: () => void
 }) {
   return (
-    <section className="wallet-balance-panel">
-      <div className="wallet-balance-heading">
-        <span>Available balance</span>
-        <div className="wallet-balance-actions">
-          <button
-            type="button"
-            className="wallet-withdraw-button"
-            onClick={onWithdraw}
-          >
-            <Send size={14} /> Withdraw
-          </button>
-          <button
-            type="button"
-            onClick={onToggleBalanceVisibility}
-            aria-label={balanceVisible ? "Hide balances" : "Show balances"}
-            aria-pressed={!balanceVisible}
-          >
-            <Eye size={15} /> {balanceVisible ? "Hide" : "Show"}
-          </button>
-        </div>
-      </div>
-      <strong className="wallet-balance-value">
-        {balanceVisible ? data.availableBalance : "₱ ••••••"}
-      </strong>
-      <div className="wallet-balance-foot">
-        <span>
-          <i /> Merchant wallet ledger
-        </span>
-        <span>
-          {data.paymentEnvironment === "production" ? "Live" : "Sandbox"}
-        </span>
-      </div>
-      {data.reservedBalance > 0 && (
-        <p className="wallet-reserved-note">
-          {formatPeso(data.reservedBalance)} reserved for pending transfers
-        </p>
-      )}
-    </section>
+    <AvailableBalanceCard
+      data={data}
+      balanceVisible={balanceVisible}
+      onToggleBalanceVisibility={onToggleBalanceVisibility}
+      onWithdraw={onWithdraw}
+    />
   )
 }
 
@@ -3549,9 +3558,6 @@ function MainnetUsdtWallet() {
             {depositMessage || "No confirmed USDT deposits found in the latest 50 TRC20 transfers."}
           </p>
         )}
-        <p className="crypto-wallet-disclaimer">
-          Only confirmed incoming transfers of the official TRON USDT contract are shown. This history is read-only and does not establish address ownership or provide withdrawal support.
-        </p>
       </section>
       <div
         className="crypto-wallet-actions"
@@ -3563,11 +3569,13 @@ function MainnetUsdtWallet() {
           </Button>
         ))}
       </div>
-      <p className="crypto-wallet-disclaimer">
-        {wallet?.network === "TRON_SHASTA"
-          ? "This address is marked as Shasta testnet and is not queried on mainnet. It must be deliberately reassigned after confirming the production address."
-          : "Read-only real USDT balance from TRON mainnet via Tatum RPC. Verify the address and network before sending; transactions may be irreversible. Buy/sell, deposit monitoring, and withdrawals are not connected."}
-      </p>
+      {wallet?.network === "TRON_SHASTA" && (
+        <p className="crypto-wallet-disclaimer">
+          This address is marked as Shasta testnet and is not queried on
+          mainnet. It must be deliberately reassigned after confirming the
+          production address.
+        </p>
+      )}
       {loading && (
         <p className="crypto-wallet-feedback" role="status">
           Loading assigned wallet and mainnet balance…
@@ -3797,7 +3805,7 @@ function TransfersView({
     <section className="transfers-page">
       <section className="transfer-balance-panel">
         <div>
-          <span>Available balance</span>
+          <span>Available Balance</span>
           <strong>{balanceVisible ? data.availableBalance : "₱ ••••••"}</strong>
           <small>Available in your merchant ledger</small>
         </div>
@@ -4166,7 +4174,7 @@ function ProfileInfoPage({
               <dd>Merchant operational ledger</dd>
             </div>
             <div>
-              <dt>Available balance</dt>
+              <dt>Available Balance</dt>
               <dd>{balanceVisible ? data.availableBalance : "₱ ••••••"}</dd>
             </div>
             <div>
@@ -4619,7 +4627,7 @@ DRPAY_API_KEY=your_environment_specific_key`}
           <section className="api-docs-section">
             <h3>3. Create a collection on your platform</h3>
             <p>
-              <code>POST /v1/payment-links</code> creates a fixed PHP QR Ph
+              <code>POST /v1/payment-links</code> creates a fixed PHP QRPH
               payment and a self-hosted DRPAY checkout page. The response
               includes <code>paymentUrl</code> to redirect your customer to,{" "}
               <code>qrCode</code> for rendering a QR in your own experience, and{" "}
@@ -4909,7 +4917,7 @@ export async function createInvoiceCheckout({ amount, invoiceId, customerEmail }
               </p>
             </details>
             <details>
-              <summary>Available balance looks different</summary>
+              <summary>Available Balance Looks Different</summary>
               <p>
                 Pending or outcome-unknown transfers can reserve funds.
                 Floating balance is separate from the merchant operational
@@ -6011,11 +6019,10 @@ export default function App() {
           role="presentation"
           onMouseDown={() => setShowNotifications(false)}
         >
-          <section
+          <AccessibleDialog
             className="payment-sheet"
-            role="dialog"
-            aria-modal="true"
             aria-labelledby="notification-inbox-title"
+            onRequestClose={() => setShowNotifications(false)}
             onMouseDown={(event) => event.stopPropagation()}
           >
             <span className="sheet-handle" />
@@ -6040,7 +6047,7 @@ export default function App() {
             >
               Done
             </Button>
-          </section>
+          </AccessibleDialog>
         </div>
       )}
       {updateAvailable && (
