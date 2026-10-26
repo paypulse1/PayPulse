@@ -27,7 +27,7 @@ function LegalPage({ page }: { page: LegalPageKind }) {
     <main className="marketing-shell legal-shell">
       <nav className="marketing-nav" aria-label="Main navigation">
         <LegalBrand />
-        <a className="nav-login" href="/app">Merchant sign in <ArrowRight size={15} /></a>
+        <a className="nav-login" href="/?signin=1">Merchant sign in <ArrowRight size={15} /></a>
       </nav>
 
       <article className="legal-document">

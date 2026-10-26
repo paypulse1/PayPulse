@@ -76,7 +76,7 @@ export default function MarketingHome() {
           <a href="#workflow">How it works</a>
           <a href="#security">Security</a>
         </div>
-        <a className="nav-login" href="/app">Merchant sign in <ArrowRight size={15} /></a>
+        <a className="nav-login" href="/?signin=1">Merchant sign in <ArrowRight size={15} /></a>
       </nav>
 
       <section className="marketing-hero" aria-labelledby="hero-title">
@@ -85,7 +85,7 @@ export default function MarketingHome() {
           <h1 id="hero-title">Your payments, <em>in good order.</em></h1>
           <p>Collect with hosted payment links and QR Ph checkouts. Track confirmed activity, review your balances, and prepare bank transfers from one secure workspace.</p>
           <div className="hero-actions">
-            <a className="hero-primary" href="/app">Sign in to DRPAY <ArrowRight size={17} /></a>
+            <a className="hero-primary" href="/?signin=1">Sign in to DRPAY <ArrowRight size={17} /></a>
             {apkUrl ? (
               <a className="hero-download" href={apkUrl}><Download size={17} />Download Android app</a>
             ) : (
@@ -133,19 +133,19 @@ export default function MarketingHome() {
             <span className="feature-icon feature-gold"><QrCode size={21} /></span>
             <h3>Request payments</h3>
             <p>Create a hosted payment request and share a checkout link or QR Ph code. Follow its status through provider confirmation.</p>
-            <a href="/app">Go to merchant sign in <ChevronRight size={15} /></a>
+            <a href="/?signin=1">Go to merchant sign in <ChevronRight size={15} /></a>
           </article>
           <article className="feature-item">
             <span className="feature-icon feature-blue"><CircleDollarSign size={21} /></span>
             <h3>Prepare bank transfers</h3>
             <p>Transfer from your merchant ledger using a supported bank rail. Review recipient details and approve with your MPIN.</p>
-            <a href="/app">Go to merchant sign in <ChevronRight size={15} /></a>
+            <a href="/?signin=1">Go to merchant sign in <ChevronRight size={15} /></a>
           </article>
           <article className="feature-item">
             <span className="feature-icon feature-navy"><WalletCards size={21} /></span>
             <h3>Review wallet activity</h3>
             <p>Review payment and provider-transfer activity alongside floating-balance requests and their statuses.</p>
-            <a href="/app">Go to merchant sign in <ChevronRight size={15} /></a>
+            <a href="/?signin=1">Go to merchant sign in <ChevronRight size={15} /></a>
           </article>
         </div>
       </section>
@@ -154,12 +154,12 @@ export default function MarketingHome() {
         <div className="security-mark"><BadgeCheck size={24} /></div>
         <div><span className="marketing-eyebrow">SECURITY AT EVERY STEP</span><h2 id="security-title">Your account, with deliberate checks.</h2></div>
         <p>Verify new devices by email, sign in on trusted devices with your MPIN, and approve provider transfers with MPIN. Strong biometrics are optional on supported Android devices. Provider credentials stay on the backend.</p>
-        <a href="/app">Sign in securely <ArrowRight size={16} /></a>
+        <a href="/?signin=1">Sign in securely <ArrowRight size={16} /></a>
       </section>
 
       <section className="closing-cta">
         <div><span className="marketing-eyebrow">BUILT FOR MERCHANT WORKFLOWS</span><h2>Make your next payment step easier to see.</h2></div>
-        <a className="hero-primary" href="/app">Open your workspace <ArrowRight size={17} /></a>
+        <a className="hero-primary" href="/?signin=1">Open your workspace <ArrowRight size={17} /></a>
       </section>
 
       <footer className="marketing-footer">
@@ -175,7 +175,7 @@ export default function MarketingHome() {
         </div>
         <div className="footer-link-column">
           <strong>DRPAY</strong>
-          <a href="/app">Merchant sign in</a>
+          <a href="/?signin=1">Merchant sign in</a>
           {apkUrl && <a href={apkUrl}>Android app <Download size={13} /></a>}
           <a href="/privacy">Privacy Policy</a>
           <a href="/terms">Terms of Service</a>
