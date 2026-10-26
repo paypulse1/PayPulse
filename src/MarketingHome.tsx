@@ -14,7 +14,7 @@ import {
   WalletCards,
 } from "lucide-react"
 import "./marketing-home.css"
-import LegalPage, { getLegalPage } from "./LegalPages"
+import LegalPage, { getLegalPage, supportEmail } from "./LegalPages"
 
 const apkUrl = "/drpay.apk"
 
@@ -175,15 +175,16 @@ export default function MarketingHome() {
       <section className="marketing-hero" aria-labelledby="hero-title">
         <div className="hero-copy">
           <span className="marketing-eyebrow">
-            <i /> THE MERCHANT WORKSPACE
+            <i /> CROSS-BORDER PAYMENTS · KOREA ↔ PHILIPPINES
           </span>
           <h1 id="hero-title">
-            Your payments, <em>in good order.</em>
+            KRW to PHP checkout, <em>with a clearer next step.</em>
           </h1>
           <p>
-            Collect with hosted payment links and QRPH checkouts. Track
-            confirmed activity, review your balances, and prepare bank transfers
-            from one secure workspace.
+            Create Korean Won checkouts with a PHP reference quote and manage
+            merchant collections in one place. Explore casino payment
+            integrations and a planned faster USDT purchase journey for Korean
+            users; in-app USDT buying is not yet connected.
           </p>
           <div className="hero-actions">
             <a className="hero-primary" href="/?signin=1">
@@ -290,158 +291,33 @@ export default function MarketingHome() {
         <div className="merchant-scenes-heading">
           <div>
             <span className="marketing-eyebrow">
-              CASINO · FX · CRYPTO · INVESTMENT · PAYMENTS
+              CASINO PAYMENTS · KRW TO PHP · USDT
             </span>
             <h2 id="merchant-scenes-title">
-              Real-world finance and payment environments.
+              Built for cross-border payment flows.
             </h2>
           </div>
           <p>
-            See the places, tools, and payment moments behind casino, currency
-            exchange, crypto, Philippine and Korean investment, and merchant
-            payment experiences.
+            Bring casino payment integration and Korean Won checkout into focus,
+            with a transparent view of the USDT purchase path for Korean users.
           </p>
         </div>
         <div className="merchant-scenes-grid">
-          <article className="merchant-scene-card">
-            <div className="merchant-scene-photo">
-              <img
-                src="/marketing/casino-roulette.jpg"
-                alt="Roulette wheel in a physical casino setting"
-                loading="lazy"
-              />
-              <span>CASINO ENVIRONMENT</span>
-            </div>
-            <div className="merchant-scene-copy">
-              <h3>Casino operations</h3>
-              <p>
-                A physical roulette setting for context; this is not an online
-                casino interface.
-              </p>
-            </div>
-            <a
-              className="photo-credit"
-              href="https://commons.wikimedia.org/wiki/File:13-02-27-spielbank-wiesbaden-by-RalfR-093.jpg"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Ralf Roletschek · CC BY-SA 3.0
-            </a>
-          </article>
-          <article className="merchant-scene-card">
-            <div className="merchant-scene-photo">
-              <img
-                src="/marketing/currency-exchange.jpg"
-                alt="Currency exchange kiosks and exchange-rate boards"
-                loading="lazy"
-              />
-              <span>CURRENCY EXCHANGE</span>
-            </div>
-            <div className="merchant-scene-copy">
-              <h3>Currency exchange</h3>
-              <p>
-                Exchange kiosks and rate boards bring currency conversion into
-                view.
-              </p>
-            </div>
-            <a
-              className="photo-credit"
-              href="https://commons.wikimedia.org/wiki/File:Currency_exchange_machine.jpg"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Tiia Monto · CC BY 4.0
-            </a>
-          </article>
-          <article className="merchant-scene-card">
-            <div className="merchant-scene-photo">
-              <img
-                src="/marketing/crypto-transaction.jpg"
-                alt="A hardware cryptocurrency wallet connected to a laptop showing a Bitcoin transaction"
-                loading="lazy"
-              />
-              <span>CRYPTO</span>
-            </div>
-            <div className="merchant-scene-copy">
-              <h3>Crypto transactions</h3>
-              <p>
-                A hardware wallet and visible Bitcoin transfer represent
-                real-world digital-asset custody and movement.
-              </p>
-            </div>
-            <a
-              className="photo-credit"
-              href="https://commons.wikimedia.org/wiki/File:An_actual_Bitcoin_transaction_from_the_Kraken_cryptocurrency_exchange_to_a_hardware_LedgerWallet.jpg"
-              target="_blank"
-              rel="noreferrer"
-            >
-              FlippyFlink · CC BY-SA 4.0
-            </a>
-          </article>
-          <article className="merchant-scene-card">
-            <div className="merchant-scene-photo">
-              <img
-                src="/marketing/philippines-investment.jpg"
-                alt="Philippine Stock Exchange Center in Ortigas, Pasig City"
-                loading="lazy"
-              />
-              <span>PHILIPPINE CAPITAL MARKETS</span>
-            </div>
-            <div className="merchant-scene-copy">
-              <h3>Investment in the Philippines</h3>
-              <p>
-                The Philippine Stock Exchange Center represents the country’s
-                capital-market landscape.
-              </p>
-            </div>
-            <a
-              className="photo-credit"
-              href="https://commons.wikimedia.org/wiki/File:Philippine_Stock_Exchange_Center_(Tektite_Bldg.)_-_Top_Shot_From_BSA_Twin_Towers_(Ortigas_Center,_Pasig_City;_2015-05-26).jpg"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Patrick Roque · CC BY-SA 4.0
-            </a>
-          </article>
-          <article className="merchant-scene-card">
-            <div className="merchant-scene-photo">
-              <img
-                src="/marketing/korea-investment.jpg"
-                alt="Yeouido financial district skyline in Seoul, South Korea"
-                loading="lazy"
-              />
-              <span>KOREAN CAPITAL MARKETS</span>
-            </div>
-            <div className="merchant-scene-copy">
-              <h3>Investment in Korea</h3>
-              <p>
-                Seoul’s Yeouido skyline places the story in a major Korean
-                financial district.
-              </p>
-            </div>
-            <a
-              className="photo-credit"
-              href="https://commons.wikimedia.org/wiki/File:Skyline_of_Yeouido,_a_prominent_finance_district_in_Seoul.jpg"
-              target="_blank"
-              rel="noreferrer"
-            >
-              S h y numis · CC BY 4.0
-            </a>
-          </article>
-          <article className="merchant-scene-card">
+          <article className="merchant-scene-card merchant-scene-card-casino">
             <div className="merchant-scene-photo">
               <img
                 src="/marketing/payment-integration.jpg"
-                alt="A customer using a mobile phone with a payment terminal"
+                alt="Customer completing a mobile payment at a payment terminal"
                 loading="lazy"
               />
-              <span>PAYMENT INTEGRATION</span>
+              <span>CASINO PAYMENT INTEGRATION</span>
             </div>
             <div className="merchant-scene-copy">
-              <h3>Connected payments</h3>
+              <h3>Casino payment integration</h3>
               <p>
-                A phone and payment terminal illustrate a customer-facing
-                checkout experience.
+                Connect eligible gaming checkouts with payment collection and
+                status workflows. Licensing, compliance review, and processing
+                partner approval are required.
               </p>
             </div>
             <a
@@ -452,36 +328,81 @@ export default function MarketingHome() {
             >
               HLundgaard · CC BY-SA 3.0
             </a>
+            <a
+              className="service-contact-link"
+              href={`mailto:${supportEmail}?subject=${encodeURIComponent("Casino payment integration")}`}
+            >
+              Discuss an integration <ArrowRight size={14} aria-hidden="true" />
+            </a>
           </article>
-          <article className="merchant-scene-card">
+          <article className="merchant-scene-card merchant-scene-card-krw">
             <div className="merchant-scene-photo">
               <img
-                src="/marketing/payment-acceptance.jpg"
-                alt="A white card reader payment terminal"
+                src="/marketing/currency-exchange.jpg"
+                alt="Currency exchange kiosks and international exchange-rate boards"
                 loading="lazy"
               />
-              <span>PAYMENT COLLECTION & ACCEPTANCE</span>
+              <span>KOREAN WON → PHILIPPINE PESO</span>
             </div>
             <div className="merchant-scene-copy">
-              <h3>Payment acceptance</h3>
+              <h3>KRW checkout with a PHP quote</h3>
               <p>
-                A card reader represents one familiar way merchants collect
-                in-person payments.
+                Create a Korean Won checkout and review its PHP reference amount
+                before sharing. The quote and final settlement follow provider
+                terms.
               </p>
             </div>
             <a
               className="photo-credit"
-              href="https://commons.wikimedia.org/wiki/File:Tappr_Card_Reader_White.jpg"
+              href="https://commons.wikimedia.org/wiki/File:Currency_exchange_machine.jpg"
               target="_blank"
               rel="noreferrer"
             >
-              SteveMccabe45 · CC BY-SA 4.0
+              Tiia Monto · CC BY 4.0
+            </a>
+            <a className="service-contact-link" href="/?signin=1">
+              Open merchant workspace{" "}
+              <ArrowRight size={14} aria-hidden="true" />
+            </a>
+          </article>
+          <article className="merchant-scene-card merchant-scene-card-usdt">
+            <div className="merchant-scene-photo">
+              <img
+                src="/marketing/crypto-transaction.jpg"
+                alt="A hardware digital-asset wallet connected to a laptop displaying a transaction"
+                loading="lazy"
+              />
+              <span>KRW → USDT · INTEGRATION PATH</span>
+            </div>
+            <div className="merchant-scene-copy">
+              <h3>A faster USDT route for Korean users</h3>
+              <p>
+                Designed to streamline the journey from Korean Won to USDT.
+                DRPAY in-app USDT buying is not yet connected; purchase speed,
+                rates, and availability are not currently offered.
+              </p>
+            </div>
+            <a
+              className="photo-credit"
+              href="https://commons.wikimedia.org/wiki/File:An_actual_Bitcoin_transaction_from_the_Kraken_cryptocurrency_exchange_to_a_hardware_LedgerWallet.jpg"
+              target="_blank"
+              rel="noreferrer"
+            >
+              FlippyFlink · CC BY-SA 4.0
+            </a>
+            <a
+              className="service-contact-link"
+              href={`mailto:${supportEmail}?subject=${encodeURIComponent("USDT purchase integration for Korean users")}`}
+            >
+              Ask about USDT integration{" "}
+              <ArrowRight size={14} aria-hidden="true" />
             </a>
           </article>
         </div>
         <p className="merchant-scenes-note">
-          Illustrative photography only. These images do not imply DRPAY support
-          for any specific industry or service.
+          Photos are illustrative. Casino processing requires eligibility and
+          partner approval. KRW checkout is subject to provider terms. USDT
+          buying is not currently available in the DRPAY app.
         </p>
       </section>
 
