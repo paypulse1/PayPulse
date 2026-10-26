@@ -48,6 +48,7 @@ import {
   X,
 } from "lucide-react"
 import {
+  ApiError,
   clearSession,
   authorizeTransferWithPin,
   createPaymentLink,
@@ -77,6 +78,7 @@ import {
   removeBiometricCredential,
   removePushDevice,
   resetPaymentLinkIdempotencyKey,
+  SESSION_EXPIRED_EVENT,
   setMerchantPin,
   type CollectionRefundDetails,
   type DashboardData,
@@ -1039,7 +1041,14 @@ function TransactionSheet({
     setRefundLoading(true)
     setRefundError("")
     try {
-      setRefundDetails(await getCollectionRefundDetails(transaction.id))
+      const details = await getCollectionRefundDetails(transaction.id)
+      if (Capacitor.isNativePlatform() && details.channel === "PESONET") {
+        setRefundError(
+          "This refund requires PESONet, which is available only when signed in through a web browser.",
+        )
+        return
+      }
+      setRefundDetails(details)
     } catch (requestError) {
       setRefundError(
         requestError instanceof Error
@@ -1351,6 +1360,7 @@ function TransferSheet({
   initialValues?: TransferQrDetails
 }) {
   const { balanceVisible } = useBalanceVisibility()
+  const pesonetAvailable = !Capacitor.isNativePlatform()
   const [institutions, setInstitutions] = useState<Institution[]>([])
   const [bank, setBank] = useState("")
   const [bankSearch, setBankSearch] = useState("")
@@ -1359,7 +1369,9 @@ function TransferSheet({
   const [banksError, setBanksError] = useState("")
   const [bankLoadAttempt, setBankLoadAttempt] = useState(0)
   const [channel, setChannel] = useState<"INSTAPAY" | "PESONET">(
-    initialValues?.channel || "INSTAPAY",
+    initialValues?.channel === "PESONET" && pesonetAvailable
+      ? "PESONET"
+      : "INSTAPAY",
   )
   const [name, setName] = useState(initialValues?.fullName || "")
   const [account, setAccount] = useState(initialValues?.accountNumber || "")
@@ -1432,6 +1444,10 @@ function TransferSheet({
   }
 
   async function submitWithAuthorization() {
+    if (!pesonetAvailable && channel === "PESONET") {
+      setError("PESONet transfers are available only in a web browser.")
+      return
+    }
     setBusy(true)
     setError("")
     setReceiptActionError("")
@@ -1485,7 +1501,7 @@ function TransferSheet({
   const channelAvailable =
     channel === "INSTAPAY"
       ? selectedBank?.instapayEnabled !== false
-      : selectedBank?.pesonetEnabled !== false
+      : pesonetAvailable && selectedBank?.pesonetEnabled !== false
   async function downloadTransferReceipt() {
     if (!receiptDetails) return
     setReceiptActionError("")
@@ -1523,6 +1539,7 @@ function TransferSheet({
     if (
       channel === "INSTAPAY" &&
       institution?.instapayEnabled === false &&
+      pesonetAvailable &&
       institution.pesonetEnabled
     ) {
       setChannel("PESONET")
@@ -1727,7 +1744,8 @@ function TransferSheet({
                 {filteredInstitutions.length > 0 ? (
                   filteredInstitutions.map((item) => {
                     const supportsInstapay = item.instapayEnabled !== false
-                    const supportsPesonet = item.pesonetEnabled !== false
+                    const supportsPesonet =
+                      pesonetAvailable && item.pesonetEnabled !== false
                     const unavailable = !supportsInstapay && !supportsPesonet
                     return (
                       <button
@@ -1747,7 +1765,9 @@ function TransferSheet({
                           <strong>{item.name}</strong>
                           <small>
                             {unavailable
-                              ? "Transfers unavailable"
+                              ? pesonetAvailable
+                                ? "Transfers unavailable"
+                                : "Not available in app"
                               : [
                                   supportsInstapay && "InstaPay",
                                   supportsPesonet && "PESONet",
@@ -1951,11 +1971,15 @@ function TransferSheet({
             <div className="transfer-field-group">
               <span className="bank-picker-label">Transfer network</span>
               <div className="rail-selector">
-                {(["INSTAPAY", "PESONET"] as const).map((item) => {
+                {(pesonetAvailable
+                  ? (["INSTAPAY", "PESONET"] as const)
+                  : (["INSTAPAY"] as const)
+                ).map((item) => {
                   const available =
                     item === "INSTAPAY"
                       ? selectedBank?.instapayEnabled !== false
-                      : selectedBank?.pesonetEnabled !== false
+                      : pesonetAvailable &&
+                        selectedBank?.pesonetEnabled !== false
                   const networkName =
                     item === "INSTAPAY" ? "InstaPay" : "PESONet"
                   return (
@@ -3783,17 +3807,19 @@ function TransfersView({
             <p>Real-time network for eligible banks and wallets.</p>
           </div>
         </div>
-        <div className="transfer-method-row">
-          <img
-            className="transfer-method-logo"
-            src="/bank-logos/pesonet.png"
-            alt="PESONet logo"
-          />
-          <div>
-            <strong>PESONet</strong>
-            <p>Batch network for eligible bank transfers.</p>
+        {!Capacitor.isNativePlatform() && (
+          <div className="transfer-method-row">
+            <img
+              className="transfer-method-logo"
+              src="/bank-logos/pesonet.png"
+              alt="PESONet logo"
+            />
+            <div>
+              <strong>PESONet</strong>
+              <p>Batch network for eligible bank transfers.</p>
+            </div>
           </div>
-        </div>
+        )}
       </section>
       <aside className="transfer-security-note">
         <ShieldCheck size={17} />
@@ -3870,7 +3896,9 @@ function MoreView({
       : []),
     {
       label: "Transfer banks",
-      description: "InstaPay and PESONet",
+      description: Capacitor.isNativePlatform()
+        ? "InstaPay"
+        : "InstaPay and PESONet",
       icon: CreditCard,
       action: () => onInfo("Transfer banks"),
     },
@@ -4157,7 +4185,9 @@ function ProfileInfoPage({
             <strong>Supported transfer destinations</strong>
             <p>
               Availability is provided by SwiftPay. Each bank may support
-              InstaPay, PESONet, or both.
+              {Capacitor.isNativePlatform()
+                ? " InstaPay. PESONet transfers are available only when signed in through a web browser."
+                : " InstaPay, PESONet, or both."}
             </p>
           </div>
           {institutionsLoading ? (
@@ -4191,7 +4221,8 @@ function ProfileInfoPage({
                   <strong>{institution.name}</strong>
                   <span className="profile-rails">
                     {institution.instapayEnabled && <small>InstaPay</small>}
-                    {institution.pesonetEnabled && <small>PESONet</small>}
+                    {!Capacitor.isNativePlatform() &&
+                      institution.pesonetEnabled && <small>PESONet</small>}
                   </span>
                 </div>
               ))}
@@ -4894,7 +4925,184 @@ const tabs = [
   { label: "Profile", icon: Store },
 ]
 
+function AuxitHomeScreen() {
+  const stats = [
+    { label: "Care score", value: "92%", tone: "bg-[#dfe9ff] text-[#1c4b9b]" },
+    { label: "Needs", value: "3", tone: "bg-[#eef9ee] text-[#176d48]" },
+    { label: "Visits", value: "5", tone: "bg-[#fef3d8] text-[#8a5d00]" },
+  ]
+
+  const dayPlan = [
+    { time: "9:30 AM", label: "Morning check-in", detail: "Medication + hydration", accent: "bg-[#dfe9ff]" },
+    { time: "12:15 PM", label: "Care circle update", detail: "Family summary sent", accent: "bg-[#dcf7e8]" },
+    { time: "4:00 PM", label: "Recovery session", detail: "Mobility routine", accent: "bg-[#f9ead7]" },
+  ]
+
+  const support = [
+    { title: "Nurse follow-up", note: "2 tasks remain", tag: "Today" },
+    { title: "Home check", note: "Supply restock due", tag: "Tomorrow" },
+  ]
+
+  return (
+    <div className="min-h-screen bg-[#edf3fb] p-4 text-slate-900 md:p-8">
+      <div className="mx-auto max-w-md overflow-hidden rounded-[32px] border border-slate-200 bg-[#f7f9fc] shadow-[0_30px_70px_rgba(15,23,42,0.12)]">
+        <div className="bg-[radial-gradient(circle_at_top,_#f0f7ff_0%,_#e7edf9_32%,_#cfe4ff_100%)] px-5 pb-6 pt-6">
+          <div className="mb-5 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="grid h-10 w-10 place-items-center rounded-2xl bg-[#0f172a] text-sm font-extrabold text-white">
+                A
+              </div>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                  Auxit
+                </p>
+                <h1 className="text-xl font-extrabold tracking-[-0.04em] text-slate-900">
+                  Good morning
+                </h1>
+              </div>
+            </div>
+            <button type="button" aria-label="Notifications" className="relative grid h-10 w-10 place-items-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-sm">
+              <Bell size={18} />
+              <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-[#ef4444] ring-2 ring-white" />
+            </button>
+          </div>
+
+          <div className="rounded-[28px] bg-[#0f172a] p-5 text-white shadow-[0_18px_40px_rgba(15,23,42,0.25)]">
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-300">
+                  Care overview
+                </p>
+                <p className="mt-2 text-3xl font-black tracking-[-0.06em]">$1,280</p>
+              </div>
+              <div className="rounded-2xl bg-white/10 p-2 text-xs font-bold text-emerald-300">
+                +12.4%
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between rounded-2xl bg-white/5 px-3 py-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-slate-300">
+                  Recovery plan
+                </p>
+                <p className="mt-1 text-lg font-bold text-white">4 of 5 steps</p>
+              </div>
+              <button type="button" className="grid h-11 w-11 place-items-center rounded-xl bg-[#cfe1ff] text-slate-900">
+                <ChevronRight size={18} />
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-3 gap-3">
+            {stats.map((item) => (
+              <div key={item.label} className={`rounded-2xl p-3 ${item.tone}`}>
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-75">{item.label}</p>
+                <p className="mt-2 text-xl font-extrabold tracking-[-0.04em]">{item.value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-5 px-5 pb-5 pt-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                Today
+              </p>
+              <h2 className="mt-1 text-xl font-extrabold tracking-[-0.05em] text-slate-900">
+                Your plan
+              </h2>
+            </div>
+            <button type="button" className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold text-slate-700">
+              View all
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {dayPlan.map((item) => (
+              <div key={item.label} className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                <div className={`grid h-11 w-11 place-items-center rounded-xl ${item.accent}`}>
+                  <QrCode size={17} className="text-slate-800" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-bold text-slate-900">{item.label}</p>
+                    <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{item.time}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">{item.detail}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                  Priority
+                </p>
+                <h3 className="mt-1 text-lg font-extrabold tracking-[-0.05em] text-slate-900">
+                  Support queue
+                </h3>
+              </div>
+              <button type="button" className="rounded-full bg-[#e9f0ff] p-2 text-[#2456bf]">
+                <ShieldCheck size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {support.map((item) => (
+                <div key={item.title} className="flex items-center justify-between rounded-2xl bg-[#f3f7ff] p-3">
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">{item.title}</p>
+                    <p className="mt-1 text-xs text-slate-500">{item.note}</p>
+                  </div>
+                  <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-600">
+                    {item.tag}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="border-t border-slate-200 bg-white/80 px-4 py-3 backdrop-blur">
+          <div className="grid grid-cols-5 gap-2">
+            {[
+              { icon: Home, label: "Home", active: true },
+              { icon: ReceiptText, label: "Records" },
+              { icon: QrCode, label: "Scan" },
+              { icon: Users, label: "Circle" },
+              { icon: Settings, label: "Setup" },
+            ].map(({ icon: Icon, label, active }) => (
+              <button
+                key={label}
+                type="button"
+                className={`rounded-2xl px-2 py-2 text-[10px] font-bold uppercase tracking-[0.12em] ${active ? "bg-[#ecf4ff] text-[#1b4f9c]" : "text-slate-500"}`}
+              >
+                <span className="mb-1.5 grid place-items-center">
+                  <Icon size={18} />
+                </span>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
+  const isAuxitRoute =
+    window.location.pathname === "/auxit" ||
+    window.location.pathname === "/" ||
+    new URLSearchParams(window.location.search).get("app") === "auxit"
+
+  if (isAuxitRoute) {
+    return <AuxitHomeScreen />
+  }
+
   const pathCheckoutCode =
     /^\/checkout\/([A-Za-z0-9_-]{40,50})\/?$/.exec(
       window.location.pathname,
@@ -4953,6 +5161,27 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const dismissedUpdateVersionRef = useRef("")
+
+  useEffect(() => {
+    if (session?.role !== "super_admin") return
+
+    function expireAdminSession() {
+      clearSession()
+      setSession(null)
+    }
+
+    const remainingMs = session.expiresAt - Date.now()
+    if (remainingMs <= 0) {
+      expireAdminSession()
+      return
+    }
+    const timeout = window.setTimeout(expireAdminSession, remainingMs)
+    window.addEventListener(SESSION_EXPIRED_EVENT, expireAdminSession)
+    return () => {
+      window.clearTimeout(timeout)
+      window.removeEventListener(SESSION_EXPIRED_EVENT, expireAdminSession)
+    }
+  }, [session?.expiresAt, session?.role])
 
   useEffect(() => {
     if (Capacitor.getPlatform() !== "android") return
@@ -5228,23 +5457,41 @@ export default function App() {
     if (!session) return
     setLoading(true)
     setError("")
-    try {
-      const [dashboard, security] = await Promise.all([
-        getMerchantDashboard(),
-        getMerchantSecurityStatus(),
-      ])
-      setData(dashboard)
-      setSecurityStatus(security)
-    } catch (requestError) {
-      const message =
-        requestError instanceof Error
-          ? requestError.message
-          : "Could not load your wallet"
-      setError(message)
-      if (message.toLowerCase().includes("session")) setSession(null)
-    } finally {
-      setLoading(false)
+    const [dashboardResult, securityResult] = await Promise.allSettled([
+      getMerchantDashboard(),
+      getMerchantSecurityStatus(),
+    ])
+
+    if (securityResult.status === "fulfilled") {
+      setSecurityStatus(securityResult.value)
+    } else {
+      setSecurityStatus(null)
+      const securityError = securityResult.reason
+      setError(
+        securityError instanceof Error
+          ? `Security settings could not be loaded: ${securityError.message}`
+          : "Security settings could not be loaded.",
+      )
+      if (securityError instanceof ApiError && securityError.status === 401) {
+        setSession(null)
+      }
     }
+
+    if (dashboardResult.status === "fulfilled") {
+      setData(dashboardResult.value)
+    } else {
+      const dashboardError = dashboardResult.reason
+      setError(
+        dashboardError instanceof Error
+          ? dashboardError.message
+          : "Could not load your wallet",
+      )
+      if (dashboardError instanceof ApiError && dashboardError.status === 401) {
+        setSession(null)
+      }
+    }
+
+    setLoading(false)
   }
 
   useEffect(() => {
