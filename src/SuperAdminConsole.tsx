@@ -132,6 +132,9 @@ export function SuperAdminConsole({
   const [markingPaymentId, setMarkingPaymentId] = useState("")
   const [failedRequestId, setFailedRequestId] = useState("")
   const [failedRequestReason, setFailedRequestReason] = useState("")
+  const [successfulRequestId, setSuccessfulRequestId] = useState("")
+  const [payoutReference, setPayoutReference] = useState("")
+  const [payoutNote, setPayoutNote] = useState("")
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
   const filteredMerchants = useMemo(() => {
@@ -295,8 +298,10 @@ export function SuperAdminConsole({
           date: request.reviewedAt || request.requestedAt,
           actor: request.reviewedBy || "",
           summary:
-            request.failureReason ||
-            `Transfer fee PHP ${request.transferFee.toFixed(2)}`,
+            request.payoutReference
+              ? `Payout reference ${request.payoutReference}${request.payoutNote ? ` · ${request.payoutNote}` : ""}`
+              : request.failureReason ||
+                `Transfer fee PHP ${request.transferFee.toFixed(2)}`,
         })),
       )
     }
@@ -654,10 +659,15 @@ export function SuperAdminConsole({
     decision: "successful" | "failed",
   ) {
     const reason = failedRequestReason.trim()
+    const payoutRef = payoutReference.trim()
     if (decision === "failed" && !reason) {
       setError(
         "Enter a reason before marking the floating-balance request failed.",
       )
+      return
+    }
+    if (decision === "successful" && !payoutRef) {
+      setError("Enter the bank payout reference before confirming settlement.")
       return
     }
     setReviewingRequestId(request.id)
@@ -667,16 +677,21 @@ export function SuperAdminConsole({
       const reviewed = await reviewAdminFloatingTransferRequest(
         request.id,
         decision,
-        decision === "failed" ? reason : undefined,
+        decision === "failed"
+          ? { reason }
+          : { payoutReference: payoutRef, payoutNote: payoutNote.trim() },
       )
       setTransferRequests((current) =>
         current.map((item) => (item.id === reviewed.id ? reviewed : item)),
       )
       setFailedRequestId("")
       setFailedRequestReason("")
+      setSuccessfulRequestId("")
+      setPayoutReference("")
+      setPayoutNote("")
       setNotice(
         decision === "successful"
-          ? "Request marked successful; the requested amount and fixed transfer fee were debited. Arrange the payout to the displayed bank account outside the app."
+          ? "Payout confirmed and recorded with its bank reference; the requested amount and fixed transfer fee were debited."
           : "Request marked failed. The reserved balance is available to the merchant again.",
       )
       await refreshAuditEvents()
@@ -1422,20 +1437,34 @@ export function SuperAdminConsole({
                               {request.failureReason}
                             </p>
                           )}
+                        {request.status === "SUCCESSFUL" &&
+                          request.payoutReference && (
+                            <p className="admin-transfer-reviewed">
+                              <strong>Bank payout reference</strong>{" "}
+                              {request.payoutReference}
+                              {request.payoutNote && (
+                                <>
+                                  <br />
+                                  <strong>Reconciliation note</strong>{" "}
+                                  {request.payoutNote}
+                                </>
+                              )}
+                            </p>
+                          )}
                         {request.status === "PENDING" ? (
                           <div className="admin-transfer-request-actions">
                             <Button
                               disabled={reviewingRequestId === request.id}
-                              onClick={() =>
-                                void reviewTransferRequest(
-                                  request,
-                                  "successful",
-                                )
-                              }
+                              onClick={() => {
+                                setSuccessfulRequestId(request.id)
+                                setPayoutReference("")
+                                setPayoutNote("")
+                                setError("")
+                              }}
                             >
                               {reviewingRequestId === request.id
                                 ? "Updating…"
-                                : "Mark successful"}
+                                : "Record payout"}
                             </Button>
                             <Button
                               variant="secondary"
@@ -1448,6 +1477,69 @@ export function SuperAdminConsole({
                             >
                               Mark failed
                             </Button>
+                            {successfulRequestId === request.id && (
+                              <form
+                                className="admin-transfer-failure-form"
+                                onSubmit={(event) => {
+                                  event.preventDefault()
+                                  void reviewTransferRequest(
+                                    request,
+                                    "successful",
+                                  )
+                                }}
+                              >
+                                <label>
+                                  <span>Bank payout reference</span>
+                                  <input
+                                    value={payoutReference}
+                                    onChange={(event) =>
+                                      setPayoutReference(event.target.value)
+                                    }
+                                    maxLength={120}
+                                    required
+                                    placeholder="Enter the bank/provider transaction reference"
+                                  />
+                                </label>
+                                <label>
+                                  <span>
+                                    Reconciliation note (visible to merchant, optional)
+                                  </span>
+                                  <textarea
+                                    value={payoutNote}
+                                    onChange={(event) =>
+                                      setPayoutNote(event.target.value)
+                                    }
+                                    maxLength={500}
+                                    rows={2}
+                                    placeholder="Add a note about matching the payout"
+                                  />
+                                </label>
+                                <div>
+                                  <Button
+                                    type="submit"
+                                    disabled={
+                                      reviewingRequestId === request.id ||
+                                      !payoutReference.trim()
+                                    }
+                                  >
+                                    {reviewingRequestId === request.id
+                                      ? "Recording…"
+                                      : "Confirm payout sent"}
+                                  </Button>
+                                  <Button
+                                    variant="quiet"
+                                    disabled={reviewingRequestId === request.id}
+                                    onClick={() => {
+                                      setSuccessfulRequestId("")
+                                      setPayoutReference("")
+                                      setPayoutNote("")
+                                    }}
+                                  >
+                                    Cancel
+                                  </Button>
+                                </div>
+                              </form>
+                            )}
                             {failedRequestId === request.id && (
                               <form
                                 className="admin-transfer-failure-form"

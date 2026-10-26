@@ -115,6 +115,7 @@ const swiftPayAccessKey = process.env.SWIFTPAY_ACCESS_KEY
 const swiftPaySecretKey = process.env.SWIFTPAY_SECRET_KEY
 const swiftPayEnvironment = process.env.SWIFTPAY_ENV || "sandbox"
 const tatumApiKey = process.env.TATUM_API_KEY
+const tronGridApiKey = process.env.TRONGRID_API_KEY
 const tronUsdtNetwork = process.env.TRON_USDT_NETWORK || "disabled"
 const tronMainnetUsdtContract = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
 const tronMainnetUsdtDecimals = 6
@@ -778,16 +779,43 @@ const { updatePaymentLinkStatus } = createPaymentStateService({
 
 async function dispatchTransactionNotifications() {
   const { rows } = await pool.query(`
-    SELECT n.*, p.status AS payment_status
+    SELECT n.*, p.status AS payment_status,
+      COALESCE(preferences.email_enabled, TRUE) AS email_enabled,
+      COALESCE(preferences.push_enabled, TRUE) AS push_enabled,
+      COALESCE(
+        CASE WHEN n.transaction_type = 'PAYMENT'
+          THEN preferences.payments_enabled ELSE preferences.transfers_enabled END,
+        TRUE
+      ) AS event_enabled
     FROM transaction_notifications n
     LEFT JOIN payment_links p
       ON n.transaction_type = 'PAYMENT' AND p.id = n.transaction_id
+    LEFT JOIN merchant_notification_preferences preferences
+      ON preferences.merchant_email = n.merchant_email
     WHERE n.email_sent_at IS NULL OR n.push_sent_at IS NULL
     ORDER BY n.created_at ASC
     LIMIT 25
   `)
   for (const notification of rows) {
-    if (!notification.email_sent_at) {
+    if (!notification.event_enabled) {
+      if (!notification.email_sent_at || !notification.push_sent_at) {
+        await pool.query(
+          `UPDATE transaction_notifications
+           SET email_sent_at = COALESCE(email_sent_at, NOW()),
+               push_sent_at = COALESCE(push_sent_at, NOW())
+           WHERE id = $1`,
+          [notification.id],
+        )
+      }
+      continue
+    }
+    if (!notification.email_enabled && !notification.email_sent_at) {
+      await pool.query(
+        "UPDATE transaction_notifications SET email_sent_at = NOW() WHERE id = $1",
+        [notification.id],
+      )
+    }
+    if (notification.email_enabled && !notification.email_sent_at) {
       try {
         await sendTransactionEmail(notification)
         await pool.query(
@@ -801,7 +829,13 @@ async function dispatchTransactionNotifications() {
         )
       }
     }
-    if (!notification.push_sent_at && fcmConfigured()) {
+    if (!notification.push_enabled && !notification.push_sent_at) {
+      await pool.query(
+        "UPDATE transaction_notifications SET push_sent_at = NOW() WHERE id = $1",
+        [notification.id],
+      )
+    }
+    if (notification.push_enabled && !notification.push_sent_at && fcmConfigured()) {
       try {
         const devices = await pool.query(
           "SELECT token FROM merchant_push_devices WHERE merchant_email = $1",
@@ -1086,13 +1120,26 @@ async function initializeDatabase() {
       resource_id UUID NOT NULL,
       payload JSONB NOT NULL,
       attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      last_attempt_at TIMESTAMPTZ,
       next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       delivered_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE (merchant_email, event_type, resource_id)
     );
+    ALTER TABLE merchant_webhook_deliveries ADD COLUMN IF NOT EXISTS last_error TEXT;
+    ALTER TABLE merchant_webhook_deliveries ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMPTZ;
     CREATE INDEX IF NOT EXISTS merchant_webhook_deliveries_pending_idx
       ON merchant_webhook_deliveries (next_attempt_at) WHERE delivered_at IS NULL;
+    CREATE TABLE IF NOT EXISTS merchant_webhook_delivery_attempts (
+      id UUID PRIMARY KEY,
+      delivery_id UUID NOT NULL REFERENCES merchant_webhook_deliveries(id) ON DELETE CASCADE,
+      attempted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      delivered BOOLEAN NOT NULL,
+      error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS merchant_webhook_delivery_attempts_delivery_idx
+      ON merchant_webhook_delivery_attempts (delivery_id, attempted_at DESC);
     CREATE TABLE IF NOT EXISTS floating_transfer_requests (
       id UUID PRIMARY KEY,
       merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email),
@@ -1103,10 +1150,14 @@ async function initializeDatabase() {
       account_number TEXT NOT NULL,
       status TEXT NOT NULL CHECK (status IN ('PENDING', 'SUCCESSFUL', 'FAILED')),
       failure_reason TEXT,
+      payout_reference TEXT,
+      payout_note TEXT,
       requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       reviewed_at TIMESTAMPTZ,
       reviewed_by TEXT
     );
+    ALTER TABLE floating_transfer_requests ADD COLUMN IF NOT EXISTS payout_reference TEXT;
+    ALTER TABLE floating_transfer_requests ADD COLUMN IF NOT EXISTS payout_note TEXT;
     CREATE TABLE IF NOT EXISTS admin_audit_events (
       id UUID PRIMARY KEY,
       event_key TEXT NOT NULL UNIQUE,
@@ -1160,6 +1211,16 @@ async function initializeDatabase() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS merchant_notification_preferences (
+      merchant_email TEXT PRIMARY KEY REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      email_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      push_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      payments_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      transfers_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    ALTER TABLE merchant_notification_preferences ADD COLUMN IF NOT EXISTS payments_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE merchant_notification_preferences ADD COLUMN IF NOT EXISTS transfers_enabled BOOLEAN NOT NULL DEFAULT TRUE;
     CREATE TABLE IF NOT EXISTS transaction_notifications (
       id UUID PRIMARY KEY,
       merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
@@ -1759,7 +1820,7 @@ async function dispatchMerchantWebhooks() {
         [delivery.endpoint_url, delivery.callback_url].filter(Boolean),
       ),
     ]
-    let failure = false
+    const failures = []
     for (const url of urls) {
       try {
         if (!(await validateWebhookUrl(url)))
@@ -1768,7 +1829,7 @@ async function dispatchMerchantWebhooks() {
           )
         await sendWebhookRequest(url, delivery.payload, signature)
       } catch (error) {
-        failure = true
+        failures.push(error.message)
         console.error(
           "Merchant webhook delivery failed",
           delivery.id,
@@ -1776,18 +1837,30 @@ async function dispatchMerchantWebhooks() {
         )
       }
     }
-    if (!failure) {
+    await pool.query(
+      `INSERT INTO merchant_webhook_delivery_attempts
+         (id, delivery_id, delivered, error)
+       VALUES ($1, $2, $3, $4)`,
+      [
+        randomUUID(),
+        delivery.id,
+        failures.length === 0,
+        failures.length ? failures.join(" ").slice(0, 500) : null,
+      ],
+    )
+    if (!failures.length) {
       await pool.query(
-        "UPDATE merchant_webhook_deliveries SET delivered_at = NOW(), attempts = attempts + 1 WHERE id = $1",
+        "UPDATE merchant_webhook_deliveries SET delivered_at = NOW(), last_attempt_at = NOW(), attempts = attempts + 1, last_error = NULL WHERE id = $1",
         [delivery.id],
       )
     } else {
       const delaySeconds = Math.min(3600, 30 * 2 ** delivery.attempts)
       await pool.query(
         `UPDATE merchant_webhook_deliveries
-         SET attempts = attempts + 1, next_attempt_at = NOW() + ($2 * INTERVAL '1 second')
+         SET attempts = attempts + 1, last_error = $3,
+           last_attempt_at = NOW(), next_attempt_at = NOW() + ($2 * INTERVAL '1 second')
          WHERE id = $1`,
-        [delivery.id, delaySeconds],
+        [delivery.id, delaySeconds, failures.join(" ").slice(0, 500)],
       )
     }
   }
@@ -2666,7 +2739,8 @@ app.get("/v1/admin/floating-transfer-requests", async (_req, res) => {
        transfer_fee::float8 AS "transferFee", status,
        bank_name AS "bankName", account_name AS "accountName", account_number AS "accountNumber",
        requested_at AS "requestedAt", reviewed_at AS "reviewedAt", reviewed_by AS "reviewedBy",
-       failure_reason AS "failureReason"
+       failure_reason AS "failureReason", payout_reference AS "payoutReference",
+       payout_note AS "payoutNote"
      FROM floating_transfer_requests
      ORDER BY CASE WHEN status = 'PENDING' THEN 0 ELSE 1 END, requested_at DESC`,
   )
@@ -2687,6 +2761,12 @@ app.post(
     }
     const failureReason =
       typeof req.body?.reason === "string" ? req.body.reason.trim() : ""
+    const payoutReference =
+      typeof req.body?.payoutReference === "string"
+        ? req.body.payoutReference.trim()
+        : ""
+    const payoutNote =
+      typeof req.body?.payoutNote === "string" ? req.body.payoutNote.trim() : ""
     if (
       decision === "failed" &&
       (!failureReason || failureReason.length > 500)
@@ -2696,6 +2776,19 @@ app.post(
         .json({
           error: "Enter a reason for the failed settlement (1–500 characters).",
         })
+    }
+    if (
+        decision === "successful" &&
+        (!payoutReference || payoutReference.length > 120)
+    ) {
+        return res.status(400).json({
+          error: "Enter the bank payout reference (1–120 characters).",
+        })
+    }
+    if (payoutNote.length > 500) {
+        return res
+          .status(400)
+          .json({ error: "Payout notes must be no longer than 500 characters." })
     }
     const client = await pool.connect()
     try {
@@ -2754,17 +2847,21 @@ app.post(
       }
       const updated = await client.query(
         `UPDATE floating_transfer_requests
-       SET status = $2, reviewed_at = NOW(), reviewed_by = $3, failure_reason = $4
+       SET status = $2, reviewed_at = NOW(), reviewed_by = $3, failure_reason = $4,
+         payout_reference = $5, payout_note = $6
        WHERE id = $1
        RETURNING id, merchant_email AS "merchantEmail", amount::float8 AS amount, status,
          bank_name AS "bankName", account_name AS "accountName", account_number AS "accountNumber",
          requested_at AS "requestedAt", reviewed_at AS "reviewedAt", reviewed_by AS "reviewedBy",
-         failure_reason AS "failureReason", transfer_fee::float8 AS "transferFee"`,
+         failure_reason AS "failureReason", transfer_fee::float8 AS "transferFee",
+         payout_reference AS "payoutReference", payout_note AS "payoutNote"`,
         [
           id,
           nextStatus,
           req.adminEmail,
           nextStatus === "FAILED" ? failureReason : null,
+          nextStatus === "SUCCESSFUL" ? payoutReference : null,
+          nextStatus === "SUCCESSFUL" ? payoutNote || null : null,
         ],
       )
       await recordAdminAuditEvent(client, {
@@ -2776,7 +2873,7 @@ app.post(
         summary: `PHP ${Number(request.rows[0].amount).toFixed(2)} · ${
           nextStatus === "FAILED"
             ? failureReason
-            : `Transfer fee PHP ${Number(request.rows[0].transfer_fee).toFixed(2)}`
+            : `Payout reference ${payoutReference} · transfer fee PHP ${Number(request.rows[0].transfer_fee).toFixed(2)}${payoutNote ? ` · ${payoutNote}` : ""}`
         }`,
       })
       await client.query("COMMIT")
@@ -3484,6 +3581,77 @@ app.get("/v1/crypto/usdt-wallet", cryptoWalletLimiter, async (req, res) => {
   }
 })
 
+app.get("/v1/crypto/usdt-deposits", cryptoWalletLimiter, async (req, res) => {
+  const wallet = await pool.query(
+    "SELECT address, network FROM merchant_usdt_wallets WHERE merchant_email = $1",
+    [req.merchantEmail],
+  )
+  const assigned = wallet.rows[0]
+  if (!assigned || assigned.network !== "TRON_MAINNET" || tronUsdtNetwork !== "mainnet") {
+    return res.set("Cache-Control", "no-store").json({
+      deposits: [],
+      configured: false,
+      message: "A confirmed TRON mainnet wallet is required to view USDT deposits.",
+    })
+  }
+  try {
+    const endpoint = new URL(
+      `https://api.trongrid.io/v1/accounts/${encodeURIComponent(assigned.address)}/transactions/trc20`,
+    )
+    endpoint.searchParams.set("limit", "50")
+    endpoint.searchParams.set("contract_address", tronMainnetUsdtContract)
+    endpoint.searchParams.set("only_confirmed", "true")
+    endpoint.searchParams.set("order_by", "block_timestamp,desc")
+    const headers = { Accept: "application/json" }
+    if (tronGridApiKey) headers["TRON-PRO-API-KEY"] = tronGridApiKey
+    const response = await fetch(endpoint, {
+      headers,
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!response.ok) throw new Error(`TRON transaction service returned HTTP ${response.status}`)
+    const result = await response.json()
+    if (!Array.isArray(result?.data)) {
+      throw new Error("TRON transaction service returned an invalid deposit list")
+    }
+    const deposits = result.data
+      .filter(
+        (item) =>
+          typeof item?.to === "string" &&
+          item.to.toLowerCase() === assigned.address.toLowerCase() &&
+          String(item?.token_info?.address || "").toLowerCase() ===
+            tronMainnetUsdtContract.toLowerCase() &&
+          String(item?.token_info?.symbol || "").toUpperCase() === "USDT" &&
+          Number(item?.token_info?.decimals) === tronMainnetUsdtDecimals &&
+          typeof item?.value === "string" &&
+          /^[0-9]+$/.test(item.value) &&
+          typeof item?.transaction_id === "string" &&
+          Number.isFinite(Number(item?.block_timestamp)),
+      )
+      .map((item) => ({
+        transactionId: item.transaction_id,
+        amount: formatTokenBalance(BigInt(item.value).toString(16), tronMainnetUsdtDecimals),
+        from: item.from,
+        blockTimestamp: new Date(Number(item.block_timestamp)).toISOString(),
+        confirmed: true,
+      }))
+    return res.set("Cache-Control", "no-store").json({
+      deposits,
+      configured: true,
+      message: null,
+    })
+  } catch (error) {
+    console.error(
+      "TRON USDT deposit history lookup failed",
+      error.name || "network error",
+    )
+    return res.status(503).set("Cache-Control", "no-store").json({
+      deposits: [],
+      configured: true,
+      message: "Could not retrieve confirmed USDT deposits. Try again shortly.",
+    })
+  }
+})
+
 app.get("/v1/kyb", async (req, res) => {
   const [profile, documents] = await Promise.all([
     pool.query(
@@ -3957,6 +4125,50 @@ app.get("/v1/webhook", async (req, res) => {
   return res.set("Cache-Control", "no-store").json(result.rows[0] || null)
 })
 
+app.get("/v1/webhook/deliveries", async (req, res) => {
+  const result = await pool.query(
+    `SELECT id, event_type AS "eventType", resource_id AS "resourceId",
+       payload, attempts, next_attempt_at AS "nextAttemptAt",
+       delivered_at AS "deliveredAt", last_error AS "lastError",
+       last_attempt_at AS "lastAttemptAt",
+       COALESCE((
+         SELECT json_agg(json_build_object(
+           'attemptedAt', attempt.attempted_at,
+           'delivered', attempt.delivered,
+           'error', attempt.error
+         ) ORDER BY attempt.attempted_at ASC)
+         FROM merchant_webhook_delivery_attempts attempt
+         WHERE attempt.delivery_id = d.id
+       ), '[]'::json) AS "attemptHistory",
+       created_at AS "createdAt"
+     FROM merchant_webhook_deliveries d
+     WHERE d.merchant_email = $1
+     ORDER BY d.created_at DESC LIMIT 50`,
+    [req.merchantEmail],
+  )
+  return res.set("Cache-Control", "no-store").json(result.rows)
+})
+
+app.post("/v1/webhook/deliveries/:id/retry", async (req, res) => {
+  if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) {
+    return res.status(400).json({ error: "The webhook delivery ID is invalid." })
+  }
+  const result = await pool.query(
+    `UPDATE merchant_webhook_deliveries
+     SET attempts = 0, next_attempt_at = NOW(), last_error = NULL
+     WHERE id = $1 AND merchant_email = $2 AND delivered_at IS NULL
+       AND attempts >= 8
+     RETURNING id`,
+    [req.params.id, req.merchantEmail],
+  )
+  if (!result.rowCount) {
+    return res.status(409).json({
+      error: "Only an exhausted, undelivered webhook can be retried.",
+    })
+  }
+  return res.status(202).json({ queued: true })
+})
+
 app.put("/v1/webhook", async (req, res) => {
   const endpointUrl =
     typeof req.body?.endpointUrl === "string" ? req.body.endpointUrl.trim() : ""
@@ -4074,7 +4286,8 @@ app.get("/v1/floating-balance/transfer-requests", async (req, res) => {
     `SELECT id, amount::float8 AS amount, transfer_fee::float8 AS "transferFee", status, bank_name AS "bankName",
        account_name AS "accountName", account_number AS "accountNumber",
        requested_at AS "requestedAt", reviewed_at AS "reviewedAt",
-       failure_reason AS "failureReason"
+       failure_reason AS "failureReason", payout_reference AS "payoutReference",
+       payout_note AS "payoutNote"
      FROM floating_transfer_requests WHERE merchant_email = $1
      ORDER BY requested_at DESC LIMIT 50`,
     [req.merchantEmail],
@@ -4145,6 +4358,53 @@ app.post("/v1/notifications/push-token/remove", async (req, res) => {
     [token, req.merchantEmail],
   )
   return res.json({ removed: true })
+})
+
+app.get("/v1/notifications/preferences", async (req, res) => {
+  const result = await pool.query(
+    `SELECT COALESCE(email_enabled, TRUE) AS "emailEnabled",
+       COALESCE(push_enabled, TRUE) AS "pushEnabled",
+       COALESCE(payments_enabled, TRUE) AS "paymentsEnabled",
+       COALESCE(transfers_enabled, TRUE) AS "transfersEnabled"
+     FROM merchant_notification_preferences WHERE merchant_email = $1`,
+    [req.merchantEmail],
+  )
+  return res.set("Cache-Control", "no-store").json(
+    result.rows[0] || {
+      emailEnabled: true,
+      pushEnabled: true,
+      paymentsEnabled: true,
+      transfersEnabled: true,
+    },
+  )
+})
+
+app.put("/v1/notifications/preferences", async (req, res) => {
+  const { emailEnabled, pushEnabled, paymentsEnabled, transfersEnabled } =
+    req.body || {}
+  if (
+    [emailEnabled, pushEnabled, paymentsEnabled, transfersEnabled].some(
+      (value) => typeof value !== "boolean",
+    )
+  ) {
+    return res.status(400).json({
+      error: "Choose valid transaction notification preferences.",
+    })
+  }
+  const result = await pool.query(
+    `INSERT INTO merchant_notification_preferences
+       (merchant_email, email_enabled, push_enabled, payments_enabled, transfers_enabled, updated_at)
+     VALUES ($1, $2, $3, $4, $5, NOW())
+     ON CONFLICT (merchant_email) DO UPDATE SET
+       email_enabled = EXCLUDED.email_enabled,
+       push_enabled = EXCLUDED.push_enabled,
+       payments_enabled = EXCLUDED.payments_enabled,
+       transfers_enabled = EXCLUDED.transfers_enabled, updated_at = NOW()
+     RETURNING email_enabled AS "emailEnabled", push_enabled AS "pushEnabled",
+       payments_enabled AS "paymentsEnabled", transfers_enabled AS "transfersEnabled"`,
+    [req.merchantEmail, emailEnabled, pushEnabled, paymentsEnabled, transfersEnabled],
+  )
+  return res.set("Cache-Control", "no-store").json(result.rows[0])
 })
 
 app.post("/v1/security/biometric", async (req, res) => {
@@ -4780,8 +5040,24 @@ app.get("/v1/wallet/activity", async (req, res) => {
     100,
   )
   const offset = Math.max(Number.parseInt(req.query.offset, 10) || 0, 0)
+  const fromDate = typeof req.query.from === "string" ? req.query.from : null
+  const toDate = typeof req.query.to === "string" ? req.query.to : null
+  const isValidDate = (value) =>
+    value === null ||
+    (/^\d{4}-\d{2}-\d{2}$/.test(value) &&
+      !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`)) &&
+      new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) === value)
+  if (
+    !isValidDate(fromDate) ||
+    !isValidDate(toDate) ||
+    (fromDate && toDate && fromDate > toDate)
+  ) {
+    return res.status(400).json({
+      error: "Choose a valid activity date range.",
+    })
+  }
   try {
-    await reconcilePending()
+    if (offset === 0) await reconcilePending()
     const { rows } = await pool.query(
       `
       SELECT p.id::text, p.reference_no AS "referenceNo",
@@ -4806,6 +5082,8 @@ app.get("/v1/wallet/activity", async (req, res) => {
       ) refund ON TRUE
       WHERE p.merchant_email = $3
         AND p.created_at >= (SELECT created_at FROM merchant_accounts WHERE email = $3)
+        AND ($5::date IS NULL OR p.created_at >= $5::date)
+        AND ($6::date IS NULL OR p.created_at < $6::date + INTERVAL '1 day')
       UNION ALL
       SELECT d.id::text, d.merchant_reference_no AS "referenceNo", d.institution_code AS "institutionCode",
         CASE WHEN d.refund_payment_id IS NOT NULL THEN 'Refund of collection ' || p.reference_no ELSE d.institution_code END AS description,
@@ -4821,9 +5099,11 @@ app.get("/v1/wallet/activity", async (req, res) => {
       LEFT JOIN payment_links p ON p.id = d.refund_payment_id
       WHERE d.merchant_email = $3
         AND d.created_at >= (SELECT created_at FROM merchant_accounts WHERE email = $3)
+        AND ($5::date IS NULL OR d.created_at >= $5::date)
+        AND ($6::date IS NULL OR d.created_at < $6::date + INTERVAL '1 day')
       ORDER BY "createdAt" DESC LIMIT $1 OFFSET $2
     `,
-      [limit, offset, req.merchantEmail, maxTransferAmount],
+      [limit, offset, req.merchantEmail, maxTransferAmount, fromDate, toDate],
     )
     let institutions = institutionCache.get("all")?.items
     if (!institutions || institutionCache.get("all").expiresAt <= Date.now()) {

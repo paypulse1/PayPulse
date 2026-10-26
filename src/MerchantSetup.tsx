@@ -6,6 +6,8 @@ import {
   getMerchantApiKeys,
   getMerchantKyb,
   getMerchantWebhook,
+  getMerchantWebhookDeliveries,
+  retryMerchantWebhookDelivery,
   revokeMerchantApiKey,
   saveMerchantKybProfile,
   saveMerchantWebhook,
@@ -14,6 +16,7 @@ import {
   type KybProfile,
   type MerchantApiKey,
   type MerchantWebhookSettings,
+  type WebhookDelivery,
 } from "./lib/swiftpay";
 
 function Button({
@@ -181,6 +184,7 @@ export function KybSetupPanel() {
 export function DeveloperSetupPanel() {
   const [keys, setKeys] = useState<MerchantApiKey[]>([]);
   const [webhook, setWebhook] = useState<MerchantWebhookSettings | null>(null);
+  const [deliveries, setDeliveries] = useState<WebhookDelivery[]>([]);
   const [keyName, setKeyName] = useState("");
   const [keyScopes, setKeyScopes] = useState(["read"]);
   const [endpointUrl, setEndpointUrl] = useState("");
@@ -189,15 +193,17 @@ export function DeveloperSetupPanel() {
   const [newKey, setNewKey] = useState("");
   const [signingSecret, setSigningSecret] = useState("");
   const [busy, setBusy] = useState("");
+  const [refreshingDeliveries, setRefreshingDeliveries] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
     let active = true;
-    Promise.all([getMerchantApiKeys(), getMerchantWebhook()]).then(([nextKeys, nextWebhook]) => {
+    Promise.all([getMerchantApiKeys(), getMerchantWebhook(), getMerchantWebhookDeliveries()]).then(([nextKeys, nextWebhook, nextDeliveries]) => {
       if (!active) return;
       setKeys(nextKeys);
       setWebhook(nextWebhook);
+      setDeliveries(nextDeliveries);
       if (nextWebhook) {
         setEndpointUrl(nextWebhook.endpointUrl);
         setCallbackUrl(nextWebhook.callbackUrl || "");
@@ -274,6 +280,38 @@ export function DeveloperSetupPanel() {
     }
   }
 
+  async function retryDelivery(id: string) {
+    setBusy(id);
+    setError("");
+    try {
+      await retryMerchantWebhookDelivery(id);
+      setDeliveries((current) =>
+        current.map((delivery) =>
+          delivery.id === id
+            ? { ...delivery, attempts: 0, lastError: null, nextAttemptAt: new Date().toISOString() }
+            : delivery,
+        ),
+      );
+      setNotice("Webhook delivery queued for retry.");
+    } catch (retryError) {
+      setError(retryError instanceof Error ? retryError.message : "Could not retry the webhook delivery.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function refreshDeliveries() {
+    setRefreshingDeliveries(true);
+    setError("");
+    try {
+      setDeliveries(await getMerchantWebhookDeliveries());
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Could not refresh webhook history.");
+    } finally {
+      setRefreshingDeliveries(false);
+    }
+  }
+
   function toggleValue(values: string[], value: string, update: (next: string[]) => void) {
     update(values.includes(value) ? values.filter((item) => item !== value) : [...values, value]);
   }
@@ -303,6 +341,59 @@ export function DeveloperSetupPanel() {
         <Button type="submit" disabled={busy !== "" || events.length === 0}>{busy === "webhook" ? "Saving…" : "Save webhook settings"}</Button>
         {webhook && <Button variant="secondary" disabled={busy !== ""} onClick={() => void removeWebhook()}>{busy === "delete-webhook" ? "Deleting…" : "Delete webhook"}</Button>}
       </form>
+      <div className="profile-info-intro">
+        <strong>Recent webhook deliveries</strong>
+        <p>Delivery history is limited to the latest 50 events. Failed deliveries retry automatically up to eight attempts.</p>
+      </div>
+      <Button
+        variant="secondary"
+        disabled={refreshingDeliveries || busy !== ""}
+        onClick={() => void refreshDeliveries()}
+      >
+        {refreshingDeliveries ? "Refreshing…" : "Refresh delivery history"}
+      </Button>
+      {deliveries.length ? (
+        <div className="setup-key-list">
+          {deliveries.map((delivery) => (
+            <div className="setup-key-row" key={delivery.id}>
+              <span>
+                <strong>{delivery.eventType} · {delivery.deliveredAt ? "Delivered" : delivery.attempts >= 8 ? "Needs attention" : "Retrying"}</strong>
+                <small>
+                  {new Date(delivery.createdAt).toLocaleString()} · {delivery.attemptHistory.length} total attempt{delivery.attemptHistory.length === 1 ? "" : "s"} · resource {delivery.resourceId}
+                </small>
+                <small>
+                  {delivery.deliveredAt
+                    ? `Delivered ${new Date(delivery.deliveredAt).toLocaleString()}`
+                    : delivery.lastAttemptAt
+                      ? `Last attempt ${new Date(delivery.lastAttemptAt).toLocaleString()}`
+                      : `Next attempt ${new Date(delivery.nextAttemptAt).toLocaleString()}`}
+                </small>
+                {delivery.attemptHistory.slice(-3).map((attempt, index) => (
+                  <small key={`${delivery.id}-${attempt.attemptedAt}-${index}`}>
+                    {new Date(attempt.attemptedAt).toLocaleString()} ·{" "}
+                    {attempt.delivered
+                      ? "Delivered"
+                      : attempt.error || "Delivery failed"}
+                  </small>
+                ))}
+                {delivery.lastError && <small>{delivery.lastError}</small>}
+              </span>
+              {!delivery.deliveredAt && delivery.attempts >= 8 && (
+                <button
+                  className="setup-link-button"
+                  type="button"
+                  disabled={busy !== ""}
+                  onClick={() => void retryDelivery(delivery.id)}
+                >
+                  {busy === delivery.id ? "Queueing…" : "Retry"}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="profile-info-note">No webhook events have been queued yet.</p>
+      )}
       {signingSecret && <div className="setup-secret"><strong>Copy this signing secret now</strong><code>{signingSecret}</code></div>}
       {error && <p className="setup-error" role="alert">{error}</p>}
       {notice && <p className="setup-notice" role="status">{notice}</p>}

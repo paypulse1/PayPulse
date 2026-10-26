@@ -196,6 +196,20 @@ export type MerchantUsdtWallet = {
   message: string | null;
 };
 
+export type MerchantUsdtDeposit = {
+  transactionId: string;
+  amount: string;
+  from: string;
+  blockTimestamp: string;
+  confirmed: boolean;
+};
+
+export type MerchantUsdtDepositHistory = {
+  deposits: MerchantUsdtDeposit[];
+  configured: boolean;
+  message: string | null;
+};
+
 export type AdminInternalWalletSummary = {
   email: string;
   active: boolean;
@@ -238,6 +252,33 @@ export type FloatingTransferRequest = {
   reviewedAt: string | null;
   reviewedBy?: string | null;
   failureReason: string | null;
+  payoutReference?: string | null;
+  payoutNote?: string | null;
+};
+
+export type MerchantNotificationPreferences = {
+  emailEnabled: boolean;
+  pushEnabled: boolean;
+  paymentsEnabled: boolean;
+  transfersEnabled: boolean;
+};
+
+export type WebhookDelivery = {
+  id: string;
+  eventType: string;
+  resourceId: string;
+  payload: Record<string, unknown>;
+  attempts: number;
+  nextAttemptAt: string;
+  deliveredAt: string | null;
+  lastError: string | null;
+  lastAttemptAt: string | null;
+  attemptHistory: {
+    attemptedAt: string;
+    delivered: boolean;
+    error: string | null;
+  }[];
+  createdAt: string;
 };
 
 export type KybDocument = {
@@ -602,6 +643,24 @@ export async function getMerchantActivityTrend(): Promise<MerchantActivityTrendP
   return backendRequest<MerchantActivityTrendPoint[]>("/v1/wallet/activity/trend");
 }
 
+export async function getMerchantActivityPage(input: {
+  limit?: number;
+  offset?: number;
+  from?: string;
+  to?: string;
+} = {}): Promise<Transaction[]> {
+  const params = new URLSearchParams({
+    limit: String(input.limit ?? 50),
+    offset: String(input.offset ?? 0),
+  });
+  if (input.from) params.set("from", input.from);
+  if (input.to) params.set("to", input.to);
+  const rows = await backendRequest<WalletActivityResponse[]>(
+    `/v1/wallet/activity?${params.toString()}`,
+  );
+  return rows.map(toTransaction);
+}
+
 export async function registerPushDevice(token: string) {
   return backendRequest<{ registered: true }>("/v1/notifications/push-token", {
     method: "POST",
@@ -613,6 +672,17 @@ export async function removePushDevice(token: string) {
   return backendRequest<{ removed: true }>("/v1/notifications/push-token/remove", {
     method: "POST",
     body: JSON.stringify({ token }),
+  });
+}
+
+export async function getMerchantNotificationPreferences(): Promise<MerchantNotificationPreferences> {
+  return backendRequest<MerchantNotificationPreferences>("/v1/notifications/preferences");
+}
+
+export async function saveMerchantNotificationPreferences(input: MerchantNotificationPreferences): Promise<MerchantNotificationPreferences> {
+  return backendRequest<MerchantNotificationPreferences>("/v1/notifications/preferences", {
+    method: "PUT",
+    body: JSON.stringify(input),
   });
 }
 
@@ -761,6 +831,10 @@ export async function getMerchantUsdtWallet(): Promise<MerchantUsdtWallet> {
   return backendRequest<MerchantUsdtWallet>("/v1/crypto/usdt-wallet");
 }
 
+export async function getMerchantUsdtDeposits(): Promise<MerchantUsdtDepositHistory> {
+  return backendRequest<MerchantUsdtDepositHistory>("/v1/crypto/usdt-deposits");
+}
+
 export async function getAdminInternalWallets(): Promise<AdminInternalWalletSummary[]> {
   return backendRequest<AdminInternalWalletSummary[]>("/v1/admin/internal-wallets");
 }
@@ -776,11 +850,11 @@ export async function getAdminFloatingTransferRequests(): Promise<FloatingTransf
 export async function reviewAdminFloatingTransferRequest(
   id: string,
   decision: "successful" | "failed",
-  reason?: string,
+  input: { reason?: string; payoutReference?: string; payoutNote?: string } = {},
 ): Promise<FloatingTransferRequest> {
   return backendRequest<FloatingTransferRequest>(`/v1/admin/floating-transfer-requests/${encodeURIComponent(id)}/${decision}`, {
     method: "POST",
-    body: JSON.stringify({ reason }),
+    body: JSON.stringify(input),
   });
 }
 
@@ -807,6 +881,16 @@ export async function updateMerchantPayoutAccount(input: MerchantPayoutAccount):
 
 export async function getMerchantFloatingTransferRequests(): Promise<FloatingTransferRequest[]> {
   return backendRequest<FloatingTransferRequest[]>("/v1/floating-balance/transfer-requests");
+}
+
+export async function getMerchantWebhookDeliveries(): Promise<WebhookDelivery[]> {
+  return backendRequest<WebhookDelivery[]>("/v1/webhook/deliveries");
+}
+
+export async function retryMerchantWebhookDelivery(id: string): Promise<void> {
+  await backendRequest<{ queued: true }>(`/v1/webhook/deliveries/${encodeURIComponent(id)}/retry`, {
+    method: "POST",
+  });
 }
 
 export async function createMerchantFloatingTransferRequest(input: { amount: number }): Promise<FloatingTransferRequest> {

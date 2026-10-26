@@ -59,9 +59,14 @@ import {
   getApiBaseUrl,
   getMerchantActivityTrend,
   getMerchantDashboard,
+  getMerchantActivityPage,
   createMerchantFloatingTransferRequest,
+  getMerchantFloatingTransferRequests,
+  getMerchantNotificationPreferences,
+  saveMerchantNotificationPreferences,
   getMerchantPayoutAccount,
   getMerchantUsdtWallet,
+  getMerchantUsdtDeposits,
   getMerchantSecurityStatus,
   getPaymentLinkIdempotencyKey,
   getPaymentLinkStatus,
@@ -77,7 +82,10 @@ import {
   type DashboardData,
   type MerchantActivityTrendPoint,
   type MerchantPayoutAccount,
+  type FloatingTransferRequest,
+  type MerchantNotificationPreferences,
   type MerchantUsdtWallet,
+  type MerchantUsdtDeposit,
   type MerchantSecurityStatus,
   type CurrencyQuote,
   type Institution,
@@ -2956,6 +2964,9 @@ function WalletFloatingBalanceCard({
   const [requestError, setRequestError] = useState("")
   const [requestMessage, setRequestMessage] = useState("")
   const [requestSubmitting, setRequestSubmitting] = useState(false)
+  const [payoutRequests, setPayoutRequests] = useState<FloatingTransferRequest[]>([])
+  const [payoutRequestsError, setPayoutRequestsError] = useState("")
+  const [refreshingPayoutRequests, setRefreshingPayoutRequests] = useState(false)
   const collectionTargetKrw = 1_000_000
   const currentCollectionsKrw = Math.max(0, data.cumulativeKrwCollections)
   const collectionProgress = Math.min(
@@ -3001,6 +3012,41 @@ function WalletFloatingBalanceCard({
     }
   }, [])
 
+  async function refreshPayoutRequests() {
+    setRefreshingPayoutRequests(true)
+    setPayoutRequestsError("")
+    try {
+      setPayoutRequests(await getMerchantFloatingTransferRequests())
+    } catch (error) {
+      setPayoutRequestsError(
+        error instanceof Error
+          ? error.message
+          : "Could not load payout request history.",
+      )
+    } finally {
+      setRefreshingPayoutRequests(false)
+    }
+  }
+
+  useEffect(() => {
+    let active = true
+    getMerchantFloatingTransferRequests()
+      .then((requests) => {
+        if (active) setPayoutRequests(requests)
+      })
+      .catch((error) => {
+        if (active)
+          setPayoutRequestsError(
+            error instanceof Error
+              ? error.message
+              : "Could not load payout request history.",
+          )
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
   async function submitTransferRequest() {
     setRequestError("")
     setRequestMessage("")
@@ -3008,7 +3054,8 @@ function WalletFloatingBalanceCard({
     if (amount <= 0) return
     setRequestSubmitting(true)
     try {
-      await createMerchantFloatingTransferRequest({ amount })
+      const request = await createMerchantFloatingTransferRequest({ amount })
+      setPayoutRequests((current) => [request, ...current].slice(0, 50))
       setAvailableToRequest((available) =>
         Math.max(0, available - amount - data.transferFeeFixed),
       )
@@ -3134,6 +3181,47 @@ function WalletFloatingBalanceCard({
           </p>
         )}
       </section>
+      <section className="unsettled-request-history" aria-label="Payout request history">
+        <header className="section-header">
+          <h3>Request history</h3>
+          <button
+            type="button"
+            className="text-button"
+            disabled={refreshingPayoutRequests}
+            onClick={() => void refreshPayoutRequests()}
+          >
+            {refreshingPayoutRequests ? "Refreshing…" : "Refresh"}
+          </button>
+        </header>
+        {payoutRequestsError ? (
+          <p className="inline-error" role="alert">{payoutRequestsError}</p>
+        ) : payoutRequests.length ? (
+          <div className="profile-recent-list">
+            {payoutRequests.map((request) => (
+              <div key={request.id}>
+                <span>
+                  <strong>
+                    PHP {request.amount.toLocaleString("en-PH", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </strong>
+                  <small>
+                    {new Date(request.requestedAt).toLocaleDateString()} · {request.bankName} · {request.status}
+                  </small>
+                  {request.payoutReference && (
+                    <small>Bank reference: {request.payoutReference}</small>
+                  )}
+                  {request.payoutNote && <small>{request.payoutNote}</small>}
+                  {request.failureReason && <small>{request.failureReason}</small>}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="profile-info-note">Your payout requests and reconciliation references will appear here.</p>
+        )}
+      </section>
     </section>
   )
 }
@@ -3143,26 +3231,49 @@ function WalletActivitySection({
   totalTransactions,
   filter,
   query,
+  fromDate,
+  toDate,
+  hasMore,
+  loadingMore,
+  activityError,
+  onExport,
   onFilterChange,
   onQueryChange,
+  onDateChange,
+  onLoadMore,
   onTransaction,
 }: {
   transactions: Transaction[]
   totalTransactions: number
   filter: string
   query: string
+  fromDate: string
+  toDate: string
+  hasMore: boolean
+  loadingMore: boolean
+  activityError: string
+  onExport: (fromDate: string, toDate: string) => void
   onFilterChange: (filter: string) => void
   onQueryChange: (query: string) => void
+  onDateChange: (key: "from" | "to", value: string) => void
+  onLoadMore: () => void
   onTransaction: (transaction: Transaction) => void
 }) {
   return (
     <>
       <header className="wallet-activity-heading">
         <div>
-          <span className="eyebrow">LATEST 50 RECORDS</span>
+          <span className="eyebrow">MERCHANT ACTIVITY</span>
           <h2>Wallet activity</h2>
         </div>
         <span>{transactions.length} shown</span>
+        <button
+          type="button"
+          className="text-button"
+          onClick={() => onExport(fromDate, toDate)}
+        >
+          Export date-range CSV
+        </button>
       </header>
       <label className="activity-search">
         <Search size={16} />
@@ -3173,6 +3284,26 @@ function WalletActivitySection({
           aria-label="Search wallet activity"
         />
       </label>
+      <div className="wallet-date-filters" aria-label="Filter activity by date">
+        <label>
+          <span>From</span>
+          <input
+            type="date"
+            value={fromDate}
+            max={toDate || undefined}
+            onChange={(event) => onDateChange("from", event.target.value)}
+          />
+        </label>
+        <label>
+          <span>To</span>
+          <input
+            type="date"
+            value={toDate}
+            min={fromDate || undefined}
+            onChange={(event) => onDateChange("to", event.target.value)}
+          />
+        </label>
+      </div>
       <div className="filter-row">
         {WALLET_ACTIVITY_FILTERS.map((item) => (
           <button
@@ -3211,15 +3342,30 @@ function WalletActivitySection({
           </div>
         )}
       </div>
+      {activityError && <p className="inline-error" role="alert">{activityError}</p>}
+      {hasMore && (
+        <Button
+          variant="secondary"
+          disabled={loadingMore}
+          onClick={onLoadMore}
+        >
+          {loadingMore ? "Loading…" : "Load more activity"}
+        </Button>
+      )}
     </>
   )
 }
 
 function MainnetUsdtWallet() {
   const [wallet, setWallet] = useState<MerchantUsdtWallet | null>(null)
+  const [deposits, setDeposits] = useState<MerchantUsdtDeposit[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState("")
+  const [depositError, setDepositError] = useState("")
+  const [depositMessage, setDepositMessage] = useState("")
+  const [depositLoading, setDepositLoading] = useState(true)
+  const [depositRefreshing, setDepositRefreshing] = useState(false)
   const [copyMessage, setCopyMessage] = useState("")
 
   async function loadWallet(refresh = false) {
@@ -3241,8 +3387,30 @@ function MainnetUsdtWallet() {
     }
   }
 
+  async function loadDeposits(refresh = false) {
+    if (refresh) setDepositRefreshing(true)
+    else setDepositLoading(true)
+    setDepositError("")
+    try {
+      const result = await getMerchantUsdtDeposits()
+      setDeposits(result.deposits)
+      setDepositMessage(result.message || "")
+    } catch (loadError) {
+      setDeposits([])
+      setDepositError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Could not load confirmed USDT deposits.",
+      )
+    } finally {
+      setDepositLoading(false)
+      setDepositRefreshing(false)
+    }
+  }
+
   useEffect(() => {
     void loadWallet()
+    void loadDeposits()
   }, [])
 
   async function copyAddress() {
@@ -3304,6 +3472,55 @@ function MainnetUsdtWallet() {
           </Button>
         )}
       </div>
+      <section className="crypto-deposit-history" aria-label="USDT deposit history">
+        <header className="section-header">
+          <div>
+            <span className="eyebrow">TRON · TRC20</span>
+            <h3>Recent USDT deposits</h3>
+          </div>
+          <Button
+            variant="quiet"
+            disabled={depositLoading || depositRefreshing}
+            onClick={() => void loadDeposits(true)}
+          >
+            {depositRefreshing ? "Refreshing…" : "Refresh"}
+          </Button>
+        </header>
+        {depositLoading ? (
+          <p className="crypto-wallet-feedback" role="status">Loading confirmed deposits…</p>
+        ) : depositError ? (
+          <p className="crypto-wallet-feedback crypto-wallet-error" role="alert">{depositError}</p>
+        ) : deposits.length ? (
+          <div className="crypto-deposit-list">
+            {deposits.map((deposit) => (
+              <article className="crypto-deposit-row" key={deposit.transactionId}>
+                <div>
+                  <strong>{deposit.amount} USDT</strong>
+                  <small>{new Date(deposit.blockTimestamp).toLocaleString()}</small>
+                  <small>From {deposit.from}</small>
+                </div>
+                <span className="crypto-wallet-badge">
+                  {deposit.confirmed ? "CONFIRMED" : "PENDING"}
+                </span>
+                <a
+                  href={`https://tronscan.org/#/transaction/${encodeURIComponent(deposit.transactionId)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  View transaction
+                </a>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="crypto-wallet-feedback" role="status">
+            {depositMessage || "No confirmed USDT deposits found in the latest 50 TRC20 transfers."}
+          </p>
+        )}
+        <p className="crypto-wallet-disclaimer">
+          Only confirmed incoming transfers of the official TRON USDT contract are shown. This history is read-only and does not establish address ownership or provide withdrawal support.
+        </p>
+      </section>
       <div
         className="crypto-wallet-actions"
         aria-label="Unavailable crypto operations"
@@ -3342,8 +3559,11 @@ function MainnetUsdtWallet() {
       <Button
         variant="quiet"
         className="crypto-wallet-refresh"
-        disabled={loading || refreshing}
-        onClick={() => void loadWallet(true)}
+        disabled={loading || refreshing || depositLoading || depositRefreshing}
+        onClick={() => {
+          void loadWallet(true)
+          void loadDeposits(true)
+        }}
       >
         {refreshing ? "Refreshing…" : "Refresh mainnet balance"}
       </Button>
@@ -3354,22 +3574,88 @@ function MainnetUsdtWallet() {
 function WalletView({
   data,
   onTransaction,
+  onExportActivity,
   showUnsettledFunds,
   onOpenUnsettledFunds,
   onCloseUnsettledFunds,
 }: {
   data: DashboardData
   onTransaction: (transaction: Transaction) => void
+  onExportActivity: (fromDate: string, toDate: string) => void
   showUnsettledFunds: boolean
   onOpenUnsettledFunds: () => void
   onCloseUnsettledFunds: () => void
 }) {
   const [filter, setFilter] = useState("All activity")
   const [query, setQuery] = useState("")
+  const [fromDate, setFromDate] = useState("")
+  const [toDate, setToDate] = useState("")
+  const [activity, setActivity] = useState(data.transactions)
+  const [activityHasMore, setActivityHasMore] = useState(
+    data.transactions.length === 50,
+  )
+  const [activityLoading, setActivityLoading] = useState(false)
+  const [activityError, setActivityError] = useState("")
   const { balanceVisible, toggleBalanceVisibility } = useBalanceVisibility()
+  useEffect(() => {
+    if (!fromDate && !toDate) {
+      setActivity(data.transactions)
+      setActivityHasMore(data.transactions.length === 50)
+      setActivityError("")
+      setActivityLoading(false)
+      return
+    }
+    let active = true
+    setActivityLoading(true)
+    setActivityError("")
+    getMerchantActivityPage({ limit: 50, offset: 0, from: fromDate, to: toDate })
+      .then((page) => {
+        if (!active) return
+        setActivity(page)
+        setActivityHasMore(page.length === 50)
+      })
+      .catch((loadError) => {
+        if (active)
+          setActivityError(
+            loadError instanceof Error
+              ? loadError.message
+              : "Could not load wallet activity.",
+          )
+      })
+      .finally(() => {
+        if (active) setActivityLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [fromDate, toDate, data.transactions])
+
+  async function loadMoreActivity() {
+    setActivityLoading(true)
+    setActivityError("")
+    try {
+      const page = await getMerchantActivityPage({
+        limit: 50,
+        offset: activity.length,
+        from: fromDate,
+        to: toDate,
+      })
+      setActivity((current) => [...current, ...page])
+      setActivityHasMore(page.length === 50)
+    } catch (loadError) {
+      setActivityError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Could not load more wallet activity.",
+      )
+    } finally {
+      setActivityLoading(false)
+    }
+  }
+
   const transactions = useMemo(
     () =>
-      data.transactions.filter((item) => {
+      activity.filter((item) => {
         const matchesFilter =
           filter === "All activity" ||
           (filter === "Money in" &&
@@ -3383,7 +3669,7 @@ function WalletView({
             .includes(query.toLowerCase())
         return matchesFilter && matchesQuery
       }),
-    [data.transactions, filter, query],
+    [activity, filter, query],
   )
 
   if (showUnsettledFunds) {
@@ -3436,11 +3722,22 @@ function WalletView({
       </button>
       <WalletActivitySection
         transactions={transactions}
-        totalTransactions={data.transactions.length}
+        totalTransactions={activity.length}
         filter={filter}
         query={query}
+        fromDate={fromDate}
+        toDate={toDate}
+        hasMore={activityHasMore}
+        loadingMore={activityLoading}
+        activityError={activityError}
+        onExport={onExportActivity}
         onFilterChange={setFilter}
         onQueryChange={setQuery}
+        onDateChange={(key, value) => {
+          if (key === "from") setFromDate(value)
+          else setToDate(value)
+        }}
+        onLoadMore={() => void loadMoreActivity()}
         onTransaction={onTransaction}
       />
     </section>
@@ -3708,7 +4005,56 @@ function ProfileInfoPage({
   const [institutionsLoading, setInstitutionsLoading] = useState(false)
   const [institutionsError, setInstitutionsError] = useState("")
   const [retryInstitutions, setRetryInstitutions] = useState(0)
+  const [notificationPreferences, setNotificationPreferences] =
+    useState<MerchantNotificationPreferences | null>(null)
+  const [notificationPreferencesError, setNotificationPreferencesError] =
+    useState("")
+  const [savingNotificationPreference, setSavingNotificationPreference] =
+    useState(false)
   const { balanceVisible } = useBalanceVisibility()
+
+  useEffect(() => {
+    if (title !== "Notifications") return
+    let active = true
+    getMerchantNotificationPreferences()
+      .then((preferences) => {
+        if (active) setNotificationPreferences(preferences)
+      })
+      .catch((requestError) => {
+        if (active)
+          setNotificationPreferencesError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Could not load notification preferences.",
+          )
+      })
+    return () => {
+      active = false
+    }
+  }, [title])
+
+  async function toggleNotificationPreference(
+    key: keyof MerchantNotificationPreferences,
+  ) {
+    if (!notificationPreferences || savingNotificationPreference) return
+    setSavingNotificationPreference(true)
+    setNotificationPreferencesError("")
+    try {
+      const updated = await saveMerchantNotificationPreferences({
+        ...notificationPreferences,
+        [key]: !notificationPreferences[key],
+      })
+      setNotificationPreferences(updated)
+    } catch (requestError) {
+      setNotificationPreferencesError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not update notification preferences.",
+      )
+    } finally {
+      setSavingNotificationPreference(false)
+    }
+  }
 
   useEffect(() => {
     if (title !== "Transfer banks") return
@@ -3990,6 +4336,49 @@ function ProfileInfoPage({
 
       {title === "Notifications" && (
         <>
+          {notificationPreferencesError && (
+            <div className="inline-error" role="alert">
+              <AlertCircle size={15} />
+              {notificationPreferencesError}
+            </div>
+          )}
+          <div className="profile-info-intro">
+            <strong>Transaction events</strong>
+            <p>Choose which successful transaction types can send alerts.</p>
+          </div>
+          {(
+            [
+              ["paymentsEnabled", "Successful incoming payments", "Confirmed collections"],
+              ["transfersEnabled", "Successful outgoing transfers", "Provider-confirmed transfers"],
+            ] as const
+          ).map(([key, label, description]) => (
+            <div className="profile-notification-option" key={key}>
+              <span className="profile-notification-icon">
+                {key === "paymentsEnabled" ? (
+                  <ArrowDownLeft size={18} />
+                ) : (
+                  <Send size={18} />
+                )}
+              </span>
+              <div>
+                <strong>{label}</strong>
+                <small>{description}</small>
+              </div>
+              <button
+                type="button"
+                className={`profile-notification-state ${
+                  notificationPreferences?.[key] ? "enabled" : ""
+                }`}
+                disabled={
+                  savingNotificationPreference || !notificationPreferences
+                }
+                aria-pressed={notificationPreferences?.[key] || false}
+                onClick={() => void toggleNotificationPreference(key)}
+              >
+                {notificationPreferences?.[key] ? "ON" : "OFF"}
+              </button>
+            </div>
+          ))}
           <div className="profile-notification-option">
             <span className="profile-notification-icon">
               <ReceiptText size={18} />
@@ -3999,7 +4388,19 @@ function ProfileInfoPage({
               <small>Successful incoming payments and outgoing transfers</small>
               <small>{session.email}</small>
             </div>
-            <span className="profile-notification-state">ON</span>
+            <button
+              type="button"
+              className={`profile-notification-state ${
+                notificationPreferences?.emailEnabled ? "enabled" : ""
+              }`}
+              disabled={
+                savingNotificationPreference || !notificationPreferences
+              }
+              aria-pressed={notificationPreferences?.emailEnabled || false}
+              onClick={() => void toggleNotificationPreference("emailEnabled")}
+            >
+              {notificationPreferences?.emailEnabled ? "ON" : "OFF"}
+            </button>
           </div>
           <div className="profile-notification-option">
             <span className="profile-notification-icon">
@@ -4023,12 +4424,23 @@ function ProfileInfoPage({
                             : "Enable alerts on this device for successful transactions"}
               </small>
             </div>
-            <span
+            <button
+              type="button"
               className={`profile-notification-state ${
-                pushRegistrationState === "registered" ? "enabled" : ""
+                notificationPreferences?.pushEnabled &&
+                pushRegistrationState === "registered"
+                  ? "enabled"
+                  : ""
               }`}
+              disabled={
+                savingNotificationPreference || !notificationPreferences
+              }
+              aria-pressed={notificationPreferences?.pushEnabled || false}
+              onClick={() => void toggleNotificationPreference("pushEnabled")}
             >
-              {notificationPermission === "unavailable"
+              {!notificationPreferences?.pushEnabled
+                ? "OFF"
+                : notificationPermission === "unavailable"
                 ? "APP ONLY"
                 : notificationPermission === "denied"
                   ? "BLOCKED"
@@ -4039,7 +4451,7 @@ function ProfileInfoPage({
                       : notificationPermission === "granted"
                         ? "RETRY"
                         : "OFF"}
-            </span>
+            </button>
           </div>
           {pushError && (
             <div className="inline-error" role="alert">
@@ -4949,42 +5361,81 @@ export default function App() {
     setActiveTab("Home")
   }
 
-  function exportActivity() {
+  async function exportActivity(fromDate = "", toDate = "") {
     if (!data) return
-    const rows = data.transactions.map((item) =>
-      [
-        item.date,
-        item.reference,
-        item.description,
-        item.channel,
-        item.rawStatus,
-        item.numericAmount,
-      ]
-        .map((value) => `"${String(value).replace(/"/g, '""')}"`)
-        .join(","),
-    )
-    const blob = new Blob(
-      [
+    try {
+      const transactions: Transaction[] = []
+      const pageSize = 100
+      for (let offset = 0; offset <= 100_000; offset += pageSize) {
+        const page = await getMerchantActivityPage({
+          limit: pageSize,
+          offset,
+          from: fromDate,
+          to: toDate,
+        })
+        if (offset === 100_000 && page.length) {
+          throw new Error("Statement exceeds the 100,000-record export limit.")
+        }
+        transactions.push(...page)
+        if (page.length < pageSize) break
+      }
+      const csvCell = (value: string | number) => {
+        if (typeof value === "number")
+          return Number.isFinite(value) ? String(value) : ""
+        const text = String(value)
+        const safeText = /^[\s]*[=+\-@]/.test(text) ? `'${text}` : text
+        return `"${safeText.replace(/"/g, '""')}"`
+      }
+      const rows = transactions.map((item) => {
+        const ledgerImpact = item.walletAmount ?? item.numericAmount
+        const platformFee =
+          item.numericAmount > 0 && typeof item.walletAmount === "number"
+            ? Math.max(0, item.numericAmount - item.walletAmount)
+            : 0
+        return [
+          item.date,
+          item.reference,
+          item.description,
+          item.channel,
+          item.rawStatus,
+          item.numericAmount,
+          ledgerImpact,
+          platformFee,
+        ]
+          .map(csvCell)
+          .join(",")
+      })
+      const blob = new Blob(
         [
           [
-            "Date",
-            "Reference",
-            "Description",
-            "Channel",
-            "Status",
-            "Amount PHP",
-          ].join(","),
-          ...rows,
-        ].join("\n"),
-      ],
-      { type: "text/csv" },
-    )
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement("a")
-    link.href = url
-    link.download = `drpay-activity-${new Date().toISOString().slice(0, 10)}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
+            [
+              "Date",
+              "Reference",
+              "Description",
+              "Channel",
+              "Status",
+              "Gross amount PHP",
+              "Merchant ledger impact PHP",
+              "Platform fee PHP",
+            ].join(","),
+            ...rows,
+          ].join("\n"),
+        ],
+        { type: "text/csv" },
+      )
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = `drpay-activity-${new Date().toISOString().slice(0, 10)}.csv`
+      link.click()
+      URL.revokeObjectURL(url)
+    } catch (exportError) {
+      setError(
+        exportError instanceof Error
+          ? exportError.message
+          : "Could not download the full wallet statement.",
+      )
+    }
   }
 
   function dismissUpdatePrompt() {
@@ -5202,6 +5653,9 @@ export default function App() {
               <WalletView
                 data={data}
                 onTransaction={setSelectedTransaction}
+                onExportActivity={(fromDate, toDate) =>
+                  void exportActivity(fromDate, toDate)
+                }
                 showUnsettledFunds={walletSubscreen === "unsettled-funds"}
                 onOpenUnsettledFunds={() =>
                   setWalletSubscreen("unsettled-funds")
