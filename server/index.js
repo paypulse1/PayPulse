@@ -1180,6 +1180,7 @@ async function initializeDatabase() {
       payment_institution_code TEXT,
       payment_institution_name TEXT,
       payment_institution_logo_url TEXT,
+      payment_institution_deep_link TEXT,
       payment_url TEXT,
       checkout_type TEXT NOT NULL DEFAULT 'PAYMENT_LINK',
       payment_token TEXT,
@@ -1278,6 +1279,7 @@ async function initializeDatabase() {
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_institution_code TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_institution_name TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_institution_logo_url TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_institution_deep_link TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS merchant_email TEXT REFERENCES merchant_accounts(email) ON DELETE CASCADE;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS customer_email TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS manually_paid_by TEXT;
@@ -3434,7 +3436,9 @@ app.get(
     if (!/^[A-Za-z0-9_-]{40,50}$/.test(code))
       return res.status(404).json({ error: "Checkout not found." })
     const record = await pool.query(
-      `SELECT code, title, reference_no, amount::float8 AS amount, currency, status, payment_token, qr_payload
+      `SELECT code, title, reference_no, amount::float8 AS amount, currency, status, payment_token, qr_payload,
+        payment_institution_code, payment_institution_name, payment_institution_logo_url,
+        payment_institution_deep_link
      FROM payment_links WHERE code = $1 AND checkout_type = 'DIRECT_QRPH'`,
       [code],
     )
@@ -3469,6 +3473,10 @@ app.get(
       status,
       statusCheckUnavailable,
       qrCode: row.qr_payload,
+      institutionCode: row.payment_institution_code,
+      institutionName: row.payment_institution_name,
+      institutionLogoUrl: row.payment_institution_logo_url,
+      institutionDeepLink: row.payment_institution_deep_link,
     })
   },
 )
@@ -4834,6 +4842,27 @@ app.get("/v1/disbursement-institutions", async (req, res) => {
   }
 })
 
+function getSafePaymentInstitutionDeepLink(value) {
+  if (typeof value !== "string" || value.length > 2048) return null
+  try {
+    const url = new URL(value)
+    if (url.username || url.password) return null
+    if (url.protocol === "https:") return url.hostname ? url.toString() : null
+    if (
+      !/^[a-z][a-z0-9+.-]*:$/.test(url.protocol) ||
+      ["http:", "javascript:", "data:", "file:", "blob:", "intent:", "ftp:"].includes(
+        url.protocol,
+      ) ||
+      !url.hostname
+    ) {
+      return null
+    }
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
 app.get("/v1/payment-institutions", async (_req, res) => {
   if (
     paymentInstitutionCache &&
@@ -4864,6 +4893,15 @@ app.get("/v1/payment-institutions", async (_req, res) => {
         name: institution.name,
         category: institution.category,
         logoUrl: getInstitutionLogoUrl(institution),
+        deepLink: getSafePaymentInstitutionDeepLink(
+          institution.deepLink ??
+            institution.deeplink ??
+            institution.deep_link ??
+            institution.appDeepLink ??
+            institution.app_deep_link ??
+            institution.appLink ??
+            institution.app_link,
+        ),
       }))
     paymentInstitutionCache = { items, expiresAt: Date.now() + 60 * 60 * 1000 }
     return res.json(items)
@@ -5288,11 +5326,24 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
     req.body?.institutionCode,
     req.body?.institutionName,
     submittedLogoUrl,
+    req.body?.institutionDeepLink,
   ].some((value) => value != null && value !== "")
   const institutionLogoUrl =
     submittedLogoUrl == null || submittedLogoUrl === ""
       ? null
       : getInstitutionLogoUrl({ logoUrl: submittedLogoUrl })
+  const submittedInstitutionDeepLink = getSafePaymentInstitutionDeepLink(
+    req.body?.institutionDeepLink,
+  )
+  const listedInstitution = paymentInstitutionCache?.items.find(
+    (institution) => institution.code === institutionCode,
+  )
+  const institutionDeepLink =
+    paymentInstitutionCache?.expiresAt > Date.now() &&
+    submittedInstitutionDeepLink &&
+    submittedInstitutionDeepLink === listedInstitution?.deepLink
+      ? submittedInstitutionDeepLink
+      : null
   const idempotencyKey = req.get("Idempotency-Key")
   if (!validIdempotencyKey(idempotencyKey))
     return res
@@ -5405,8 +5456,9 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
       `INSERT INTO payment_links (
       id, idempotency_key, reference_no, code, title, amount, collection_amount_krw,
       payment_institution_code, payment_institution_name, payment_institution_logo_url,
+      payment_institution_deep_link,
       checkout_type, status, merchant_email, customer_email
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'DIRECT_QRPH', 'CREATING', $11, $12)`,
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'DIRECT_QRPH', 'CREATING', $12, $13)`,
       [
         id,
         idempotencyKey,
@@ -5418,6 +5470,7 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
         institutionCode || null,
         institutionName || null,
         institutionLogoUrl,
+        institutionDeepLink,
         req.merchantEmail,
         customerEmail || null,
       ],

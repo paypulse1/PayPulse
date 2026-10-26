@@ -478,6 +478,9 @@ h1, h2, p { margin-top: 0; }
 .qr-brand-logo.institution-logo-unavailable { width: 27px; height: 27px; }
 .qr-preview { width: min(272px, 100%); aspect-ratio: 1; height: auto; display: block; object-fit: contain; margin: 0 auto 12px; padding: 10px; border: 1px solid var(--line); border-radius: 18px; background: white; }
 .qr-brand-note { width: min(272px, 100%); margin: 6px auto 0; color: var(--muted); font-size: 7px; line-height: 1.5; text-align: left; }
+.qr-app-actions { width: min(272px, 100%); margin: 10px auto 0; }
+.qr-app-actions .button { width: 100%; min-height: 42px; }
+.qr-app-actions .qr-brand-note { margin-top: 7px; }
 .checkout-qr-loading { margin: 10px auto 16px; color: var(--muted); font-size: 9px; }
 .result-error { background: var(--danger-soft); color: var(--danger); }
 .link-result > strong { display: block; font-size: 17px; }
@@ -486,7 +489,7 @@ h1, h2, p { margin-top: 0; }
 .copy-link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 8px "DM Mono", monospace; }
 .link-result > .button { width: 100%; }
 .result-actions { display: flex; gap: 8px; margin-bottom: 9px; }
-.result-actions > * { flex: 1; }
+.result-actions .button { flex: 1; }
 .payment-link-share { margin: 14px 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); text-align: left; }
 .payment-link-share > .eyebrow { display: block; margin-bottom: 7px; }
 .payment-link-share > a { display: block; overflow-wrap: anywhere; color: var(--link); font: 8px "DM Mono", monospace; line-height: 1.55; text-decoration: underline; }
@@ -503,6 +506,7 @@ h1, h2, p { margin-top: 0; }
 .transaction-detail-hero { min-height: 118px; margin: -5px 0 17px; padding: 18px; display: flex; align-items: center; justify-content: center; gap: 17px; border: 1px solid var(--line); border-radius: 16px; background: linear-gradient(145deg, #f8fafd, #fff); text-align: center; }
 .transaction-detail-logo { width: 56px; height: 56px; padding: 8px; border: 1px solid var(--line); border-radius: 14px; background: #fff; object-fit: contain; }
 .transaction-receipt-actions { margin: 16px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.receipt-action-buttons { display: contents; }
 .transaction-receipt-actions .button { width: 100%; min-height: 42px; padding-inline: 8px; font-size: 9px; }
 .transaction-receipt-actions .inline-error { grid-column: 1 / -1; }
 .detail-list { margin: 20px 0; border-block: 1px solid var(--line); }

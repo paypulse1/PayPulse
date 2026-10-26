@@ -69,6 +69,7 @@ export type InstitutionBrand = {
   code: string;
   name: string;
   logoUrl?: string;
+  deepLink?: string;
 };
 
 export type Institution = InstitutionBrand & {
@@ -143,6 +144,10 @@ export type PublicCheckout = {
   status: string;
   statusCheckUnavailable: boolean;
   qrCode: string;
+  institutionCode?: string | null;
+  institutionName?: string | null;
+  institutionLogoUrl?: string | null;
+  institutionDeepLink?: string | null;
 };
 
 export type CurrencyQuote = {
@@ -1114,6 +1119,7 @@ export async function createPaymentLink(
       institutionCode: input.institution?.code,
       institutionName: input.institution?.name,
       institutionLogoUrl: input.institution?.logoUrl,
+      institutionDeepLink: input.institution?.deepLink,
     }),
   });
   if (input.institution && result.id) {

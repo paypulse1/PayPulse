@@ -117,7 +117,7 @@ Supported merchant-key API routes:
 | `GET` | `/v1/crypto/usdt-deposits` | `read` | Latest 50 confirmed incoming transfers for the assigned TRON mainnet USDT wallet |
 | `GET` | `/v1/internal-wallet` | `read` | PHP ledger and available balance |
 | `GET` | `/v1/crypto/usdt-wallet` | `read` | Assigned TRON mainnet address and official TRC20 USD₮ balance via Tatum |
-| `GET` | `/v1/payment-institutions` | `read` | Supported collection institutions |
+| `GET` | `/v1/payment-institutions` | `read` | Supported collection institutions; includes `deepLink` when SwiftPay supplies a safe app link |
 | `GET` | `/v1/disbursement-institutions` | `read` | Supported transfer institutions |
 | `GET` | `/v1/notifications/preferences` | `read` | Merchant transaction-alert channel and event preferences |
 | `PUT` | `/v1/notifications/preferences` | `read` | Save email/push and successful payment/transfer alert preferences |

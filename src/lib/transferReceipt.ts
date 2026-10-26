@@ -37,6 +37,28 @@ function receiptFileName(reference: string) {
   return `drpay-transfer-${safeReference || "receipt"}.png`;
 }
 
+async function shareReceiptBlob(blob: Blob, fileName: string) {
+  if (Capacitor.isNativePlatform()) {
+    const file = await Filesystem.writeFile({
+      path: fileName,
+      data: await blobToBase64(blob),
+      directory: Directory.Cache,
+    });
+    await Share.share({
+      title: "DRPAY transfer receipt",
+      files: [file.uri],
+      dialogTitle: "Save or share transfer receipt",
+    });
+    return;
+  }
+
+  const image = new File([blob], fileName, { type: "image/png" });
+  if (!navigator.canShare?.({ files: [image] }) || !navigator.share) {
+    throw new Error("Image sharing is not supported in this browser.");
+  }
+  await navigator.share({ title: "DRPAY transfer receipt", files: [image] });
+}
+
 export async function createTransferReceiptImage(receipt: TransferReceiptData) {
   const canvas = document.createElement("canvas");
   canvas.width = 960;
@@ -120,10 +142,16 @@ export async function createTransferReceiptImage(receipt: TransferReceiptData) {
 
 export async function downloadTransferReceiptImage(receipt: TransferReceiptData) {
   const blob = await createTransferReceiptImage(receipt);
+  const fileName = receiptFileName(receipt.reference);
+  if (Capacitor.isNativePlatform()) {
+    await shareReceiptBlob(blob, fileName);
+    return;
+  }
+
   const imageUrl = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = imageUrl;
-  link.download = receiptFileName(receipt.reference);
+  link.download = fileName;
   document.body.append(link);
   link.click();
   link.remove();
@@ -149,24 +177,5 @@ function blobToBase64(blob: Blob) {
 export async function shareTransferReceiptImage(receipt: TransferReceiptData) {
   const blob = await createTransferReceiptImage(receipt);
   const fileName = receiptFileName(receipt.reference);
-
-  if (Capacitor.isNativePlatform()) {
-    const file = await Filesystem.writeFile({
-      path: fileName,
-      data: await blobToBase64(blob),
-      directory: Directory.Cache,
-    });
-    await Share.share({
-      title: "DRPAY transfer receipt",
-      files: [file.uri],
-      dialogTitle: "Share transfer receipt",
-    });
-    return;
-  }
-
-  const image = new File([blob], fileName, { type: "image/png" });
-  if (!navigator.canShare?.({ files: [image] }) || !navigator.share) {
-    throw new Error("Image sharing is not supported in this browser. Download the PNG receipt to share it.");
-  }
-  await navigator.share({ title: "DRPAY transfer receipt", files: [image] });
+  await shareReceiptBlob(blob, fileName);
 }

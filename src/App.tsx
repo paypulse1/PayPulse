@@ -104,10 +104,7 @@ import {
 } from "./lib/swiftpay"
 import type { MerchantQrDetails, TransferQrDetails } from "./lib/transferQr"
 import { parseScannedQr } from "./lib/transferQr"
-import {
-  downloadTransferReceiptImage,
-  shareTransferReceiptImage,
-} from "./lib/transferReceipt"
+import TransferReceiptActions from "./TransferReceiptActions"
 import {
   createBiometricSecret,
   deleteBiometricSecret,
@@ -1027,7 +1024,6 @@ function TransactionSheet({
   const [refundLoading, setRefundLoading] = useState(false)
   const [refundSubmitting, setRefundSubmitting] = useState(false)
   const [refundError, setRefundError] = useState("")
-  const [receiptError, setReceiptError] = useState("")
   const [refundIdempotencyKey, setRefundIdempotencyKey] = useState(() =>
     crypto.randomUUID(),
   )
@@ -1055,32 +1051,6 @@ function TransactionSheet({
     accountNumber: transaction.recipientAccountNumber,
     remarks: transaction.remarks,
     createdAt: transaction.date,
-  }
-
-  async function downloadReceipt() {
-    setReceiptError("")
-    try {
-      await downloadTransferReceiptImage(receipt)
-    } catch (receiptDownloadError) {
-      setReceiptError(
-        receiptDownloadError instanceof Error
-          ? receiptDownloadError.message
-          : "Could not download the transfer receipt image.",
-      )
-    }
-  }
-
-  async function shareReceipt() {
-    setReceiptError("")
-    try {
-      await shareTransferReceiptImage(receipt)
-    } catch (shareError) {
-      setReceiptError(
-        shareError instanceof Error
-          ? shareError.message
-          : "Could not share the transfer receipt image. Download it instead.",
-      )
-    }
   }
 
   function repeatTransfer() {
@@ -1277,8 +1247,7 @@ function TransactionSheet({
           </div>
         </dl>
         <p className="detail-note">
-          <ShieldCheck size={15} /> Status was last reconciled by the DRPAY
-          server with SwiftPay.
+          <ShieldCheck size={15} /> Status Verified by DRPAY.
         </p>
         {isTransfer && (
           <div className="transaction-receipt-actions">
@@ -1291,26 +1260,10 @@ function TransactionSheet({
                 Repeat transfer
               </Button>
             )}
-            <Button
-              variant="secondary"
-              icon={<Download size={15} />}
-              onClick={() => void downloadReceipt()}
-            >
-              Download receipt image
-            </Button>
-            <Button
-              variant="secondary"
-              icon={<Share2 size={15} />}
-              onClick={() => void shareReceipt()}
-            >
-              Share receipt image
-            </Button>
-            {receiptError && (
-              <div className="inline-error" role="alert">
-                <AlertCircle size={14} />
-                {receiptError}
-              </div>
-            )}
+            <TransferReceiptActions
+              receipt={receipt}
+              className="receipt-action-buttons"
+            />
           </div>
         )}
         {refundCompleted && (
@@ -1458,7 +1411,6 @@ function TransferSheet({
     status: string
     createdAt: string
   } | null>(null)
-  const [receiptActionError, setReceiptActionError] = useState("")
   const [idempotencyKey, setIdempotencyKey] = useState(() =>
     crypto.randomUUID(),
   )
@@ -1512,7 +1464,6 @@ function TransferSheet({
     }
     setBusy(true)
     setError("")
-    setReceiptActionError("")
     try {
       const authorization = await authorizeTransferWithPin(
         transferAuthorization,
@@ -1564,34 +1515,6 @@ function TransferSheet({
     channel === "INSTAPAY"
       ? selectedBank?.instapayEnabled !== false
       : pesonetAvailable && selectedBank?.pesonetEnabled !== false
-  async function downloadTransferReceipt() {
-    if (!receiptDetails) return
-    setReceiptActionError("")
-    try {
-      await downloadTransferReceiptImage(receiptDetails)
-    } catch (receiptDownloadError) {
-      setReceiptActionError(
-        receiptDownloadError instanceof Error
-          ? receiptDownloadError.message
-          : "Could not download the transfer receipt image.",
-      )
-    }
-  }
-
-  async function shareTransferReceipt() {
-    if (!receiptDetails) return
-    setReceiptActionError("")
-    try {
-      await shareTransferReceiptImage(receiptDetails)
-    } catch (shareError) {
-      setReceiptActionError(
-        shareError instanceof Error
-          ? shareError.message
-          : "Could not share the transfer receipt image. Download it instead.",
-      )
-    }
-  }
-
   function selectBank(code: string) {
     const institution = institutions.find((item) => item.code === code)
     setBank(code)
@@ -1725,28 +1648,10 @@ function TransferSheet({
                       </dd>
                     </div>
                   </dl>
-                  <div className="result-actions">
-                    <Button
-                      variant="secondary"
-                      icon={<Download size={15} />}
-                      onClick={() => void downloadTransferReceipt()}
-                    >
-                      Download receipt image
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      icon={<Share2 size={15} />}
-                      onClick={() => void shareTransferReceipt()}
-                    >
-                      Share receipt image
-                    </Button>
-                  </div>
-                  {receiptActionError && (
-                    <div className="inline-error" role="alert">
-                      <AlertCircle size={14} />
-                      {receiptActionError}
-                    </div>
-                  )}
+                  <TransferReceiptActions
+                    receipt={receiptDetails}
+                    className="result-actions receipt-action-buttons"
+                  />
                 </>
               )}
             <Button onClick={onClose}>Done</Button>
@@ -2740,7 +2645,7 @@ function HomeView({
           </div>
         </div>
         <div className="average-row">
-          <span>Average completed payment</span>
+          <span>Average Completed Payment</span>
           <strong>{data.averageTransaction}</strong>
         </div>
       </section>

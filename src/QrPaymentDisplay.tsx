@@ -3,6 +3,10 @@ import QRCode from "qrcode";
 import { Landmark } from "lucide-react";
 import type { InstitutionBrand } from "./lib/swiftpay";
 import { getInstitutionLogoAsset } from "./lib/institutionLogos";
+import {
+  getPaymentInstitutionAppName,
+  getPaymentInstitutionDeepLink,
+} from "./lib/paymentInstitutionLinks";
 
 export function InstitutionLogo({ institution, className = "" }: { institution: InstitutionBrand; className?: string }) {
   const [failedLogoUrl, setFailedLogoUrl] = useState("");
@@ -77,15 +81,32 @@ export default function QrPaymentDisplay({ value, institution }: { value?: strin
       {institution && (
         <div className="qr-brand-label">
           <InstitutionLogo institution={institution} className="qr-brand-logo" />
-          <span>Paying with <strong>{institution.name}</strong></span>
+          <span>Selected payment app: <strong>{getPaymentInstitutionAppName(institution)}</strong></span>
         </div>
       )}
       <img className="qr-preview" src={image} alt="Scan this QRPH payment code" />
       {institution && (
         <p className="qr-brand-note">
-          The selected institution is shown for display; the QRPH payment details remain unchanged.
+          This uses the existing SwiftPay QRPH payment. Payment availability depends on the selected app and payer account.
         </p>
       )}
+      {institution && getPaymentInstitutionDeepLink(institution) ? (
+        <div className="qr-app-actions">
+          <a
+            className="button button-secondary"
+            href={getPaymentInstitutionDeepLink(institution)}
+          >
+            Open {getPaymentInstitutionAppName(institution)} to scan
+          </a>
+          <p className="qr-brand-note">
+            If this link is unavailable, scan the QR with {getPaymentInstitutionAppName(institution)} on another device.
+          </p>
+        </div>
+      ) : institution ? (
+        <p className="qr-brand-note">
+          To pay with this app, scan the QR from the app. An app link is not available for this institution.
+        </p>
+      ) : null}
     </div>
   );
 }

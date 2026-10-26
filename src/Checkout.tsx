@@ -114,7 +114,19 @@ export default function Checkout({ code }: { code: string }) {
             ) : checkout.status === "CANCELED" || checkout.status === "REJECTED" ? (
               <div className="checkout-expired">This payment request is no longer active. Ask the merchant for help.</div>
             ) : (
-              <QrPaymentDisplay value={checkout.qrCode} />
+              <QrPaymentDisplay
+                value={checkout.qrCode}
+                institution={
+                  checkout.institutionCode && checkout.institutionName
+                    ? {
+                        code: checkout.institutionCode,
+                        name: checkout.institutionName,
+                        logoUrl: checkout.institutionLogoUrl || undefined,
+                        deepLink: checkout.institutionDeepLink || undefined,
+                      }
+                    : undefined
+                }
+              />
             )}
 
             {!terminal && (

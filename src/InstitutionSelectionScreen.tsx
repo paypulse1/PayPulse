@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, ArrowLeft, ChevronRight, LoaderCircle, Search } from "lucide-react";
 import { getPaymentInstitutions, type PaymentInstitution } from "./lib/swiftpay";
+import {
+  getPaymentInstitutionAppName,
+  getPaymentInstitutionDeepLink,
+} from "./lib/paymentInstitutionLinks";
 import { InstitutionLogo } from "./QrPaymentDisplay";
 
 const koreanQrApps: PaymentInstitution[] = [
@@ -20,6 +24,21 @@ function categoryLabel(category: string) {
     PAWNSHOP: "Pawnshop",
   };
   return labels[category] || "Payment institution";
+}
+
+function institutionLabel(institution: PaymentInstitution) {
+  return getPaymentInstitutionAppName(institution)
+}
+
+function institutionCategoryLabel(institution: PaymentInstitution) {
+  const label = institution.code.trim().toUpperCase() === "ALIPAY"
+    ? "Alipay+ · QR payment"
+    : institution.code.startsWith("KR_")
+    ? "Korean QR payment app"
+    : categoryLabel(institution.category)
+  return getPaymentInstitutionDeepLink(institution)
+    ? `${label} · App link available`
+    : label
 }
 
 export default function InstitutionSelectionScreen({
@@ -59,10 +78,15 @@ export default function InstitutionSelectionScreen({
 
   const filteredInstitutions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    const options = [...(showKoreanQrApps ? koreanQrApps : []), ...institutions];
+    const supportedInstitutions = [...institutions].sort((a, b) => {
+      if (a.code.trim().toUpperCase() === "ALIPAY") return -1
+      if (b.code.trim().toUpperCase() === "ALIPAY") return 1
+      return 0
+    })
+    const options = [...(showKoreanQrApps ? koreanQrApps : []), ...supportedInstitutions];
     if (!normalizedQuery) return options;
     return options.filter((institution) =>
-      `${institution.name} ${institution.code}`.toLowerCase().includes(normalizedQuery),
+      `${institutionLabel(institution)} ${institution.name} ${institution.code}`.toLowerCase().includes(normalizedQuery),
     );
   }, [institutions, query, showKoreanQrApps]);
 
@@ -82,8 +106,8 @@ export default function InstitutionSelectionScreen({
       >
         <InstitutionLogo institution={institution} className="institution-selection-logo" />
         <span className="institution-option-copy">
-          <strong>{institution.name}</strong>
-          <small>{institution.code.startsWith("KR_") ? "Korean QR payment app" : categoryLabel(institution.category)}</small>
+          <strong>{institutionLabel(institution)}</strong>
+          <small>{institutionCategoryLabel(institution)}</small>
         </span>
         <span className="institution-option-check">{institution.code === selectedCode ? "Selected" : <ChevronRight size={16} />}</span>
       </button>
@@ -147,7 +171,14 @@ export default function InstitutionSelectionScreen({
                 )}
                 {filteredSwiftPayInstitutions.length > 0 && (
                   <div role="group" aria-label="SwiftPay institutions">
-                    <p className="institution-group-title">SwiftPay institutions</p>
+                    <p className="institution-group-title">
+                      {filteredSwiftPayInstitutions.some(
+                        (institution) =>
+                          institution.code.trim().toUpperCase() === "ALIPAY",
+                      )
+                        ? "Alipay+ and SwiftPay institutions"
+                        : "SwiftPay institutions"}
+                    </p>
                     {renderOptions(filteredSwiftPayInstitutions)}
                   </div>
                 )}
