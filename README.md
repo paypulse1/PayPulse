@@ -119,6 +119,10 @@ Payment-link JSON uses `amount` (positive PHP amount, up to two decimal places),
 
 Webhook bodies have the shape `{"id":"<event-id>","type":"payment.succeeded","createdAt":"<ISO-8601>","data":{"id":"<resource-id>","reference":"<merchant-reference>","amount":125.5,"currency":"PHP","status":"EXECUTED"}}`. Validate the lowercase hexadecimal HMAC in `DRPAY-Signature` using a constant-time comparison against the signature of the exact raw bytes; do not parse and re-serialize the JSON before checking it. A successful payment status is `EXECUTED`; a successful disbursement may use `EXECUTED`, `SUCCESS`, or `COMPLETED`.
 
+## Validation
+
+Run `pnpm test` for the Vite-aware unit tests covering session storage, payment settlement, ledger reversals, floating-balance reservation, and authorization boundaries. Run `pnpm typecheck`, `pnpm check:api`, and `pnpm build` before deploying.
+
 ## Android release
 
 The Android wrapper is generated with Capacitor. Android Studio plus Android SDK build tools are required for local APK builds. A signed release is prepared by `.github/workflows/android-release.yml` when a tag matching `android-vMAJOR.MINOR.PATCH` is pushed (for example, `android-v1.0.26`). The release version is taken from the tag and converted to an increasing Android version code. GitHub Actions uses these repository secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`. The workflow publishes `drpay.apk` to the GitHub Release, and the marketing homepage links to the latest release. Never commit the keystore; keep a secure backup of the signing key and its passwords.

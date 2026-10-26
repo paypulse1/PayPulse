@@ -20,7 +20,6 @@ import {
   WalletCards,
 } from "lucide-react"
 import {
-  clearSession,
   getAdminAuditEvents,
   createAdminInternalWalletAdjustment,
   createAdminMerchantAccount,
@@ -32,7 +31,6 @@ import {
   getAdminPaymentLinks,
   getAdminSettings,
   getAdminKybApplications,
-  login,
   markAdminPaymentLinkPaid,
   reviewAdminFloatingTransferRequest,
   reviewAdminKybApplication,
@@ -49,7 +47,9 @@ import {
   type FloatingTransferRequest,
   type Session,
 } from "./lib/swiftpay"
-import { Brand, Button, PoweredByFooter } from "./AppPrimitives"
+import { Brand, Button } from "./AppPrimitives"
+import AuditAdminSection from "./super-admin/AuditAdminSection"
+import PaymentAdminSection from "./super-admin/PaymentAdminSection"
 
 type AdminPage = "overview" | "payments" | "merchants" | "kyb" | "ledger" | "requests" | "audit" | "settings"
 
@@ -70,107 +70,6 @@ function csvCell(value: string | number) {
   const text = String(value)
   const safeText = /^[\s]*[=+\-@]/.test(text) ? `'${text}` : text
   return `"${safeText.replace(/"/g, '""')}"`
-}
-
-export function SuperAdminSignIn({
-  onAuthenticated,
-}: {
-  onAuthenticated: (session: Session) => void
-}) {
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState("")
-
-  async function submit(event: FormEvent) {
-    event.preventDefault()
-    setBusy(true)
-    setError("")
-    try {
-      const session = await login(email.trim().toLowerCase(), password)
-      if (session.role !== "super_admin") {
-        clearSession()
-        throw new Error(
-          "This account is not authorized to access this area.",
-        )
-      }
-      onAuthenticated(session)
-    } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Sign-in failed.",
-      )
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <main className="auth-screen auth-screen-with-footer">
-      <div className="auth-brand">
-        <Brand />
-      </div>
-      <section className="auth-card">
-        <span className="auth-mark">
-          <ShieldCheck size={27} />
-        </span>
-        <span className="eyebrow">RESTRICTED ACCESS</span>
-        <h1>DRPAY team sign in</h1>
-        <p>Use your separately configured DRPAY team account.</p>
-        <form onSubmit={submit}>
-          <label>
-            <span>Work email</span>
-            <input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              required
-              autoComplete="username"
-              autoFocus
-            />
-          </label>
-          <label>
-            <span>Password</span>
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-              autoComplete="current-password"
-            />
-          </label>
-          {error && (
-            <div className="inline-error">
-              <AlertCircle size={15} />
-              {error}
-            </div>
-          )}
-          <Button
-            type="submit"
-            disabled={busy || !email || !password}
-            icon={
-              busy ? (
-                <LoaderCircle className="spin" size={17} />
-              ) : (
-                <Lock size={17} />
-              )
-            }
-          >
-            {busy ? "Signing in…" : "Continue"}
-          </Button>
-        </form>
-        <div className="auth-trust">
-          <ShieldCheck size={16} />
-          <span>
-            Separate one-hour team session. Provider secrets and payment
-            execution are not exposed here.
-          </span>
-        </div>
-      </section>
-      <PoweredByFooter />
-    </main>
-  )
 }
 
 export function SuperAdminConsole({
@@ -1252,175 +1151,32 @@ export function SuperAdminConsole({
                     Successful collections credit merchants net of the
                     collection fee. Successful floating-balance requests debit
                     the requested amount plus the fixed transfer fee. Both fees
-                    are recorded in the platform fee wallet; bank payouts
-                    remain manually handled outside this app.
+                    are recorded in the platform fee wallet; bank payouts remain
+                    manually handled outside this app.
                   </p>
                 </section>
               </>
             )}
             {activePage === "payments" && (
-              <section className="admin-card">
-                <div className="admin-card-heading">
-                  <span className="setting-icon">
-                    <ReceiptText size={19} />
-                  </span>
-                  <div>
-                    <h2>Recent QR Ph checkouts</h2>
-                    <p>
-                      Manually confirm only after independently verifying the
-                      incoming payment. Manual confirmation does not cancel the
-                      SwiftPay QR or add funds to the SwiftPay account.
-                    </p>
-                  </div>
-                </div>
-                <div className="admin-list-controls">
-                  <label className="admin-search">
-                    <Search size={16} />
-                    <input
-                      aria-label="Search payments"
-                      value={paymentSearch}
-                      onChange={(event) => setPaymentSearch(event.target.value)}
-                      placeholder="Merchant, reference, title, or customer"
-                    />
-                  </label>
-                  <label className="admin-filter">
-                    <span>Status</span>
-                    <select
-                      value={paymentStatus}
-                      onChange={(event) => setPaymentStatus(event.target.value)}
-                    >
-                      <option value="all">All statuses</option>
-                      <option value="pending">Pending</option>
-                      <option value="executed">Paid · SwiftPay</option>
-                      <option value="manually_paid">Manually confirmed</option>
-                      <option value="failed">Failed</option>
-                      <option value="expired">Expired</option>
-                    </select>
-                  </label>
-                  <small>
-                    {filteredPayments.length} of {paymentLinks.length}
-                  </small>
-                </div>
-                <div className="admin-transfer-request-list">
-                  {filteredPayments.length === 0 ? (
-                    <p className="admin-empty">
-                      {paymentLinks.length
-                        ? "No payments match these filters."
-                        : "No QR Ph checkouts are available."}
-                    </p>
-                  ) : (
-                    filteredPayments.map((payment) => {
-                      const manuallyPaid = payment.status === "MANUALLY_PAID"
-                      const statusLabel = manuallyPaid
-                        ? "Manually confirmed"
-                        : payment.status === "EXECUTED"
-                          ? "Paid · SwiftPay"
-                          : payment.status.charAt(0) +
-                            payment.status.slice(1).toLowerCase()
-                      const verificationNote =
-                        paymentVerificationNotes[payment.id] || ""
-                      return (
-                        <article
-                          className="admin-transfer-request"
-                          key={payment.id}
-                        >
-                          <div className="admin-transfer-request-heading">
-                            <div>
-                              <strong>
-                                {payment.merchantEmail || "Unassigned merchant"}
-                              </strong>
-                              <small>
-                                {new Date(payment.createdAt).toLocaleString()}
-                              </small>
-                            </div>
-                            <span
-                              className={`admin-status-pill ${payment.status.toLowerCase()}`}
-                            >
-                              {statusLabel}
-                            </span>
-                          </div>
-                          <strong className="admin-transfer-request-amount">
-                            {payment.currency}{" "}
-                            {payment.amount.toLocaleString("en-PH", {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </strong>
-                          <dl>
-                            <div>
-                              <dt>Payment for</dt>
-                              <dd>{payment.title}</dd>
-                            </div>
-                            <div>
-                              <dt>Reference</dt>
-                              <dd>{payment.referenceNo}</dd>
-                            </div>
-                            <div>
-                              <dt>Customer email</dt>
-                              <dd>{payment.customerEmail || "Not provided"}</dd>
-                            </div>
-                          </dl>
-                          {manuallyPaid ? (
-                            <p className="admin-transfer-failure-reason">
-                              <strong>Manual verification audit</strong>
-                              {payment.manualPaidReason}
-                              <br />
-                              <small>
-                                By {payment.manuallyPaidBy || "DRPAY team"} ·{" "}
-                                {payment.manuallyPaidAt
-                                  ? new Date(
-                                      payment.manuallyPaidAt,
-                                    ).toLocaleString()
-                                  : "time unavailable"}
-                              </small>
-                            </p>
-                          ) : payment.status === "PENDING" ? (
-                            <form
-                              className="admin-transfer-failure-form"
-                              onSubmit={(event) => {
-                                event.preventDefault()
-                                void confirmPaymentAsPaid(payment)
-                              }}
-                            >
-                              <label>
-                                <span>
-                                  Independent verification details (required;
-                                  10–500 characters)
-                                </span>
-                                <textarea
-                                  value={verificationNote}
-                                  onChange={(event) =>
-                                    setPaymentVerificationNotes((current) => ({
-                                      ...current,
-                                      [payment.id]: event.target.value,
-                                    }))
-                                  }
-                                  minLength={10}
-                                  maxLength={500}
-                                  rows={3}
-                                  required
-                                  placeholder="Describe the independently verified payment evidence and reference"
-                                />
-                              </label>
-                              <Button
-                                type="submit"
-                                disabled={
-                                  markingPaymentId === payment.id ||
-                                  verificationNote.trim().length < 10
-                                }
-                              >
-                                {markingPaymentId === payment.id
-                                  ? "Confirming…"
-                                  : "Mark manually paid"}
-                              </Button>
-                            </form>
-                          ) : null}
-                        </article>
-                      )
-                    })
-                  )}
-                </div>
-              </section>
+              <PaymentAdminSection
+                payments={filteredPayments}
+                totalPayments={paymentLinks.length}
+                search={paymentSearch}
+                onSearchChange={setPaymentSearch}
+                status={paymentStatus}
+                onStatusChange={setPaymentStatus}
+                verificationNotes={paymentVerificationNotes}
+                onVerificationNoteChange={(paymentId, note) =>
+                  setPaymentVerificationNotes((current) => ({
+                    ...current,
+                    [paymentId]: note,
+                  }))
+                }
+                markingPaymentId={markingPaymentId}
+                onConfirmPayment={(payment) => {
+                  void confirmPaymentAsPaid(payment)
+                }}
+              />
             )}
             {activePage === "ledger" && (
               <section className="admin-card">
@@ -1952,67 +1708,12 @@ export function SuperAdminConsole({
               </section>
             )}
             {activePage === "audit" && (
-              <section className="admin-card">
-                <div className="admin-card-heading">
-                  <span className="setting-icon">
-                    <Activity size={19} />
-                  </span>
-                  <div>
-                    <h2>Recorded team activity</h2>
-                    <p>
-                      Balance adjustments, transfer reviews, and the latest KYB
-                      review per application. Showing up to 500 events.
-                    </p>
-                  </div>
-                </div>
-                <div className="admin-list-controls">
-                  <label className="admin-search">
-                    <Search size={16} />
-                    <input
-                      aria-label="Search audit history"
-                      value={auditSearch}
-                      onChange={(event) => setAuditSearch(event.target.value)}
-                      placeholder="Search action, merchant, team member, or details"
-                    />
-                  </label>
-                  <small>
-                    {filteredAuditEvents.length} of {auditEvents.length}
-                  </small>
-                </div>
-                {filteredAuditEvents.length === 0 ? (
-                  <p className="admin-empty">
-                    {auditEvents.length
-                      ? "No audit events match your search."
-                      : "No recorded team activity is available yet."}
-                  </p>
-                ) : (
-                  <div className="admin-audit-list">
-                    {filteredAuditEvents.map((event) => (
-                      <article
-                        className="admin-audit-event"
-                        key={`${event.category}-${event.id}`}
-                      >
-                        <span className="setting-icon">
-                          <Activity size={16} />
-                        </span>
-                        <div>
-                          <div className="admin-audit-heading">
-                            <strong>{event.action}</strong>
-                            <small>
-                              {new Date(event.occurredAt).toLocaleString()}
-                            </small>
-                          </div>
-                          <p>{event.summary}</p>
-                          <small>
-                            {event.category} · {event.target} · By{" "}
-                            {event.actor || "DRPAY team"}
-                          </small>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                )}
-              </section>
+              <AuditAdminSection
+                events={filteredAuditEvents}
+                totalEvents={auditEvents.length}
+                search={auditSearch}
+                onSearchChange={setAuditSearch}
+              />
             )}
             {activePage === "settings" && (
               <section className="admin-card">

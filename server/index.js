@@ -1,178 +1,274 @@
-import { createHash, createHmac, randomBytes, randomInt, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
-import { lookup } from "node:dns/promises";
-import { BlockList, isIP } from "node:net";
-import https from "node:https";
-import { S3Client, PutObjectCommand, HeadObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import cors from "cors";
-import express from "express";
-import { rateLimit } from "express-rate-limit";
-import helmet from "helmet";
-import { importPKCS8, SignJWT, jwtVerify } from "jose";
-import pg from "pg";
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  randomInt,
+  randomUUID,
+  scryptSync,
+  timingSafeEqual,
+} from "node:crypto"
+import { lookup } from "node:dns/promises"
+import { BlockList, isIP } from "node:net"
+import https from "node:https"
+import {
+  S3Client,
+  PutObjectCommand,
+  HeadObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+} from "@aws-sdk/client-s3"
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
+import { join } from "node:path"
+import { fileURLToPath } from "node:url"
+import cors from "cors"
+import express from "express"
+import { rateLimit } from "express-rate-limit"
+import helmet from "helmet"
+import { importPKCS8, SignJWT, jwtVerify } from "jose"
+import pg from "pg"
+import {
+  hasApiKeyPermission,
+  isMerchantSession,
+  isOperationsSession,
+} from "./access.js"
+import { createFloatingTransferRequest } from "./floating-transfers.js"
+import { createLedgerService } from "./ledger.js"
+import {
+  canManuallyConfirmPayment,
+  createPaymentStateService,
+} from "./payment-state.js"
 
-const { Pool } = pg;
-const app = express();
-const clientBuildDirectory = fileURLToPath(new URL("../dist", import.meta.url));
-app.set("trust proxy", 1);
-app.use(helmet());
-app.use(express.json({ limit: "24kb" }));
+const { Pool } = pg
+const app = express()
+const clientBuildDirectory = fileURLToPath(new URL("../dist", import.meta.url))
+app.set("trust proxy", 1)
+app.use(helmet())
+app.use(express.json({ limit: "24kb" }))
 
-const frontendOrigin = process.env.DRPAY_FRONTEND_ORIGIN;
-const liveCheckoutOrigin = process.env.DRPAY_LIVE_CHECKOUT_ORIGIN || frontendOrigin;
-const sandboxCheckoutOrigin = process.env.DRPAY_SANDBOX_CHECKOUT_ORIGIN || frontendOrigin;
-const publicApiOrigin = process.env.DRPAY_PUBLIC_API_ORIGIN || frontendOrigin;
-const allowedOrigins = new Set([
-  frontendOrigin,
-  liveCheckoutOrigin,
-  sandboxCheckoutOrigin,
-  ...(process.env.DRPAY_ADDITIONAL_FRONTEND_ORIGINS || "").split(",").map((origin) => origin.trim()),
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-  "https://localhost",
-  "capacitor://localhost",
-].filter(Boolean));
+const frontendOrigin = process.env.DRPAY_FRONTEND_ORIGIN
+const liveCheckoutOrigin =
+  process.env.DRPAY_LIVE_CHECKOUT_ORIGIN || frontendOrigin
+const sandboxCheckoutOrigin =
+  process.env.DRPAY_SANDBOX_CHECKOUT_ORIGIN || frontendOrigin
+const publicApiOrigin = process.env.DRPAY_PUBLIC_API_ORIGIN || frontendOrigin
+const allowedOrigins = new Set(
+  [
+    frontendOrigin,
+    liveCheckoutOrigin,
+    sandboxCheckoutOrigin,
+    ...(process.env.DRPAY_ADDITIONAL_FRONTEND_ORIGINS || "")
+      .split(",")
+      .map((origin) => origin.trim()),
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://localhost",
+    "capacitor://localhost",
+  ].filter(Boolean),
+)
 
-app.use(cors({
-  origin(origin, callback) {
-    if (!origin || allowedOrigins.has(origin)) return callback(null, true);
-    const error = new Error("Origin is not allowed");
-    error.status = 403;
-    return callback(error);
-  },
-  methods: ["GET", "POST", "PUT", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key", "X-Step-Up-Token"],
-  maxAge: 600,
-}));
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.has(origin)) return callback(null, true)
+      const error = new Error("Origin is not allowed")
+      error.status = 403
+      return callback(error)
+    },
+    methods: ["GET", "POST", "PUT", "OPTIONS"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "Idempotency-Key",
+      "X-Step-Up-Token",
+    ],
+    maxAge: 600,
+  }),
+)
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: true } : undefined,
+  ssl:
+    process.env.DATABASE_SSL === "true"
+      ? { rejectUnauthorized: true }
+      : undefined,
   max: 10,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,
-});
+})
 
-const authEmail = process.env.DRPAY_MERCHANT_EMAIL?.trim().toLowerCase();
-const superAdminEmail = process.env.DRPAY_SUPER_ADMIN_EMAIL?.trim().toLowerCase();
-const superAdminPassword = process.env.DRPAY_SUPER_ADMIN_PASSWORD;
-const passwordSalt = process.env.DRPAY_PASSWORD_SALT;
-const jwtSecretValue = process.env.DRPAY_JWT_SECRET;
-const jwtSecret = jwtSecretValue ? new TextEncoder().encode(jwtSecretValue) : null;
-const resendApiKey = process.env.RESEND_API_KEY;
-const resendFromEmail = process.env.RESEND_FROM_EMAIL;
-const fcmProjectId = process.env.FCM_PROJECT_ID;
-const fcmServiceAccountEmail = process.env.FCM_SERVICE_ACCOUNT_EMAIL;
-const fcmServiceAccountPrivateKey = process.env.FCM_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, "\n");
-const swiftPayAccessKey = process.env.SWIFTPAY_ACCESS_KEY;
-const swiftPaySecretKey = process.env.SWIFTPAY_SECRET_KEY;
-const swiftPayEnvironment = process.env.SWIFTPAY_ENV || "sandbox";
-const tatumApiKey = process.env.TATUM_API_KEY;
-const tronUsdtNetwork = process.env.TRON_USDT_NETWORK || "disabled";
-const tronMainnetUsdtContract = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
-const tronMainnetUsdtDecimals = 6;
-const checkoutOrigin = swiftPayEnvironment === "production" ? liveCheckoutOrigin : sandboxCheckoutOrigin;
+const authEmail = process.env.DRPAY_MERCHANT_EMAIL?.trim().toLowerCase()
+const superAdminEmail =
+  process.env.DRPAY_SUPER_ADMIN_EMAIL?.trim().toLowerCase()
+const superAdminPassword = process.env.DRPAY_SUPER_ADMIN_PASSWORD
+const passwordSalt = process.env.DRPAY_PASSWORD_SALT
+const jwtSecretValue = process.env.DRPAY_JWT_SECRET
+const jwtSecret = jwtSecretValue
+  ? new TextEncoder().encode(jwtSecretValue)
+  : null
+const resendApiKey = process.env.RESEND_API_KEY
+const resendFromEmail = process.env.RESEND_FROM_EMAIL
+const fcmProjectId = process.env.FCM_PROJECT_ID
+const fcmServiceAccountEmail = process.env.FCM_SERVICE_ACCOUNT_EMAIL
+const fcmServiceAccountPrivateKey =
+  process.env.FCM_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, "\n")
+const swiftPayAccessKey = process.env.SWIFTPAY_ACCESS_KEY
+const swiftPaySecretKey = process.env.SWIFTPAY_SECRET_KEY
+const swiftPayEnvironment = process.env.SWIFTPAY_ENV || "sandbox"
+const tatumApiKey = process.env.TATUM_API_KEY
+const tronUsdtNetwork = process.env.TRON_USDT_NETWORK || "disabled"
+const tronMainnetUsdtContract = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
+const tronMainnetUsdtDecimals = 6
+const checkoutOrigin =
+  swiftPayEnvironment === "production"
+    ? liveCheckoutOrigin
+    : sandboxCheckoutOrigin
 function buildCheckoutUrl(code) {
-  const url = new URL("/", checkoutOrigin);
-  url.searchParams.set("checkout", code);
-  return url.toString();
+  const url = new URL("/", checkoutOrigin)
+  url.searchParams.set("checkout", code)
+  return url.toString()
 }
 
 function tronAddressPayload(address) {
-  if (typeof address !== "string" || !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address)) return null;
-  const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-  let decoded = 0n;
+  if (
+    typeof address !== "string" ||
+    !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address)
+  )
+    return null
+  const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+  let decoded = 0n
   for (const character of address) {
-    const digit = alphabet.indexOf(character);
-    if (digit < 0) return null;
-    decoded = decoded * 58n + BigInt(digit);
+    const digit = alphabet.indexOf(character)
+    if (digit < 0) return null
+    decoded = decoded * 58n + BigInt(digit)
   }
-  let hex = decoded.toString(16);
-  if (hex.length % 2) hex = `0${hex}`;
-  const leadingZeroBytes = address.match(/^1*/)?.[0].length || 0;
-  const bytes = Buffer.concat([Buffer.alloc(leadingZeroBytes), Buffer.from(hex, "hex")]);
-  if (bytes.length !== 25) return null;
-  const payload = bytes.subarray(0, 21);
-  const checksum = createHash("sha256").update(createHash("sha256").update(payload).digest()).digest().subarray(0, 4);
-  if (payload[0] !== 0x41 || !checksum.equals(bytes.subarray(21))) return null;
-  return payload;
+  let hex = decoded.toString(16)
+  if (hex.length % 2) hex = `0${hex}`
+  const leadingZeroBytes = address.match(/^1*/)?.[0].length || 0
+  const bytes = Buffer.concat([
+    Buffer.alloc(leadingZeroBytes),
+    Buffer.from(hex, "hex"),
+  ])
+  if (bytes.length !== 25) return null
+  const payload = bytes.subarray(0, 21)
+  const checksum = createHash("sha256")
+    .update(createHash("sha256").update(payload).digest())
+    .digest()
+    .subarray(0, 4)
+  if (payload[0] !== 0x41 || !checksum.equals(bytes.subarray(21))) return null
+  return payload
 }
 
 function formatTokenBalance(rawHex, decimals) {
-  if (typeof rawHex !== "string" || !/^[0-9a-f]+$/i.test(rawHex)) return null;
-  const raw = BigInt(`0x${rawHex}`);
-  const divisor = 10n ** BigInt(decimals);
-  const whole = raw / divisor;
-  const fraction = (raw % divisor).toString().padStart(decimals, "0").replace(/0+$/, "");
-  return fraction ? `${whole}.${fraction}` : String(whole);
+  if (typeof rawHex !== "string" || !/^[0-9a-f]+$/i.test(rawHex)) return null
+  const raw = BigInt(`0x${rawHex}`)
+  const divisor = 10n ** BigInt(decimals)
+  const whole = raw / divisor
+  const fraction = (raw % divisor)
+    .toString()
+    .padStart(decimals, "0")
+    .replace(/0+$/, "")
+  return fraction ? `${whole}.${fraction}` : String(whole)
 }
-const r2AccountId = process.env.R2_ACCOUNT_ID;
-const r2AccessKeyId = process.env.R2_ACCESS_KEY_ID;
-const r2SecretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
-const r2BucketName = process.env.R2_BUCKET_NAME;
-const r2Client = r2AccountId && r2AccessKeyId && r2SecretAccessKey && r2BucketName
-  ? new S3Client({
-    region: "auto",
-    endpoint: `https://${r2AccountId}.r2.cloudflarestorage.com`,
-    forcePathStyle: true,
-    credentials: { accessKeyId: r2AccessKeyId, secretAccessKey: r2SecretAccessKey },
-  })
-  : null;
-const kybDocumentMaxBytes = 10 * 1024 * 1024;
-const allowedKybDocuments = new Set(["business_registration", "identity_front", "identity_back", "proof_of_address"]);
-const liveMoneyAcknowledgement = process.env.SWIFTPAY_LIVE_MONEY_ACKNOWLEDGED;
-const swiftPayBaseUrl = swiftPayEnvironment === "production"
-  ? "https://api.pay.live.swiftpay.ph/api"
-  : "https://api.pay.sandbox.live.swiftpay.ph/api";
-const maxTransferAmount = Number(process.env.DRPAY_MAX_TRANSFER_PHP || "100000");
-const maxInstapayAmount = 50_000;
-const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false });
+const r2AccountId = process.env.R2_ACCOUNT_ID
+const r2AccessKeyId = process.env.R2_ACCESS_KEY_ID
+const r2SecretAccessKey = process.env.R2_SECRET_ACCESS_KEY
+const r2BucketName = process.env.R2_BUCKET_NAME
+const r2Client =
+  r2AccountId && r2AccessKeyId && r2SecretAccessKey && r2BucketName
+    ? new S3Client({
+        region: "auto",
+        endpoint: `https://${r2AccountId}.r2.cloudflarestorage.com`,
+        forcePathStyle: true,
+        credentials: {
+          accessKeyId: r2AccessKeyId,
+          secretAccessKey: r2SecretAccessKey,
+        },
+      })
+    : null
+const kybDocumentMaxBytes = 10 * 1024 * 1024
+const allowedKybDocuments = new Set([
+  "business_registration",
+  "identity_front",
+  "identity_back",
+  "proof_of_address",
+])
+const liveMoneyAcknowledgement = process.env.SWIFTPAY_LIVE_MONEY_ACKNOWLEDGED
+const swiftPayBaseUrl =
+  swiftPayEnvironment === "production"
+    ? "https://api.pay.live.swiftpay.ph/api"
+    : "https://api.pay.sandbox.live.swiftpay.ph/api"
+const maxTransferAmount = Number(process.env.DRPAY_MAX_TRANSFER_PHP || "100000")
+const maxInstapayAmount = 50_000
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+})
 const pinAttemptLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 30,
   standardHeaders: "draft-8",
   legacyHeaders: false,
   keyGenerator: (req) => req.merchantEmail || "merchant-pin",
-});
-const paymentLinkLimiter = rateLimit({ windowMs: 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false });
-const transferLimiter = rateLimit({ windowMs: 60 * 1000, limit: 5, standardHeaders: "draft-8", legacyHeaders: false });
+})
+const paymentLinkLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 20,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+})
+const transferLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 5,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+})
 const merchantApiLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 120,
   standardHeaders: "draft-8",
   legacyHeaders: false,
   keyGenerator: (req) => req.apiKeyId || req.ip,
-});
+})
 const cryptoWalletLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 20,
   standardHeaders: "draft-8",
   legacyHeaders: false,
   keyGenerator: (req) => req.merchantEmail,
-});
-const publicCheckoutLimiter = rateLimit({ windowMs: 60 * 1000, limit: 60, standardHeaders: "draft-8", legacyHeaders: false });
-const publicQrImageLimiter = rateLimit({ windowMs: 60 * 1000, limit: 30, standardHeaders: "draft-8", legacyHeaders: false });
-const institutionCache = new Map();
-let paymentInstitutionCache = null;
+})
+const publicCheckoutLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 60,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+})
+const publicQrImageLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+})
+const institutionCache = new Map()
+let paymentInstitutionCache = null
 function findInstitutionLogoUrl(value, depth = 0) {
   if (typeof value === "string") {
-    if (value.startsWith("/") && !value.startsWith("//")) return value;
+    if (value.startsWith("/") && !value.startsWith("//")) return value
     try {
-      const url = new URL(value);
-      return url.protocol === "https:" ? url.toString() : null;
+      const url = new URL(value)
+      return url.protocol === "https:" ? url.toString() : null
     } catch {
-      return null;
+      return null
     }
   }
-  if (!value || typeof value !== "object" || depth >= 3) return null;
+  if (!value || typeof value !== "object" || depth >= 3) return null
   if (Array.isArray(value)) {
     for (const item of value.slice(0, 5)) {
-      const logoUrl = findInstitutionLogoUrl(item, depth + 1);
-      if (logoUrl) return logoUrl;
+      const logoUrl = findInstitutionLogoUrl(item, depth + 1)
+      if (logoUrl) return logoUrl
     }
-    return null;
+    return null
   }
 
   for (const key of [
@@ -196,10 +292,10 @@ function findInstitutionLogoUrl(value, depth = 0) {
     "medium",
     "small",
   ]) {
-    const logoUrl = findInstitutionLogoUrl(value[key], depth + 1);
-    if (logoUrl) return logoUrl;
+    const logoUrl = findInstitutionLogoUrl(value[key], depth + 1)
+    if (logoUrl) return logoUrl
   }
-  return null;
+  return null
 }
 
 function getInstitutionLogoUrl(institution) {
@@ -220,52 +316,82 @@ function getInstitutionLogoUrl(institution) {
     "image",
     "images",
   ]) {
-    const logoUrl = findInstitutionLogoUrl(institution?.[key]);
-    if (logoUrl) return logoUrl;
+    const logoUrl = findInstitutionLogoUrl(institution?.[key])
+    if (logoUrl) return logoUrl
   }
-  return null;
+  return null
 }
 
-let liveKrwPhpRateCache = null;
-let fcmAccessToken;
-let fcmAccessTokenExpiresAt = 0;
-let reconcilingPending = false;
+let liveKrwPhpRateCache = null
+let fcmAccessToken
+let fcmAccessTokenExpiresAt = 0
+let reconcilingPending = false
 
 function requiredEnvironment() {
-  const missing = [];
-  if (!process.env.DATABASE_URL) missing.push("DATABASE_URL");
-  if (!authEmail) missing.push("DRPAY_MERCHANT_EMAIL");
-  if (!superAdminEmail) missing.push("DRPAY_SUPER_ADMIN_EMAIL");
-  if (!superAdminPassword || superAdminPassword.length < 16) missing.push("DRPAY_SUPER_ADMIN_PASSWORD (16+ characters)");
-  if (!passwordSalt || passwordSalt.length < 32) missing.push("DRPAY_PASSWORD_SALT (32+ characters)");
-  if (!jwtSecretValue || jwtSecretValue.length < 32) missing.push("DRPAY_JWT_SECRET (32+ characters)");
-  if (!resendApiKey) missing.push("RESEND_API_KEY");
-  if (!resendFromEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(resendFromEmail)) missing.push("RESEND_FROM_EMAIL (verified sender address)");
-  if (!swiftPayAccessKey) missing.push("SWIFTPAY_ACCESS_KEY");
-  if (!swiftPaySecretKey) missing.push("SWIFTPAY_SECRET_KEY");
-  if (!frontendOrigin) missing.push("DRPAY_FRONTEND_ORIGIN");
-  if (!checkoutOrigin) missing.push(swiftPayEnvironment === "production" ? "DRPAY_LIVE_CHECKOUT_ORIGIN" : "DRPAY_SANDBOX_CHECKOUT_ORIGIN");
-  if (!Number.isFinite(maxTransferAmount) || maxTransferAmount <= 0) missing.push("DRPAY_MAX_TRANSFER_PHP");
-  if (!["sandbox", "production"].includes(swiftPayEnvironment)) missing.push("SWIFTPAY_ENV (sandbox or production)");
-  if (swiftPayEnvironment === "production" && liveMoneyAcknowledgement !== "I_UNDERSTAND_REAL_MONEY") {
-    missing.push("SWIFTPAY_LIVE_MONEY_ACKNOWLEDGED=I_UNDERSTAND_REAL_MONEY");
+  const missing = []
+  if (!process.env.DATABASE_URL) missing.push("DATABASE_URL")
+  if (!authEmail) missing.push("DRPAY_MERCHANT_EMAIL")
+  if (!superAdminEmail) missing.push("DRPAY_SUPER_ADMIN_EMAIL")
+  if (!superAdminPassword || superAdminPassword.length < 16)
+    missing.push("DRPAY_SUPER_ADMIN_PASSWORD (16+ characters)")
+  if (!passwordSalt || passwordSalt.length < 32)
+    missing.push("DRPAY_PASSWORD_SALT (32+ characters)")
+  if (!jwtSecretValue || jwtSecretValue.length < 32)
+    missing.push("DRPAY_JWT_SECRET (32+ characters)")
+  if (!resendApiKey) missing.push("RESEND_API_KEY")
+  if (!resendFromEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(resendFromEmail))
+    missing.push("RESEND_FROM_EMAIL (verified sender address)")
+  if (!swiftPayAccessKey) missing.push("SWIFTPAY_ACCESS_KEY")
+  if (!swiftPaySecretKey) missing.push("SWIFTPAY_SECRET_KEY")
+  if (!frontendOrigin) missing.push("DRPAY_FRONTEND_ORIGIN")
+  if (!checkoutOrigin)
+    missing.push(
+      swiftPayEnvironment === "production"
+        ? "DRPAY_LIVE_CHECKOUT_ORIGIN"
+        : "DRPAY_SANDBOX_CHECKOUT_ORIGIN",
+    )
+  if (!Number.isFinite(maxTransferAmount) || maxTransferAmount <= 0)
+    missing.push("DRPAY_MAX_TRANSFER_PHP")
+  if (!["sandbox", "production"].includes(swiftPayEnvironment))
+    missing.push("SWIFTPAY_ENV (sandbox or production)")
+  if (
+    swiftPayEnvironment === "production" &&
+    liveMoneyAcknowledgement !== "I_UNDERSTAND_REAL_MONEY"
+  ) {
+    missing.push("SWIFTPAY_LIVE_MONEY_ACKNOWLEDGED=I_UNDERSTAND_REAL_MONEY")
   }
 
-  return missing;
+  return missing
 }
 
 function transferSecurityFingerprint(email, body, idempotencyKey) {
-  const amount = Math.round(Number(body?.amount) * 100) / 100;
-  const channel = typeof body?.channel === "string" ? body.channel : "";
-  const institutionCode = typeof body?.institutionCode === "string" ? body.institutionCode.trim() : "";
-  const accountNumber = typeof body?.accountNumber === "string" ? body.accountNumber.replace(/\s/g, "") : "";
-  const fullName = typeof body?.fullName === "string" ? body.fullName.trim() : "";
-  const remarks = typeof body?.remarks === "string" ? body.remarks.trim().slice(0, 80) : "";
-  const fields = [email, amount.toFixed(2), channel, institutionCode, accountNumber, fullName.toLowerCase(), remarks, idempotencyKey];
-  if (typeof body?.refundPaymentId === "string" && body.refundPaymentId) fields.push(body.refundPaymentId);
+  const amount = Math.round(Number(body?.amount) * 100) / 100
+  const channel = typeof body?.channel === "string" ? body.channel : ""
+  const institutionCode =
+    typeof body?.institutionCode === "string" ? body.institutionCode.trim() : ""
+  const accountNumber =
+    typeof body?.accountNumber === "string"
+      ? body.accountNumber.replace(/\s/g, "")
+      : ""
+  const fullName =
+    typeof body?.fullName === "string" ? body.fullName.trim() : ""
+  const remarks =
+    typeof body?.remarks === "string" ? body.remarks.trim().slice(0, 80) : ""
+  const fields = [
+    email,
+    amount.toFixed(2),
+    channel,
+    institutionCode,
+    accountNumber,
+    fullName.toLowerCase(),
+    remarks,
+    idempotencyKey,
+  ]
+  if (typeof body?.refundPaymentId === "string" && body.refundPaymentId)
+    fields.push(body.refundPaymentId)
   return createHmac("sha256", jwtSecretValue)
     .update(JSON.stringify(fields))
-    .digest("hex");
+    .digest("hex")
 }
 
 async function issueMerchantSession(email) {
@@ -274,20 +400,22 @@ async function issueMerchantSession(email) {
     .setSubject(email)
     .setIssuedAt()
     .setExpirationTime("8h")
-    .sign(jwtSecret);
-  return { accessToken, expiresInSeconds: 8 * 60 * 60, email, role: "merchant" };
+    .sign(jwtSecret)
+  return { accessToken, expiresInSeconds: 8 * 60 * 60, email, role: "merchant" }
 }
 
 function deviceTokenHash(deviceToken) {
-  return createHash("sha256").update(deviceToken).digest("hex");
+  return createHash("sha256").update(deviceToken).digest("hex")
 }
 
 function biometricSecretHash(secret) {
-  return createHmac("sha256", jwtSecretValue).update(`merchant-biometric:${secret}`).digest("hex");
+  return createHmac("sha256", jwtSecretValue)
+    .update(`merchant-biometric:${secret}`)
+    .digest("hex")
 }
 
 async function sendMerchantOtp(email, code) {
-  const subject = "Your DRPAY verification code";
+  const subject = "Your DRPAY verification code"
   const text = [
     "DRPAY",
     "",
@@ -297,7 +425,7 @@ async function sendMerchantOtp(email, code) {
     "This code expires in 10 minutes. For your security, never share it with anyone. DRPAY will never ask you to share a verification code.",
     "",
     "If you did not request this code, you can safely ignore this email.",
-  ].join("\n");
+  ].join("\n")
   const html = `
     <div style="margin:0;padding:40px 16px;background:#f4f7f5;font-family:Arial,Helvetica,sans-serif;color:#17231d">
       <div style="max-width:480px;margin:0 auto">
@@ -317,7 +445,7 @@ async function sendMerchantOtp(email, code) {
         <p style="margin:18px 4px 0;color:#77847c;font-size:11px;line-height:1.6">If you didn’t request this code, you can safely ignore this email.</p>
       </div>
     </div>
-  `;
+  `
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -332,59 +460,73 @@ async function sendMerchantOtp(email, code) {
       html,
     }),
     signal: AbortSignal.timeout(10_000),
-  });
+  })
   if (!response.ok) {
-    const body = await response.json().catch(() => null);
-    const providerMessage = typeof body?.message === "string"
-      ? body.message
-        .replace(/[\w.+-]+@([\w.-]+\.[A-Za-z]{2,})/g, "[redacted]@$1")
-        .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
-      : "No provider message";
+    const body = await response.json().catch(() => null)
+    const providerMessage =
+      typeof body?.message === "string"
+        ? body.message
+            .replace(/[\w.+-]+@([\w.-]+\.[A-Za-z]{2,})/g, "[redacted]@$1")
+            .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
+        : "No provider message"
     console.error("Resend OTP delivery failed", {
       status: response.status,
       name: typeof body?.name === "string" ? body.name : "provider error",
       message: providerMessage,
-    });
-    throw new Error("Verification email could not be sent.");
+    })
+    throw new Error("Verification email could not be sent.")
   }
 }
 
 function escapeEmailHtml(value) {
-    return String(value).replace(/[&<>"']/g, (character) => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      "\"": "&quot;",
-      "'": "&#39;",
-    })[character]);
-  }
+  return String(value).replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[character],
+  )
+}
 
 async function sendTransactionEmail(notification) {
-    const type = notification.transaction_type === "PAYMENT" ? "Incoming payment received" : "Outgoing transfer completed";
-    const manualConfirmation = notification.transaction_type === "PAYMENT" && notification.payment_status === "MANUALLY_PAID";
-    const amount = `PHP ${Number(notification.amount).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    const reference = escapeEmailHtml(notification.reference_no);
-    const safeType = escapeEmailHtml(type);
-    const safeAmount = escapeEmailHtml(amount);
-    const text = [
-      "DRPAY",
-      "",
-      type,
-      `Amount: ${amount}`,
-      `Reference: ${notification.reference_no}`,
-      "",
-      manualConfirmation
-        ? "The DRPAY team independently verified and manually confirmed this payment."
-        : "This transaction was confirmed as successful by the payment provider.",
-    ].join("\n");
-    const html = `
+  const type =
+    notification.transaction_type === "PAYMENT"
+      ? "Incoming payment received"
+      : "Outgoing transfer completed"
+  const manualConfirmation =
+    notification.transaction_type === "PAYMENT" &&
+    notification.payment_status === "MANUALLY_PAID"
+  const amount = `PHP ${Number(notification.amount).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const reference = escapeEmailHtml(notification.reference_no)
+  const safeType = escapeEmailHtml(type)
+  const safeAmount = escapeEmailHtml(amount)
+  const text = [
+    "DRPAY",
+    "",
+    type,
+    `Amount: ${amount}`,
+    `Reference: ${notification.reference_no}`,
+    "",
+    manualConfirmation
+      ? "The DRPAY team independently verified and manually confirmed this payment."
+      : "This transaction was confirmed as successful by the payment provider.",
+  ].join("\n")
+  const html = `
       <div style="margin:0;padding:32px 16px;background:#f4f7fc;font-family:Arial,Helvetica,sans-serif;color:#0b1f3a">
         <div style="max-width:480px;margin:0 auto">
           <div style="padding:0 4px 18px;color:#0b1f3a;font-size:17px;font-weight:700;letter-spacing:1px">DRPAY</div>
           <div style="padding:28px;background:#fff;border:1px solid #d8e1ed;border-radius:16px">
             <div style="margin-bottom:10px;color:#52647c;font-size:10px;font-weight:700;letter-spacing:1.3px">TRANSACTION CONFIRMED</div>
             <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3">${safeType}</h1>
-            <p style="margin:0 0 18px;color:#52647c;font-size:13px;line-height:1.6">${manualConfirmation ? "The DRPAY team independently verified and manually confirmed this payment." : "The payment provider confirmed this transaction as successful."}</p>
+            <p style="margin:0 0 18px;color:#52647c;font-size:13px;line-height:1.6">${
+              manualConfirmation
+                ? "The DRPAY team independently verified and manually confirmed this payment."
+                : "The payment provider confirmed this transaction as successful."
+            }</p>
             <div style="padding:16px;background:#f8f9f5;border:1px solid #d8e1ed;border-radius:11px">
               <div style="color:#52647c;font-size:11px">Amount</div>
               <div style="margin-top:4px;font-size:20px;font-weight:700">${safeAmount}</div>
@@ -395,30 +537,39 @@ async function sendTransactionEmail(notification) {
           <p style="margin:14px 4px 0;color:#52647c;font-size:11px">This is an automated transaction notification. Never share your password or MPIN.</p>
         </div>
       </div>
-    `;
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer " + resendApiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ from: resendFromEmail, to: [notification.merchant_email], subject: `DRPAY: ${type}`, text, html }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!response.ok) {
-      console.error("Resend transaction notification failed", { status: response.status });
-      throw new Error("Transaction email delivery failed.");
-    }
+    `
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer " + resendApiKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: resendFromEmail,
+      to: [notification.merchant_email],
+      subject: `DRPAY: ${type}`,
+      text,
+      html,
+    }),
+    signal: AbortSignal.timeout(10_000),
+  })
+  if (!response.ok) {
+    console.error("Resend transaction notification failed", {
+      status: response.status,
+    })
+    throw new Error("Transaction email delivery failed.")
   }
+}
 
 async function sendCustomerPaymentEmail(payment) {
-  const amount = `PHP ${Number(payment.amount).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const title = escapeEmailHtml(payment.title);
-  const reference = escapeEmailHtml(payment.reference_no);
-  const safeAmount = escapeEmailHtml(amount);
-  const confirmationSource = payment.status === "MANUALLY_PAID"
-    ? "The merchant independently verified and confirmed your payment."
-    : "The payment provider confirmed your payment.";
+  const amount = `PHP ${Number(payment.amount).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const title = escapeEmailHtml(payment.title)
+  const reference = escapeEmailHtml(payment.reference_no)
+  const safeAmount = escapeEmailHtml(amount)
+  const confirmationSource =
+    payment.status === "MANUALLY_PAID"
+      ? "The merchant independently verified and confirmed your payment."
+      : "The payment provider confirmed your payment."
   const text = [
     "DRPAY",
     "",
@@ -428,7 +579,7 @@ async function sendCustomerPaymentEmail(payment) {
     `Reference: ${payment.reference_no}`,
     "",
     confirmationSource,
-  ].join("\n");
+  ].join("\n")
   const html = `
     <div style="margin:0;padding:32px 16px;background:#f4f7fc;font-family:Arial,Helvetica,sans-serif;color:#0b1f3a">
       <div style="max-width:480px;margin:0 auto">
@@ -448,7 +599,7 @@ async function sendCustomerPaymentEmail(payment) {
         </div>
       </div>
     </div>
-  `;
+  `
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -463,270 +614,167 @@ async function sendCustomerPaymentEmail(payment) {
       html,
     }),
     signal: AbortSignal.timeout(10_000),
-  });
+  })
   if (!response.ok) {
-    console.error("Customer payment confirmation delivery failed", { status: response.status });
-    throw new Error("Customer payment confirmation delivery failed.");
+    console.error("Customer payment confirmation delivery failed", {
+      status: response.status,
+    })
+    throw new Error("Customer payment confirmation delivery failed.")
   }
 }
 
 function fcmConfigured() {
-    return Boolean(fcmProjectId && fcmServiceAccountEmail && fcmServiceAccountPrivateKey);
-  }
+  return Boolean(
+    fcmProjectId && fcmServiceAccountEmail && fcmServiceAccountPrivateKey,
+  )
+}
 
 async function getFcmAccessToken() {
-    if (fcmAccessToken && fcmAccessTokenExpiresAt > Date.now() + 60_000) return fcmAccessToken;
-    const key = await importPKCS8(fcmServiceAccountPrivateKey, "RS256");
-    const assertion = await new SignJWT({ scope: "https://www.googleapis.com/auth/firebase.messaging" })
-      .setProtectedHeader({ alg: "RS256", typ: "JWT" })
-      .setIssuer(fcmServiceAccountEmail)
-      .setSubject(fcmServiceAccountEmail)
-      .setAudience("https://oauth2.googleapis.com/token")
-      .setIssuedAt()
-      .setExpirationTime("1h")
-      .sign(key);
-    const response = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-        assertion,
-      }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!response.ok) {
-      console.error("Firebase access token request failed", { status: response.status });
-      throw new Error("Push notification authorization failed.");
-    }
-    const token = await response.json();
-    if (typeof token.access_token !== "string" || !Number.isFinite(token.expires_in)) {
-      throw new Error("Firebase returned an invalid access token.");
-    }
-    fcmAccessToken = token.access_token;
-    fcmAccessTokenExpiresAt = Date.now() + token.expires_in * 1000;
-    return fcmAccessToken;
+  if (fcmAccessToken && fcmAccessTokenExpiresAt > Date.now() + 60_000)
+    return fcmAccessToken
+  const key = await importPKCS8(fcmServiceAccountPrivateKey, "RS256")
+  const assertion = await new SignJWT({
+    scope: "https://www.googleapis.com/auth/firebase.messaging",
+  })
+    .setProtectedHeader({ alg: "RS256", typ: "JWT" })
+    .setIssuer(fcmServiceAccountEmail)
+    .setSubject(fcmServiceAccountEmail)
+    .setAudience("https://oauth2.googleapis.com/token")
+    .setIssuedAt()
+    .setExpirationTime("1h")
+    .sign(key)
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion,
+    }),
+    signal: AbortSignal.timeout(10_000),
+  })
+  if (!response.ok) {
+    console.error("Firebase access token request failed", {
+      status: response.status,
+    })
+    throw new Error("Push notification authorization failed.")
   }
+  const token = await response.json()
+  if (
+    typeof token.access_token !== "string" ||
+    !Number.isFinite(token.expires_in)
+  ) {
+    throw new Error("Firebase returned an invalid access token.")
+  }
+  fcmAccessToken = token.access_token
+  fcmAccessTokenExpiresAt = Date.now() + token.expires_in * 1000
+  return fcmAccessToken
+}
 
 async function sendTransactionPush(notification, deviceToken) {
-    const incoming = notification.transaction_type === "PAYMENT";
-    const type = incoming ? "Incoming payment received" : "Outgoing transfer completed";
-    const amount = `PHP ${Number(notification.amount).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    const response = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(fcmProjectId)}/messages:send`, {
+  const incoming = notification.transaction_type === "PAYMENT"
+  const type = incoming
+    ? "Incoming payment received"
+    : "Outgoing transfer completed"
+  const amount = `PHP ${Number(notification.amount).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const response = await fetch(
+    `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(fcmProjectId)}/messages:send`,
+    {
       method: "POST",
       headers: {
-        Authorization: "Bearer " + await getFcmAccessToken(),
+        Authorization: "Bearer " + (await getFcmAccessToken()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
         message: {
           token: deviceToken,
-          notification: { title: type, body: `${amount} · ${notification.reference_no}` },
-          data: { transactionType: notification.transaction_type, reference: notification.reference_no },
-          android: { priority: "high", notification: { channel_id: "drpay-transactions" } },
+          notification: {
+            title: type,
+            body: `${amount} · ${notification.reference_no}`,
+          },
+          data: {
+            transactionType: notification.transaction_type,
+            reference: notification.reference_no,
+          },
+          android: {
+            priority: "high",
+            notification: { channel_id: "drpay-transactions" },
+          },
         },
       }),
       signal: AbortSignal.timeout(10_000),
-    });
-    if (response.ok) return true;
-    const result = await response.json().catch(() => null);
-    const fcmError = result?.error?.details?.find((detail) => detail?.["@type"] === "type.googleapis.com/google.firebase.fcm.v1.FcmError")?.errorCode;
-    if (fcmError === "UNREGISTERED" || result?.error?.status === "NOT_FOUND") return false;
-    console.error("Firebase transaction push failed", { status: response.status, error: result?.error?.status || "provider error" });
-    throw new Error("Transaction push delivery failed.");
-  }
+    },
+  )
+  if (response.ok) return true
+  const result = await response.json().catch(() => null)
+  const fcmError = result?.error?.details?.find(
+    (detail) =>
+      detail?.["@type"] ===
+      "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+  )?.errorCode
+  if (fcmError === "UNREGISTERED" || result?.error?.status === "NOT_FOUND")
+    return false
+  console.error("Firebase transaction push failed", {
+    status: response.status,
+    error: result?.error?.status || "provider error",
+  })
+  throw new Error("Transaction push delivery failed.")
+}
 
 async function queueSuccessfulTransaction(transactionType, transactionId) {
-    const query = transactionType === "PAYMENT"
+  const query =
+    transactionType === "PAYMENT"
       ? `SELECT merchant_email, customer_email, reference_no, amount, status FROM payment_links WHERE id = $1`
-      : `SELECT merchant_email, merchant_reference_no AS reference_no, amount, status FROM disbursements WHERE id = $1`;
-    const result = await pool.query(query, [transactionId]);
-    const transaction = result.rows[0];
-    const successful = transactionType === "PAYMENT"
+      : `SELECT merchant_email, merchant_reference_no AS reference_no, amount, status FROM disbursements WHERE id = $1`
+  const result = await pool.query(query, [transactionId])
+  const transaction = result.rows[0]
+  const successful =
+    transactionType === "PAYMENT"
       ? ["EXECUTED", "MANUALLY_PAID"].includes(transaction?.status)
-      : ["EXECUTED", "SUCCESS", "COMPLETED"].includes(transaction?.status?.toUpperCase());
-    if (!successful) return;
-    if (transaction?.merchant_email) {
-      await pool.query(
-        `INSERT INTO transaction_notifications (id, merchant_email, transaction_type, transaction_id, reference_no, amount)
+      : ["EXECUTED", "SUCCESS", "COMPLETED"].includes(
+          transaction?.status?.toUpperCase(),
+        )
+  if (!successful) return
+  if (transaction?.merchant_email) {
+    await pool.query(
+      `INSERT INTO transaction_notifications (id, merchant_email, transaction_type, transaction_id, reference_no, amount)
          VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (transaction_type, transaction_id) DO NOTHING`,
-        [randomUUID(), transaction.merchant_email, transactionType, transactionId, transaction.reference_no, transaction.amount],
-      );
-    }
-    if (transactionType === "PAYMENT" && transaction?.customer_email) {
-      await pool.query(
-        `INSERT INTO customer_payment_notifications (id, payment_id, customer_email)
+      [
+        randomUUID(),
+        transaction.merchant_email,
+        transactionType,
+        transactionId,
+        transaction.reference_no,
+        transaction.amount,
+      ],
+    )
+  }
+  if (transactionType === "PAYMENT" && transaction?.customer_email) {
+    await pool.query(
+      `INSERT INTO customer_payment_notifications (id, payment_id, customer_email)
          VALUES ($1, $2, $3)
          ON CONFLICT (payment_id) DO NOTHING`,
-        [randomUUID(), transactionId, transaction.customer_email],
-      );
-    }
-  }
-
-async function updatePaymentLinkStatus(id, status) {
-    const updated = await pool.query(
-      "UPDATE payment_links SET status = $1, updated_at = NOW() WHERE id = $2 AND status <> 'MANUALLY_PAID' RETURNING id",
-      [status, id],
-    );
-    if (!updated.rowCount) return;
-    if (status === "EXECUTED") await settleSuccessfulCollection(id);
-    await queueSuccessfulTransaction("PAYMENT", id);
-    await queueTransactionWebhook("PAYMENT", id);
-  }
-
-async function getMerchantWalletState(db, merchantEmail) {
-  const result = await db.query(
-    `WITH ledger AS (
-       SELECT COALESCE(SUM(amount), 0)::numeric AS balance,
-         COALESCE(SUM(amount) FILTER (WHERE source_type = 'COLLECTION'), 0)::numeric AS collection_credits
-       FROM merchant_wallet_ledger
-       WHERE merchant_email = $1
-     ), collections AS (
-       SELECT COALESCE(SUM(collection_amount_krw), 0)::numeric AS completed_krw
-       FROM payment_links
-       WHERE merchant_email = $1 AND status IN ('EXECUTED', 'MANUALLY_PAID') AND collection_amount_krw IS NOT NULL
-     ), reservations AS (
-       SELECT COALESCE(SUM(
-         CASE WHEN d.refund_payment_id IS NOT NULL
-           THEN GREATEST(COALESCE(p.amount, d.amount) - COALESCE(f.amount, 0), 0)
-           ELSE d.amount
-         END
-       ), 0)::numeric AS reserved
-       FROM disbursements d
-       LEFT JOIN payment_links p ON p.id = d.refund_payment_id
-       LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
-       WHERE d.merchant_email = $1
-         AND d.status NOT IN ('EXECUTED', 'SUCCESS', 'COMPLETED', 'REJECTED', 'ERROR', 'FAILED', 'CANCELED', 'CANCELLED', 'EXPIRED', 'REVERSED')
-     )
-     SELECT ledger.balance::float8 AS balance,
-       ledger.collection_credits::float8 AS collection_credits,
-       collections.completed_krw::float8 AS completed_krw,
-       reservations.reserved::float8 AS reserved
-     FROM ledger CROSS JOIN collections CROSS JOIN reservations`,
-    [merchantEmail],
-  );
-  return result.rows[0];
-}
-
-  async function settleSuccessfulCollection(paymentId, transactionClient = null) {
-    const ownsClient = !transactionClient;
-    const client = transactionClient || await pool.connect();
-    try {
-    if (ownsClient) await client.query("BEGIN");
-    const payment = await client.query(
-      `SELECT id, merchant_email, reference_no, amount::numeric AS amount, status
-       FROM payment_links WHERE id = $1 FOR UPDATE`,
-      [paymentId],
-    );
-    const row = payment.rows[0];
-    if (!row || !["EXECUTED", "MANUALLY_PAID"].includes(row.status) || !row.merchant_email) {
-      if (ownsClient) await client.query("COMMIT");
-      return;
-    }
-    const feeSetting = await client.query(
-      "SELECT setting_value FROM system_settings WHERE setting_key = 'collection_fee_percent'",
-    );
-    const feePercent = Number(feeSetting.rows[0]?.setting_value || 0);
-    if (!Number.isFinite(feePercent) || feePercent < 0 || feePercent > 100) {
-      throw new Error("The configured collection fee percentage is invalid.");
-    }
-    const grossAmount = Number(row.amount);
-    const feeAmount = Math.round(grossAmount * feePercent) / 100;
-    await client.query(
-      `INSERT INTO platform_fee_ledger (id, source_type, source_id, merchant_email, amount)
-       VALUES ($1, 'COLLECTION', $2, $3, $4)
-       ON CONFLICT (source_type, source_id) DO NOTHING
-       `,
-      [randomUUID(), paymentId, row.merchant_email, feeAmount.toFixed(2)],
-    );
-    const fee = await client.query(
-      "SELECT amount FROM platform_fee_ledger WHERE source_type = 'COLLECTION' AND source_id = $1",
-      [paymentId],
-    );
-    const netAmount = Math.max(0, Math.round((grossAmount - Number(fee.rows[0].amount)) * 100) / 100);
-    await client.query(
-      `INSERT INTO merchant_wallet_ledger (id, merchant_email, source_type, source_id, amount, reference_no)
-       VALUES ($1, $2, 'COLLECTION', $3, $4, $5)
-       ON CONFLICT (source_type, source_id) DO NOTHING`,
-      [randomUUID(), row.merchant_email, paymentId, netAmount.toFixed(2), row.reference_no],
-    );
-    if (ownsClient) await client.query("COMMIT");
-  } catch (error) {
-    if (ownsClient) await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    if (ownsClient) client.release();
+      [randomUUID(), transactionId, transaction.customer_email],
+    )
   }
 }
 
-async function updateDisbursementStatus(id, swiftpayId, status, errorMessage) {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const updated = await client.query(
-      `UPDATE disbursements
-       SET swiftpay_id = COALESCE($1, swiftpay_id), status = $2, error_message = $3, updated_at = NOW()
-       WHERE id = $4
-       RETURNING refund_payment_id, merchant_email, amount, merchant_reference_no`,
-      [swiftpayId, status, errorMessage, id],
-    );
-    const successful = ["EXECUTED", "SUCCESS", "COMPLETED"].includes(String(status).toUpperCase());
-    const refundPaymentId = updated.rows[0]?.refund_payment_id;
-    if (successful && updated.rows[0]?.merchant_email) {
-      const walletAmount = refundPaymentId
-        ? await client.query(
-          `SELECT GREATEST(p.amount - COALESCE(f.amount, 0), 0)::numeric AS amount
-           FROM payment_links p
-           LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
-           WHERE p.id = $1`,
-          [refundPaymentId],
-        )
-        : null;
-      const amount = refundPaymentId
-        ? -Number(walletAmount.rows[0]?.amount || 0)
-        : -Number(updated.rows[0].amount);
-      await client.query(
-        `INSERT INTO merchant_wallet_ledger (id, merchant_email, source_type, source_id, amount, reference_no)
-         VALUES ($1, $2, 'DISBURSEMENT', $3, $4, $5)
-         ON CONFLICT (source_type, source_id) DO NOTHING`,
-        [randomUUID(), updated.rows[0].merchant_email, id, amount.toFixed(2), updated.rows[0].merchant_reference_no],
-      );
-    }
-    if (successful && refundPaymentId) {
-      const payment = await client.query(
-        `SELECT p.reference_no, p.amount::numeric AS amount,
-           COALESCE(f.amount, 0)::numeric AS fee_amount,
-           d.merchant_reference_no, d.refund_ledger_reversed_at
-         FROM payment_links p
-         JOIN disbursements d ON d.id = $2
-         LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
-         WHERE p.id = $1
-         FOR UPDATE OF d`,
-        [refundPaymentId, id],
-      );
-      const row = payment.rows[0];
-      if (!row) throw new Error("Refund settlement references a missing collection.");
-      if (!row.refund_ledger_reversed_at) {
-        const netAmount = Math.round((Number(row.amount) - Number(row.fee_amount)) * 100) / 100;
-        if (!Number.isFinite(netAmount) || netAmount < 0) {
-          throw new Error("The collection refund ledger amount is invalid.");
-        }
-        await client.query(
-          "UPDATE disbursements SET refund_ledger_reversed_at = NOW() WHERE id = $1",
-          [id],
-        );
-      }
-    }
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-  await queueSuccessfulTransaction("DISBURSEMENT", id);
-  await queueTransactionWebhook("DISBURSEMENT", id);
-}
+const {
+  getMerchantWalletState,
+  settleSuccessfulCollection,
+  updateDisbursementStatus,
+} = createLedgerService({
+  pool,
+  queueSuccessfulTransaction,
+  queueTransactionWebhook,
+})
+
+const { updatePaymentLinkStatus } = createPaymentStateService({
+  pool,
+  settleSuccessfulCollection,
+  queueSuccessfulTransaction,
+  queueTransactionWebhook,
+})
 
 async function dispatchTransactionNotifications() {
   const { rows } = await pool.query(`
@@ -737,47 +785,65 @@ async function dispatchTransactionNotifications() {
     WHERE n.email_sent_at IS NULL OR n.push_sent_at IS NULL
     ORDER BY n.created_at ASC
     LIMIT 25
-  `);
+  `)
   for (const notification of rows) {
     if (!notification.email_sent_at) {
       try {
-        await sendTransactionEmail(notification);
-        await pool.query("UPDATE transaction_notifications SET email_sent_at = NOW() WHERE id = $1", [notification.id]);
+        await sendTransactionEmail(notification)
+        await pool.query(
+          "UPDATE transaction_notifications SET email_sent_at = NOW() WHERE id = $1",
+          [notification.id],
+        )
       } catch (error) {
-        console.error("Transaction email notification remains queued", error.message);
+        console.error(
+          "Transaction email notification remains queued",
+          error.message,
+        )
       }
     }
     if (!notification.push_sent_at && fcmConfigured()) {
       try {
-        const devices = await pool.query("SELECT token FROM merchant_push_devices WHERE merchant_email = $1", [notification.merchant_email]);
+        const devices = await pool.query(
+          "SELECT token FROM merchant_push_devices WHERE merchant_email = $1",
+          [notification.merchant_email],
+        )
         for (const device of devices.rows) {
           const priorDelivery = await pool.query(
             "SELECT 1 FROM transaction_push_deliveries WHERE notification_id = $1 AND token = $2",
             [notification.id, device.token],
-          );
-          if (priorDelivery.rowCount) continue;
-          const sent = await sendTransactionPush(notification, device.token);
+          )
+          if (priorDelivery.rowCount) continue
+          const sent = await sendTransactionPush(notification, device.token)
           if (!sent) {
-            await pool.query("DELETE FROM merchant_push_devices WHERE token = $1", [device.token]);
-            continue;
+            await pool.query(
+              "DELETE FROM merchant_push_devices WHERE token = $1",
+              [device.token],
+            )
+            continue
           }
           await pool.query(
             `INSERT INTO transaction_push_deliveries (notification_id, token)
              VALUES ($1, $2) ON CONFLICT DO NOTHING`,
             [notification.id, device.token],
-          );
+          )
         }
         const remaining = await pool.query(
           `SELECT COUNT(*)::int AS count FROM merchant_push_devices d
            WHERE d.merchant_email = $1
            AND NOT EXISTS (SELECT 1 FROM transaction_push_deliveries p WHERE p.notification_id = $2 AND p.token = d.token)`,
           [notification.merchant_email, notification.id],
-        );
+        )
         if (!remaining.rows[0].count) {
-          await pool.query("UPDATE transaction_notifications SET push_sent_at = NOW() WHERE id = $1", [notification.id]);
+          await pool.query(
+            "UPDATE transaction_notifications SET push_sent_at = NOW() WHERE id = $1",
+            [notification.id],
+          )
         }
       } catch (error) {
-        console.error("Transaction push notification remains queued", error.message);
+        console.error(
+          "Transaction push notification remains queued",
+          error.message,
+        )
       }
     }
   }
@@ -792,42 +858,42 @@ async function dispatchCustomerPaymentNotifications() {
      WHERE n.sent_at IS NULL AND n.next_attempt_at <= NOW() AND n.attempts < 8
      ORDER BY n.created_at ASC
      LIMIT 25`,
-  );
+  )
   for (const notification of pending.rows) {
     try {
-      await sendCustomerPaymentEmail(notification);
+      await sendCustomerPaymentEmail(notification)
       await pool.query(
         "UPDATE customer_payment_notifications SET sent_at = NOW(), attempts = attempts + 1 WHERE id = $1",
         [notification.id],
-      );
+      )
     } catch (error) {
-      const delaySeconds = Math.min(3600, 30 * (2 ** notification.attempts));
+      const delaySeconds = Math.min(3600, 30 * 2 ** notification.attempts)
       await pool.query(
         `UPDATE customer_payment_notifications
          SET attempts = attempts + 1,
            next_attempt_at = NOW() + ($2 * INTERVAL '1 second')
          WHERE id = $1`,
         [notification.id, delaySeconds],
-      );
+      )
       console.error("Customer payment confirmation remains queued for retry", {
         notificationId: notification.id,
         attempt: notification.attempts + 1,
         error: error.message,
-      });
+      })
     }
   }
 }
 
 function passwordMatchesWithSalt(candidate, expectedPassword, salt) {
-  const expected = scryptSync(expectedPassword, salt, 64);
-  const actual = scryptSync(candidate, salt, 64);
-  return timingSafeEqual(expected, actual);
+  const expected = scryptSync(expectedPassword, salt, 64)
+  const actual = scryptSync(candidate, salt, 64)
+  return timingSafeEqual(expected, actual)
 }
 
 function matchesPasswordHash(candidate, salt, expectedHash) {
-  const expected = Buffer.from(expectedHash, "hex");
-  const actual = scryptSync(candidate, salt, expected.length);
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
+  const expected = Buffer.from(expectedHash, "hex")
+  const actual = scryptSync(candidate, salt, expected.length)
+  return expected.length === actual.length && timingSafeEqual(expected, actual)
 }
 
 async function initializeDatabase() {
@@ -1211,7 +1277,7 @@ async function initializeDatabase() {
     CREATE UNIQUE INDEX IF NOT EXISTS disbursements_active_fingerprint_idx
       ON disbursements (request_fingerprint)
       WHERE status IN ('REQUESTING', 'PENDING', 'OUTCOME_UNKNOWN');
-  `);
+  `)
   await pool.query(`
     INSERT INTO admin_audit_events
       (id, event_key, category, action, target, actor, summary, occurred_at)
@@ -1223,7 +1289,7 @@ async function initializeDatabase() {
     FROM internal_wallet_adjustments
     WHERE adjusted_by NOT LIKE 'system:%'
     ON CONFLICT (event_key) DO NOTHING
-  `);
+  `)
   await pool.query(`
     INSERT INTO admin_audit_events
       (id, event_key, category, action, target, actor, summary, occurred_at)
@@ -1235,7 +1301,7 @@ async function initializeDatabase() {
     FROM floating_transfer_requests
     WHERE reviewed_at IS NOT NULL
     ON CONFLICT (event_key) DO NOTHING
-  `);
+  `)
   await pool.query(`
     INSERT INTO admin_audit_events
       (id, event_key, category, action, target, actor, summary, occurred_at)
@@ -1252,7 +1318,7 @@ async function initializeDatabase() {
           AND existing.occurred_at = merchant_kyb_profiles.reviewed_at
       )
     ON CONFLICT (event_key) DO NOTHING
-  `);
+  `)
   if (authEmail) {
     await pool.query(
       `INSERT INTO merchant_accounts (email)
@@ -1260,7 +1326,7 @@ async function initializeDatabase() {
        WHERE NOT EXISTS (SELECT 1 FROM merchant_accounts)
        ON CONFLICT (email) DO NOTHING`,
       [authEmail],
-    );
+    )
   }
   await pool.query(
     `UPDATE payment_links
@@ -1268,7 +1334,7 @@ async function initializeDatabase() {
      WHERE payment_token IS NOT NULL
        AND payment_url IS DISTINCT FROM $1 || '/checkout/' || code`,
     [checkoutOrigin.replace(/\/$/, "")],
-  );
+  )
   await pool.query(`
     INSERT INTO merchant_wallet_ledger (id, merchant_email, source_type, source_id, amount, reference_no, created_at)
     SELECT gen_random_uuid(), p.merchant_email, 'COLLECTION', p.id,
@@ -1277,7 +1343,7 @@ async function initializeDatabase() {
     LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
     WHERE p.status IN ('EXECUTED', 'MANUALLY_PAID') AND p.merchant_email IS NOT NULL
     ON CONFLICT (source_type, source_id) DO NOTHING
-  `);
+  `)
   await pool.query(`
     INSERT INTO merchant_wallet_ledger (id, merchant_email, source_type, source_id, amount, reference_no, created_at)
     SELECT gen_random_uuid(), d.merchant_email, 'DISBURSEMENT', d.id,
@@ -1291,23 +1357,26 @@ async function initializeDatabase() {
     LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
     WHERE d.status IN ('EXECUTED', 'SUCCESS', 'COMPLETED') AND d.merchant_email IS NOT NULL
     ON CONFLICT (source_type, source_id) DO NOTHING
-  `);
+  `)
   if (process.env.DRPAY_KRW_TO_PHP_RATE !== undefined) {
-    const configuredRate = Number(process.env.DRPAY_KRW_TO_PHP_RATE);
+    const configuredRate = Number(process.env.DRPAY_KRW_TO_PHP_RATE)
     if (Number.isFinite(configuredRate) && configuredRate > 0) {
       await pool.query(
         `INSERT INTO system_settings (setting_key, setting_value)
          VALUES ('krw_to_php_rate', $1)
          ON CONFLICT (setting_key) DO NOTHING`,
         [String(configuredRate)],
-      );
+      )
     }
   }
 }
 
-async function swiftPayFetch(path, { method = "GET", body, headers = {}, timeoutMs = 12_000 } = {}) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+async function swiftPayFetch(
+  path,
+  { method = "GET", body, headers = {}, timeoutMs = 12_000 } = {},
+) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const response = await fetch(`${swiftPayBaseUrl}${path}`, {
       method,
@@ -1318,19 +1387,23 @@ async function swiftPayFetch(path, { method = "GET", body, headers = {}, timeout
         ...(body ? { "Content-Type": "application/json" } : {}),
       },
       ...(body ? { body: JSON.stringify(body) } : {}),
-    });
-    const text = await response.text();
-    let data = null;
-    try { data = text ? JSON.parse(text) : null; } catch { data = text; }
-    if (!response.ok) {
-      const error = new Error(`SwiftPay request failed (${response.status})`);
-      error.status = response.status;
-      error.providerMessage = providerErrorMessage(data);
-      throw error;
+    })
+    const text = await response.text()
+    let data = null
+    try {
+      data = text ? JSON.parse(text) : null
+    } catch {
+      data = text
     }
-    return { data, status: response.status };
+    if (!response.ok) {
+      const error = new Error(`SwiftPay request failed (${response.status})`)
+      error.status = response.status
+      error.providerMessage = providerErrorMessage(data)
+      throw error
+    }
+    return { data, status: response.status }
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(timeout)
   }
 }
 
@@ -1342,104 +1415,138 @@ function providerErrorMessage(data) {
     data?.description,
     data?.errors?.[0]?.message,
     data?.errors?.[0],
-  ];
-  const value = candidates.find((candidate) => typeof candidate === "string" && candidate.trim());
+  ]
+  const value = candidates.find(
+    (candidate) => typeof candidate === "string" && candidate.trim(),
+  )
   return typeof value === "string"
-    ? value.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 300)
-    : null;
+    ? value
+        .replace(/[\u0000-\u001f\u007f]/g, " ")
+        .trim()
+        .slice(0, 300)
+    : null
 }
 
 async function swiftPayRequest(path, options = {}) {
-  const authorization = Buffer.from(`${swiftPayAccessKey}:${swiftPaySecretKey}`).toString("base64");
+  const authorization = Buffer.from(
+    `${swiftPayAccessKey}:${swiftPaySecretKey}`,
+  ).toString("base64")
   return swiftPayFetch(path, {
     ...options,
     headers: { Authorization: `Basic ${authorization}`, ...options.headers },
-  });
+  })
 }
 
 async function swiftPayPaymentRequest(path, paymentToken) {
-  return swiftPayFetch(path, { headers: { "X-Swiftpay-Payment-Token": paymentToken } });
+  return swiftPayFetch(path, {
+    headers: { "X-Swiftpay-Payment-Token": paymentToken },
+  })
 }
 
 async function swiftPaySignedRequest(path, payload) {
   const canonicalPayload = Object.entries(payload)
-    .filter(([key, value]) => key.startsWith("x_") && value !== null && value !== undefined)
-    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .filter(
+      ([key, value]) =>
+        key.startsWith("x_") && value !== null && value !== undefined,
+    )
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
     .map(([key, value]) => `${key}${value}`)
-    .join("");
-  const signature = createHmac("sha256", swiftPaySecretKey).update(canonicalPayload, "utf8").digest("hex");
-  return swiftPayFetch(path, { method: "POST", body: { ...payload, signature } });
+    .join("")
+  const signature = createHmac("sha256", swiftPaySecretKey)
+    .update(canonicalPayload, "utf8")
+    .digest("hex")
+  return swiftPayFetch(path, {
+    method: "POST",
+    body: { ...payload, signature },
+  })
 }
 
 function validPaymentStatus(value) {
-  return ["PENDING", "EXECUTED", "CANCELED", "REJECTED", "EXPIRED"].includes(value);
+  return ["PENDING", "EXECUTED", "CANCELED", "REJECTED", "EXPIRED"].includes(
+    value,
+  )
 }
 
 function paymentStatusFromResponse(data) {
-  const status = typeof data === "string" ? data : data?.status || data?.paymentStatus;
-  if (!validPaymentStatus(status)) throw new Error("SwiftPay returned an invalid payment status.");
-  return status;
+  const status =
+    typeof data === "string" ? data : data?.status || data?.paymentStatus
+  if (!validPaymentStatus(status))
+    throw new Error("SwiftPay returned an invalid payment status.")
+  return status
 }
 
 async function requireMerchant(req, res, next) {
-  const match = /^Bearer (.+)$/.exec(req.get("authorization") || "");
-  if (!match || !jwtSecret) return res.status(401).json({ error: "Sign in is required." });
+  const match = /^Bearer (.+)$/.exec(req.get("authorization") || "")
+  if (!match || !jwtSecret)
+    return res.status(401).json({ error: "Sign in is required." })
   if (match[1].startsWith("drp_")) {
     if (!match[1].startsWith(`drp_${swiftPayEnvironment}_`)) {
-      return res.status(401).json({ error: "The API key is invalid or belongs to another payment environment." });
+      return res
+        .status(401)
+        .json({
+          error:
+            "The API key is invalid or belongs to another payment environment.",
+        })
     }
-    const keyHash = createHash("sha256").update(match[1]).digest("hex");
+    const keyHash = createHash("sha256").update(match[1]).digest("hex")
     const result = await pool.query(
       `SELECT k.id, k.merchant_email, k.scopes, a.active
        FROM merchant_api_keys k JOIN merchant_accounts a ON a.email = k.merchant_email
        WHERE k.key_hash = $1 AND k.revoked_at IS NULL`,
       [keyHash],
-    );
-    const apiKey = result.rows[0];
-    if (!apiKey?.active) return res.status(401).json({ error: "The API key is invalid or revoked." });
+    )
+    const apiKey = result.rows[0]
+    if (!apiKey?.active)
+      return res
+        .status(401)
+        .json({ error: "The API key is invalid or revoked." })
     if (req.method === "GET" && !apiKey.scopes.includes("read")) {
-      return res.status(403).json({ error: "This API key does not have read permission." });
+      return res
+        .status(403)
+        .json({ error: "This API key does not have read permission." })
     }
-    const allowedReadPaths = new Set([
-      "/wallet/balance",
-      "/wallet/activity",
-      "/internal-wallet",
-      "/crypto/usdt-wallet",
-      "/disbursement-institutions",
-      "/payment-institutions",
-    ]);
-    const allowedWrite = req.method === "POST" && req.path === "/payment-links" && apiKey.scopes.includes("payments:write");
-    if (req.method !== "GET" && !allowedWrite) {
-      return res.status(403).json({ error: "This API key does not have permission for this operation." });
+    if (!hasApiKeyPermission(req.method, req.path, apiKey.scopes)) {
+      return res
+        .status(403)
+        .json({
+          error: "This API key does not have permission for this operation.",
+        })
     }
-    if (req.method === "GET" && !allowedReadPaths.has(req.path) && !/^\/payment-links\/[A-Za-z0-9_-]{40,50}$/.test(req.path)) {
-      return res.status(403).json({ error: "This API key does not have permission for this operation." });
-    }
-    req.merchantEmail = apiKey.merchant_email;
-    req.apiKey = true;
-    req.apiKeyId = apiKey.id;
-    await pool.query("UPDATE merchant_api_keys SET last_used_at = NOW() WHERE id = $1", [apiKey.id]);
-    return merchantApiLimiter(req, res, next);
+    req.merchantEmail = apiKey.merchant_email
+    req.apiKey = true
+    req.apiKeyId = apiKey.id
+    await pool.query(
+      "UPDATE merchant_api_keys SET last_used_at = NOW() WHERE id = $1",
+      [apiKey.id],
+    )
+    return merchantApiLimiter(req, res, next)
   }
-  let payload;
+  let payload
   try {
-    ({ payload } = await jwtVerify(match[1], jwtSecret, { algorithms: ["HS256"] }));
+    ;({ payload } = await jwtVerify(match[1], jwtSecret, {
+      algorithms: ["HS256"],
+    }))
   } catch {
-    return res.status(401).json({ error: "Your session has expired. Sign in again." });
+    return res
+      .status(401)
+      .json({ error: "Your session has expired. Sign in again." })
   }
-  if (typeof payload.sub !== "string" || payload.role !== "merchant") {
-    return res.status(401).json({ error: "Your session has expired. Sign in again." });
+  if (!isMerchantSession(payload)) {
+    return res
+      .status(401)
+      .json({ error: "Your session has expired. Sign in again." })
   }
   const account = await pool.query(
     "SELECT active FROM merchant_accounts WHERE email = $1",
     [payload.sub],
-  );
-  if (!account.rows[0]?.active) return res.status(401).json({ error: "This merchant account is disabled." });
-  req.merchantEmail = payload.sub;
-  return next();
+  )
+  if (!account.rows[0]?.active)
+    return res.status(401).json({ error: "This merchant account is disabled." })
+  req.merchantEmail = payload.sub
+  return next()
 }
 
-const blockedIpv6Subnets = new BlockList();
+const blockedIpv6Subnets = new BlockList()
 for (const [subnet, prefix] of [
   ["::", 128],
   ["::1", 128],
@@ -1454,116 +1561,182 @@ for (const [subnet, prefix] of [
   ["fc00::", 7],
   ["fe80::", 10],
   ["ff00::", 8],
-]) blockedIpv6Subnets.addSubnet(subnet, prefix, "ipv6");
+])
+  blockedIpv6Subnets.addSubnet(subnet, prefix, "ipv6")
 
 function isPublicAddress(address) {
   if (isIP(address) === 6) {
-    const globalUnicast = /^[23]/.test(address);
-    return globalUnicast && !blockedIpv6Subnets.check(address, "ipv6");
+    const globalUnicast = /^[23]/.test(address)
+    return globalUnicast && !blockedIpv6Subnets.check(address, "ipv6")
   }
-  if (isIP(address) !== 4) return false;
-  const [a, b] = address.split(".").map(Number);
-  const c = Number(address.split(".")[2]);
-  return !(a === 0 || a === 10 || a === 127 || a >= 224
-    || (a === 100 && b >= 64 && b <= 127)
-    || (a === 169 && b === 254)
-    || (a === 172 && b >= 16 && b <= 31)
-    || (a === 192 && (b === 0 || b === 168))
-    || (a === 192 && b === 88 && c === 99)
-    || (a === 198 && (b === 18 || b === 19 || b === 51))
-    || (a === 203 && b === 0));
+  if (isIP(address) !== 4) return false
+  const [a, b] = address.split(".").map(Number)
+  const c = Number(address.split(".")[2])
+  return !(
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    a >= 224 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && (b === 0 || b === 168)) ||
+    (a === 192 && b === 88 && c === 99) ||
+    (a === 198 && (b === 18 || b === 19 || b === 51)) ||
+    (a === 203 && b === 0)
+  )
 }
 
 async function validateWebhookUrl(value) {
-  if (typeof value !== "string" || value.length > 2048) return false;
-  let url;
+  if (typeof value !== "string" || value.length > 2048) return false
+  let url
   try {
-    url = new URL(value);
+    url = new URL(value)
   } catch {
-    return false;
+    return false
   }
-  if (url.protocol !== "https:" || url.username || url.password || (url.port && url.port !== "443")) return false;
-  const hostname = url.hostname.toLowerCase();
-  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local") || isIP(hostname)) return false;
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    (url.port && url.port !== "443")
+  )
+    return false
+  const hostname = url.hostname.toLowerCase()
+  if (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname.endsWith(".local") ||
+    isIP(hostname)
+  )
+    return false
   try {
-    const addresses = await lookup(hostname, { all: true, verbatim: true });
-    return addresses.length > 0 && addresses.every(({ address }) => isPublicAddress(address));
+    const addresses = await lookup(hostname, { all: true, verbatim: true })
+    return (
+      addresses.length > 0 &&
+      addresses.every(({ address }) => isPublicAddress(address))
+    )
   } catch {
-    return false;
+    return false
   }
 }
 
 function sendWebhookRequest(url, payload, signature) {
   return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
-    void lookup(parsed.hostname, { all: true, verbatim: true }).then((addresses) => {
-      if (!addresses.length || addresses.some(({ address }) => !isPublicAddress(address))) {
-        throw new Error("Webhook destination resolved to a non-public address.");
-      }
-      const address = addresses[0].address;
-      const body = JSON.stringify(payload);
-      const request = https.request({
-        hostname: parsed.hostname,
-        port: 443,
-        path: `${parsed.pathname}${parsed.search}`,
-        method: "POST",
-        servername: parsed.hostname,
-        lookup: (_hostname, _options, callback) => callback(null, address, isIP(address)),
-        headers: {
-          "Content-Type": "application/json",
-          "Content-Length": Buffer.byteLength(body),
-          "DRPAY-Signature": `sha256=${signature}`,
-          "DRPAY-Event": payload.type,
-        },
-        timeout: 8000,
-      }, (response) => {
-        response.resume();
-        response.on("end", () => {
-          if (response.statusCode && response.statusCode >= 200 && response.statusCode < 300) resolve();
-          else reject(new Error(`Webhook endpoint returned HTTP ${response.statusCode || "unknown"}.`));
-        });
-      });
-      request.on("timeout", () => request.destroy(new Error("Webhook request timed out.")));
-      request.on("error", reject);
-      request.end(body);
-    }).catch(reject);
-  });
+    const parsed = new URL(url)
+    void lookup(parsed.hostname, { all: true, verbatim: true })
+      .then((addresses) => {
+        if (
+          !addresses.length ||
+          addresses.some(({ address }) => !isPublicAddress(address))
+        ) {
+          throw new Error(
+            "Webhook destination resolved to a non-public address.",
+          )
+        }
+        const address = addresses[0].address
+        const body = JSON.stringify(payload)
+        const request = https.request(
+          {
+            hostname: parsed.hostname,
+            port: 443,
+            path: `${parsed.pathname}${parsed.search}`,
+            method: "POST",
+            servername: parsed.hostname,
+            lookup: (_hostname, _options, callback) =>
+              callback(null, address, isIP(address)),
+            headers: {
+              "Content-Type": "application/json",
+              "Content-Length": Buffer.byteLength(body),
+              "DRPAY-Signature": `sha256=${signature}`,
+              "DRPAY-Event": payload.type,
+            },
+            timeout: 8000,
+          },
+          (response) => {
+            response.resume()
+            response.on("end", () => {
+              if (
+                response.statusCode &&
+                response.statusCode >= 200 &&
+                response.statusCode < 300
+              )
+                resolve()
+              else
+                reject(
+                  new Error(
+                    `Webhook endpoint returned HTTP ${response.statusCode || "unknown"}.`,
+                  ),
+                )
+            })
+          },
+        )
+        request.on("timeout", () =>
+          request.destroy(new Error("Webhook request timed out.")),
+        )
+        request.on("error", reject)
+        request.end(body)
+      })
+      .catch(reject)
+  })
 }
 
 async function queueTransactionWebhook(transactionType, transactionId) {
-  const query = transactionType === "PAYMENT"
-    ? `SELECT merchant_email, id, reference_no, amount, currency, status FROM payment_links WHERE id = $1`
-    : `SELECT merchant_email, id, merchant_reference_no AS reference_no, amount, 'PHP' AS currency, status FROM disbursements WHERE id = $1`;
-  const result = await pool.query(query, [transactionId]);
-  const transaction = result.rows[0];
-  if (!transaction?.merchant_email) return;
-  const status = String(transaction.status).toUpperCase();
-  const succeeded = transactionType === "PAYMENT"
-    ? ["EXECUTED", "MANUALLY_PAID"].includes(status)
-    : ["EXECUTED", "SUCCESS", "COMPLETED"].includes(status);
-  const failed = ["FAILED", "REJECTED", "ERROR", "CANCELED", "CANCELLED", "EXPIRED"].includes(status);
-  if (!succeeded && !failed) return;
-  const eventType = `${transactionType === "PAYMENT" ? "payment" : "disbursement"}.${succeeded ? "succeeded" : "failed"}`;
+  const query =
+    transactionType === "PAYMENT"
+      ? `SELECT merchant_email, id, reference_no, amount, currency, status FROM payment_links WHERE id = $1`
+      : `SELECT merchant_email, id, merchant_reference_no AS reference_no, amount, 'PHP' AS currency, status FROM disbursements WHERE id = $1`
+  const result = await pool.query(query, [transactionId])
+  const transaction = result.rows[0]
+  if (!transaction?.merchant_email) return
+  const status = String(transaction.status).toUpperCase()
+  const succeeded =
+    transactionType === "PAYMENT"
+      ? ["EXECUTED", "MANUALLY_PAID"].includes(status)
+      : ["EXECUTED", "SUCCESS", "COMPLETED"].includes(status)
+  const failed = [
+    "FAILED",
+    "REJECTED",
+    "ERROR",
+    "CANCELED",
+    "CANCELLED",
+    "EXPIRED",
+  ].includes(status)
+  if (!succeeded && !failed) return
+  const eventType = `${
+    transactionType === "PAYMENT" ? "payment" : "disbursement"
+  }.${succeeded ? "succeeded" : "failed"}`
   const configured = await pool.query(
     `SELECT 1 FROM merchant_webhook_settings
      WHERE merchant_email = $1 AND enabled = TRUE AND $2 = ANY(events)
        AND (endpoint_url <> '' OR callback_url IS NOT NULL)`,
     [transaction.merchant_email, eventType],
-  );
-  if (!configured.rowCount) return;
-  const payload = { id: randomUUID(), type: eventType, createdAt: new Date().toISOString(), data: {
-    id: transaction.id,
-    reference: transaction.reference_no,
-    amount: Number(transaction.amount),
-    currency: transaction.currency,
-    status,
-  } };
+  )
+  if (!configured.rowCount) return
+  const payload = {
+    id: randomUUID(),
+    type: eventType,
+    createdAt: new Date().toISOString(),
+    data: {
+      id: transaction.id,
+      reference: transaction.reference_no,
+      amount: Number(transaction.amount),
+      currency: transaction.currency,
+      status,
+    },
+  }
   await pool.query(
     `INSERT INTO merchant_webhook_deliveries (id, merchant_email, event_type, resource_id, payload)
      VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT (merchant_email, event_type, resource_id) DO NOTHING`,
-    [payload.id, transaction.merchant_email, eventType, transactionId, JSON.stringify(payload)],
-  );
+    [
+      payload.id,
+      transaction.merchant_email,
+      eventType,
+      transactionId,
+      JSON.stringify(payload),
+    ],
+  )
 }
 
 async function dispatchMerchantWebhooks() {
@@ -1575,163 +1748,248 @@ async function dispatchMerchantWebhooks() {
      WHERE d.delivered_at IS NULL AND d.next_attempt_at <= NOW()
        AND d.attempts < 8 AND d.event_type = ANY(s.events)
      ORDER BY d.created_at ASC LIMIT 25`,
-  );
+  )
   for (const delivery of deliveries.rows) {
-    const body = JSON.stringify(delivery.payload);
-    const signature = createHmac("sha256", delivery.signing_secret).update(body).digest("hex");
-    const urls = [...new Set([delivery.endpoint_url, delivery.callback_url].filter(Boolean))];
-    let failure = false;
+    const body = JSON.stringify(delivery.payload)
+    const signature = createHmac("sha256", delivery.signing_secret)
+      .update(body)
+      .digest("hex")
+    const urls = [
+      ...new Set(
+        [delivery.endpoint_url, delivery.callback_url].filter(Boolean),
+      ),
+    ]
+    let failure = false
     for (const url of urls) {
       try {
-        if (!await validateWebhookUrl(url)) throw new Error("Webhook destination is not an allowed public HTTPS URL.");
-        await sendWebhookRequest(url, delivery.payload, signature);
+        if (!(await validateWebhookUrl(url)))
+          throw new Error(
+            "Webhook destination is not an allowed public HTTPS URL.",
+          )
+        await sendWebhookRequest(url, delivery.payload, signature)
       } catch (error) {
-        failure = true;
-        console.error("Merchant webhook delivery failed", delivery.id, error.message);
+        failure = true
+        console.error(
+          "Merchant webhook delivery failed",
+          delivery.id,
+          error.message,
+        )
       }
     }
     if (!failure) {
-      await pool.query("UPDATE merchant_webhook_deliveries SET delivered_at = NOW(), attempts = attempts + 1 WHERE id = $1", [delivery.id]);
+      await pool.query(
+        "UPDATE merchant_webhook_deliveries SET delivered_at = NOW(), attempts = attempts + 1 WHERE id = $1",
+        [delivery.id],
+      )
     } else {
-      const delaySeconds = Math.min(3600, 30 * (2 ** delivery.attempts));
+      const delaySeconds = Math.min(3600, 30 * 2 ** delivery.attempts)
       await pool.query(
         `UPDATE merchant_webhook_deliveries
          SET attempts = attempts + 1, next_attempt_at = NOW() + ($2 * INTERVAL '1 second')
          WHERE id = $1`,
         [delivery.id, delaySeconds],
-      );
+      )
     }
   }
 }
 
 async function cleanExpiredKybUploads() {
-  if (!r2Client || !r2BucketName) return;
+  if (!r2Client || !r2BucketName) return
   const expired = await pool.query(
     `SELECT id, object_key FROM merchant_kyb_uploads
      WHERE expires_at <= NOW() AND completed_at IS NULL
      ORDER BY expires_at ASC LIMIT 100`,
-  );
+  )
   for (const upload of expired.rows) {
     try {
-      await r2Client.send(new DeleteObjectCommand({ Bucket: r2BucketName, Key: upload.object_key }));
-      await pool.query("DELETE FROM merchant_kyb_uploads WHERE id = $1 AND completed_at IS NULL", [upload.id]);
+      await r2Client.send(
+        new DeleteObjectCommand({
+          Bucket: r2BucketName,
+          Key: upload.object_key,
+        }),
+      )
+      await pool.query(
+        "DELETE FROM merchant_kyb_uploads WHERE id = $1 AND completed_at IS NULL",
+        [upload.id],
+      )
     } catch (error) {
-      console.error("Could not clean up an expired private KYB upload", upload.id, error.name || "storage error");
+      console.error(
+        "Could not clean up an expired private KYB upload",
+        upload.id,
+        error.name || "storage error",
+      )
     }
   }
 }
 
 async function requireSuperAdmin(req, res, next) {
-  const match = /^Bearer\s+(.+)$/i.exec(req.get("authorization") || "");
-  if (!match || !jwtSecret) return res.status(401).json({ error: "Restricted sign-in is required." });
+  const match = /^Bearer\s+(.+)$/i.exec(req.get("authorization") || "")
+  if (!match || !jwtSecret)
+    return res.status(401).json({ error: "Restricted sign-in is required." })
   try {
-    const { payload } = await jwtVerify(match[1], jwtSecret, { algorithms: ["HS256"] });
-    if (payload.sub !== superAdminEmail || payload.role !== "super_admin") throw new Error("Invalid session");
-    req.adminEmail = payload.sub;
-    return next();
+    const { payload } = await jwtVerify(match[1], jwtSecret, {
+      algorithms: ["HS256"],
+    })
+    if (!isOperationsSession(payload, superAdminEmail))
+      throw new Error("Invalid session")
+    req.adminEmail = payload.sub
+    return next()
   } catch {
-    return res.status(401).json({ error: "Your session has expired. Sign in again." });
+    return res
+      .status(401)
+      .json({ error: "Your session has expired. Sign in again." })
   }
 }
 
 app.get("/healthz", async (_req, res) => {
   try {
-    await pool.query("SELECT 1");
-    return res.json({ status: "ok", paymentEnvironment: swiftPayEnvironment });
+    await pool.query("SELECT 1")
+    return res.json({ status: "ok", paymentEnvironment: swiftPayEnvironment })
   } catch {
-    return res.status(503).json({ status: "unavailable" });
+    return res.status(503).json({ status: "unavailable" })
   }
-});
+})
 
 app.post("/v1/auth/login", loginLimiter, async (req, res) => {
-  const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
-  const password = typeof req.body?.password === "string" ? req.body.password : "";
+  const email =
+    typeof req.body?.email === "string"
+      ? req.body.email.trim().toLowerCase()
+      : ""
+  const password =
+    typeof req.body?.password === "string" ? req.body.password : ""
   if (password.length < 1 || password.length > 256) {
-    return res.status(401).json({ error: "Email or password is incorrect." });
+    return res.status(401).json({ error: "Email or password is incorrect." })
   }
-  if (email !== superAdminEmail || !superAdminPassword || !passwordSalt || !passwordMatchesWithSalt(password, superAdminPassword, passwordSalt)) {
-    return res.status(401).json({ error: "Email or password is incorrect." });
+  if (
+    email !== superAdminEmail ||
+    !superAdminPassword ||
+    !passwordSalt ||
+    !passwordMatchesWithSalt(password, superAdminPassword, passwordSalt)
+  ) {
+    return res.status(401).json({ error: "Email or password is incorrect." })
   }
-  const expiresInSeconds = 60 * 60;
+  const expiresInSeconds = 60 * 60
   const accessToken = await new SignJWT({ role: "super_admin" })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(email)
     .setIssuedAt()
     .setExpirationTime("1h")
-    .sign(jwtSecret);
-  return res.set("Cache-Control", "no-store").json({ accessToken, expiresInSeconds, email, role: "super_admin" });
-});
+    .sign(jwtSecret)
+  return res
+    .set("Cache-Control", "no-store")
+    .json({ accessToken, expiresInSeconds, email, role: "super_admin" })
+})
 
 app.post("/v1/auth/device/otp/request", loginLimiter, async (req, res) => {
-  const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
-  const deviceToken = typeof req.body?.deviceToken === "string" ? req.body.deviceToken : "";
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || !/^[A-Za-z0-9_-]{32,128}$/.test(deviceToken)) {
-    return res.status(400).json({ error: "Enter a valid merchant email to request a verification code." });
+  const email =
+    typeof req.body?.email === "string"
+      ? req.body.email.trim().toLowerCase()
+      : ""
+  const deviceToken =
+    typeof req.body?.deviceToken === "string" ? req.body.deviceToken : ""
+  if (
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+    email.length > 254 ||
+    !/^[A-Za-z0-9_-]{32,128}$/.test(deviceToken)
+  ) {
+    return res
+      .status(400)
+      .json({
+        error: "Enter a valid merchant email to request a verification code.",
+      })
   }
-  const account = await pool.query("SELECT email FROM merchant_accounts WHERE email = $1 AND active = TRUE", [email]);
-  let challengeId = randomUUID();
+  const account = await pool.query(
+    "SELECT email FROM merchant_accounts WHERE email = $1 AND active = TRUE",
+    [email],
+  )
+  let challengeId = randomUUID()
   if (account.rowCount) {
-    const tokenHash = deviceTokenHash(deviceToken);
+    const tokenHash = deviceTokenHash(deviceToken)
     const recentChallenge = await pool.query(
       `SELECT id FROM merchant_email_otps
        WHERE email = $1 AND device_token_hash = $2 AND consumed_at IS NULL
          AND attempts < 5 AND created_at > NOW() - INTERVAL '60 seconds'
        ORDER BY created_at DESC LIMIT 1`,
       [email, tokenHash],
-    );
+    )
     if (recentChallenge.rowCount) {
-      challengeId = recentChallenge.rows[0].id;
+      challengeId = recentChallenge.rows[0].id
       return res.set("Cache-Control", "no-store").json({
         challengeId,
-        message: "If this email belongs to an active merchant account, a verification code has been sent.",
-      });
+        message:
+          "If this email belongs to an active merchant account, a verification code has been sent.",
+      })
     }
     const recentRequests = await pool.query(
       "SELECT COUNT(*)::int AS count FROM merchant_email_otps WHERE email = $1 AND created_at > NOW() - INTERVAL '15 minutes'",
       [email],
-    );
+    )
     if (recentRequests.rows[0].count >= 5) {
       return res.set("Cache-Control", "no-store").json({
         challengeId,
-        message: "If this email belongs to an active merchant account, a verification code has been sent.",
-      });
+        message:
+          "If this email belongs to an active merchant account, a verification code has been sent.",
+      })
     }
-    const code = String(randomInt(100_000, 1_000_000));
-    const codeHash = createHmac("sha256", jwtSecretValue).update(`${challengeId}:${email}:${code}`).digest("hex");
-    await pool.query("DELETE FROM merchant_email_otps WHERE expires_at <= NOW() OR consumed_at IS NOT NULL");
+    const code = String(randomInt(100_000, 1_000_000))
+    const codeHash = createHmac("sha256", jwtSecretValue)
+      .update(`${challengeId}:${email}:${code}`)
+      .digest("hex")
+    await pool.query(
+      "DELETE FROM merchant_email_otps WHERE expires_at <= NOW() OR consumed_at IS NOT NULL",
+    )
     await pool.query(
       "UPDATE merchant_email_otps SET consumed_at = NOW() WHERE email = $1 AND consumed_at IS NULL",
       [email],
-    );
+    )
     await pool.query(
       `INSERT INTO merchant_email_otps (id, email, device_token_hash, code_hash, expires_at)
        VALUES ($1, $2, $3, $4, NOW() + INTERVAL '10 minutes')`,
       [challengeId, email, tokenHash, codeHash],
-    );
+    )
     try {
-      await sendMerchantOtp(email, code);
+      await sendMerchantOtp(email, code)
     } catch {
-      await pool.query("DELETE FROM merchant_email_otps WHERE id = $1", [challengeId]);
-      return res.status(503).json({ error: "Verification email could not be sent. Try again later." });
+      await pool.query("DELETE FROM merchant_email_otps WHERE id = $1", [
+        challengeId,
+      ])
+      return res
+        .status(503)
+        .json({
+          error: "Verification email could not be sent. Try again later.",
+        })
     }
   }
   return res.set("Cache-Control", "no-store").json({
     challengeId,
-    message: "If this email belongs to an active merchant account, a verification code has been sent.",
-  });
-});
+    message:
+      "If this email belongs to an active merchant account, a verification code has been sent.",
+  })
+})
 
 app.post("/v1/auth/device/otp/verify", loginLimiter, async (req, res) => {
-  const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
-  const code = typeof req.body?.code === "string" ? req.body.code.trim() : "";
-  const challengeId = typeof req.body?.challengeId === "string" ? req.body.challengeId : "";
-  const deviceToken = typeof req.body?.deviceToken === "string" ? req.body.deviceToken : "";
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !/^\d{6}$/.test(code) || !/^[A-Za-z0-9_-]{32,128}$/.test(deviceToken) || !/^[0-9a-f-]{36}$/i.test(challengeId)) {
-    return res.status(400).json({ error: "Enter the six-digit email code to verify this device." });
+  const email =
+    typeof req.body?.email === "string"
+      ? req.body.email.trim().toLowerCase()
+      : ""
+  const code = typeof req.body?.code === "string" ? req.body.code.trim() : ""
+  const challengeId =
+    typeof req.body?.challengeId === "string" ? req.body.challengeId : ""
+  const deviceToken =
+    typeof req.body?.deviceToken === "string" ? req.body.deviceToken : ""
+  if (
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+    !/^\d{6}$/.test(code) ||
+    !/^[A-Za-z0-9_-]{32,128}$/.test(deviceToken) ||
+    !/^[0-9a-f-]{36}$/i.test(challengeId)
+  ) {
+    return res
+      .status(400)
+      .json({ error: "Enter the six-digit email code to verify this device." })
   }
-  const client = await pool.connect();
+  const client = await pool.connect()
   try {
-    await client.query("BEGIN");
+    await client.query("BEGIN")
     const challenge = await client.query(
       `SELECT o.code_hash FROM merchant_email_otps o
        JOIN merchant_accounts a ON a.email = o.email AND a.active = TRUE
@@ -1739,49 +1997,80 @@ app.post("/v1/auth/device/otp/verify", loginLimiter, async (req, res) => {
          AND o.consumed_at IS NULL AND o.expires_at > NOW() AND o.attempts < 5
        FOR UPDATE`,
       [challengeId, email, deviceTokenHash(deviceToken)],
-    );
-    const record = challenge.rows[0];
+    )
+    const record = challenge.rows[0]
     if (!record) {
-      await client.query("ROLLBACK");
-      return res.status(401).json({ error: "That code is invalid or expired. Request a new code." });
+      await client.query("ROLLBACK")
+      return res
+        .status(401)
+        .json({ error: "That code is invalid or expired. Request a new code." })
     }
-    await client.query("UPDATE merchant_email_otps SET attempts = attempts + 1 WHERE id = $1", [challengeId]);
-    const expectedHash = createHmac("sha256", jwtSecretValue).update(`${challengeId}:${email}:${code}`).digest();
-    const actualHash = Buffer.from(record.code_hash, "hex");
-    if (actualHash.length !== expectedHash.length || !timingSafeEqual(actualHash, expectedHash)) {
-      await client.query("COMMIT");
-      return res.status(401).json({ error: "That code is incorrect. Check the email and try again." });
+    await client.query(
+      "UPDATE merchant_email_otps SET attempts = attempts + 1 WHERE id = $1",
+      [challengeId],
+    )
+    const expectedHash = createHmac("sha256", jwtSecretValue)
+      .update(`${challengeId}:${email}:${code}`)
+      .digest()
+    const actualHash = Buffer.from(record.code_hash, "hex")
+    if (
+      actualHash.length !== expectedHash.length ||
+      !timingSafeEqual(actualHash, expectedHash)
+    ) {
+      await client.query("COMMIT")
+      return res
+        .status(401)
+        .json({
+          error: "That code is incorrect. Check the email and try again.",
+        })
     }
     const consumed = await client.query(
       `UPDATE merchant_email_otps SET consumed_at = NOW()
        WHERE id = $1 AND consumed_at IS NULL RETURNING id`,
       [challengeId],
-    );
+    )
     if (!consumed.rowCount) {
-      await client.query("ROLLBACK");
-      return res.status(401).json({ error: "That code has already been used. Request a new code." });
+      await client.query("ROLLBACK")
+      return res
+        .status(401)
+        .json({ error: "That code has already been used. Request a new code." })
     }
     await client.query(
       `INSERT INTO merchant_devices (email, device_token_hash)
        VALUES ($1, $2) ON CONFLICT (email, device_token_hash) DO UPDATE SET last_used_at = NOW()`,
       [email, deviceTokenHash(deviceToken)],
-    );
-    await client.query("COMMIT");
-    return res.set("Cache-Control", "no-store").json(await issueMerchantSession(email));
+    )
+    await client.query("COMMIT")
+    return res
+      .set("Cache-Control", "no-store")
+      .json(await issueMerchantSession(email))
   } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
+    await client.query("ROLLBACK")
+    throw error
   } finally {
-    client.release();
+    client.release()
   }
-});
+})
 
 app.post("/v1/auth/device/pin", loginLimiter, async (req, res) => {
-  const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
-  const pin = typeof req.body?.pin === "string" ? req.body.pin : "";
-  const deviceToken = typeof req.body?.deviceToken === "string" ? req.body.deviceToken : "";
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !/^\d{4}$/.test(pin) || !/^[A-Za-z0-9_-]{32,128}$/.test(deviceToken)) {
-    return res.status(401).json({ error: "Check your email and four-digit MPIN, or verify this device by email." });
+  const email =
+    typeof req.body?.email === "string"
+      ? req.body.email.trim().toLowerCase()
+      : ""
+  const pin = typeof req.body?.pin === "string" ? req.body.pin : ""
+  const deviceToken =
+    typeof req.body?.deviceToken === "string" ? req.body.deviceToken : ""
+  if (
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+    !/^\d{4}$/.test(pin) ||
+    !/^[A-Za-z0-9_-]{32,128}$/.test(deviceToken)
+  ) {
+    return res
+      .status(401)
+      .json({
+        error:
+          "Check your email and four-digit MPIN, or verify this device by email.",
+      })
   }
   const { rows } = await pool.query(
     `SELECT s.pin_salt, s.pin_hash FROM merchant_accounts a
@@ -1789,30 +2078,66 @@ app.post("/v1/auth/device/pin", loginLimiter, async (req, res) => {
      JOIN merchant_security s ON s.email = a.email
      WHERE a.email = $1 AND a.active = TRUE AND d.device_token_hash = $2`,
     [email, deviceTokenHash(deviceToken)],
-  );
-  const security = rows[0];
-  if (!security?.pin_hash) return res.status(403).json({ error: "Verify this device by email and set up an MPIN to continue." });
-  await pool.query("DELETE FROM merchant_pin_attempts WHERE created_at <= NOW() - INTERVAL '1 day'");
+  )
+  const security = rows[0]
+  if (!security?.pin_hash)
+    return res
+      .status(403)
+      .json({
+        error: "Verify this device by email and set up an MPIN to continue.",
+      })
+  await pool.query(
+    "DELETE FROM merchant_pin_attempts WHERE created_at <= NOW() - INTERVAL '1 day'",
+  )
   const attempts = await pool.query(
     "SELECT COUNT(*)::int AS count FROM merchant_pin_attempts WHERE merchant_email = $1 AND created_at > NOW() - INTERVAL '15 minutes'",
     [email],
-  );
-  if (attempts.rows[0].count >= 5) return res.status(429).json({ error: "Too many incorrect MPIN attempts. Try again in 15 minutes." });
+  )
+  if (attempts.rows[0].count >= 5)
+    return res
+      .status(429)
+      .json({
+        error: "Too many incorrect MPIN attempts. Try again in 15 minutes.",
+      })
   if (!matchesPasswordHash(pin, security.pin_salt, security.pin_hash)) {
-    await pool.query("INSERT INTO merchant_pin_attempts (merchant_email) VALUES ($1)", [email]);
-    return res.status(401).json({ error: "The MPIN is incorrect." });
+    await pool.query(
+      "INSERT INTO merchant_pin_attempts (merchant_email) VALUES ($1)",
+      [email],
+    )
+    return res.status(401).json({ error: "The MPIN is incorrect." })
   }
-  await pool.query("DELETE FROM merchant_pin_attempts WHERE merchant_email = $1", [email]);
-  await pool.query("UPDATE merchant_devices SET last_used_at = NOW() WHERE email = $1 AND device_token_hash = $2", [email, deviceTokenHash(deviceToken)]);
-  return res.set("Cache-Control", "no-store").json(await issueMerchantSession(email));
-});
+  await pool.query(
+    "DELETE FROM merchant_pin_attempts WHERE merchant_email = $1",
+    [email],
+  )
+  await pool.query(
+    "UPDATE merchant_devices SET last_used_at = NOW() WHERE email = $1 AND device_token_hash = $2",
+    [email, deviceTokenHash(deviceToken)],
+  )
+  return res
+    .set("Cache-Control", "no-store")
+    .json(await issueMerchantSession(email))
+})
 
 app.post("/v1/auth/device/biometric", loginLimiter, async (req, res) => {
-  const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
-  const secret = typeof req.body?.secret === "string" ? req.body.secret : "";
-  const deviceToken = typeof req.body?.deviceToken === "string" ? req.body.deviceToken : "";
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !/^[A-Za-z0-9_-]{43}$/.test(secret) || !/^[A-Za-z0-9_-]{32,128}$/.test(deviceToken)) {
-    return res.status(401).json({ error: "Biometric sign-in is unavailable. Use your MPIN or verify this device by email." });
+  const email =
+    typeof req.body?.email === "string"
+      ? req.body.email.trim().toLowerCase()
+      : ""
+  const secret = typeof req.body?.secret === "string" ? req.body.secret : ""
+  const deviceToken =
+    typeof req.body?.deviceToken === "string" ? req.body.deviceToken : ""
+  if (
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+    !/^[A-Za-z0-9_-]{43}$/.test(secret) ||
+    !/^[A-Za-z0-9_-]{32,128}$/.test(deviceToken)
+  ) {
+    return res
+      .status(401)
+      .json({
+        error:
+          "Biometric sign-in is unavailable. Use your MPIN or verify this device by email.",
+      })
   }
   const { rows } = await pool.query(
     `SELECT credential.secret_hash FROM merchant_accounts account
@@ -1821,42 +2146,51 @@ app.post("/v1/auth/device/biometric", loginLimiter, async (req, res) => {
        ON credential.email = device.email AND credential.device_token_hash = device.device_token_hash
      WHERE account.email = $1 AND account.active = TRUE AND device.device_token_hash = $2`,
     [email, deviceTokenHash(deviceToken)],
-  );
-  const expectedHash = rows[0]?.secret_hash;
-  const actualHash = Buffer.from(biometricSecretHash(secret), "hex");
-  const storedHash = typeof expectedHash === "string" ? Buffer.from(expectedHash, "hex") : Buffer.alloc(0);
-  if (storedHash.length !== actualHash.length || !timingSafeEqual(storedHash, actualHash)) {
-    return res.status(401).json({ error: "Biometric sign-in is unavailable. Use your MPIN or verify this device by email." });
+  )
+  const expectedHash = rows[0]?.secret_hash
+  const actualHash = Buffer.from(biometricSecretHash(secret), "hex")
+  const storedHash =
+    typeof expectedHash === "string"
+      ? Buffer.from(expectedHash, "hex")
+      : Buffer.alloc(0)
+  if (
+    storedHash.length !== actualHash.length ||
+    !timingSafeEqual(storedHash, actualHash)
+  ) {
+    return res
+      .status(401)
+      .json({
+        error:
+          "Biometric sign-in is unavailable. Use your MPIN or verify this device by email.",
+      })
   }
   await pool.query(
     `UPDATE merchant_biometric_credentials SET last_used_at = NOW()
      WHERE email = $1 AND device_token_hash = $2`,
     [email, deviceTokenHash(deviceToken)],
-  );
+  )
   await pool.query(
     "UPDATE merchant_devices SET last_used_at = NOW() WHERE email = $1 AND device_token_hash = $2",
     [email, deviceTokenHash(deviceToken)],
-  );
-  return res.set("Cache-Control", "no-store").json(await issueMerchantSession(email));
-});
+  )
+  return res
+    .set("Cache-Control", "no-store")
+    .json(await issueMerchantSession(email))
+})
 
-app.use("/v1/admin", requireSuperAdmin);
+app.use("/v1/admin", requireSuperAdmin)
 
-async function recordAdminAuditEvent(client, {
-  eventKey,
-  category,
-  action,
-  target,
-  actor,
-  summary,
-}) {
+async function recordAdminAuditEvent(
+  client,
+  { eventKey, category, action, target, actor, summary },
+) {
   await client.query(
     `INSERT INTO admin_audit_events
        (id, event_key, category, action, target, actor, summary)
      VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (event_key) DO NOTHING`,
     [randomUUID(), eventKey, category, action, target, actor || null, summary],
-  );
+  )
 }
 
 app.get("/v1/admin/audit", async (_req, res) => {
@@ -1866,9 +2200,9 @@ app.get("/v1/admin/audit", async (_req, res) => {
      FROM admin_audit_events
      ORDER BY occurred_at DESC
      LIMIT 500`,
-  );
-  return res.set("Cache-Control", "no-store").json(result.rows);
-});
+  )
+  return res.set("Cache-Control", "no-store").json(result.rows)
+})
 
 app.get("/v1/admin/payment-links", async (_req, res) => {
   const result = await pool.query(
@@ -1887,40 +2221,52 @@ app.get("/v1/admin/payment-links", async (_req, res) => {
      LEFT JOIN customer_payment_notifications n ON n.payment_id = p.id
      ORDER BY p.created_at DESC
      LIMIT 500`,
-  );
-  return res.set("Cache-Control", "no-store").json(result.rows);
-});
+  )
+  return res.set("Cache-Control", "no-store").json(result.rows)
+})
 
 app.post("/v1/admin/payment-links/:id/mark-paid", async (req, res) => {
-  const paymentId = req.params.id;
-  const verificationNote = typeof req.body?.verificationNote === "string"
-    ? req.body.verificationNote.trim()
-    : "";
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(paymentId)) {
-    return res.status(400).json({ error: "The payment ID is invalid." });
+  const paymentId = req.params.id
+  const verificationNote =
+    typeof req.body?.verificationNote === "string"
+      ? req.body.verificationNote.trim()
+      : ""
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      paymentId,
+    )
+  ) {
+    return res.status(400).json({ error: "The payment ID is invalid." })
   }
   if (verificationNote.length < 10 || verificationNote.length > 500) {
-    return res.status(400).json({ error: "Enter 10–500 characters of independent payment verification details." });
+    return res
+      .status(400)
+      .json({
+        error:
+          "Enter 10–500 characters of independent payment verification details.",
+      })
   }
 
-  const client = await pool.connect();
-  let payment;
+  const client = await pool.connect()
+  let payment
   try {
-    await client.query("BEGIN");
+    await client.query("BEGIN")
     const selected = await client.query(
       `SELECT id, merchant_email, customer_email, reference_no, title,
          amount::float8 AS amount, currency, status, created_at
        FROM payment_links WHERE id = $1 FOR UPDATE`,
       [paymentId],
-    );
-    payment = selected.rows[0];
+    )
+    payment = selected.rows[0]
     if (!payment) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({ error: "Payment not found." });
+      await client.query("ROLLBACK")
+      return res.status(404).json({ error: "Payment not found." })
     }
-    if (payment.status !== "PENDING") {
-      await client.query("ROLLBACK");
-      return res.status(409).json({ error: "Only pending payments can be manually confirmed." });
+    if (!canManuallyConfirmPayment(payment.status)) {
+      await client.query("ROLLBACK")
+      return res
+        .status(409)
+        .json({ error: "Only pending payments can be manually confirmed." })
     }
 
     const updated = await client.query(
@@ -1931,16 +2277,22 @@ app.post("/v1/admin/payment-links/:id/mark-paid", async (req, res) => {
        RETURNING manually_paid_by AS "manuallyPaidBy",
          manually_paid_at AS "manuallyPaidAt", manual_paid_reason AS "manualPaidReason"`,
       [req.adminEmail, verificationNote, paymentId],
-    );
-    await settleSuccessfulCollection(paymentId, client);
+    )
+    await settleSuccessfulCollection(paymentId, client)
     if (payment.merchant_email) {
       await client.query(
         `INSERT INTO transaction_notifications
            (id, merchant_email, transaction_type, transaction_id, reference_no, amount)
          VALUES ($1, $2, 'PAYMENT', $3, $4, $5)
          ON CONFLICT (transaction_type, transaction_id) DO NOTHING`,
-        [randomUUID(), payment.merchant_email, paymentId, payment.reference_no, payment.amount],
-      );
+        [
+          randomUUID(),
+          payment.merchant_email,
+          paymentId,
+          payment.reference_no,
+          payment.amount,
+        ],
+      )
     }
     if (payment.customer_email) {
       await client.query(
@@ -1948,7 +2300,7 @@ app.post("/v1/admin/payment-links/:id/mark-paid", async (req, res) => {
          VALUES ($1, $2, $3)
          ON CONFLICT (payment_id) DO NOTHING`,
         [randomUUID(), paymentId, payment.customer_email],
-      );
+      )
     }
     await recordAdminAuditEvent(client, {
       eventKey: `manual-payment:${paymentId}`,
@@ -1957,20 +2309,23 @@ app.post("/v1/admin/payment-links/:id/mark-paid", async (req, res) => {
       target: payment.reference_no,
       actor: req.adminEmail,
       summary: verificationNote,
-    });
-    await client.query("COMMIT");
-    payment = { ...payment, status: "MANUALLY_PAID", ...updated.rows[0] };
+    })
+    await client.query("COMMIT")
+    payment = { ...payment, status: "MANUALLY_PAID", ...updated.rows[0] }
   } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
+    await client.query("ROLLBACK")
+    throw error
   } finally {
-    client.release();
+    client.release()
   }
 
   try {
-    await queueTransactionWebhook("PAYMENT", paymentId);
+    await queueTransactionWebhook("PAYMENT", paymentId)
   } catch (error) {
-    console.error("Manually confirmed payment webhook remains unscheduled", error.message);
+    console.error(
+      "Manually confirmed payment webhook remains unscheduled",
+      error.message,
+    )
   }
   return res.json({
     id: payment.id,
@@ -1985,26 +2340,52 @@ app.post("/v1/admin/payment-links/:id/mark-paid", async (req, res) => {
     manuallyPaidBy: payment.manuallyPaidBy,
     manuallyPaidAt: payment.manuallyPaidAt,
     manualPaidReason: payment.manualPaidReason,
-    customerNotification: payment.customer_email ? "queued" : "no_customer_email",
-  });
-});
+    customerNotification: payment.customer_email
+      ? "queued"
+      : "no_customer_email",
+  })
+})
 
 app.get("/v1/admin/settings", async (_req, res) => {
   const result = await pool.query(
     "SELECT setting_key, setting_value FROM system_settings WHERE setting_key = ANY($1)",
-    [["krw_to_php_rate", "usdt_address", "usdt_network", "collection_fee_percent", "transfer_fee_fixed"]],
-  );
-  const feeWallet = await pool.query("SELECT COALESCE(SUM(amount), 0)::float8 AS balance FROM platform_fee_ledger");
-  const settings = Object.fromEntries(result.rows.map((row) => [row.setting_key, row.setting_value]));
-  const rate = settings.krw_to_php_rate === undefined ? null : Number(settings.krw_to_php_rate);
+    [
+      [
+        "krw_to_php_rate",
+        "usdt_address",
+        "usdt_network",
+        "collection_fee_percent",
+        "transfer_fee_fixed",
+      ],
+    ],
+  )
+  const feeWallet = await pool.query(
+    "SELECT COALESCE(SUM(amount), 0)::float8 AS balance FROM platform_fee_ledger",
+  )
+  const settings = Object.fromEntries(
+    result.rows.map((row) => [row.setting_key, row.setting_value]),
+  )
+  const rate =
+    settings.krw_to_php_rate === undefined
+      ? null
+      : Number(settings.krw_to_php_rate)
   if (rate !== null && (!Number.isFinite(rate) || rate <= 0)) {
-    return res.status(503).json({ error: "The configured KRW/PHP exchange rate is invalid." });
+    return res
+      .status(503)
+      .json({ error: "The configured KRW/PHP exchange rate is invalid." })
   }
-  const collectionFeePercent = Number(settings.collection_fee_percent || 0);
-  const transferFeeFixed = Number(settings.transfer_fee_fixed || 0);
-  if (!Number.isFinite(collectionFeePercent) || collectionFeePercent < 0 || collectionFeePercent > 100
-    || !Number.isFinite(transferFeeFixed) || transferFeeFixed < 0) {
-    return res.status(503).json({ error: "The configured collection or transfer fee is invalid." });
+  const collectionFeePercent = Number(settings.collection_fee_percent || 0)
+  const transferFeeFixed = Number(settings.transfer_fee_fixed || 0)
+  if (
+    !Number.isFinite(collectionFeePercent) ||
+    collectionFeePercent < 0 ||
+    collectionFeePercent > 100 ||
+    !Number.isFinite(transferFeeFixed) ||
+    transferFeeFixed < 0
+  ) {
+    return res
+      .status(503)
+      .json({ error: "The configured collection or transfer fee is invalid." })
   }
   return res.json({
     krwToPhpRate: rate,
@@ -2013,46 +2394,77 @@ app.get("/v1/admin/settings", async (_req, res) => {
     collectionFeePercent,
     transferFeeFixed,
     superAdminFeeWallet: feeWallet.rows[0].balance,
-  });
-});
+  })
+})
 
 app.put("/v1/admin/settings", async (req, res) => {
-  const rawRate = req.body?.krwToPhpRate;
-  const rate = rawRate === null || rawRate === "" ? null : Number(rawRate);
-  const collectionFeePercent = Number(req.body?.collectionFeePercent);
-  const transferFeeFixed = Number(req.body?.transferFeeFixed);
-  const usdtAddress = typeof req.body?.usdtAddress === "string" ? req.body.usdtAddress.trim() : "";
-  const usdtNetwork = typeof req.body?.usdtNetwork === "string" ? req.body.usdtNetwork.trim() : "";
+  const rawRate = req.body?.krwToPhpRate
+  const rate = rawRate === null || rawRate === "" ? null : Number(rawRate)
+  const collectionFeePercent = Number(req.body?.collectionFeePercent)
+  const transferFeeFixed = Number(req.body?.transferFeeFixed)
+  const usdtAddress =
+    typeof req.body?.usdtAddress === "string" ? req.body.usdtAddress.trim() : ""
+  const usdtNetwork =
+    typeof req.body?.usdtNetwork === "string" ? req.body.usdtNetwork.trim() : ""
   if (rate !== null && (!Number.isFinite(rate) || rate <= 0 || rate > 1000)) {
-    return res.status(400).json({ error: "KRW/PHP rate must be greater than zero and no more than 1000." });
+    return res
+      .status(400)
+      .json({
+        error: "KRW/PHP rate must be greater than zero and no more than 1000.",
+      })
   }
-  if (!Number.isFinite(collectionFeePercent) || collectionFeePercent < 0 || collectionFeePercent > 100) {
-    return res.status(400).json({ error: "Collection fee must be between 0% and 100%." });
+  if (
+    !Number.isFinite(collectionFeePercent) ||
+    collectionFeePercent < 0 ||
+    collectionFeePercent > 100
+  ) {
+    return res
+      .status(400)
+      .json({ error: "Collection fee must be between 0% and 100%." })
   }
-  if (!Number.isFinite(transferFeeFixed) || transferFeeFixed < 0 || transferFeeFixed > 1_000_000
-    || Math.abs(transferFeeFixed * 100 - Math.round(transferFeeFixed * 100)) > 1e-7) {
-    return res.status(400).json({ error: "Transfer fee must be a non-negative PHP amount with no more than two decimal places." });
+  if (
+    !Number.isFinite(transferFeeFixed) ||
+    transferFeeFixed < 0 ||
+    transferFeeFixed > 1_000_000 ||
+    Math.abs(transferFeeFixed * 100 - Math.round(transferFeeFixed * 100)) > 1e-7
+  ) {
+    return res
+      .status(400)
+      .json({
+        error:
+          "Transfer fee must be a non-negative PHP amount with no more than two decimal places.",
+      })
   }
   if ((usdtAddress && !usdtNetwork) || (!usdtAddress && usdtNetwork)) {
-    return res.status(400).json({ error: "Set both the USDT address and its network, or leave both empty." });
+    return res
+      .status(400)
+      .json({
+        error:
+          "Set both the USDT address and its network, or leave both empty.",
+      })
   }
   if (usdtAddress.length > 256 || usdtNetwork.length > 64) {
-    return res.status(400).json({ error: "USDT address or network is too long." });
+    return res
+      .status(400)
+      .json({ error: "USDT address or network is too long." })
   }
 
-  const client = await pool.connect();
+  const client = await pool.connect()
   try {
-    await client.query("BEGIN");
+    await client.query("BEGIN")
     const entries = [
       ["krw_to_php_rate", rate === null ? null : String(rate)],
       ["usdt_address", usdtAddress || null],
       ["usdt_network", usdtNetwork || null],
       ["collection_fee_percent", String(collectionFeePercent)],
       ["transfer_fee_fixed", transferFeeFixed.toFixed(2)],
-    ];
+    ]
     for (const [key, value] of entries) {
       if (value === null) {
-        await client.query("DELETE FROM system_settings WHERE setting_key = $1", [key]);
+        await client.query(
+          "DELETE FROM system_settings WHERE setting_key = $1",
+          [key],
+        )
       } else {
         await client.query(
           `INSERT INTO system_settings (setting_key, setting_value)
@@ -2060,7 +2472,7 @@ app.put("/v1/admin/settings", async (req, res) => {
            ON CONFLICT (setting_key) DO UPDATE
            SET setting_value = EXCLUDED.setting_value, updated_at = NOW()`,
           [key, value],
-        );
+        )
       }
     }
     await recordAdminAuditEvent(client, {
@@ -2069,10 +2481,14 @@ app.put("/v1/admin/settings", async (req, res) => {
       action: "Collection settings updated",
       target: "System settings",
       actor: req.adminEmail,
-      summary: `Collection fee ${collectionFeePercent}%; transfer fee PHP ${transferFeeFixed.toFixed(2)}; ${rate === null ? "automatic KRW/PHP rate" : `manual KRW/PHP rate ${rate}`}; USDT receiving configuration ${usdtAddress ? "updated" : "cleared"}.`,
-    });
-    await client.query("COMMIT");
-    const feeWallet = await pool.query("SELECT COALESCE(SUM(amount), 0)::float8 AS balance FROM platform_fee_ledger");
+      summary: `Collection fee ${collectionFeePercent}%; transfer fee PHP ${transferFeeFixed.toFixed(2)}; ${
+        rate === null ? "automatic KRW/PHP rate" : `manual KRW/PHP rate ${rate}`
+      }; USDT receiving configuration ${usdtAddress ? "updated" : "cleared"}.`,
+    })
+    await client.query("COMMIT")
+    const feeWallet = await pool.query(
+      "SELECT COALESCE(SUM(amount), 0)::float8 AS balance FROM platform_fee_ledger",
+    )
     return res.json({
       krwToPhpRate: rate,
       usdtAddress,
@@ -2080,14 +2496,14 @@ app.put("/v1/admin/settings", async (req, res) => {
       collectionFeePercent,
       transferFeeFixed,
       superAdminFeeWallet: feeWallet.rows[0].balance,
-    });
+    })
   } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
+    await client.query("ROLLBACK")
+    throw error
   } finally {
-    client.release();
+    client.release()
   }
-});
+})
 
 app.get("/v1/admin/merchants", async (_req, res) => {
   const result = await pool.query(
@@ -2103,9 +2519,9 @@ app.get("/v1/admin/merchants", async (_req, res) => {
      LEFT JOIN merchant_payout_accounts payout ON payout.merchant_email = merchant.email
      LEFT JOIN merchant_usdt_wallets crypto ON crypto.merchant_email = merchant.email
      ORDER BY merchant.created_at DESC`,
-  );
-  return res.json(result.rows);
-});
+  )
+  return res.json(result.rows)
+})
 
 app.get("/v1/admin/internal-wallets", async (_req, res) => {
   const result = await pool.query(
@@ -2117,77 +2533,115 @@ app.get("/v1/admin/internal-wallets", async (_req, res) => {
        ON a.merchant_email = m.email AND a.adjusted_by NOT LIKE 'system:%'
      GROUP BY m.email, m.active
      ORDER BY m.email ASC`,
-  );
-  return res.set("Cache-Control", "no-store").json(result.rows);
-});
+  )
+  return res.set("Cache-Control", "no-store").json(result.rows)
+})
 
 app.get("/v1/admin/internal-wallets/:email", async (req, res) => {
-  const email = typeof req.params.email === "string" ? req.params.email.trim().toLowerCase() : "";
-  const account = await pool.query("SELECT email FROM merchant_accounts WHERE email = $1", [email]);
-  if (!account.rowCount) return res.status(404).json({ error: "Merchant account not found." });
-  const [balanceResult, reservationResult, adjustmentResult] = await Promise.all([
-    pool.query(
-      `SELECT COALESCE(SUM(amount), 0)::float8 AS balance
+  const email =
+    typeof req.params.email === "string"
+      ? req.params.email.trim().toLowerCase()
+      : ""
+  const account = await pool.query(
+    "SELECT email FROM merchant_accounts WHERE email = $1",
+    [email],
+  )
+  if (!account.rowCount)
+    return res.status(404).json({ error: "Merchant account not found." })
+  const [balanceResult, reservationResult, adjustmentResult] =
+    await Promise.all([
+      pool.query(
+        `SELECT COALESCE(SUM(amount), 0)::float8 AS balance
        FROM internal_wallet_adjustments
        WHERE merchant_email = $1 AND adjusted_by NOT LIKE 'system:%'`,
-      [email],
-    ),
-    pool.query(
-      "SELECT COALESCE(SUM(amount + transfer_fee), 0)::float8 AS reserved FROM floating_transfer_requests WHERE merchant_email = $1 AND status = 'PENDING'",
-      [email],
-    ),
-    pool.query(
-      `SELECT id, amount::float8 AS amount, reason, adjusted_by AS "adjustedBy", created_at AS "createdAt"
+        [email],
+      ),
+      pool.query(
+        "SELECT COALESCE(SUM(amount + transfer_fee), 0)::float8 AS reserved FROM floating_transfer_requests WHERE merchant_email = $1 AND status = 'PENDING'",
+        [email],
+      ),
+      pool.query(
+        `SELECT id, amount::float8 AS amount, reason, adjusted_by AS "adjustedBy", created_at AS "createdAt"
        FROM internal_wallet_adjustments WHERE merchant_email = $1
        ORDER BY created_at DESC LIMIT 50`,
-      [email],
-    ),
-  ]);
+        [email],
+      ),
+    ])
   return res.set("Cache-Control", "no-store").json({
     merchantEmail: email,
     currency: "PHP",
     balance: balanceResult.rows[0].balance,
-    availableBalance: balanceResult.rows[0].balance - reservationResult.rows[0].reserved,
+    availableBalance:
+      balanceResult.rows[0].balance - reservationResult.rows[0].reserved,
     adjustments: adjustmentResult.rows,
-  });
-});
+  })
+})
 
 app.post("/v1/admin/internal-wallets/:email/adjustments", async (req, res) => {
-  const email = typeof req.params.email === "string" ? req.params.email.trim().toLowerCase() : "";
-  const submittedAmount = Number(req.body?.amount);
-  const amount = Number.isFinite(submittedAmount) ? Math.round(submittedAmount * 100) / 100 : Number.NaN;
-  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
-  if (!Number.isFinite(amount) || amount === 0 || Math.abs(submittedAmount - amount) > 1e-7 || Math.abs(amount) > 1_000_000_000) {
-    return res.status(400).json({ error: "Enter a non-zero PHP adjustment with no more than two decimal places." });
+  const email =
+    typeof req.params.email === "string"
+      ? req.params.email.trim().toLowerCase()
+      : ""
+  const submittedAmount = Number(req.body?.amount)
+  const amount = Number.isFinite(submittedAmount)
+    ? Math.round(submittedAmount * 100) / 100
+    : Number.NaN
+  const reason =
+    typeof req.body?.reason === "string" ? req.body.reason.trim() : ""
+  if (
+    !Number.isFinite(amount) ||
+    amount === 0 ||
+    Math.abs(submittedAmount - amount) > 1e-7 ||
+    Math.abs(amount) > 1_000_000_000
+  ) {
+    return res
+      .status(400)
+      .json({
+        error:
+          "Enter a non-zero PHP adjustment with no more than two decimal places.",
+      })
   }
   if (!reason || reason.length > 250) {
-    return res.status(400).json({ error: "Enter an adjustment reason of 1–250 characters." });
+    return res
+      .status(400)
+      .json({ error: "Enter an adjustment reason of 1–250 characters." })
   }
-  const client = await pool.connect();
+  const client = await pool.connect()
   try {
-    await client.query("BEGIN");
-    const account = await client.query("SELECT email FROM merchant_accounts WHERE email = $1 FOR UPDATE", [email]);
+    await client.query("BEGIN")
+    const account = await client.query(
+      "SELECT email FROM merchant_accounts WHERE email = $1 FOR UPDATE",
+      [email],
+    )
     if (!account.rowCount) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({ error: "Merchant account not found." });
+      await client.query("ROLLBACK")
+      return res.status(404).json({ error: "Merchant account not found." })
     }
     const balances = await client.query(
       `SELECT COALESCE((SELECT SUM(amount) FROM internal_wallet_adjustments
             WHERE merchant_email = $1 AND adjusted_by NOT LIKE 'system:%'), 0)::numeric AS balance,
          COALESCE((SELECT SUM(amount + transfer_fee) FROM floating_transfer_requests WHERE merchant_email = $1 AND status = 'PENDING'), 0)::numeric AS reserved`,
       [email],
-    );
-    if (Number(balances.rows[0].balance) + amount < Number(balances.rows[0].reserved)) {
-      await client.query("ROLLBACK");
-      return res.status(409).json({ error: "This adjustment would reduce the floating balance below pending transfer requests." });
+    )
+    if (
+      Number(balances.rows[0].balance) + amount <
+      Number(balances.rows[0].reserved)
+    ) {
+      await client.query("ROLLBACK")
+      return res
+        .status(409)
+        .json({
+          error:
+            "This adjustment would reduce the floating balance below pending transfer requests.",
+        })
     }
-    const adjustmentId = randomUUID();
+    const adjustmentId = randomUUID()
     const result = await client.query(
       `INSERT INTO internal_wallet_adjustments (id, merchant_email, amount, reason, adjusted_by)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, amount::float8 AS amount, reason, adjusted_by AS "adjustedBy", created_at AS "createdAt"`,
       [adjustmentId, email, amount.toFixed(2), reason, req.adminEmail],
-    );
+    )
     await recordAdminAuditEvent(client, {
       eventKey: `wallet-adjustment:${adjustmentId}`,
       category: "Floating balance",
@@ -2195,16 +2649,16 @@ app.post("/v1/admin/internal-wallets/:email/adjustments", async (req, res) => {
       target: email,
       actor: req.adminEmail,
       summary: `PHP ${amount.toFixed(2)} · ${reason}`,
-    });
-    await client.query("COMMIT");
-    return res.status(201).json(result.rows[0]);
+    })
+    await client.query("COMMIT")
+    return res.status(201).json(result.rows[0])
   } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
+    await client.query("ROLLBACK")
+    throw error
   } finally {
-    client.release();
+    client.release()
   }
-});
+})
 
 app.get("/v1/admin/floating-transfer-requests", async (_req, res) => {
   const result = await pool.query(
@@ -2215,88 +2669,140 @@ app.get("/v1/admin/floating-transfer-requests", async (_req, res) => {
        failure_reason AS "failureReason"
      FROM floating_transfer_requests
      ORDER BY CASE WHEN status = 'PENDING' THEN 0 ELSE 1 END, requested_at DESC`,
-  );
-  return res.set("Cache-Control", "no-store").json(result.rows);
-});
+  )
+  return res.set("Cache-Control", "no-store").json(result.rows)
+})
 
-app.post("/v1/admin/floating-transfer-requests/:id/:decision", async (req, res) => {
-  const { id, decision } = req.params;
-  if (!/^[0-9a-f-]{36}$/i.test(id) || !["successful", "failed"].includes(decision)) {
-    return res.status(400).json({ error: "Choose a valid transfer request and decision." });
-  }
-  const failureReason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
-  if (decision === "failed" && (!failureReason || failureReason.length > 500)) {
-    return res.status(400).json({ error: "Enter a reason for the failed settlement (1–500 characters)." });
-  }
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const requestInfo = await client.query("SELECT merchant_email FROM floating_transfer_requests WHERE id = $1", [id]);
-    if (!requestInfo.rowCount) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({ error: "Floating-balance transfer request not found." });
+app.post(
+  "/v1/admin/floating-transfer-requests/:id/:decision",
+  async (req, res) => {
+    const { id, decision } = req.params
+    if (
+      !/^[0-9a-f-]{36}$/i.test(id) ||
+      !["successful", "failed"].includes(decision)
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Choose a valid transfer request and decision." })
     }
-    const email = requestInfo.rows[0].merchant_email;
-    await client.query("SELECT email FROM merchant_accounts WHERE email = $1 FOR UPDATE", [email]);
-    const request = await client.query(
-      "SELECT * FROM floating_transfer_requests WHERE id = $1 FOR UPDATE",
-      [id],
-    );
-    if (request.rows[0].status !== "PENDING") {
-      await client.query("ROLLBACK");
-      return res.status(409).json({ error: "This transfer request has already been reviewed." });
+    const failureReason =
+      typeof req.body?.reason === "string" ? req.body.reason.trim() : ""
+    if (
+      decision === "failed" &&
+      (!failureReason || failureReason.length > 500)
+    ) {
+      return res
+        .status(400)
+        .json({
+          error: "Enter a reason for the failed settlement (1–500 characters).",
+        })
     }
-    const nextStatus = decision === "successful" ? "SUCCESSFUL" : "FAILED";
-    if (nextStatus === "SUCCESSFUL") {
-      const debitAmount = Number(request.rows[0].amount) + Number(request.rows[0].transfer_fee);
+    const client = await pool.connect()
+    try {
+      await client.query("BEGIN")
+      const requestInfo = await client.query(
+        "SELECT merchant_email FROM floating_transfer_requests WHERE id = $1",
+        [id],
+      )
+      if (!requestInfo.rowCount) {
+        await client.query("ROLLBACK")
+        return res
+          .status(404)
+          .json({ error: "Floating-balance transfer request not found." })
+      }
+      const email = requestInfo.rows[0].merchant_email
       await client.query(
-        `INSERT INTO internal_wallet_adjustments (id, merchant_email, amount, reason, adjusted_by)
+        "SELECT email FROM merchant_accounts WHERE email = $1 FOR UPDATE",
+        [email],
+      )
+      const request = await client.query(
+        "SELECT * FROM floating_transfer_requests WHERE id = $1 FOR UPDATE",
+        [id],
+      )
+      if (request.rows[0].status !== "PENDING") {
+        await client.query("ROLLBACK")
+        return res
+          .status(409)
+          .json({ error: "This transfer request has already been reviewed." })
+      }
+      const nextStatus = decision === "successful" ? "SUCCESSFUL" : "FAILED"
+      if (nextStatus === "SUCCESSFUL") {
+        const debitAmount =
+          Number(request.rows[0].amount) + Number(request.rows[0].transfer_fee)
+        await client.query(
+          `INSERT INTO internal_wallet_adjustments (id, merchant_email, amount, reason, adjusted_by)
          VALUES ($1, $2, $3, $4, $5)`,
-        [randomUUID(), email, (-debitAmount).toFixed(2), `Floating-balance transfer request ${id} including PHP ${Number(request.rows[0].transfer_fee).toFixed(2)} fee`, req.adminEmail],
-      );
-      await client.query(
-        `INSERT INTO platform_fee_ledger (id, source_type, source_id, merchant_email, amount)
+          [
+            randomUUID(),
+            email,
+            (-debitAmount).toFixed(2),
+            `Floating-balance transfer request ${id} including PHP ${Number(request.rows[0].transfer_fee).toFixed(2)} fee`,
+            req.adminEmail,
+          ],
+        )
+        await client.query(
+          `INSERT INTO platform_fee_ledger (id, source_type, source_id, merchant_email, amount)
          VALUES ($1, 'FLOATING_TRANSFER', $2, $3, $4)
          ON CONFLICT (source_type, source_id) DO NOTHING`,
-        [randomUUID(), id, email, Number(request.rows[0].transfer_fee).toFixed(2)],
-      );
-    }
-    const updated = await client.query(
-      `UPDATE floating_transfer_requests
+          [
+            randomUUID(),
+            id,
+            email,
+            Number(request.rows[0].transfer_fee).toFixed(2),
+          ],
+        )
+      }
+      const updated = await client.query(
+        `UPDATE floating_transfer_requests
        SET status = $2, reviewed_at = NOW(), reviewed_by = $3, failure_reason = $4
        WHERE id = $1
        RETURNING id, merchant_email AS "merchantEmail", amount::float8 AS amount, status,
          bank_name AS "bankName", account_name AS "accountName", account_number AS "accountNumber",
          requested_at AS "requestedAt", reviewed_at AS "reviewedAt", reviewed_by AS "reviewedBy",
          failure_reason AS "failureReason", transfer_fee::float8 AS "transferFee"`,
-      [id, nextStatus, req.adminEmail, nextStatus === "FAILED" ? failureReason : null],
-    );
-    await recordAdminAuditEvent(client, {
-      eventKey: `transfer-review:${id}`,
-      category: "Transfer request",
-      action: `Request marked ${nextStatus.toLowerCase()}`,
-      target: email,
-      actor: req.adminEmail,
-      summary: `PHP ${Number(request.rows[0].amount).toFixed(2)} · ${nextStatus === "FAILED" ? failureReason : `Transfer fee PHP ${Number(request.rows[0].transfer_fee).toFixed(2)}`}`,
-    });
-    await client.query("COMMIT");
-    return res.json(updated.rows[0]);
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-});
+        [
+          id,
+          nextStatus,
+          req.adminEmail,
+          nextStatus === "FAILED" ? failureReason : null,
+        ],
+      )
+      await recordAdminAuditEvent(client, {
+        eventKey: `transfer-review:${id}`,
+        category: "Transfer request",
+        action: `Request marked ${nextStatus.toLowerCase()}`,
+        target: email,
+        actor: req.adminEmail,
+        summary: `PHP ${Number(request.rows[0].amount).toFixed(2)} · ${
+          nextStatus === "FAILED"
+            ? failureReason
+            : `Transfer fee PHP ${Number(request.rows[0].transfer_fee).toFixed(2)}`
+        }`,
+      })
+      await client.query("COMMIT")
+      return res.json(updated.rows[0])
+    } catch (error) {
+      await client.query("ROLLBACK")
+      throw error
+    } finally {
+      client.release()
+    }
+  },
+)
 
 app.post("/v1/admin/merchants", async (req, res) => {
-  const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+  const email =
+    typeof req.body?.email === "string"
+      ? req.body.email.trim().toLowerCase()
+      : ""
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
-    return res.status(400).json({ error: "Enter a valid merchant email address." });
+    return res
+      .status(400)
+      .json({ error: "Enter a valid merchant email address." })
   }
-  const client = await pool.connect();
+  const client = await pool.connect()
   try {
-    await client.query("BEGIN");
+    await client.query("BEGIN")
     const result = await client.query(
       `INSERT INTO merchant_accounts (email)
        VALUES ($1)
@@ -2306,7 +2812,7 @@ app.post("/v1/admin/merchants", async (req, res) => {
          NULL AS "usdtAddress",
          created_at AS "createdAt", updated_at AS "updatedAt"`,
       [email],
-    );
+    )
     await recordAdminAuditEvent(client, {
       eventKey: `merchant-created:${email}:${randomUUID()}`,
       category: "Merchant account",
@@ -2314,44 +2820,66 @@ app.post("/v1/admin/merchants", async (req, res) => {
       target: email,
       actor: req.adminEmail,
       summary: "Merchant account access was created.",
-    });
-    await client.query("COMMIT");
-    return res.status(201).json(result.rows[0]);
+    })
+    await client.query("COMMIT")
+    return res.status(201).json(result.rows[0])
   } catch (error) {
-    await client.query("ROLLBACK");
-    if (error.code === "23505") return res.status(409).json({ error: "A merchant account with that email already exists." });
-    throw error;
+    await client.query("ROLLBACK")
+    if (error.code === "23505")
+      return res
+        .status(409)
+        .json({ error: "A merchant account with that email already exists." })
+    throw error
   } finally {
-    client.release();
+    client.release()
   }
-});
+})
 
 app.put("/v1/admin/merchants/:email/usdt-wallet", async (req, res) => {
-  const email = typeof req.params.email === "string" ? req.params.email.trim().toLowerCase() : "";
-  const address = typeof req.body?.address === "string" ? req.body.address.trim() : "";
+  const email =
+    typeof req.params.email === "string"
+      ? req.params.email.trim().toLowerCase()
+      : ""
+  const address =
+    typeof req.body?.address === "string" ? req.body.address.trim() : ""
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
-    return res.status(400).json({ error: "Choose a valid merchant account." });
+    return res.status(400).json({ error: "Choose a valid merchant account." })
   }
   if (address && !tronAddressPayload(address)) {
-    return res.status(400).json({ error: "Enter a valid TRON address with a valid Base58Check checksum." });
+    return res
+      .status(400)
+      .json({
+        error: "Enter a valid TRON address with a valid Base58Check checksum.",
+      })
   }
   if (address && tronUsdtNetwork !== "mainnet") {
-    return res.status(503).json({ error: "Mainnet USDT address assignment is disabled on this API environment." });
+    return res
+      .status(503)
+      .json({
+        error:
+          "Mainnet USDT address assignment is disabled on this API environment.",
+      })
   }
-  const client = await pool.connect();
+  const client = await pool.connect()
   try {
-    await client.query("BEGIN");
-    let wallet;
+    await client.query("BEGIN")
+    let wallet
     if (!address) {
-      const result = await client.query("DELETE FROM merchant_usdt_wallets WHERE merchant_email = $1 RETURNING merchant_email", [email]);
+      const result = await client.query(
+        "DELETE FROM merchant_usdt_wallets WHERE merchant_email = $1 RETURNING merchant_email",
+        [email],
+      )
       if (!result.rowCount) {
-        const merchant = await client.query("SELECT email FROM merchant_accounts WHERE email = $1", [email]);
+        const merchant = await client.query(
+          "SELECT email FROM merchant_accounts WHERE email = $1",
+          [email],
+        )
         if (!merchant.rowCount) {
-          await client.query("ROLLBACK");
-          return res.status(404).json({ error: "Merchant account not found." });
+          await client.query("ROLLBACK")
+          return res.status(404).json({ error: "Merchant account not found." })
         }
       }
-      wallet = { address: null, network: "TRON_MAINNET" };
+      wallet = { address: null, network: "TRON_MAINNET" }
     } else {
       const result = await client.query(
         `INSERT INTO merchant_usdt_wallets (merchant_email, address, network, assigned_by)
@@ -2360,68 +2888,118 @@ app.put("/v1/admin/merchants/:email/usdt-wallet", async (req, res) => {
            network = EXCLUDED.network, assigned_by = EXCLUDED.assigned_by, updated_at = NOW()
          RETURNING address, network`,
         [email, address, req.adminEmail],
-      );
+      )
       if (!result.rowCount) {
-        await client.query("ROLLBACK");
-        return res.status(404).json({ error: "Merchant account not found." });
+        await client.query("ROLLBACK")
+        return res.status(404).json({ error: "Merchant account not found." })
       }
-      wallet = result.rows[0];
+      wallet = result.rows[0]
     }
     await recordAdminAuditEvent(client, {
       eventKey: `merchant-usdt-wallet:${randomUUID()}`,
       category: "Merchant account",
-      action: address ? "TRON mainnet wallet assigned" : "TRON mainnet wallet removed",
+      action: address
+        ? "TRON mainnet wallet assigned"
+        : "TRON mainnet wallet removed",
       target: email,
       actor: req.adminEmail,
-      summary: address ? "Merchant USDT collection address was assigned or updated." : "Merchant USDT collection address was removed.",
-    });
-    await client.query("COMMIT");
-    return res.json(wallet);
+      summary: address
+        ? "Merchant USDT collection address was assigned or updated."
+        : "Merchant USDT collection address was removed.",
+    })
+    await client.query("COMMIT")
+    return res.json(wallet)
   } catch (error) {
-    await client.query("ROLLBACK");
+    await client.query("ROLLBACK")
     if (error.code === "23505") {
-      return res.status(409).json({ error: "That TRON address is already assigned to another merchant." });
+      return res
+        .status(409)
+        .json({
+          error: "That TRON address is already assigned to another merchant.",
+        })
     }
-    throw error;
+    throw error
   } finally {
-    client.release();
+    client.release()
   }
-});
+})
 
 app.patch("/v1/admin/merchants/:email", async (req, res) => {
-  const email = typeof req.params.email === "string" ? req.params.email.trim().toLowerCase() : "";
-  const hasActive = typeof req.body?.active === "boolean";
-  const hasProfile = ["email", "businessName", "contactPerson", "phoneNumber", "businessAddress", "bankName", "accountName", "accountNumber"]
-    .every((key) => typeof req.body?.[key] === "string");
-  if (!hasActive && !hasProfile) return res.status(400).json({ error: "Provide merchant profile fields or an active state." });
+  const email =
+    typeof req.params.email === "string"
+      ? req.params.email.trim().toLowerCase()
+      : ""
+  const hasActive = typeof req.body?.active === "boolean"
+  const hasProfile = [
+    "email",
+    "businessName",
+    "contactPerson",
+    "phoneNumber",
+    "businessAddress",
+    "bankName",
+    "accountName",
+    "accountNumber",
+  ].every((key) => typeof req.body?.[key] === "string")
+  if (!hasActive && !hasProfile)
+    return res
+      .status(400)
+      .json({ error: "Provide merchant profile fields or an active state." })
   if (hasProfile) {
-    const nextEmail = req.body.email.trim().toLowerCase();
-    const businessName = req.body.businessName.trim();
-    const contactPerson = req.body.contactPerson.trim();
-    const phoneNumber = req.body.phoneNumber.trim();
-    const businessAddress = req.body.businessAddress.trim();
-    const bankName = req.body.bankName.trim();
-    const accountName = req.body.accountName.trim();
-    const accountNumber = req.body.accountNumber.replace(/\s+/g, "");
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail) || nextEmail.length > 254) {
-      return res.status(400).json({ error: "Enter a valid merchant email address." });
+    const nextEmail = req.body.email.trim().toLowerCase()
+    const businessName = req.body.businessName.trim()
+    const contactPerson = req.body.contactPerson.trim()
+    const phoneNumber = req.body.phoneNumber.trim()
+    const businessAddress = req.body.businessAddress.trim()
+    const bankName = req.body.bankName.trim()
+    const accountName = req.body.accountName.trim()
+    const accountNumber = req.body.accountNumber.replace(/\s+/g, "")
+    if (
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail) ||
+      nextEmail.length > 254
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Enter a valid merchant email address." })
     }
-    if (businessName.length > 160 || contactPerson.length > 120 || phoneNumber.length > 40 || businessAddress.length > 500) {
-      return res.status(400).json({ error: "One or more merchant profile fields exceed the allowed length." });
+    if (
+      businessName.length > 160 ||
+      contactPerson.length > 120 ||
+      phoneNumber.length > 40 ||
+      businessAddress.length > 500
+    ) {
+      return res
+        .status(400)
+        .json({
+          error:
+            "One or more merchant profile fields exceed the allowed length.",
+        })
     }
-    if ((bankName || accountName || accountNumber)
-      && (bankName.length < 2 || bankName.length > 100 || accountName.length < 2 || accountName.length > 120
-        || !/^[A-Za-z0-9-]{4,34}$/.test(accountNumber))) {
-      return res.status(400).json({ error: "Enter a complete payout bank name, account holder name, and valid account number, or leave all payout fields blank." });
+    if (
+      (bankName || accountName || accountNumber) &&
+      (bankName.length < 2 ||
+        bankName.length > 100 ||
+        accountName.length < 2 ||
+        accountName.length > 120 ||
+        !/^[A-Za-z0-9-]{4,34}$/.test(accountNumber))
+    ) {
+      return res
+        .status(400)
+        .json({
+          error:
+            "Enter a complete payout bank name, account holder name, and valid account number, or leave all payout fields blank.",
+        })
     }
-    const client = await pool.connect();
+    const client = await pool.connect()
     try {
-      await client.query("BEGIN");
-      await client.query("SELECT pg_advisory_xact_lock(84172031)");
-      const account = await client.query("SELECT email FROM merchant_accounts WHERE email = $1 FOR UPDATE", [email]);
+      await client.query("BEGIN")
+      await client.query("SELECT pg_advisory_xact_lock(84172031)")
+      const account = await client.query(
+        "SELECT email FROM merchant_accounts WHERE email = $1 FOR UPDATE",
+        [email],
+      )
       if (!account.rowCount) {
-        await client.query("ROLLBACK");
-        return res.status(404).json({ error: "Merchant account not found." });
+        await client.query("ROLLBACK")
+        return res.status(404).json({ error: "Merchant account not found." })
       }
       const updated = await client.query(
         `UPDATE merchant_accounts SET email = $2, business_name = $3, contact_person = $4,
@@ -2430,8 +3008,15 @@ app.patch("/v1/admin/merchants/:email", async (req, res) => {
          RETURNING email, active, business_name AS "businessName", contact_person AS "contactPerson",
            phone_number AS "phoneNumber", business_address AS "businessAddress",
            created_at AS "createdAt", updated_at AS "updatedAt"`,
-        [email, nextEmail, businessName, contactPerson, phoneNumber, businessAddress],
-      );
+        [
+          email,
+          nextEmail,
+          businessName,
+          contactPerson,
+          phoneNumber,
+          businessAddress,
+        ],
+      )
       if (bankName) {
         await client.query(
           `INSERT INTO merchant_payout_accounts (merchant_email, bank_name, account_name, account_number)
@@ -2439,9 +3024,12 @@ app.patch("/v1/admin/merchants/:email", async (req, res) => {
            ON CONFLICT (merchant_email) DO UPDATE SET bank_name = EXCLUDED.bank_name,
              account_name = EXCLUDED.account_name, account_number = EXCLUDED.account_number, updated_at = NOW()`,
           [nextEmail, bankName, accountName, accountNumber],
-        );
+        )
       } else {
-        await client.query("DELETE FROM merchant_payout_accounts WHERE merchant_email = $1", [nextEmail]);
+        await client.query(
+          "DELETE FROM merchant_payout_accounts WHERE merchant_email = $1",
+          [nextEmail],
+        )
       }
       await recordAdminAuditEvent(client, {
         eventKey: `merchant-profile:${randomUUID()}`,
@@ -2449,37 +3037,56 @@ app.patch("/v1/admin/merchants/:email", async (req, res) => {
         action: "Merchant profile updated",
         target: nextEmail,
         actor: req.adminEmail,
-        summary: `Business profile and payout account details ${bankName ? "updated" : "cleared"}.`,
-      });
-      await client.query("COMMIT");
-      return res.json({ ...updated.rows[0], bankName, accountName, accountNumber });
+        summary: `Business profile and payout account details ${
+          bankName ? "updated" : "cleared"
+        }.`,
+      })
+      await client.query("COMMIT")
+      return res.json({
+        ...updated.rows[0],
+        bankName,
+        accountName,
+        accountNumber,
+      })
     } catch (error) {
-      await client.query("ROLLBACK");
-      if (error.code === "23505") return res.status(409).json({ error: "A merchant account with that email already exists." });
-      throw error;
+      await client.query("ROLLBACK")
+      if (error.code === "23505")
+        return res
+          .status(409)
+          .json({ error: "A merchant account with that email already exists." })
+      throw error
     } finally {
-      client.release();
+      client.release()
     }
   }
-  const client = await pool.connect();
+  const client = await pool.connect()
   try {
-    await client.query("BEGIN");
-    await client.query("SELECT pg_advisory_xact_lock(84172031)");
-    const account = await client.query("SELECT email FROM merchant_accounts WHERE email = $1", [email]);
+    await client.query("BEGIN")
+    await client.query("SELECT pg_advisory_xact_lock(84172031)")
+    const account = await client.query(
+      "SELECT email FROM merchant_accounts WHERE email = $1",
+      [email],
+    )
     if (!account.rowCount) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({ error: "Merchant account not found." });
+      await client.query("ROLLBACK")
+      return res.status(404).json({ error: "Merchant account not found." })
     }
     if (req.body.active === false) {
       const remaining = await client.query(
         "SELECT COUNT(*)::int AS count FROM merchant_accounts WHERE active = TRUE AND email <> $1",
         [email],
-      );
+      )
       if (remaining.rows[0].count === 0) {
-        await client.query("ROLLBACK");
-        return res.status(409).json({ error: "The last active merchant account cannot be disabled." });
+        await client.query("ROLLBACK")
+        return res
+          .status(409)
+          .json({
+            error: "The last active merchant account cannot be disabled.",
+          })
       }
-      await client.query("DELETE FROM merchant_devices WHERE email = $1", [email]);
+      await client.query("DELETE FROM merchant_devices WHERE email = $1", [
+        email,
+      ])
     }
     const result = await client.query(
       `UPDATE merchant_accounts SET
@@ -2490,29 +3097,33 @@ app.patch("/v1/admin/merchants/:email", async (req, res) => {
          phone_number AS "phoneNumber", business_address AS "businessAddress",
          created_at AS "createdAt", updated_at AS "updatedAt"`,
       [email, req.body.active],
-    );
+    )
     const payout = await client.query(
       `SELECT bank_name AS "bankName", account_name AS "accountName", account_number AS "accountNumber"
        FROM merchant_payout_accounts WHERE merchant_email = $1`,
       [email],
-    );
+    )
     await recordAdminAuditEvent(client, {
       eventKey: `merchant-status:${randomUUID()}`,
       category: "Merchant account",
-      action: req.body.active ? "Merchant access enabled" : "Merchant access disabled",
+      action: req.body.active
+        ? "Merchant access enabled"
+        : "Merchant access disabled",
       target: email,
       actor: req.adminEmail,
-      summary: `Merchant account access was ${req.body.active ? "enabled" : "disabled"}.`,
-    });
-    await client.query("COMMIT");
-    return res.json({ ...result.rows[0], ...payout.rows[0] });
+      summary: `Merchant account access was ${
+        req.body.active ? "enabled" : "disabled"
+      }.`,
+    })
+    await client.query("COMMIT")
+    return res.json({ ...result.rows[0], ...payout.rows[0] })
   } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
+    await client.query("ROLLBACK")
+    throw error
   } finally {
-    client.release();
+    client.release()
   }
-});
+})
 
 app.get("/v1/admin/kyb", async (_req, res) => {
   const result = await pool.query(
@@ -2530,45 +3141,75 @@ app.get("/v1/admin/kyb", async (_req, res) => {
      LEFT JOIN merchant_kyb_documents d ON d.merchant_email = p.merchant_email
      GROUP BY p.merchant_email
      ORDER BY p.updated_at DESC`,
-  );
-  return res.set("Cache-Control", "no-store").json(result.rows);
-});
+  )
+  return res.set("Cache-Control", "no-store").json(result.rows)
+})
 
-app.get("/v1/admin/kyb/:email/documents/:documentType/url", async (req, res) => {
-  if (!r2Client || !r2BucketName) return res.status(503).json({ error: "Private document storage is not configured." });
-  const email = typeof req.params.email === "string" ? req.params.email.trim().toLowerCase() : "";
-  const documentType = req.params.documentType;
-  if (!allowedKybDocuments.has(documentType)) return res.status(400).json({ error: "Invalid KYB document type." });
-  const result = await pool.query(
-    `SELECT object_key, file_name FROM merchant_kyb_documents
+app.get(
+  "/v1/admin/kyb/:email/documents/:documentType/url",
+  async (req, res) => {
+    if (!r2Client || !r2BucketName)
+      return res
+        .status(503)
+        .json({ error: "Private document storage is not configured." })
+    const email =
+      typeof req.params.email === "string"
+        ? req.params.email.trim().toLowerCase()
+        : ""
+    const documentType = req.params.documentType
+    if (!allowedKybDocuments.has(documentType))
+      return res.status(400).json({ error: "Invalid KYB document type." })
+    const result = await pool.query(
+      `SELECT object_key, file_name FROM merchant_kyb_documents
      WHERE merchant_email = $1 AND document_type = $2`,
-    [email, documentType],
-  );
-  if (!result.rowCount) return res.status(404).json({ error: "KYB document not found." });
-  try {
-    const url = await getSignedUrl(
-      r2Client,
-      new GetObjectCommand({
-        Bucket: r2BucketName,
-        Key: result.rows[0].object_key,
-        ResponseContentDisposition: `attachment; filename="${result.rows[0].file_name.replace(/["\\]/g, "_")}"`,
-      }),
-      { expiresIn: 60 },
-    );
-    return res.set("Cache-Control", "no-store").json({ url, expiresInSeconds: 60 });
-  } catch (error) {
-    console.error("Could not create KYB document download", error.name || "storage error");
-    return res.status(503).json({ error: "The KYB document is temporarily unavailable." });
-  }
-});
+      [email, documentType],
+    )
+    if (!result.rowCount)
+      return res.status(404).json({ error: "KYB document not found." })
+    try {
+      const url = await getSignedUrl(
+        r2Client,
+        new GetObjectCommand({
+          Bucket: r2BucketName,
+          Key: result.rows[0].object_key,
+          ResponseContentDisposition: `attachment; filename="${result.rows[0].file_name.replace(/["\\]/g, "_")}"`,
+        }),
+        { expiresIn: 60 },
+      )
+      return res
+        .set("Cache-Control", "no-store")
+        .json({ url, expiresInSeconds: 60 })
+    } catch (error) {
+      console.error(
+        "Could not create KYB document download",
+        error.name || "storage error",
+      )
+      return res
+        .status(503)
+        .json({ error: "The KYB document is temporarily unavailable." })
+    }
+  },
+)
 
 app.patch("/v1/admin/kyb/:email", async (req, res) => {
-  const email = typeof req.params.email === "string" ? req.params.email.trim().toLowerCase() : "";
-  const status = req.body?.status;
-  const reviewNotes = typeof req.body?.reviewNotes === "string" ? req.body.reviewNotes.trim() : "";
-  if (!["IN_REVIEW", "APPROVED", "REJECTED"].includes(status)
-    || reviewNotes.length > 1000 || (status === "REJECTED" && !reviewNotes)) {
-    return res.status(400).json({ error: "Choose a valid KYB review status. Rejected applications require review notes." });
+  const email =
+    typeof req.params.email === "string"
+      ? req.params.email.trim().toLowerCase()
+      : ""
+  const status = req.body?.status
+  const reviewNotes =
+    typeof req.body?.reviewNotes === "string" ? req.body.reviewNotes.trim() : ""
+  if (
+    !["IN_REVIEW", "APPROVED", "REJECTED"].includes(status) ||
+    reviewNotes.length > 1000 ||
+    (status === "REJECTED" && !reviewNotes)
+  ) {
+    return res
+      .status(400)
+      .json({
+        error:
+          "Choose a valid KYB review status. Rejected applications require review notes.",
+      })
   }
   if (status === "APPROVED") {
     const requiredDocuments = await pool.query(
@@ -2577,14 +3218,19 @@ app.patch("/v1/admin/kyb/:email", async (req, res) => {
        WHERE merchant_email = $1
          AND document_type IN ('business_registration', 'identity_front', 'identity_back')`,
       [email],
-    );
+    )
     if (requiredDocuments.rows[0].count !== 3) {
-      return res.status(409).json({ error: "A business registration certificate and both owner identity images are required before approval." });
+      return res
+        .status(409)
+        .json({
+          error:
+            "A business registration certificate and both owner identity images are required before approval.",
+        })
     }
   }
-  const client = await pool.connect();
+  const client = await pool.connect()
   try {
-    await client.query("BEGIN");
+    await client.query("BEGIN")
     const result = await client.query(
       `UPDATE merchant_kyb_profiles
        SET status = $2, review_notes = $3, reviewed_by = $4, reviewed_at = NOW(), updated_at = NOW()
@@ -2592,10 +3238,10 @@ app.patch("/v1/admin/kyb/:email", async (req, res) => {
        RETURNING merchant_email AS "merchantEmail", status, review_notes AS "reviewNotes",
          reviewed_by AS "reviewedBy", reviewed_at AS "reviewedAt"`,
       [email, status, reviewNotes || null, req.adminEmail],
-    );
+    )
     if (!result.rowCount) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({ error: "KYB application not found." });
+      await client.query("ROLLBACK")
+      return res.status(404).json({ error: "KYB application not found." })
     }
     await recordAdminAuditEvent(client, {
       eventKey: `kyb-review:${randomUUID()}`,
@@ -2603,99 +3249,142 @@ app.patch("/v1/admin/kyb/:email", async (req, res) => {
       action: `Application marked ${status.toLowerCase().replace("_", " ")}`,
       target: email,
       actor: req.adminEmail,
-      summary: reviewNotes ? "KYB review notes recorded." : "KYB application review recorded.",
-    });
-    await client.query("COMMIT");
-    return res.json(result.rows[0]);
+      summary: reviewNotes
+        ? "KYB review notes recorded."
+        : "KYB application review recorded.",
+    })
+    await client.query("COMMIT")
+    return res.json(result.rows[0])
   } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
+    await client.query("ROLLBACK")
+    throw error
   } finally {
-    client.release();
+    client.release()
   }
-});
+})
 
-app.get("/v1/public/checkout/:code/qr.png", publicQrImageLimiter, async (req, res) => {
-  const code = req.params.code;
-  if (!/^[A-Za-z0-9_-]{40,50}$/.test(code)) return res.status(404).json({ error: "Checkout not found." });
-  const record = await pool.query("SELECT payment_token FROM payment_links WHERE code = $1 AND checkout_type = 'DIRECT_QRPH'", [code]);
-  const paymentToken = record.rows[0]?.payment_token;
-  if (!paymentToken) return res.status(404).json({ error: "Checkout not found." });
+app.get(
+  "/v1/public/checkout/:code/qr.png",
+  publicQrImageLimiter,
+  async (req, res) => {
+    const code = req.params.code
+    if (!/^[A-Za-z0-9_-]{40,50}$/.test(code))
+      return res.status(404).json({ error: "Checkout not found." })
+    const record = await pool.query(
+      "SELECT payment_token FROM payment_links WHERE code = $1 AND checkout_type = 'DIRECT_QRPH'",
+      [code],
+    )
+    const paymentToken = record.rows[0]?.payment_token
+    if (!paymentToken)
+      return res.status(404).json({ error: "Checkout not found." })
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8_000);
-  try {
-    const response = await fetch(`${swiftPayBaseUrl}/payments/qrph/image?type=P2M`, {
-      signal: controller.signal,
-      headers: { Accept: "image/png", "X-Swiftpay-Payment-Token": paymentToken },
-    });
-    if (!response.ok || !response.headers.get("content-type")?.startsWith("image/png")) {
-      console.error("SwiftPay QR image request failed", response.status);
-      return res.status(503).json({ error: "The payment QR is temporarily unavailable." });
-    }
-    const image = Buffer.from(await response.arrayBuffer());
-    if (!image.length || image.length > 5 * 1024 * 1024) {
-      console.error("SwiftPay returned an invalid QR image.");
-      return res.status(503).json({ error: "The payment QR is temporarily unavailable." });
-    }
-    return res.set({
-      "Content-Type": "image/png",
-      "Cache-Control": "private, max-age=30",
-      "X-Content-Type-Options": "nosniff",
-    }).send(image);
-  } catch (error) {
-    console.error("SwiftPay QR image request failed", error.name === "AbortError" ? "timeout" : error.message);
-    return res.status(503).json({ error: "The payment QR is temporarily unavailable." });
-  } finally {
-    clearTimeout(timeout);
-  }
-});
-
-app.get("/v1/public/checkout/:code", publicCheckoutLimiter, async (req, res) => {
-  const code = req.params.code;
-  if (!/^[A-Za-z0-9_-]{40,50}$/.test(code)) return res.status(404).json({ error: "Checkout not found." });
-  const record = await pool.query(
-    `SELECT code, title, reference_no, amount::float8 AS amount, currency, status, payment_token, qr_payload
-     FROM payment_links WHERE code = $1 AND checkout_type = 'DIRECT_QRPH'`,
-    [code],
-  );
-  const row = record.rows[0];
-  if (!row?.payment_token) return res.status(404).json({ error: "Checkout not found." });
-
-  let status = row.status;
-  let statusCheckUnavailable = false;
-  if (!["EXECUTED", "CANCELED", "REJECTED", "EXPIRED"].includes(status)) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 8_000)
     try {
-      const { data } = await swiftPayPaymentRequest("/payments/status", row.payment_token);
-      status = paymentStatusFromResponse(data);
-      await updatePaymentLinkStatus(row.id, status);
+      const response = await fetch(
+        `${swiftPayBaseUrl}/payments/qrph/image?type=P2M`,
+        {
+          signal: controller.signal,
+          headers: {
+            Accept: "image/png",
+            "X-Swiftpay-Payment-Token": paymentToken,
+          },
+        },
+      )
+      if (
+        !response.ok ||
+        !response.headers.get("content-type")?.startsWith("image/png")
+      ) {
+        console.error("SwiftPay QR image request failed", response.status)
+        return res
+          .status(503)
+          .json({ error: "The payment QR is temporarily unavailable." })
+      }
+      const image = Buffer.from(await response.arrayBuffer())
+      if (!image.length || image.length > 5 * 1024 * 1024) {
+        console.error("SwiftPay returned an invalid QR image.")
+        return res
+          .status(503)
+          .json({ error: "The payment QR is temporarily unavailable." })
+      }
+      return res
+        .set({
+          "Content-Type": "image/png",
+          "Cache-Control": "private, max-age=30",
+          "X-Content-Type-Options": "nosniff",
+        })
+        .send(image)
     } catch (error) {
-      statusCheckUnavailable = true;
-      console.error("Checkout payment status lookup failed", error.status || "network error");
+      console.error(
+        "SwiftPay QR image request failed",
+        error.name === "AbortError" ? "timeout" : error.message,
+      )
+      return res
+        .status(503)
+        .json({ error: "The payment QR is temporarily unavailable." })
+    } finally {
+      clearTimeout(timeout)
     }
-  }
+  },
+)
 
-  return res.set("Cache-Control", "no-store").json({
-    title: row.title,
-    referenceNo: row.reference_no,
-    amount: row.amount,
-    currency: row.currency,
-    status,
-    statusCheckUnavailable,
-    qrCode: row.qr_payload,
-  });
-});
+app.get(
+  "/v1/public/checkout/:code",
+  publicCheckoutLimiter,
+  async (req, res) => {
+    const code = req.params.code
+    if (!/^[A-Za-z0-9_-]{40,50}$/.test(code))
+      return res.status(404).json({ error: "Checkout not found." })
+    const record = await pool.query(
+      `SELECT code, title, reference_no, amount::float8 AS amount, currency, status, payment_token, qr_payload
+     FROM payment_links WHERE code = $1 AND checkout_type = 'DIRECT_QRPH'`,
+      [code],
+    )
+    const row = record.rows[0]
+    if (!row?.payment_token)
+      return res.status(404).json({ error: "Checkout not found." })
 
-app.use("/v1", requireMerchant);
+    let status = row.status
+    let statusCheckUnavailable = false
+    if (!["EXECUTED", "CANCELED", "REJECTED", "EXPIRED"].includes(status)) {
+      try {
+        const { data } = await swiftPayPaymentRequest(
+          "/payments/status",
+          row.payment_token,
+        )
+        status = paymentStatusFromResponse(data)
+        await updatePaymentLinkStatus(row.id, status)
+      } catch (error) {
+        statusCheckUnavailable = true
+        console.error(
+          "Checkout payment status lookup failed",
+          error.status || "network error",
+        )
+      }
+    }
+
+    return res.set("Cache-Control", "no-store").json({
+      title: row.title,
+      referenceNo: row.reference_no,
+      amount: row.amount,
+      currency: row.currency,
+      status,
+      statusCheckUnavailable,
+      qrCode: row.qr_payload,
+    })
+  },
+)
+
+app.use("/v1", requireMerchant)
 
 app.get("/v1/crypto/usdt-wallet", cryptoWalletLimiter, async (req, res) => {
   const wallet = await pool.query(
     "SELECT address, network FROM merchant_usdt_wallets WHERE merchant_email = $1",
     [req.merchantEmail],
-  );
-  const assigned = wallet.rows[0];
-  const mainnetEnabled = tronUsdtNetwork === "mainnet";
-  const ready = Boolean(mainnetEnabled && tatumApiKey);
+  )
+  const assigned = wallet.rows[0]
+  const mainnetEnabled = tronUsdtNetwork === "mainnet"
+  const ready = Boolean(mainnetEnabled && tatumApiKey)
   if (!assigned) {
     return res.set("Cache-Control", "no-store").json({
       address: null,
@@ -2703,7 +3392,7 @@ app.get("/v1/crypto/usdt-wallet", cryptoWalletLimiter, async (req, res) => {
       balance: null,
       configured: ready,
       message: "The DRPAY team has not assigned your TRON mainnet address.",
-    });
+    })
   }
   if (assigned.network !== "TRON_MAINNET") {
     return res.set("Cache-Control", "no-store").json({
@@ -2711,8 +3400,9 @@ app.get("/v1/crypto/usdt-wallet", cryptoWalletLimiter, async (req, res) => {
       network: assigned.network,
       balance: null,
       configured: false,
-      message: "This address is marked as a Shasta testnet address. The DRPAY team must confirm and reassign a production address before mainnet balance lookup.",
-    });
+      message:
+        "This address is marked as a Shasta testnet address. The DRPAY team must confirm and reassign a production address before mainnet balance lookup.",
+    })
   }
   if (!ready) {
     return res.set("Cache-Control", "no-store").json({
@@ -2720,59 +3410,79 @@ app.get("/v1/crypto/usdt-wallet", cryptoWalletLimiter, async (req, res) => {
       network: "TRON_MAINNET",
       balance: null,
       configured: false,
-      message: "Mainnet USDT balance lookup is disabled or Tatum is not configured on this API service.",
-    });
+      message:
+        "Mainnet USDT balance lookup is disabled or Tatum is not configured on this API service.",
+    })
   }
-  const addressPayload = tronAddressPayload(assigned.address);
-  const contractPayload = tronAddressPayload(tronMainnetUsdtContract);
+  const addressPayload = tronAddressPayload(assigned.address)
+  const contractPayload = tronAddressPayload(tronMainnetUsdtContract)
   if (!addressPayload || !contractPayload) {
     return res.status(503).set("Cache-Control", "no-store").json({
       address: assigned.address,
       network: "TRON_MAINNET",
       balance: null,
       configured: false,
-      message: "The assigned wallet address or official TRON USDT contract is invalid.",
-    });
+      message:
+        "The assigned wallet address or official TRON USDT contract is invalid.",
+    })
   }
   try {
-    const response = await fetch("https://tron-mainnet.gateway.tatum.io/wallet/triggerconstantcontract", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": tatumApiKey },
-      body: JSON.stringify({
-        owner_address: assigned.address,
-        contract_address: tronMainnetUsdtContract,
-        function_selector: "balanceOf(address)",
-        parameter: addressPayload.subarray(1).toString("hex").padStart(64, "0"),
-        visible: true,
-      }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!response.ok) throw new Error(`Tatum returned HTTP ${response.status}`);
-    const result = await response.json();
-    const rawBalance = result?.constant_result?.[0];
-    if (result?.Error || result?.result?.result !== true || typeof rawBalance !== "string") {
-      throw new Error("Tatum did not return a valid TRC20 contract result");
+    const response = await fetch(
+      "https://tron-mainnet.gateway.tatum.io/wallet/triggerconstantcontract",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": tatumApiKey,
+        },
+        body: JSON.stringify({
+          owner_address: assigned.address,
+          contract_address: tronMainnetUsdtContract,
+          function_selector: "balanceOf(address)",
+          parameter: addressPayload
+            .subarray(1)
+            .toString("hex")
+            .padStart(64, "0"),
+          visible: true,
+        }),
+        signal: AbortSignal.timeout(10_000),
+      },
+    )
+    if (!response.ok) throw new Error(`Tatum returned HTTP ${response.status}`)
+    const result = await response.json()
+    const rawBalance = result?.constant_result?.[0]
+    if (
+      result?.Error ||
+      result?.result?.result !== true ||
+      typeof rawBalance !== "string"
+    ) {
+      throw new Error("Tatum did not return a valid TRC20 contract result")
     }
-    const balance = formatTokenBalance(rawBalance, tronMainnetUsdtDecimals);
-    if (balance === null) throw new Error("Tatum returned an invalid token balance");
+    const balance = formatTokenBalance(rawBalance, tronMainnetUsdtDecimals)
+    if (balance === null)
+      throw new Error("Tatum returned an invalid token balance")
     return res.set("Cache-Control", "no-store").json({
       address: assigned.address,
       network: "TRON_MAINNET",
       balance,
       configured: true,
       message: null,
-    });
+    })
   } catch (error) {
-    console.error("TRON mainnet USDT balance lookup failed", error.name || "RPC error");
+    console.error(
+      "TRON mainnet USDT balance lookup failed",
+      error.name || "RPC error",
+    )
     return res.status(503).set("Cache-Control", "no-store").json({
       address: assigned.address,
       network: "TRON_MAINNET",
       balance: null,
       configured: true,
-      message: "Could not retrieve the mainnet USDT balance. Try again shortly.",
-    });
+      message:
+        "Could not retrieve the mainnet USDT balance. Try again shortly.",
+    })
   }
-});
+})
 
 app.get("/v1/kyb", async (req, res) => {
   const [profile, documents] = await Promise.all([
@@ -2791,16 +3501,24 @@ app.get("/v1/kyb", async (req, res) => {
        FROM merchant_kyb_documents WHERE merchant_email = $1 ORDER BY uploaded_at ASC`,
       [req.merchantEmail],
     ),
-  ]);
-  return res.set("Cache-Control", "no-store").json({ profile: profile.rows[0] || null, documents: documents.rows });
-});
+  ])
+  return res
+    .set("Cache-Control", "no-store")
+    .json({ profile: profile.rows[0] || null, documents: documents.rows })
+})
 
 app.put("/v1/kyb", async (req, res) => {
   const approved = await pool.query(
     "SELECT 1 FROM merchant_kyb_profiles WHERE merchant_email = $1 AND status = 'APPROVED'",
     [req.merchantEmail],
-  );
-  if (approved.rowCount) return res.status(409).json({ error: "Your KYB profile is approved. Contact DRPAY support to request a verified profile change." });
+  )
+  if (approved.rowCount)
+    return res
+      .status(409)
+      .json({
+        error:
+          "Your KYB profile is approved. Contact DRPAY support to request a verified profile change.",
+      })
   const fields = {
     legalBusinessName: req.body?.legalBusinessName,
     registrationNumber: req.body?.registrationNumber,
@@ -2810,16 +3528,31 @@ app.put("/v1/kyb", async (req, res) => {
     ownerFullName: req.body?.ownerFullName,
     ownerDateOfBirth: req.body?.ownerDateOfBirth,
     ownerNationality: req.body?.ownerNationality,
-    ownerEmail: typeof req.body?.ownerEmail === "string" ? req.body.ownerEmail.trim().toLowerCase() : "",
+    ownerEmail:
+      typeof req.body?.ownerEmail === "string"
+        ? req.body.ownerEmail.trim().toLowerCase()
+        : "",
     ownerPhone: req.body?.ownerPhone,
-  };
-  if (Object.values(fields).some((value) => typeof value !== "string" || !value.trim() || value.length > 200)
-    || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.ownerEmail)
-    || !/^\d{4}-\d{2}-\d{2}$/.test(fields.ownerDateOfBirth)
-    || Number.isNaN(Date.parse(`${fields.ownerDateOfBirth}T00:00:00Z`))
-    || new Date(`${fields.ownerDateOfBirth}T00:00:00Z`).toISOString().slice(0, 10) !== fields.ownerDateOfBirth
-    || new Date(`${fields.ownerDateOfBirth}T00:00:00Z`) >= new Date()) {
-    return res.status(400).json({ error: "Complete each required business and beneficial-owner field with valid details." });
+  }
+  if (
+    Object.values(fields).some(
+      (value) =>
+        typeof value !== "string" || !value.trim() || value.length > 200,
+    ) ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.ownerEmail) ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(fields.ownerDateOfBirth) ||
+    Number.isNaN(Date.parse(`${fields.ownerDateOfBirth}T00:00:00Z`)) ||
+    new Date(`${fields.ownerDateOfBirth}T00:00:00Z`)
+      .toISOString()
+      .slice(0, 10) !== fields.ownerDateOfBirth ||
+    new Date(`${fields.ownerDateOfBirth}T00:00:00Z`) >= new Date()
+  ) {
+    return res
+      .status(400)
+      .json({
+        error:
+          "Complete each required business and beneficial-owner field with valid details.",
+      })
   }
   const result = await pool.query(
     `INSERT INTO merchant_kyb_profiles (
@@ -2840,34 +3573,73 @@ app.put("/v1/kyb", async (req, res) => {
        status = 'PENDING', review_notes = NULL, reviewed_by = NULL, reviewed_at = NULL, updated_at = NOW()
      RETURNING status, updated_at AS "updatedAt"`,
     [req.merchantEmail, ...Object.values(fields)],
-  );
-  return res.json(result.rows[0]);
-});
+  )
+  return res.json(result.rows[0])
+})
 
 app.post("/v1/kyb/documents/presign", async (req, res) => {
-  if (!r2Client || !r2BucketName) return res.status(503).json({ error: "Private document storage is not configured on this server." });
-  const documentType = req.body?.documentType;
-  const fileName = typeof req.body?.fileName === "string" ? req.body.fileName.trim() : "";
-  const contentType = req.body?.contentType;
-  const sizeBytes = Number(req.body?.sizeBytes);
-  if (!allowedKybDocuments.has(documentType)
-    || !fileName || fileName.length > 180 || /[/\\\u0000-\u001f]/.test(fileName)
-    || !["application/pdf", "image/jpeg", "image/png"].includes(contentType)
-    || !Number.isSafeInteger(sizeBytes) || sizeBytes <= 0 || sizeBytes > kybDocumentMaxBytes) {
-    return res.status(400).json({ error: "Upload a PDF, JPEG, or PNG document no larger than 10 MB." });
+  if (!r2Client || !r2BucketName)
+    return res
+      .status(503)
+      .json({
+        error: "Private document storage is not configured on this server.",
+      })
+  const documentType = req.body?.documentType
+  const fileName =
+    typeof req.body?.fileName === "string" ? req.body.fileName.trim() : ""
+  const contentType = req.body?.contentType
+  const sizeBytes = Number(req.body?.sizeBytes)
+  if (
+    !allowedKybDocuments.has(documentType) ||
+    !fileName ||
+    fileName.length > 180 ||
+    /[/\\\u0000-\u001f]/.test(fileName) ||
+    !["application/pdf", "image/jpeg", "image/png"].includes(contentType) ||
+    !Number.isSafeInteger(sizeBytes) ||
+    sizeBytes <= 0 ||
+    sizeBytes > kybDocumentMaxBytes
+  ) {
+    return res
+      .status(400)
+      .json({
+        error: "Upload a PDF, JPEG, or PNG document no larger than 10 MB.",
+      })
   }
-  const profile = await pool.query("SELECT status FROM merchant_kyb_profiles WHERE merchant_email = $1", [req.merchantEmail]);
-  if (!profile.rowCount) return res.status(409).json({ error: "Save the KYB business and owner details before uploading documents." });
-  if (profile.rows[0].status === "APPROVED") return res.status(409).json({ error: "Your KYB profile is approved. Contact DRPAY support to request a verified document change." });
-  const objectKey = `kyb/${randomUUID()}`;
-  const documentId = randomUUID();
-  const safeName = fileName.replace(/[^\w .()-]/g, "_").slice(0, 180);
+  const profile = await pool.query(
+    "SELECT status FROM merchant_kyb_profiles WHERE merchant_email = $1",
+    [req.merchantEmail],
+  )
+  if (!profile.rowCount)
+    return res
+      .status(409)
+      .json({
+        error:
+          "Save the KYB business and owner details before uploading documents.",
+      })
+  if (profile.rows[0].status === "APPROVED")
+    return res
+      .status(409)
+      .json({
+        error:
+          "Your KYB profile is approved. Contact DRPAY support to request a verified document change.",
+      })
+  const objectKey = `kyb/${randomUUID()}`
+  const documentId = randomUUID()
+  const safeName = fileName.replace(/[^\w .()-]/g, "_").slice(0, 180)
   await pool.query(
     `INSERT INTO merchant_kyb_uploads
        (id, merchant_email, document_type, object_key, file_name, content_type, size_bytes, expires_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW() + INTERVAL '5 minutes')`,
-    [documentId, req.merchantEmail, documentType, objectKey, safeName, contentType, sizeBytes],
-  );
+    [
+      documentId,
+      req.merchantEmail,
+      documentType,
+      objectKey,
+      safeName,
+      contentType,
+      sizeBytes,
+    ],
+  )
   try {
     const uploadUrl = await getSignedUrl(
       r2Client,
@@ -2879,7 +3651,7 @@ app.post("/v1/kyb/documents/presign", async (req, res) => {
         Metadata: { "document-id": documentId },
       }),
       { expiresIn: 300 },
-    );
+    )
     return res.set("Cache-Control", "no-store").json({
       documentId,
       uploadUrl,
@@ -2887,24 +3659,51 @@ app.post("/v1/kyb/documents/presign", async (req, res) => {
       fileName: safeName,
       headers: { "Content-Type": contentType },
       expiresInSeconds: 300,
-    });
+    })
   } catch (error) {
-    await pool.query("DELETE FROM merchant_kyb_uploads WHERE id = $1", [documentId]);
-    console.error("Could not create private KYB document upload", error.name || "storage error");
-    return res.status(503).json({ error: "Private document upload is temporarily unavailable." });
+    await pool.query("DELETE FROM merchant_kyb_uploads WHERE id = $1", [
+      documentId,
+    ])
+    console.error(
+      "Could not create private KYB document upload",
+      error.name || "storage error",
+    )
+    return res
+      .status(503)
+      .json({ error: "Private document upload is temporarily unavailable." })
   }
-});
+})
 
 app.post("/v1/kyb/documents/complete", async (req, res) => {
-  if (!r2Client || !r2BucketName) return res.status(503).json({ error: "Private document storage is not configured on this server." });
-  const { documentId, objectKey, documentType, fileName, contentType, sizeBytes } = req.body || {};
-  if (!/^[0-9a-f-]{36}$/i.test(documentId || "")
-    || typeof objectKey !== "string" || !objectKey.startsWith("kyb/")
-    || !allowedKybDocuments.has(documentType)
-    || typeof fileName !== "string" || fileName.length > 180
-    || !["application/pdf", "image/jpeg", "image/png"].includes(contentType)
-    || !Number.isSafeInteger(Number(sizeBytes)) || Number(sizeBytes) <= 0 || Number(sizeBytes) > kybDocumentMaxBytes) {
-    return res.status(400).json({ error: "The uploaded document details are invalid." });
+  if (!r2Client || !r2BucketName)
+    return res
+      .status(503)
+      .json({
+        error: "Private document storage is not configured on this server.",
+      })
+  const {
+    documentId,
+    objectKey,
+    documentType,
+    fileName,
+    contentType,
+    sizeBytes,
+  } = req.body || {}
+  if (
+    !/^[0-9a-f-]{36}$/i.test(documentId || "") ||
+    typeof objectKey !== "string" ||
+    !objectKey.startsWith("kyb/") ||
+    !allowedKybDocuments.has(documentType) ||
+    typeof fileName !== "string" ||
+    fileName.length > 180 ||
+    !["application/pdf", "image/jpeg", "image/png"].includes(contentType) ||
+    !Number.isSafeInteger(Number(sizeBytes)) ||
+    Number(sizeBytes) <= 0 ||
+    Number(sizeBytes) > kybDocumentMaxBytes
+  ) {
+    return res
+      .status(400)
+      .json({ error: "The uploaded document details are invalid." })
   }
   const reservationResult = await pool.query(
     `SELECT document_type, object_key, file_name, content_type, size_bytes
@@ -2912,90 +3711,176 @@ app.post("/v1/kyb/documents/complete", async (req, res) => {
      WHERE id = $1 AND merchant_email = $2 AND object_key = $3
        AND expires_at > NOW() AND completed_at IS NULL`,
     [documentId, req.merchantEmail, objectKey],
-  );
-  const reservation = reservationResult.rows[0];
-  if (!reservation
-    || reservation.document_type !== documentType
-    || reservation.file_name !== fileName
-    || reservation.content_type !== contentType
-    || Number(reservation.size_bytes) !== Number(sizeBytes)) {
-    return res.status(409).json({ error: "This document upload is invalid or expired. Request a new upload URL." });
+  )
+  const reservation = reservationResult.rows[0]
+  if (
+    !reservation ||
+    reservation.document_type !== documentType ||
+    reservation.file_name !== fileName ||
+    reservation.content_type !== contentType ||
+    Number(reservation.size_bytes) !== Number(sizeBytes)
+  ) {
+    return res
+      .status(409)
+      .json({
+        error:
+          "This document upload is invalid or expired. Request a new upload URL.",
+      })
   }
-  const profile = await pool.query("SELECT status FROM merchant_kyb_profiles WHERE merchant_email = $1", [req.merchantEmail]);
-  if (!profile.rowCount) return res.status(409).json({ error: "Save the KYB business and owner details before uploading documents." });
+  const profile = await pool.query(
+    "SELECT status FROM merchant_kyb_profiles WHERE merchant_email = $1",
+    [req.merchantEmail],
+  )
+  if (!profile.rowCount)
+    return res
+      .status(409)
+      .json({
+        error:
+          "Save the KYB business and owner details before uploading documents.",
+      })
   if (profile.rows[0].status === "APPROVED") {
-    await r2Client.send(new DeleteObjectCommand({ Bucket: r2BucketName, Key: objectKey })).catch((error) => {
-      console.error("Could not clean up a KYB upload for an approved profile", error.name || "storage error");
-    });
-    return res.status(409).json({ error: "Your KYB profile is approved. Contact DRPAY support to request a verified document change." });
+    await r2Client
+      .send(new DeleteObjectCommand({ Bucket: r2BucketName, Key: objectKey }))
+      .catch((error) => {
+        console.error(
+          "Could not clean up a KYB upload for an approved profile",
+          error.name || "storage error",
+        )
+      })
+    return res
+      .status(409)
+      .json({
+        error:
+          "Your KYB profile is approved. Contact DRPAY support to request a verified document change.",
+      })
   }
   try {
-    const object = await r2Client.send(new HeadObjectCommand({ Bucket: r2BucketName, Key: objectKey }));
-    if (Number(object.ContentLength) !== Number(sizeBytes) || object.ContentType !== contentType
-      || object.Metadata?.["document-id"] !== documentId) {
-      return res.status(400).json({ error: "The stored document does not match the uploaded file details." });
+    const object = await r2Client.send(
+      new HeadObjectCommand({ Bucket: r2BucketName, Key: objectKey }),
+    )
+    if (
+      Number(object.ContentLength) !== Number(sizeBytes) ||
+      object.ContentType !== contentType ||
+      object.Metadata?.["document-id"] !== documentId
+    ) {
+      return res
+        .status(400)
+        .json({
+          error:
+            "The stored document does not match the uploaded file details.",
+        })
     }
-    const prefix = await r2Client.send(new GetObjectCommand({ Bucket: r2BucketName, Key: objectKey, Range: "bytes=0-7" }));
-    const bytes = Buffer.from(await prefix.Body.transformToByteArray());
-    const validSignature = contentType === "application/pdf"
-      ? bytes.subarray(0, 5).toString("ascii") === "%PDF-"
-      : contentType === "image/jpeg"
-        ? bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
-        : bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    const prefix = await r2Client.send(
+      new GetObjectCommand({
+        Bucket: r2BucketName,
+        Key: objectKey,
+        Range: "bytes=0-7",
+      }),
+    )
+    const bytes = Buffer.from(await prefix.Body.transformToByteArray())
+    const validSignature =
+      contentType === "application/pdf"
+        ? bytes.subarray(0, 5).toString("ascii") === "%PDF-"
+        : contentType === "image/jpeg"
+          ? bytes.length >= 3 &&
+            bytes[0] === 0xff &&
+            bytes[1] === 0xd8 &&
+            bytes[2] === 0xff
+          : bytes.length >= 8 &&
+            bytes
+              .subarray(0, 8)
+              .equals(
+                Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+              )
     if (!validSignature) {
-      await r2Client.send(new DeleteObjectCommand({ Bucket: r2BucketName, Key: objectKey }));
-      return res.status(400).json({ error: "The uploaded file does not match its declared document type." });
+      await r2Client.send(
+        new DeleteObjectCommand({ Bucket: r2BucketName, Key: objectKey }),
+      )
+      return res
+        .status(400)
+        .json({
+          error: "The uploaded file does not match its declared document type.",
+        })
     }
-    const client = await pool.connect();
-    let oldObjectKey = null;
+    const client = await pool.connect()
+    let oldObjectKey = null
     try {
-      await client.query("BEGIN");
+      await client.query("BEGIN")
       const lockedUpload = await client.query(
         `SELECT id FROM merchant_kyb_uploads
          WHERE id = $1 AND merchant_email = $2 AND expires_at > NOW() AND completed_at IS NULL
          FOR UPDATE`,
         [documentId, req.merchantEmail],
-      );
+      )
       if (!lockedUpload.rowCount) {
-        await client.query("ROLLBACK");
-        return res.status(409).json({ error: "This document upload is invalid, expired, or already used." });
+        await client.query("ROLLBACK")
+        return res
+          .status(409)
+          .json({
+            error: "This document upload is invalid, expired, or already used.",
+          })
       }
       const old = await client.query(
         "SELECT object_key FROM merchant_kyb_documents WHERE merchant_email = $1 AND document_type = $2",
         [req.merchantEmail, documentType],
-      );
-      oldObjectKey = old.rows[0]?.object_key || null;
+      )
+      oldObjectKey = old.rows[0]?.object_key || null
       await client.query(
         `INSERT INTO merchant_kyb_documents (id, merchant_email, document_type, object_key, file_name, content_type, size_bytes)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (merchant_email, document_type) DO UPDATE SET
            id = EXCLUDED.id, object_key = EXCLUDED.object_key, file_name = EXCLUDED.file_name,
            content_type = EXCLUDED.content_type, size_bytes = EXCLUDED.size_bytes, uploaded_at = NOW()`,
-        [documentId, req.merchantEmail, documentType, objectKey, reservation.file_name, reservation.content_type, Number(reservation.size_bytes)],
-      );
+        [
+          documentId,
+          req.merchantEmail,
+          documentType,
+          objectKey,
+          reservation.file_name,
+          reservation.content_type,
+          Number(reservation.size_bytes),
+        ],
+      )
       await client.query(
         "UPDATE merchant_kyb_profiles SET status = 'PENDING', review_notes = NULL, reviewed_by = NULL, reviewed_at = NULL, updated_at = NOW() WHERE merchant_email = $1",
         [req.merchantEmail],
-      );
-      await client.query("UPDATE merchant_kyb_uploads SET completed_at = NOW() WHERE id = $1", [documentId]);
-      await client.query("COMMIT");
+      )
+      await client.query(
+        "UPDATE merchant_kyb_uploads SET completed_at = NOW() WHERE id = $1",
+        [documentId],
+      )
+      await client.query("COMMIT")
     } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
+      await client.query("ROLLBACK")
+      throw error
     } finally {
-      client.release();
+      client.release()
     }
     if (oldObjectKey && oldObjectKey !== objectKey) {
-      await r2Client.send(new DeleteObjectCommand({ Bucket: r2BucketName, Key: oldObjectKey })).catch((error) => {
-        console.error("Could not remove replaced KYB document from private storage", error.name || "storage error");
-      });
+      await r2Client
+        .send(
+          new DeleteObjectCommand({ Bucket: r2BucketName, Key: oldObjectKey }),
+        )
+        .catch((error) => {
+          console.error(
+            "Could not remove replaced KYB document from private storage",
+            error.name || "storage error",
+          )
+        })
     }
-    return res.status(201).json({ uploaded: true, documentType });
+    return res.status(201).json({ uploaded: true, documentType })
   } catch (error) {
-    console.error("Could not verify private KYB document upload", error.name || "storage error");
-    return res.status(503).json({ error: "The uploaded document could not be verified. Try again." });
+    console.error(
+      "Could not verify private KYB document upload",
+      error.name || "storage error",
+    )
+    return res
+      .status(503)
+      .json({
+        error: "The uploaded document could not be verified. Try again.",
+      })
   }
-});
+})
 
 app.get("/v1/api-keys", async (req, res) => {
   const result = await pool.query(
@@ -3003,43 +3888,64 @@ app.get("/v1/api-keys", async (req, res) => {
        last_used_at AS "lastUsedAt", revoked_at AS "revokedAt"
      FROM merchant_api_keys WHERE merchant_email = $1 ORDER BY created_at DESC`,
     [req.merchantEmail],
-  );
-  return res.set("Cache-Control", "no-store").json(result.rows);
-});
+  )
+  return res.set("Cache-Control", "no-store").json(result.rows)
+})
 
 app.post("/v1/api-keys", async (req, res) => {
-  const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
-  const scopes = req.body?.scopes;
-  const validScopes = Array.isArray(scopes) && scopes.length > 0
-    && scopes.every((scope) => ["read", "payments:write"].includes(scope))
-    && new Set(scopes).size === scopes.length;
+  const name = typeof req.body?.name === "string" ? req.body.name.trim() : ""
+  const scopes = req.body?.scopes
+  const validScopes =
+    Array.isArray(scopes) &&
+    scopes.length > 0 &&
+    scopes.every((scope) => ["read", "payments:write"].includes(scope)) &&
+    new Set(scopes).size === scopes.length
   if (!name || name.length > 80 || !validScopes) {
-    return res.status(400).json({ error: "Enter a key name and select valid API permissions." });
+    return res
+      .status(400)
+      .json({ error: "Enter a key name and select valid API permissions." })
   }
   const activeKeys = await pool.query(
     "SELECT COUNT(*)::int AS count FROM merchant_api_keys WHERE merchant_email = $1 AND revoked_at IS NULL",
     [req.merchantEmail],
-  );
-  if (activeKeys.rows[0].count >= 10) return res.status(409).json({ error: "Revoke an existing API key before creating another. Each merchant can have up to 10 active keys." });
-  const key = `drp_${swiftPayEnvironment}_${randomBytes(32).toString("hex")}`;
+  )
+  if (activeKeys.rows[0].count >= 10)
+    return res
+      .status(409)
+      .json({
+        error:
+          "Revoke an existing API key before creating another. Each merchant can have up to 10 active keys.",
+      })
+  const key = `drp_${swiftPayEnvironment}_${randomBytes(32).toString("hex")}`
   const result = await pool.query(
     `INSERT INTO merchant_api_keys (id, merchant_email, name, key_prefix, key_hash, scopes)
      VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING id, name, key_prefix AS "keyPrefix", scopes, created_at AS "createdAt"`,
-    [randomUUID(), req.merchantEmail, name, key.slice(0, 16), createHash("sha256").update(key).digest("hex"), scopes],
-  );
-  return res.set("Cache-Control", "no-store").status(201).json({ ...result.rows[0], key });
-});
+    [
+      randomUUID(),
+      req.merchantEmail,
+      name,
+      key.slice(0, 16),
+      createHash("sha256").update(key).digest("hex"),
+      scopes,
+    ],
+  )
+  return res
+    .set("Cache-Control", "no-store")
+    .status(201)
+    .json({ ...result.rows[0], key })
+})
 
 app.delete("/v1/api-keys/:id", async (req, res) => {
   const result = await pool.query(
     `UPDATE merchant_api_keys SET revoked_at = NOW()
      WHERE id = $1 AND merchant_email = $2 AND revoked_at IS NULL RETURNING id`,
     [req.params.id, req.merchantEmail],
-  );
-  if (!result.rowCount) return res.status(404).json({ error: "Active API key not found." });
-  return res.json({ revoked: true });
-});
+  )
+  if (!result.rowCount)
+    return res.status(404).json({ error: "Active API key not found." })
+  return res.json({ revoked: true })
+})
 
 app.get("/v1/webhook", async (req, res) => {
   const result = await pool.query(
@@ -3047,25 +3953,45 @@ app.get("/v1/webhook", async (req, res) => {
        updated_at AS "updatedAt"
      FROM merchant_webhook_settings WHERE merchant_email = $1`,
     [req.merchantEmail],
-  );
-  return res.set("Cache-Control", "no-store").json(result.rows[0] || null);
-});
+  )
+  return res.set("Cache-Control", "no-store").json(result.rows[0] || null)
+})
 
 app.put("/v1/webhook", async (req, res) => {
-  const endpointUrl = typeof req.body?.endpointUrl === "string" ? req.body.endpointUrl.trim() : "";
-  const callbackUrl = typeof req.body?.callbackUrl === "string" && req.body.callbackUrl.trim()
-    ? req.body.callbackUrl.trim()
-    : null;
-  const events = req.body?.events;
-  const allowedEvents = new Set(["payment.succeeded", "payment.failed", "disbursement.succeeded", "disbursement.failed"]);
-  if (!Array.isArray(events) || !events.length || events.some((event) => !allowedEvents.has(event))
-    || new Set(events).size !== events.length) {
-    return res.status(400).json({ error: "Select one or more supported webhook events." });
+  const endpointUrl =
+    typeof req.body?.endpointUrl === "string" ? req.body.endpointUrl.trim() : ""
+  const callbackUrl =
+    typeof req.body?.callbackUrl === "string" && req.body.callbackUrl.trim()
+      ? req.body.callbackUrl.trim()
+      : null
+  const events = req.body?.events
+  const allowedEvents = new Set([
+    "payment.succeeded",
+    "payment.failed",
+    "disbursement.succeeded",
+    "disbursement.failed",
+  ])
+  if (
+    !Array.isArray(events) ||
+    !events.length ||
+    events.some((event) => !allowedEvents.has(event)) ||
+    new Set(events).size !== events.length
+  ) {
+    return res
+      .status(400)
+      .json({ error: "Select one or more supported webhook events." })
   }
-  if (!await validateWebhookUrl(endpointUrl) || (callbackUrl && !await validateWebhookUrl(callbackUrl))) {
-    return res.status(400).json({ error: "Webhook and callback URLs must be public HTTPS endpoints." });
+  if (
+    !(await validateWebhookUrl(endpointUrl)) ||
+    (callbackUrl && !(await validateWebhookUrl(callbackUrl)))
+  ) {
+    return res
+      .status(400)
+      .json({
+        error: "Webhook and callback URLs must be public HTTPS endpoints.",
+      })
   }
-  const signingSecret = `whsec_${randomBytes(32).toString("hex")}`;
+  const signingSecret = `whsec_${randomBytes(32).toString("hex")}`
   const result = await pool.query(
     `INSERT INTO merchant_webhook_settings (merchant_email, endpoint_url, callback_url, events, signing_secret, enabled, updated_at)
      VALUES ($1, $2, $3, $4, $5, TRUE, NOW())
@@ -3075,31 +4001,55 @@ app.put("/v1/webhook", async (req, res) => {
      RETURNING endpoint_url AS "endpointUrl", callback_url AS "callbackUrl", events, enabled,
        updated_at AS "updatedAt"`,
     [req.merchantEmail, endpointUrl, callbackUrl, events, signingSecret],
-  );
-  return res.set("Cache-Control", "no-store").json({ ...result.rows[0], signingSecret });
-});
+  )
+  return res
+    .set("Cache-Control", "no-store")
+    .json({ ...result.rows[0], signingSecret })
+})
 
 app.delete("/v1/webhook", async (req, res) => {
-  await pool.query("DELETE FROM merchant_webhook_settings WHERE merchant_email = $1", [req.merchantEmail]);
-  return res.json({ deleted: true });
-});
+  await pool.query(
+    "DELETE FROM merchant_webhook_settings WHERE merchant_email = $1",
+    [req.merchantEmail],
+  )
+  return res.json({ deleted: true })
+})
 
 app.get("/v1/floating-balance/payout-account", async (req, res) => {
   const result = await pool.query(
     `SELECT bank_name AS "bankName", account_name AS "accountName", account_number AS "accountNumber"
      FROM merchant_payout_accounts WHERE merchant_email = $1`,
     [req.merchantEmail],
-  );
-  return res.set("Cache-Control", "no-store").json(result.rows[0] || { bankName: "", accountName: "", accountNumber: "" });
-});
+  )
+  return res
+    .set("Cache-Control", "no-store")
+    .json(
+      result.rows[0] || { bankName: "", accountName: "", accountNumber: "" },
+    )
+})
 
 app.put("/v1/floating-balance/payout-account", async (req, res) => {
-  const bankName = typeof req.body?.bankName === "string" ? req.body.bankName.trim() : "";
-  const accountName = typeof req.body?.accountName === "string" ? req.body.accountName.trim() : "";
-  const accountNumber = typeof req.body?.accountNumber === "string" ? req.body.accountNumber.replace(/\s+/g, "") : "";
-  if (bankName.length < 2 || bankName.length > 100 || accountName.length < 2 || accountName.length > 120
-    || !/^[A-Za-z0-9-]{4,34}$/.test(accountNumber)) {
-    return res.status(400).json({ error: "Enter a bank name, account holder name, and valid account number." });
+  const bankName =
+    typeof req.body?.bankName === "string" ? req.body.bankName.trim() : ""
+  const accountName =
+    typeof req.body?.accountName === "string" ? req.body.accountName.trim() : ""
+  const accountNumber =
+    typeof req.body?.accountNumber === "string"
+      ? req.body.accountNumber.replace(/\s+/g, "")
+      : ""
+  if (
+    bankName.length < 2 ||
+    bankName.length > 100 ||
+    accountName.length < 2 ||
+    accountName.length > 120 ||
+    !/^[A-Za-z0-9-]{4,34}$/.test(accountNumber)
+  ) {
+    return res
+      .status(400)
+      .json({
+        error:
+          "Enter a bank name, account holder name, and valid account number.",
+      })
   }
   const result = await pool.query(
     `INSERT INTO merchant_payout_accounts (merchant_email, bank_name, account_name, account_number)
@@ -3107,12 +4057,17 @@ app.put("/v1/floating-balance/payout-account", async (req, res) => {
      ON CONFLICT (merchant_email) DO NOTHING
      RETURNING bank_name AS "bankName", account_name AS "accountName", account_number AS "accountNumber"`,
     [req.merchantEmail, bankName, accountName, accountNumber],
-  );
+  )
   if (!result.rowCount) {
-    return res.status(409).json({ error: "A payout account is already saved. Contact the DRPAY team to change it." });
+    return res
+      .status(409)
+      .json({
+        error:
+          "A payout account is already saved. Contact the DRPAY team to change it.",
+      })
   }
-  return res.set("Cache-Control", "no-store").json(result.rows[0]);
-});
+  return res.set("Cache-Control", "no-store").json(result.rows[0])
+})
 
 app.get("/v1/floating-balance/transfer-requests", async (req, res) => {
   const result = await pool.query(
@@ -3123,190 +4078,214 @@ app.get("/v1/floating-balance/transfer-requests", async (req, res) => {
      FROM floating_transfer_requests WHERE merchant_email = $1
      ORDER BY requested_at DESC LIMIT 50`,
     [req.merchantEmail],
-  );
-  return res.set("Cache-Control", "no-store").json(result.rows);
-});
+  )
+  return res.set("Cache-Control", "no-store").json(result.rows)
+})
 
 app.post("/v1/floating-balance/transfer-requests", async (req, res) => {
-  const submittedAmount = Number(req.body?.amount);
-  const amount = Number.isFinite(submittedAmount) ? Math.round(submittedAmount * 100) / 100 : Number.NaN;
-  if (!Number.isFinite(amount) || amount <= 0 || Math.abs(submittedAmount - amount) > 1e-7 || amount > 1_000_000_000) {
-    return res.status(400).json({ error: "Enter a positive PHP amount with no more than two decimal places." });
+  const submittedAmount = Number(req.body?.amount)
+  const amount = Number.isFinite(submittedAmount)
+    ? Math.round(submittedAmount * 100) / 100
+    : Number.NaN
+  if (
+    !Number.isFinite(amount) ||
+    amount <= 0 ||
+    Math.abs(submittedAmount - amount) > 1e-7 ||
+    amount > 1_000_000_000
+  ) {
+    return res
+      .status(400)
+      .json({
+        error:
+          "Enter a positive PHP amount with no more than two decimal places.",
+      })
   }
-  const client = await pool.connect();
   try {
-    await client.query("BEGIN");
-    await client.query("SELECT email FROM merchant_accounts WHERE email = $1 FOR UPDATE", [req.merchantEmail]);
-    const transferFeeSetting = await client.query(
-      "SELECT setting_value FROM system_settings WHERE setting_key = 'transfer_fee_fixed'",
-    );
-    const transferFee = Number(transferFeeSetting.rows[0]?.setting_value || 0);
-    if (!Number.isFinite(transferFee) || transferFee < 0) {
-      throw new Error("The configured floating-balance transfer fee is invalid.");
-    }
-    const [account, totals] = await Promise.all([
-      client.query(
-        "SELECT bank_name AS \"bankName\", account_name AS \"accountName\", account_number AS \"accountNumber\" FROM merchant_payout_accounts WHERE merchant_email = $1",
-        [req.merchantEmail],
-      ),
-      client.query(
-        `SELECT COALESCE((SELECT SUM(amount) FROM internal_wallet_adjustments
-              WHERE merchant_email = $1 AND adjusted_by NOT LIKE 'system:%'), 0)::numeric AS balance,
-           COALESCE((SELECT SUM(amount + transfer_fee) FROM floating_transfer_requests WHERE merchant_email = $1 AND status = 'PENDING'), 0)::numeric AS reserved`,
-        [req.merchantEmail],
-      ),
-    ]);
-    if (!account.rowCount) {
-      await client.query("ROLLBACK");
-      return res.status(409).json({ error: "Save a payout bank account in your merchant profile before requesting a transfer." });
-    }
-    const available = Number(totals.rows[0].balance) - Number(totals.rows[0].reserved);
-    if (amount + transferFee > available) {
-      await client.query("ROLLBACK");
-      return res.status(400).json({ error: "The requested amount plus the transfer fee exceeds your available floating balance." });
-    }
-    const payout = account.rows[0];
-    const result = await client.query(
-      `INSERT INTO floating_transfer_requests
-         (id, merchant_email, amount, transfer_fee, bank_name, account_name, account_number, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING')
-       RETURNING id, amount::float8 AS amount, transfer_fee::float8 AS "transferFee", status, bank_name AS "bankName",
-         account_name AS "accountName", account_number AS "accountNumber",
-         requested_at AS "requestedAt", reviewed_at AS "reviewedAt",
-         failure_reason AS "failureReason"`,
-      [randomUUID(), req.merchantEmail, amount.toFixed(2), transferFee.toFixed(2), payout.bankName, payout.accountName, payout.accountNumber],
-    );
-    await client.query("COMMIT");
-    return res.status(201).json(result.rows[0]);
+    return res
+      .status(201)
+      .json(
+        await createFloatingTransferRequest(pool, req.merchantEmail, amount),
+      )
   } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
+    if (error.status)
+      return res.status(error.status).json({ error: error.message })
+    throw error
   }
-});
+})
 
 app.get("/v1/security/status", async (req, res) => {
   const { rows } = await pool.query(
     "SELECT pin_hash IS NOT NULL AS pin_configured FROM merchant_security WHERE email = $1",
     [req.merchantEmail],
-  );
+  )
   return res.set("Cache-Control", "no-store").json({
     pinConfigured: rows[0]?.pin_configured === true,
-  });
-});
+  })
+})
 
 app.post("/v1/notifications/push-token", async (req, res) => {
-  const token = typeof req.body?.token === "string" ? req.body.token.trim() : "";
-  if (token.length < 32 || token.length > 4096) return res.status(400).json({ error: "A valid push token is required." });
+  const token = typeof req.body?.token === "string" ? req.body.token.trim() : ""
+  if (token.length < 32 || token.length > 4096)
+    return res.status(400).json({ error: "A valid push token is required." })
   await pool.query(
     `INSERT INTO merchant_push_devices (token, merchant_email)
      VALUES ($1, $2)
      ON CONFLICT (token) DO UPDATE SET merchant_email = EXCLUDED.merchant_email, updated_at = NOW()`,
     [token, req.merchantEmail],
-  );
-  return res.json({ registered: true });
-});
+  )
+  return res.json({ registered: true })
+})
 
 app.post("/v1/notifications/push-token/remove", async (req, res) => {
-  const token = typeof req.body?.token === "string" ? req.body.token.trim() : "";
-  if (token.length < 32 || token.length > 4096) return res.status(400).json({ error: "A valid push token is required." });
-  await pool.query("DELETE FROM merchant_push_devices WHERE token = $1 AND merchant_email = $2", [token, req.merchantEmail]);
-  return res.json({ removed: true });
-});
+  const token = typeof req.body?.token === "string" ? req.body.token.trim() : ""
+  if (token.length < 32 || token.length > 4096)
+    return res.status(400).json({ error: "A valid push token is required." })
+  await pool.query(
+    "DELETE FROM merchant_push_devices WHERE token = $1 AND merchant_email = $2",
+    [token, req.merchantEmail],
+  )
+  return res.json({ removed: true })
+})
 
 app.post("/v1/security/biometric", async (req, res) => {
-  const secret = typeof req.body?.secret === "string" ? req.body.secret : "";
-  const deviceToken = typeof req.body?.deviceToken === "string" ? req.body.deviceToken : "";
-  if (!/^[A-Za-z0-9_-]{43}$/.test(secret) || !/^[A-Za-z0-9_-]{32,128}$/.test(deviceToken)) {
-    return res.status(400).json({ error: "Could not enable biometric sign-in on this device." });
+  const secret = typeof req.body?.secret === "string" ? req.body.secret : ""
+  const deviceToken =
+    typeof req.body?.deviceToken === "string" ? req.body.deviceToken : ""
+  if (
+    !/^[A-Za-z0-9_-]{43}$/.test(secret) ||
+    !/^[A-Za-z0-9_-]{32,128}$/.test(deviceToken)
+  ) {
+    return res
+      .status(400)
+      .json({ error: "Could not enable biometric sign-in on this device." })
   }
-  const deviceHash = deviceTokenHash(deviceToken);
+  const deviceHash = deviceTokenHash(deviceToken)
   const device = await pool.query(
     "SELECT 1 FROM merchant_devices WHERE email = $1 AND device_token_hash = $2",
     [req.merchantEmail, deviceHash],
-  );
-  if (!device.rowCount) return res.status(403).json({ error: "Verify this device by email before enabling biometric sign-in." });
+  )
+  if (!device.rowCount)
+    return res
+      .status(403)
+      .json({
+        error: "Verify this device by email before enabling biometric sign-in.",
+      })
   await pool.query(
     `INSERT INTO merchant_biometric_credentials (email, device_token_hash, secret_hash)
      VALUES ($1, $2, $3)
      ON CONFLICT (email, device_token_hash)
      DO UPDATE SET secret_hash = EXCLUDED.secret_hash, created_at = NOW(), last_used_at = NOW()`,
     [req.merchantEmail, deviceHash, biometricSecretHash(secret)],
-  );
-  return res.set("Cache-Control", "no-store").json({ enabled: true });
-});
+  )
+  return res.set("Cache-Control", "no-store").json({ enabled: true })
+})
 
 app.post("/v1/security/biometric/remove", async (req, res) => {
-  const deviceToken = typeof req.body?.deviceToken === "string" ? req.body.deviceToken : "";
+  const deviceToken =
+    typeof req.body?.deviceToken === "string" ? req.body.deviceToken : ""
   if (!/^[A-Za-z0-9_-]{32,128}$/.test(deviceToken)) {
-    return res.status(400).json({ error: "Could not disable biometric sign-in on this device." });
+    return res
+      .status(400)
+      .json({ error: "Could not disable biometric sign-in on this device." })
   }
   await pool.query(
     "DELETE FROM merchant_biometric_credentials WHERE email = $1 AND device_token_hash = $2",
     [req.merchantEmail, deviceTokenHash(deviceToken)],
-  );
-  return res.set("Cache-Control", "no-store").json({ enabled: false });
-});
+  )
+  return res.set("Cache-Control", "no-store").json({ enabled: false })
+})
 
 app.post("/v1/security/pin", async (req, res) => {
-  const pin = typeof req.body?.pin === "string" ? req.body.pin : "";
-  if (!/^\d{4}$/.test(pin)) return res.status(400).json({ error: "MPIN must contain exactly four digits." });
-  const salt = randomBytes(32).toString("hex");
-  const hash = scryptSync(pin, salt, 64).toString("hex");
-  await pool.query("INSERT INTO merchant_security (email) VALUES ($1) ON CONFLICT (email) DO NOTHING", [req.merchantEmail]);
+  const pin = typeof req.body?.pin === "string" ? req.body.pin : ""
+  if (!/^\d{4}$/.test(pin))
+    return res
+      .status(400)
+      .json({ error: "MPIN must contain exactly four digits." })
+  const salt = randomBytes(32).toString("hex")
+  const hash = scryptSync(pin, salt, 64).toString("hex")
+  await pool.query(
+    "INSERT INTO merchant_security (email) VALUES ($1) ON CONFLICT (email) DO NOTHING",
+    [req.merchantEmail],
+  )
   const result = await pool.query(
     `UPDATE merchant_security SET pin_salt = $1, pin_hash = $2, updated_at = NOW()
      WHERE email = $3 AND pin_hash IS NULL RETURNING email`,
     [salt, hash, req.merchantEmail],
-  );
-  if (!result.rowCount) return res.status(409).json({ error: "An MPIN is already configured for this account." });
-  return res.set("Cache-Control", "no-store").json({ pinConfigured: true });
-});
+  )
+  if (!result.rowCount)
+    return res
+      .status(409)
+      .json({ error: "An MPIN is already configured for this account." })
+  return res.set("Cache-Control", "no-store").json({ pinConfigured: true })
+})
 
 app.post("/v1/security/transfer/pin", pinAttemptLimiter, async (req, res) => {
-  const pin = typeof req.body?.pin === "string" ? req.body.pin : "";
-  const idempotencyKey = typeof req.body?.idempotencyKey === "string" ? req.body.idempotencyKey : "";
+  const pin = typeof req.body?.pin === "string" ? req.body.pin : ""
+  const idempotencyKey =
+    typeof req.body?.idempotencyKey === "string" ? req.body.idempotencyKey : ""
   if (!/^\d{4}$/.test(pin) || !validIdempotencyKey(idempotencyKey)) {
-    return res.status(400).json({ error: "Enter your four-digit MPIN to authorize this transfer." });
+    return res
+      .status(400)
+      .json({ error: "Enter your four-digit MPIN to authorize this transfer." })
   }
   const { rows } = await pool.query(
     "SELECT pin_salt, pin_hash FROM merchant_security WHERE email = $1",
     [req.merchantEmail],
-  );
-  const security = rows[0];
+  )
+  const security = rows[0]
   if (!security?.pin_hash) {
-    return res.status(403).json({ error: "Set up an MPIN before transferring." });
+    return res
+      .status(403)
+      .json({ error: "Set up an MPIN before transferring." })
   }
-  await pool.query("DELETE FROM merchant_pin_attempts WHERE created_at <= NOW() - INTERVAL '1 day'");
+  await pool.query(
+    "DELETE FROM merchant_pin_attempts WHERE created_at <= NOW() - INTERVAL '1 day'",
+  )
   const attempts = await pool.query(
     "SELECT COUNT(*)::int AS count FROM merchant_pin_attempts WHERE merchant_email = $1 AND created_at > NOW() - INTERVAL '15 minutes'",
     [req.merchantEmail],
-  );
+  )
   if (attempts.rows[0].count >= 5) {
-    return res.status(429).json({ error: "Too many incorrect MPIN attempts. Try again in 15 minutes." });
+    return res
+      .status(429)
+      .json({
+        error: "Too many incorrect MPIN attempts. Try again in 15 minutes.",
+      })
   }
   if (!matchesPasswordHash(pin, security.pin_salt, security.pin_hash)) {
-    await pool.query("INSERT INTO merchant_pin_attempts (merchant_email) VALUES ($1)", [req.merchantEmail]);
-    return res.status(403).json({ error: "The MPIN is incorrect." });
+    await pool.query(
+      "INSERT INTO merchant_pin_attempts (merchant_email) VALUES ($1)",
+      [req.merchantEmail],
+    )
+    return res.status(403).json({ error: "The MPIN is incorrect." })
   }
-  await pool.query("DELETE FROM merchant_pin_attempts WHERE merchant_email = $1", [req.merchantEmail]);
-  const fingerprint = transferSecurityFingerprint(req.merchantEmail, req.body, idempotencyKey);
-  const jti = randomUUID();
-  const stepUpToken = await new SignJWT({ purpose: "transfer_step_up", fingerprint })
+  await pool.query(
+    "DELETE FROM merchant_pin_attempts WHERE merchant_email = $1",
+    [req.merchantEmail],
+  )
+  const fingerprint = transferSecurityFingerprint(
+    req.merchantEmail,
+    req.body,
+    idempotencyKey,
+  )
+  const jti = randomUUID()
+  const stepUpToken = await new SignJWT({
+    purpose: "transfer_step_up",
+    fingerprint,
+  })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(req.merchantEmail)
     .setJti(jti)
     .setIssuedAt()
     .setExpirationTime("2m")
-    .sign(jwtSecret);
-  return res.set("Cache-Control", "no-store").json({ stepUpToken });
-});
+    .sign(jwtSecret)
+  return res.set("Cache-Control", "no-store").json({ stepUpToken })
+})
 
 app.get("/v1/internal-wallet", async (req, res) => {
   const [result, feeSetting] = await Promise.all([
     pool.query(
-    `WITH wallet AS (
+      `WITH wallet AS (
        SELECT COALESCE(SUM(amount), 0)::numeric AS balance
        FROM internal_wallet_adjustments
       WHERE merchant_email = $1 AND adjusted_by NOT LIKE 'system:%'
@@ -3314,20 +4293,22 @@ app.get("/v1/internal-wallet", async (req, res) => {
      SELECT wallet.balance::float8 AS balance,
        COALESCE((SELECT SUM(amount + transfer_fee) FROM floating_transfer_requests WHERE merchant_email = $1 AND status = 'PENDING'), 0)::float8 AS reserved
      FROM wallet`,
-    [req.merchantEmail],
+      [req.merchantEmail],
     ),
-    pool.query("SELECT setting_value FROM system_settings WHERE setting_key = 'transfer_fee_fixed'"),
-  ]);
-  const balance = result.rows[0].balance;
-  const transferFeeFixed = Number(feeSetting.rows[0]?.setting_value || 0);
+    pool.query(
+      "SELECT setting_value FROM system_settings WHERE setting_key = 'transfer_fee_fixed'",
+    ),
+  ])
+  const balance = result.rows[0].balance
+  const transferFeeFixed = Number(feeSetting.rows[0]?.setting_value || 0)
   return res.set("Cache-Control", "no-store").json({
     currency: "PHP",
     balance,
     availableBalance: balance - result.rows[0].reserved,
     transferFeeFixed,
     label: "Floated Amount",
-  });
-});
+  })
+})
 
 app.get("/v1/wallet/activity/trend", async (req, res) => {
   try {
@@ -3349,23 +4330,29 @@ app.get("/v1/wallet/activity/trend", async (req, res) => {
        GROUP BY days.day
        ORDER BY days.day ASC`,
       [req.merchantEmail],
-    );
-    return res.set("Cache-Control", "no-store").json(result.rows);
+    )
+    return res.set("Cache-Control", "no-store").json(result.rows)
   } catch (error) {
-    console.error("Merchant activity trend lookup failed", error.message);
-    return res.status(503).json({ error: "The live activity chart is temporarily unavailable." });
+    console.error("Merchant activity trend lookup failed", error.message)
+    return res
+      .status(503)
+      .json({ error: "The live activity chart is temporarily unavailable." })
   }
-});
+})
 
 app.get("/v1/exchange-rates/krw-php", async (_req, res) => {
   const result = await pool.query(
     "SELECT setting_value FROM system_settings WHERE setting_key = 'krw_to_php_rate'",
-  );
-  const configuredRate = result.rows[0]?.setting_value;
+  )
+  const configuredRate = result.rows[0]?.setting_value
   if (configuredRate !== undefined) {
-    const rate = Number(configuredRate);
+    const rate = Number(configuredRate)
     if (!Number.isFinite(rate) || rate <= 0) {
-      return res.status(503).json({ error: "The configured KRW/PHP exchange-rate override is invalid." });
+      return res
+        .status(503)
+        .json({
+          error: "The configured KRW/PHP exchange-rate override is invalid.",
+        })
     }
     return res.json({
       baseCurrency: "KRW",
@@ -3374,28 +4361,40 @@ app.get("/v1/exchange-rates/krw-php", async (_req, res) => {
       date: new Date().toISOString().slice(0, 10),
       updatedAt: new Date().toISOString(),
       source: "DRPAY configured rate",
-    });
+    })
   }
 
-  if (liveKrwPhpRateCache && Date.now() - liveKrwPhpRateCache.fetchedAt < 60 * 60 * 1000) {
-    return res.json(liveKrwPhpRateCache.quote);
+  if (
+    liveKrwPhpRateCache &&
+    Date.now() - liveKrwPhpRateCache.fetchedAt < 60 * 60 * 1000
+  ) {
+    return res.json(liveKrwPhpRateCache.quote)
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8_000);
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 8_000)
   try {
     const response = await fetch("https://open.er-api.com/v6/latest/KRW", {
       signal: controller.signal,
       headers: { Accept: "application/json" },
-    });
-    if (!response.ok) throw new Error(`Exchange-rate service returned ${response.status}.`);
-    const data = await response.json();
-    const rate = Number(data?.rates?.PHP);
-    const updatedAt = typeof data?.time_last_update_utc === "string"
-      ? new Date(data.time_last_update_utc)
-      : null;
-    if (data?.result !== "success" || data?.base_code !== "KRW" || !Number.isFinite(rate) || rate <= 0 || !updatedAt || Number.isNaN(updatedAt.getTime())) {
-      throw new Error("Exchange-rate service returned invalid KRW/PHP data.");
+    })
+    if (!response.ok)
+      throw new Error(`Exchange-rate service returned ${response.status}.`)
+    const data = await response.json()
+    const rate = Number(data?.rates?.PHP)
+    const updatedAt =
+      typeof data?.time_last_update_utc === "string"
+        ? new Date(data.time_last_update_utc)
+        : null
+    if (
+      data?.result !== "success" ||
+      data?.base_code !== "KRW" ||
+      !Number.isFinite(rate) ||
+      rate <= 0 ||
+      !updatedAt ||
+      Number.isNaN(updatedAt.getTime())
+    ) {
+      throw new Error("Exchange-rate service returned invalid KRW/PHP data.")
     }
     const quote = {
       baseCurrency: "KRW",
@@ -3404,28 +4403,37 @@ app.get("/v1/exchange-rates/krw-php", async (_req, res) => {
       date: updatedAt.toISOString().slice(0, 10),
       updatedAt: updatedAt.toISOString(),
       source: "ExchangeRate-API reference rate",
-    };
-    liveKrwPhpRateCache = { quote, fetchedAt: Date.now() };
-    return res.json(quote);
+    }
+    liveKrwPhpRateCache = { quote, fetchedAt: Date.now() }
+    return res.json(quote)
   } catch (error) {
-    console.error("KRW/PHP live exchange-rate lookup failed", error.name === "AbortError" ? "timeout" : error.message);
-    return res.status(503).json({ error: "The live KRW/PHP reference rate is temporarily unavailable." });
+    console.error(
+      "KRW/PHP live exchange-rate lookup failed",
+      error.name === "AbortError" ? "timeout" : error.message,
+    )
+    return res
+      .status(503)
+      .json({
+        error: "The live KRW/PHP reference rate is temporarily unavailable.",
+      })
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(timeout)
   }
-});
+})
 
 app.get("/v1/wallet/balance", async (req, res) => {
   try {
-    const wallet = await getMerchantWalletState(pool, req.merchantEmail);
-    const balance = Number(wallet.balance);
-    const reservedBalance = Number(wallet.reserved);
-    const availableBalance = balance - reservedBalance;
-    const completedKrw = Number(wallet.completed_krw);
-    const collectionCredits = Number(wallet.collection_credits);
-    const cumulativeKrwCollections = collectionCredits > 0
-      ? completedKrw * Math.min(1, Math.max(0, availableBalance / collectionCredits))
-      : 0;
+    const wallet = await getMerchantWalletState(pool, req.merchantEmail)
+    const balance = Number(wallet.balance)
+    const reservedBalance = Number(wallet.reserved)
+    const availableBalance = balance - reservedBalance
+    const completedKrw = Number(wallet.completed_krw)
+    const collectionCredits = Number(wallet.collection_credits)
+    const cumulativeKrwCollections =
+      collectionCredits > 0
+        ? completedKrw *
+          Math.min(1, Math.max(0, availableBalance / collectionCredits))
+        : 0
     return res.set("Cache-Control", "no-store").json({
       balance,
       availableBalance,
@@ -3433,119 +4441,181 @@ app.get("/v1/wallet/balance", async (req, res) => {
       walletMode: "pooled",
       paymentEnvironment: swiftPayEnvironment,
       cumulativeKrwCollections,
-    });
+    })
   } catch (error) {
-    console.error("Merchant wallet ledger lookup failed", error.code || error.message);
-    return res.status(503).json({ error: "Merchant wallet is temporarily unavailable." });
+    console.error(
+      "Merchant wallet ledger lookup failed",
+      error.code || error.message,
+    )
+    return res
+      .status(503)
+      .json({ error: "Merchant wallet is temporarily unavailable." })
   }
-});
+})
 
 app.get("/v1/disbursement-institutions", async (req, res) => {
-  const channel = req.query.channel;
-  if (channel && !["INSTAPAY", "PESONET"].includes(channel)) return res.status(400).json({ error: "Unsupported transfer rail." });
-  const cacheKey = channel || "all";
-  const cached = institutionCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) return res.json(cached.items);
+  const channel = req.query.channel
+  if (channel && !["INSTAPAY", "PESONET"].includes(channel))
+    return res.status(400).json({ error: "Unsupported transfer rail." })
+  const cacheKey = channel || "all"
+  const cached = institutionCache.get(cacheKey)
+  if (cached && cached.expiresAt > Date.now()) return res.json(cached.items)
   try {
-    const query = channel ? `?channel=${encodeURIComponent(channel)}` : "";
-    const { data } = await swiftPayRequest(`/disbursements/institutions${query}`);
-    if (!Array.isArray(data)) throw new Error("SwiftPay returned an invalid disbursement institution list.");
+    const query = channel ? `?channel=${encodeURIComponent(channel)}` : ""
+    const { data } = await swiftPayRequest(
+      `/disbursements/institutions${query}`,
+    )
+    if (!Array.isArray(data))
+      throw new Error(
+        "SwiftPay returned an invalid disbursement institution list.",
+      )
     const items = data.map((institution) => ({
       ...institution,
       logoUrl: getInstitutionLogoUrl(institution),
-    }));
-    institutionCache.set(cacheKey, { items, expiresAt: Date.now() + 6 * 60 * 60 * 1000 });
-    return res.json(items);
+    }))
+    institutionCache.set(cacheKey, {
+      items,
+      expiresAt: Date.now() + 6 * 60 * 60 * 1000,
+    })
+    return res.json(items)
   } catch (error) {
-    console.error("Institution lookup failed", error.status || "network error");
-    return res.status(503).json({ error: "Transfer institutions are temporarily unavailable." });
+    console.error("Institution lookup failed", error.status || "network error")
+    return res
+      .status(503)
+      .json({ error: "Transfer institutions are temporarily unavailable." })
   }
-});
+})
 
 app.get("/v1/payment-institutions", async (_req, res) => {
-  if (paymentInstitutionCache && paymentInstitutionCache.expiresAt > Date.now()) {
-    return res.json(paymentInstitutionCache.items);
+  if (
+    paymentInstitutionCache &&
+    paymentInstitutionCache.expiresAt > Date.now()
+  ) {
+    return res.json(paymentInstitutionCache.items)
   }
   try {
-    const { data } = await swiftPayFetch("/institutions");
-    if (!Array.isArray(data)) throw new Error("SwiftPay returned an invalid payment institution list.");
+    const { data } = await swiftPayFetch("/institutions")
+    if (!Array.isArray(data))
+      throw new Error("SwiftPay returned an invalid payment institution list.")
     const items = data
-      .filter((item) =>
-        item?.enabled === true
-        && (swiftPayEnvironment !== "production" || item.live === true)
-        && !["PALAWAN", "JCB_MAYA", "VISA_MAYA", "MASTERCARD_MAYA", "BILLEASE", "CARD_MAYA"].includes(item.code),
+      .filter(
+        (item) =>
+          item?.enabled === true &&
+          (swiftPayEnvironment !== "production" || item.live === true) &&
+          ![
+            "PALAWAN",
+            "JCB_MAYA",
+            "VISA_MAYA",
+            "MASTERCARD_MAYA",
+            "BILLEASE",
+            "CARD_MAYA",
+          ].includes(item.code),
       )
       .map((institution) => ({
         code: institution.code,
         name: institution.name,
         category: institution.category,
         logoUrl: getInstitutionLogoUrl(institution),
-      }));
-    paymentInstitutionCache = { items, expiresAt: Date.now() + 60 * 60 * 1000 };
-    return res.json(items);
+      }))
+    paymentInstitutionCache = { items, expiresAt: Date.now() + 60 * 60 * 1000 }
+    return res.json(items)
   } catch (error) {
-    console.error("Payment institution lookup failed", error.status || error.message || "unexpected error");
-    return res.status(503).json({ error: "Payment institutions are temporarily unavailable." });
+    console.error(
+      "Payment institution lookup failed",
+      error.status || error.message || "unexpected error",
+    )
+    return res
+      .status(503)
+      .json({ error: "Payment institutions are temporarily unavailable." })
   }
-});
+})
 
 async function reconcilePending() {
-  if (reconcilingPending) return;
-  reconcilingPending = true;
+  if (reconcilingPending) return
+  reconcilingPending = true
   try {
-  const [links, transfers] = await Promise.all([
-    pool.query("SELECT id, code, payment_token FROM payment_links WHERE status IN ('CREATING', 'ACTIVE', 'PENDING') AND code IS NOT NULL ORDER BY created_at DESC LIMIT 50"),
-    pool.query("SELECT id, swiftpay_id, merchant_reference_no FROM disbursements WHERE status IN ('REQUESTING', 'PENDING', 'OUTCOME_UNKNOWN') ORDER BY created_at DESC LIMIT 50"),
-  ]);
-  await Promise.allSettled([
-    ...links.rows.map(async (row) => {
-      let status;
-      if (row.payment_token) {
-        const { data } = await swiftPayPaymentRequest("/payments/status", row.payment_token);
-        status = paymentStatusFromResponse(data);
-      } else {
-        const { data } = await swiftPayRequest(`/payments/links/${encodeURIComponent(row.code)}`);
-        status = data.linkStatus || "ACTIVE";
-      }
-      await updatePaymentLinkStatus(row.id, status);
-    }),
-    ...transfers.rows.map(async (row) => {
-      let data;
-      if (row.swiftpay_id) {
-        ({ data } = await swiftPayRequest(`/disbursements/${encodeURIComponent(row.swiftpay_id)}`));
-      } else {
-        const query = new URLSearchParams({ merchantReferenceNo: row.merchant_reference_no, pageSize: "1" });
-        const result = await swiftPayRequest(`/disbursements?${query}`);
-        data = result.data?.result?.find((item) => item.merchantReferenceNo === row.merchant_reference_no);
-        if (!data) return;
-      }
-      await updateDisbursementStatus(row.id, data.id, data.status, data.errorMessage || null);
-    }),
-  ]);
-  await dispatchTransactionNotifications();
-  await dispatchCustomerPaymentNotifications();
-  await dispatchMerchantWebhooks();
+    const [links, transfers] = await Promise.all([
+      pool.query(
+        "SELECT id, code, payment_token FROM payment_links WHERE status IN ('CREATING', 'ACTIVE', 'PENDING') AND code IS NOT NULL ORDER BY created_at DESC LIMIT 50",
+      ),
+      pool.query(
+        "SELECT id, swiftpay_id, merchant_reference_no FROM disbursements WHERE status IN ('REQUESTING', 'PENDING', 'OUTCOME_UNKNOWN') ORDER BY created_at DESC LIMIT 50",
+      ),
+    ])
+    await Promise.allSettled([
+      ...links.rows.map(async (row) => {
+        let status
+        if (row.payment_token) {
+          const { data } = await swiftPayPaymentRequest(
+            "/payments/status",
+            row.payment_token,
+          )
+          status = paymentStatusFromResponse(data)
+        } else {
+          const { data } = await swiftPayRequest(
+            `/payments/links/${encodeURIComponent(row.code)}`,
+          )
+          status = data.linkStatus || "ACTIVE"
+        }
+        await updatePaymentLinkStatus(row.id, status)
+      }),
+      ...transfers.rows.map(async (row) => {
+        let data
+        if (row.swiftpay_id) {
+          ;({ data } = await swiftPayRequest(
+            `/disbursements/${encodeURIComponent(row.swiftpay_id)}`,
+          ))
+        } else {
+          const query = new URLSearchParams({
+            merchantReferenceNo: row.merchant_reference_no,
+            pageSize: "1",
+          })
+          const result = await swiftPayRequest(`/disbursements?${query}`)
+          data = result.data?.result?.find(
+            (item) => item.merchantReferenceNo === row.merchant_reference_no,
+          )
+          if (!data) return
+        }
+        await updateDisbursementStatus(
+          row.id,
+          data.id,
+          data.status,
+          data.errorMessage || null,
+        )
+      }),
+    ])
+    await dispatchTransactionNotifications()
+    await dispatchCustomerPaymentNotifications()
+    await dispatchMerchantWebhooks()
   } finally {
-    reconcilingPending = false;
+    reconcilingPending = false
   }
 }
 
 function startNotificationWorker() {
   if (!fcmConfigured()) {
-    console.warn("Firebase push delivery is disabled until FCM_PROJECT_ID, FCM_SERVICE_ACCOUNT_EMAIL, and FCM_SERVICE_ACCOUNT_PRIVATE_KEY are configured.");
+    console.warn(
+      "Firebase push delivery is disabled until FCM_PROJECT_ID, FCM_SERVICE_ACCOUNT_EMAIL, and FCM_SERVICE_ACCOUNT_PRIVATE_KEY are configured.",
+    )
   }
   const timer = setInterval(() => {
     void reconcilePending().catch((error) => {
-      console.error("Transaction notification worker cycle failed", error.status || error.message || "unexpected error");
-    });
-  }, 30_000);
-  timer.unref();
+      console.error(
+        "Transaction notification worker cycle failed",
+        error.status || error.message || "unexpected error",
+      )
+    })
+  }, 30_000)
+  timer.unref()
   const kybCleanupTimer = setInterval(() => {
     void cleanExpiredKybUploads().catch((error) => {
-      console.error("Private KYB upload cleanup failed", error.name || "storage error");
-    });
-  }, 5 * 60_000);
-  kybCleanupTimer.unref();
+      console.error(
+        "Private KYB upload cleanup failed",
+        error.name || "storage error",
+      )
+    })
+  }, 5 * 60_000)
+  kybCleanupTimer.unref()
 }
 
 async function getRefundTransferDetails(paymentId, merchantEmail) {
@@ -3553,82 +4623,123 @@ async function getRefundTransferDetails(paymentId, merchantEmail) {
     `SELECT id, reference_no, amount::float8 AS amount, status, payment_token
      FROM payment_links WHERE id = $1 AND merchant_email = $2`,
     [paymentId, merchantEmail],
-  );
-  const payment = paymentResult.rows[0];
+  )
+  const payment = paymentResult.rows[0]
   if (!payment) {
-    const error = new Error("This collection was not found.");
-    error.status = 404;
-    throw error;
+    const error = new Error("This collection was not found.")
+    error.status = 404
+    throw error
   }
   if (payment.status !== "EXECUTED" || !payment.payment_token) {
-    const error = new Error("Only completed SwiftPay collections can be refunded.");
-    error.status = 409;
-    throw error;
+    const error = new Error(
+      "Only completed SwiftPay collections can be refunded.",
+    )
+    error.status = 409
+    throw error
   }
   if (payment.amount > maxTransferAmount) {
-    const error = new Error("This collection is above the configured transfer limit for an automatic refund.");
-    error.status = 409;
-    throw error;
+    const error = new Error(
+      "This collection is above the configured transfer limit for an automatic refund.",
+    )
+    error.status = 409
+    throw error
   }
   const settlement = await pool.query(
     "SELECT 1 FROM platform_fee_ledger WHERE source_type = 'COLLECTION' AND source_id = $1",
     [paymentId],
-  );
+  )
   if (!settlement.rowCount) {
-    const error = new Error("Collection settlement is still being finalized. Refresh Wallet activity and try again.");
-    error.status = 409;
-    throw error;
+    const error = new Error(
+      "Collection settlement is still being finalized. Refresh Wallet activity and try again.",
+    )
+    error.status = 409
+    throw error
   }
 
   const previousRefund = await pool.query(
     `SELECT status FROM disbursements WHERE refund_payment_id = $1
      ORDER BY created_at DESC LIMIT 1`,
     [paymentId],
-  );
-  const previousStatus = previousRefund.rows[0]?.status;
-  if (previousStatus && !["REJECTED", "ERROR", "FAILED", "CANCELED", "CANCELLED"].includes(previousStatus.toUpperCase())) {
-    const error = new Error("A refund transfer for this collection is already in progress or complete.");
-    error.status = 409;
-    throw error;
-  }
-
-  const { data } = await swiftPayPaymentRequest("/payments", payment.payment_token);
+  )
+  const previousStatus = previousRefund.rows[0]?.status
   if (
-    data?.paymentStatus !== "EXECUTED"
-    || Math.round(Number(data.amount) * 100) !== Math.round(payment.amount * 100)
+    previousStatus &&
+    !["REJECTED", "ERROR", "FAILED", "CANCELED", "CANCELLED"].includes(
+      previousStatus.toUpperCase(),
+    )
   ) {
-    const error = new Error("SwiftPay could not confirm this collection as eligible for a full refund.");
-    error.status = 409;
-    throw error;
-  }
-  const accountNumber = typeof data.bankAccountNo === "string" ? data.bankAccountNo.replace(/\s/g, "") : "";
-  const fullName = typeof data.payerName === "string" ? data.payerName.trim() : "";
-  const institutionCode = typeof data.institutionCode === "string" ? data.institutionCode.trim() : "";
-  if (!/^[0-9]{5,64}$/.test(accountNumber) || !fullName || fullName.length > 128 || !institutionCode || institutionCode.length > 16) {
-    const error = new Error("SwiftPay did not provide valid payer bank details for this refund.");
-    error.status = 409;
-    throw error;
+    const error = new Error(
+      "A refund transfer for this collection is already in progress or complete.",
+    )
+    error.status = 409
+    throw error
   }
 
-  let channel = "";
+  const { data } = await swiftPayPaymentRequest(
+    "/payments",
+    payment.payment_token,
+  )
+  if (
+    data?.paymentStatus !== "EXECUTED" ||
+    Math.round(Number(data.amount) * 100) !== Math.round(payment.amount * 100)
+  ) {
+    const error = new Error(
+      "SwiftPay could not confirm this collection as eligible for a full refund.",
+    )
+    error.status = 409
+    throw error
+  }
+  const accountNumber =
+    typeof data.bankAccountNo === "string"
+      ? data.bankAccountNo.replace(/\s/g, "")
+      : ""
+  const fullName =
+    typeof data.payerName === "string" ? data.payerName.trim() : ""
+  const institutionCode =
+    typeof data.institutionCode === "string" ? data.institutionCode.trim() : ""
+  if (
+    !/^[0-9]{5,64}$/.test(accountNumber) ||
+    !fullName ||
+    fullName.length > 128 ||
+    !institutionCode ||
+    institutionCode.length > 16
+  ) {
+    const error = new Error(
+      "SwiftPay did not provide valid payer bank details for this refund.",
+    )
+    error.status = 409
+    throw error
+  }
+
+  let channel = ""
   for (const candidate of ["INSTAPAY", "PESONET"]) {
-    if (candidate === "INSTAPAY" && payment.amount > maxInstapayAmount) continue;
-    let cached = institutionCache.get(candidate);
+    if (candidate === "INSTAPAY" && payment.amount > maxInstapayAmount) continue
+    let cached = institutionCache.get(candidate)
     if (!cached || cached.expiresAt <= Date.now()) {
-      const result = await swiftPayRequest(`/disbursements/institutions?channel=${candidate}`);
-      if (!Array.isArray(result.data)) throw new Error("SwiftPay returned an invalid transfer-institution list.");
-      cached = { items: result.data, expiresAt: Date.now() + 6 * 60 * 60 * 1000 };
-      institutionCache.set(candidate, cached);
+      const result = await swiftPayRequest(
+        `/disbursements/institutions?channel=${candidate}`,
+      )
+      if (!Array.isArray(result.data))
+        throw new Error(
+          "SwiftPay returned an invalid transfer-institution list.",
+        )
+      cached = {
+        items: result.data,
+        expiresAt: Date.now() + 6 * 60 * 60 * 1000,
+      }
+      institutionCache.set(candidate, cached)
     }
     if (cached.items.some((item) => item.code === institutionCode)) {
-      channel = candidate;
-      break;
+      channel = candidate
+      break
     }
   }
   if (!channel) {
-    const error = new Error("The payer’s institution is not available for an automatic refund transfer.");
-    error.status = 409;
-    throw error;
+    const error = new Error(
+      "The payer’s institution is not available for an automatic refund transfer.",
+    )
+    error.status = 409
+    throw error
   }
 
   return {
@@ -3638,25 +4749,41 @@ async function getRefundTransferDetails(paymentId, merchantEmail) {
     accountNumber,
     fullName,
     remarks: `Refund ${payment.reference_no}`.slice(0, 80),
-  };
+  }
 }
 
 app.get("/v1/payment-links/:id/refund-details", async (req, res) => {
   try {
-    const details = await getRefundTransferDetails(req.params.id, req.merchantEmail);
-    return res.set("Cache-Control", "no-store").json(details);
+    const details = await getRefundTransferDetails(
+      req.params.id,
+      req.merchantEmail,
+    )
+    return res.set("Cache-Control", "no-store").json(details)
   } catch (error) {
-    console.error("Collection refund eligibility lookup failed", error.status || "provider error");
-    return res.status(error.status || 503).json({ error: error.status ? error.message : "Refund details are temporarily unavailable." });
+    console.error(
+      "Collection refund eligibility lookup failed",
+      error.status || "provider error",
+    )
+    return res
+      .status(error.status || 503)
+      .json({
+        error: error.status
+          ? error.message
+          : "Refund details are temporarily unavailable.",
+      })
   }
-});
+})
 
 app.get("/v1/wallet/activity", async (req, res) => {
-  const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 50, 1), 100);
-  const offset = Math.max(Number.parseInt(req.query.offset, 10) || 0, 0);
+  const limit = Math.min(
+    Math.max(Number.parseInt(req.query.limit, 10) || 50, 1),
+    100,
+  )
+  const offset = Math.max(Number.parseInt(req.query.offset, 10) || 0, 0)
   try {
-    await reconcilePending();
-    const { rows } = await pool.query(`
+    await reconcilePending()
+    const { rows } = await pool.query(
+      `
       SELECT p.id::text, p.reference_no AS "referenceNo",
         p.payment_institution_code AS "institutionCode", p.title AS description,
         p.payment_institution_name AS "institutionName", p.payment_institution_logo_url AS "institutionLogoUrl",
@@ -3695,114 +4822,247 @@ app.get("/v1/wallet/activity", async (req, res) => {
       WHERE d.merchant_email = $3
         AND d.created_at >= (SELECT created_at FROM merchant_accounts WHERE email = $3)
       ORDER BY "createdAt" DESC LIMIT $1 OFFSET $2
-    `, [limit, offset, req.merchantEmail, maxTransferAmount]);
-    let institutions = institutionCache.get("all")?.items;
+    `,
+      [limit, offset, req.merchantEmail, maxTransferAmount],
+    )
+    let institutions = institutionCache.get("all")?.items
     if (!institutions || institutionCache.get("all").expiresAt <= Date.now()) {
       try {
-        const { data } = await swiftPayRequest("/disbursements/institutions");
-        if (!Array.isArray(data)) throw new Error("SwiftPay returned an invalid disbursement institution list.");
-        institutions = data;
-        institutionCache.set("all", { items: data, expiresAt: Date.now() + 6 * 60 * 60 * 1000 });
+        const { data } = await swiftPayRequest("/disbursements/institutions")
+        if (!Array.isArray(data))
+          throw new Error(
+            "SwiftPay returned an invalid disbursement institution list.",
+          )
+        institutions = data
+        institutionCache.set("all", {
+          items: data,
+          expiresAt: Date.now() + 6 * 60 * 60 * 1000,
+        })
       } catch (error) {
-        console.error("Wallet activity institution logos unavailable", error.status || "network error");
-        institutions = [];
+        console.error(
+          "Wallet activity institution logos unavailable",
+          error.status || "network error",
+        )
+        institutions = []
       }
     }
-    const institutionsByCode = new Map(institutions.map((item) => [String(item.code || "").trim().toUpperCase(), item]));
+    const institutionsByCode = new Map(
+      institutions.map((item) => [
+        String(item.code || "")
+          .trim()
+          .toUpperCase(),
+        item,
+      ]),
+    )
     const enrichedRows = rows.map((row) => {
-      if (row.transactionType !== "DISBURSEMENT") return row;
-      const institution = institutionsByCode.get(String(row.institutionCode || "").trim().toUpperCase());
-      return institution ? {
-        ...row,
-        institutionName: typeof institution.name === "string" ? institution.name : null,
-        institutionLogoUrl: getInstitutionLogoUrl(institution),
-      } : row;
-    });
-    return res.json(enrichedRows);
+      if (row.transactionType !== "DISBURSEMENT") return row
+      const institution = institutionsByCode.get(
+        String(row.institutionCode || "")
+          .trim()
+          .toUpperCase(),
+      )
+      return institution
+        ? {
+            ...row,
+            institutionName:
+              typeof institution.name === "string" ? institution.name : null,
+            institutionLogoUrl: getInstitutionLogoUrl(institution),
+          }
+        : row
+    })
+    return res.json(enrichedRows)
   } catch (error) {
-    console.error("Wallet activity lookup failed", error.status || "database error");
-    return res.status(503).json({ error: "Wallet activity is temporarily unavailable." });
+    console.error(
+      "Wallet activity lookup failed",
+      error.status || "database error",
+    )
+    return res
+      .status(503)
+      .json({ error: "Wallet activity is temporarily unavailable." })
   }
-});
+})
 
 function validIdempotencyKey(value) {
-  return typeof value === "string" && value.length >= 16 && value.length <= 100 && /^[a-zA-Z0-9._:-]+$/.test(value);
+  return (
+    typeof value === "string" &&
+    value.length >= 16 &&
+    value.length <= 100 &&
+    /^[a-zA-Z0-9._:-]+$/.test(value)
+  )
 }
 
 app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
-  const submittedAmount = Number(req.body?.amount);
-  const amount = Number.isFinite(submittedAmount) ? Math.round(submittedAmount * 100) / 100 : Number.NaN;
-  const submittedKrwAmount = req.body?.collectionAmountKrw;
-  const collectionAmountKrw = submittedKrwAmount === undefined ? null : Number(submittedKrwAmount);
-  const title = typeof req.body?.description === "string" ? req.body.description.trim().slice(0, 100) : "";
-  const customerEmail = typeof req.body?.customerEmail === "string" ? req.body.customerEmail.trim().toLowerCase() : "";
-  const institutionCode = typeof req.body?.institutionCode === "string" ? req.body.institutionCode.trim().toUpperCase() : "";
-  const institutionName = typeof req.body?.institutionName === "string" ? req.body.institutionName.trim() : "";
-  const submittedLogoUrl = req.body?.institutionLogoUrl;
-  const hasInstitution = [req.body?.institutionCode, req.body?.institutionName, submittedLogoUrl]
-    .some((value) => value != null && value !== "");
-  const institutionLogoUrl = submittedLogoUrl == null || submittedLogoUrl === ""
-    ? null
-    : getInstitutionLogoUrl({ logoUrl: submittedLogoUrl });
-  const idempotencyKey = req.get("Idempotency-Key");
-  if (!validIdempotencyKey(idempotencyKey)) return res.status(400).json({ error: "A valid Idempotency-Key header is required." });
-  if (!Number.isFinite(amount) || Math.abs(submittedAmount - amount) > 1e-7 || amount <= 0 || amount > 1_000_000 || !title) return res.status(400).json({ error: "Enter a description and a valid PHP amount with no more than two decimal places." });
-  if (submittedKrwAmount !== undefined && (!Number.isSafeInteger(collectionAmountKrw) || collectionAmountKrw <= 0)) {
-    return res.status(400).json({ error: "Enter a valid whole-number KRW collection amount." });
+  const submittedAmount = Number(req.body?.amount)
+  const amount = Number.isFinite(submittedAmount)
+    ? Math.round(submittedAmount * 100) / 100
+    : Number.NaN
+  const submittedKrwAmount = req.body?.collectionAmountKrw
+  const collectionAmountKrw =
+    submittedKrwAmount === undefined ? null : Number(submittedKrwAmount)
+  const title =
+    typeof req.body?.description === "string"
+      ? req.body.description.trim().slice(0, 100)
+      : ""
+  const customerEmail =
+    typeof req.body?.customerEmail === "string"
+      ? req.body.customerEmail.trim().toLowerCase()
+      : ""
+  const institutionCode =
+    typeof req.body?.institutionCode === "string"
+      ? req.body.institutionCode.trim().toUpperCase()
+      : ""
+  const institutionName =
+    typeof req.body?.institutionName === "string"
+      ? req.body.institutionName.trim()
+      : ""
+  const submittedLogoUrl = req.body?.institutionLogoUrl
+  const hasInstitution = [
+    req.body?.institutionCode,
+    req.body?.institutionName,
+    submittedLogoUrl,
+  ].some((value) => value != null && value !== "")
+  const institutionLogoUrl =
+    submittedLogoUrl == null || submittedLogoUrl === ""
+      ? null
+      : getInstitutionLogoUrl({ logoUrl: submittedLogoUrl })
+  const idempotencyKey = req.get("Idempotency-Key")
+  if (!validIdempotencyKey(idempotencyKey))
+    return res
+      .status(400)
+      .json({ error: "A valid Idempotency-Key header is required." })
+  if (
+    !Number.isFinite(amount) ||
+    Math.abs(submittedAmount - amount) > 1e-7 ||
+    amount <= 0 ||
+    amount > 1_000_000 ||
+    !title
+  )
+    return res
+      .status(400)
+      .json({
+        error:
+          "Enter a description and a valid PHP amount with no more than two decimal places.",
+      })
+  if (
+    submittedKrwAmount !== undefined &&
+    (!Number.isSafeInteger(collectionAmountKrw) || collectionAmountKrw <= 0)
+  ) {
+    return res
+      .status(400)
+      .json({ error: "Enter a valid whole-number KRW collection amount." })
   }
-  if (customerEmail && (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail) || customerEmail.length > 254)) {
-    return res.status(400).json({ error: "Enter a valid customer email address." });
+  if (
+    customerEmail &&
+    (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail) ||
+      customerEmail.length > 254)
+  ) {
+    return res
+      .status(400)
+      .json({ error: "Enter a valid customer email address." })
   }
-  if (hasInstitution && (
-    !/^[A-Z0-9_-]{1,64}$/.test(institutionCode)
-    || !institutionName
-    || institutionName.length > 120
-    || (submittedLogoUrl != null && submittedLogoUrl !== "" && !institutionLogoUrl)
-  )) return res.status(400).json({ error: "The selected payment institution is invalid." });
+  if (
+    hasInstitution &&
+    (!/^[A-Z0-9_-]{1,64}$/.test(institutionCode) ||
+      !institutionName ||
+      institutionName.length > 120 ||
+      (submittedLogoUrl != null &&
+        submittedLogoUrl !== "" &&
+        !institutionLogoUrl))
+  )
+    return res
+      .status(400)
+      .json({ error: "The selected payment institution is invalid." })
 
-  const existing = await pool.query("SELECT * FROM payment_links WHERE idempotency_key = $1 AND merchant_email = $2", [idempotencyKey, req.merchantEmail]);
+  const existing = await pool.query(
+    "SELECT * FROM payment_links WHERE idempotency_key = $1 AND merchant_email = $2",
+    [idempotencyKey, req.merchantEmail],
+  )
   if (existing.rowCount) {
-    const row = existing.rows[0];
-    let qrPayload = row.qr_payload;
+    const row = existing.rows[0]
+    let qrPayload = row.qr_payload
     if (row.payment_token && !qrPayload) {
       try {
-        const { data } = await swiftPayPaymentRequest("/payments/transfers/instruction", row.payment_token);
-        if (typeof data?.qrCode !== "string" || !data.qrCode) throw new Error("SwiftPay returned no QR payload.");
-        qrPayload = data.qrCode;
-        await pool.query("UPDATE payment_links SET qr_payload = $1 WHERE id = $2", [qrPayload, row.id]);
+        const { data } = await swiftPayPaymentRequest(
+          "/payments/transfers/instruction",
+          row.payment_token,
+        )
+        if (typeof data?.qrCode !== "string" || !data.qrCode)
+          throw new Error("SwiftPay returned no QR payload.")
+        qrPayload = data.qrCode
+        await pool.query(
+          "UPDATE payment_links SET qr_payload = $1 WHERE id = $2",
+          [qrPayload, row.id],
+        )
       } catch (error) {
-        console.error("SwiftPay QR payload lookup failed", error.status || "network error");
-        return res.status(503).json({ error: "The payment QR is temporarily unavailable." });
+        console.error(
+          "SwiftPay QR payload lookup failed",
+          error.status || "network error",
+        )
+        return res
+          .status(503)
+          .json({ error: "The payment QR is temporarily unavailable." })
       }
     }
-    if (row.payment_url) return res.json({
-      id: row.id,
-      code: row.code,
-      paymentUrl: row.payment_token
-        ? buildCheckoutUrl(row.code)
-        : row.payment_url,
-      qrCode: qrPayload,
-      qrImageUrl: row.payment_token ? new URL(`/v1/public/checkout/${row.code}/qr.png`, publicApiOrigin).toString() : undefined,
-      status: row.status,
-      amount: Number(row.amount),
-      currency: row.currency,
-    });
-    return res.status(409).json({ error: "The checkout outcome is unknown. Check wallet activity before retrying." });
+    if (row.payment_url)
+      return res.json({
+        id: row.id,
+        code: row.code,
+        paymentUrl: row.payment_token
+          ? buildCheckoutUrl(row.code)
+          : row.payment_url,
+        qrCode: qrPayload,
+        qrImageUrl: row.payment_token
+          ? new URL(
+              `/v1/public/checkout/${row.code}/qr.png`,
+              publicApiOrigin,
+            ).toString()
+          : undefined,
+        status: row.status,
+        amount: Number(row.amount),
+        currency: row.currency,
+      })
+    return res
+      .status(409)
+      .json({
+        error:
+          "The checkout outcome is unknown. Check wallet activity before retrying.",
+      })
   }
 
-  const id = randomUUID();
-  const referenceNo = `DRP-${randomUUID()}`;
-  const code = randomBytes(32).toString("base64url");
+  const id = randomUUID()
+  const referenceNo = `DRP-${randomUUID()}`
+  const code = randomBytes(32).toString("base64url")
   try {
-    await pool.query(`INSERT INTO payment_links (
+    await pool.query(
+      `INSERT INTO payment_links (
       id, idempotency_key, reference_no, code, title, amount, collection_amount_krw,
       payment_institution_code, payment_institution_name, payment_institution_logo_url,
       checkout_type, status, merchant_email, customer_email
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'DIRECT_QRPH', 'CREATING', $11, $12)`,
-    [id, idempotencyKey, referenceNo, code, title, amount, collectionAmountKrw, institutionCode || null, institutionName || null, institutionLogoUrl, req.merchantEmail, customerEmail || null]);
+      [
+        id,
+        idempotencyKey,
+        referenceNo,
+        code,
+        title,
+        amount,
+        collectionAmountKrw,
+        institutionCode || null,
+        institutionName || null,
+        institutionLogoUrl,
+        req.merchantEmail,
+        customerEmail || null,
+      ],
+    )
   } catch (error) {
-    if (error.code === "23505") return res.status(409).json({ error: "The checkout outcome is unknown. Check wallet activity before retrying." });
-    throw error;
+    if (error.code === "23505")
+      return res
+        .status(409)
+        .json({
+          error:
+            "The checkout outcome is unknown. Check wallet activity before retrying.",
+        })
+    throw error
   }
 
   try {
@@ -3812,35 +5072,72 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
       x_currency: "PHP",
       x_reference_no: referenceNo,
       reject_qrph_duplicated_payments: true,
-    });
-    if (typeof data?.paymentId !== "string" || !data.paymentId || typeof data.qrCode !== "string" || !data.qrCode) {
-      throw new Error("SwiftPay returned an incomplete QR payment.");
+    })
+    if (
+      typeof data?.paymentId !== "string" ||
+      !data.paymentId ||
+      typeof data.qrCode !== "string" ||
+      !data.qrCode
+    ) {
+      throw new Error("SwiftPay returned an incomplete QR payment.")
     }
-    const status = data.paymentStatus || "PENDING";
-    if (!validPaymentStatus(status)) throw new Error("SwiftPay returned an invalid initial payment status.");
-    const checkoutUrl = buildCheckoutUrl(code);
-    const actualAmount = Number(data.amount ?? amount);
-    if (!Number.isFinite(actualAmount) || actualAmount <= 0) throw new Error("SwiftPay returned an invalid payment amount.");
+    const status = data.paymentStatus || "PENDING"
+    if (!validPaymentStatus(status))
+      throw new Error("SwiftPay returned an invalid initial payment status.")
+    const checkoutUrl = buildCheckoutUrl(code)
+    const actualAmount = Number(data.amount ?? amount)
+    if (!Number.isFinite(actualAmount) || actualAmount <= 0)
+      throw new Error("SwiftPay returned an invalid payment amount.")
     await pool.query(
       "UPDATE payment_links SET payment_token = $1, qr_payload = $2, payment_url = $3, status = $4, amount = $5, updated_at = NOW() WHERE id = $6",
       [data.paymentId, data.qrCode, checkoutUrl, status, actualAmount, id],
-    );
-    if (status === "EXECUTED") await settleSuccessfulCollection(id);
-    await queueSuccessfulTransaction("PAYMENT", id);
-    await queueTransactionWebhook("PAYMENT", id);
-    const qrImageUrl = new URL(`/v1/public/checkout/${code}/qr.png`, publicApiOrigin).toString();
-    return res.status(201).json({ id, code, paymentUrl: checkoutUrl, qrCode: data.qrCode, qrImageUrl, status, amount: actualAmount, currency: "PHP" });
+    )
+    if (status === "EXECUTED") await settleSuccessfulCollection(id)
+    await queueSuccessfulTransaction("PAYMENT", id)
+    await queueTransactionWebhook("PAYMENT", id)
+    const qrImageUrl = new URL(
+      `/v1/public/checkout/${code}/qr.png`,
+      publicApiOrigin,
+    ).toString()
+    return res
+      .status(201)
+      .json({
+        id,
+        code,
+        paymentUrl: checkoutUrl,
+        qrCode: data.qrCode,
+        qrImageUrl,
+        status,
+        amount: actualAmount,
+        currency: "PHP",
+      })
   } catch (error) {
-    const isAmbiguous = !error.status || error.status >= 500;
-    await updatePaymentLinkStatus(id, isAmbiguous ? "OUTCOME_UNKNOWN" : "FAILED");
-    console.error("SwiftPay QR checkout creation failed", error.status || "network error");
-    return res.status(isAmbiguous ? 503 : 502).json({ error: isAmbiguous ? "The checkout outcome is unknown. Check wallet activity before retrying." : "SwiftPay could not create the QR checkout." });
+    const isAmbiguous = !error.status || error.status >= 500
+    await updatePaymentLinkStatus(
+      id,
+      isAmbiguous ? "OUTCOME_UNKNOWN" : "FAILED",
+    )
+    console.error(
+      "SwiftPay QR checkout creation failed",
+      error.status || "network error",
+    )
+    return res
+      .status(isAmbiguous ? 503 : 502)
+      .json({
+        error: isAmbiguous
+          ? "The checkout outcome is unknown. Check wallet activity before retrying."
+          : "SwiftPay could not create the QR checkout.",
+      })
   }
-});
+})
 
 app.get("/v1/payment-links/:code", async (req, res) => {
-  const record = await pool.query("SELECT * FROM payment_links WHERE code = $1 AND merchant_email = $2", [req.params.code, req.merchantEmail]);
-  if (!record.rowCount) return res.status(404).json({ error: "Payment link not found." });
+  const record = await pool.query(
+    "SELECT * FROM payment_links WHERE code = $1 AND merchant_email = $2",
+    [req.params.code, req.merchantEmail],
+  )
+  if (!record.rowCount)
+    return res.status(404).json({ error: "Payment link not found." })
   if (record.rows[0].status === "MANUALLY_PAID") {
     return res.set("Cache-Control", "no-store").json({
       code: record.rows[0].code,
@@ -3849,13 +5146,16 @@ app.get("/v1/payment-links/:code", async (req, res) => {
       amount: Number(record.rows[0].amount),
       currency: record.rows[0].currency,
       referenceNo: record.rows[0].reference_no,
-    });
+    })
   }
   try {
     if (record.rows[0].payment_token) {
-      const { data } = await swiftPayPaymentRequest("/payments/status", record.rows[0].payment_token);
-      const status = paymentStatusFromResponse(data);
-      await updatePaymentLinkStatus(record.rows[0].id, status);
+      const { data } = await swiftPayPaymentRequest(
+        "/payments/status",
+        record.rows[0].payment_token,
+      )
+      const status = paymentStatusFromResponse(data)
+      await updatePaymentLinkStatus(record.rows[0].id, status)
       return res.json({
         code: record.rows[0].code,
         paymentUrl: buildCheckoutUrl(record.rows[0].code),
@@ -3863,132 +5163,285 @@ app.get("/v1/payment-links/:code", async (req, res) => {
         amount: Number(record.rows[0].amount),
         currency: record.rows[0].currency,
         referenceNo: record.rows[0].reference_no,
-      });
+      })
     }
-    const { data } = await swiftPayRequest(`/payments/links/${encodeURIComponent(req.params.code)}`);
-    const status = data.linkStatus || record.rows[0].status;
-    await updatePaymentLinkStatus(record.rows[0].id, status);
-    return res.json({ code: data.code, paymentUrl: data.paymentUrl, status, amount: Number(data.amount), currency: data.currency, referenceNo: data.referenceNo });
+    const { data } = await swiftPayRequest(
+      `/payments/links/${encodeURIComponent(req.params.code)}`,
+    )
+    const status = data.linkStatus || record.rows[0].status
+    await updatePaymentLinkStatus(record.rows[0].id, status)
+    return res.json({
+      code: data.code,
+      paymentUrl: data.paymentUrl,
+      status,
+      amount: Number(data.amount),
+      currency: data.currency,
+      referenceNo: data.referenceNo,
+    })
   } catch (error) {
-    console.error("Payment-link status lookup failed", error.status || "network error");
-    return res.status(503).json({ error: "Payment status is temporarily unavailable." });
+    console.error(
+      "Payment-link status lookup failed",
+      error.status || "network error",
+    )
+    return res
+      .status(503)
+      .json({ error: "Payment status is temporarily unavailable." })
   }
-});
+})
 
 app.post("/v1/disbursements", transferLimiter, async (req, res) => {
-  const submittedAmount = Number(req.body?.amount);
-  const amount = Number.isFinite(submittedAmount) ? Math.round(submittedAmount * 100) / 100 : Number.NaN;
-  const channel = req.body?.channel;
-  const institutionCode = typeof req.body?.institutionCode === "string" ? req.body.institutionCode.trim() : "";
-  const accountNumber = typeof req.body?.accountNumber === "string" ? req.body.accountNumber.replace(/\s/g, "") : "";
-  const fullName = typeof req.body?.fullName === "string" ? req.body.fullName.trim() : "";
-  const remarks = typeof req.body?.remarks === "string" ? req.body.remarks.trim() : "";
-  const refundPaymentId = typeof req.body?.refundPaymentId === "string" ? req.body.refundPaymentId : "";
-  const idempotencyKey = req.get("Idempotency-Key");
-  if (!validIdempotencyKey(idempotencyKey)) return res.status(400).json({ error: "A valid Idempotency-Key header is required." });
-  if (refundPaymentId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(refundPaymentId)) {
-    return res.status(400).json({ error: "The collection reference for this refund is invalid." });
+  const submittedAmount = Number(req.body?.amount)
+  const amount = Number.isFinite(submittedAmount)
+    ? Math.round(submittedAmount * 100) / 100
+    : Number.NaN
+  const channel = req.body?.channel
+  const institutionCode =
+    typeof req.body?.institutionCode === "string"
+      ? req.body.institutionCode.trim()
+      : ""
+  const accountNumber =
+    typeof req.body?.accountNumber === "string"
+      ? req.body.accountNumber.replace(/\s/g, "")
+      : ""
+  const fullName =
+    typeof req.body?.fullName === "string" ? req.body.fullName.trim() : ""
+  const remarks =
+    typeof req.body?.remarks === "string" ? req.body.remarks.trim() : ""
+  const refundPaymentId =
+    typeof req.body?.refundPaymentId === "string"
+      ? req.body.refundPaymentId
+      : ""
+  const idempotencyKey = req.get("Idempotency-Key")
+  if (!validIdempotencyKey(idempotencyKey))
+    return res
+      .status(400)
+      .json({ error: "A valid Idempotency-Key header is required." })
+  if (
+    refundPaymentId &&
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      refundPaymentId,
+    )
+  ) {
+    return res
+      .status(400)
+      .json({ error: "The collection reference for this refund is invalid." })
   }
-  if (!Number.isFinite(amount) || Math.abs(submittedAmount - amount) > 1e-7 || amount <= 0 || amount > maxTransferAmount) return res.status(400).json({ error: `Transfer amount must be greater than zero, no more than PHP ${maxTransferAmount.toLocaleString("en-PH")}, and have no more than two decimal places.` });
+  if (
+    !Number.isFinite(amount) ||
+    Math.abs(submittedAmount - amount) > 1e-7 ||
+    amount <= 0 ||
+    amount > maxTransferAmount
+  )
+    return res
+      .status(400)
+      .json({
+        error: `Transfer amount must be greater than zero, no more than PHP ${maxTransferAmount.toLocaleString("en-PH")}, and have no more than two decimal places.`,
+      })
   if (channel === "INSTAPAY" && amount > maxInstapayAmount) {
-    return res.status(400).json({ error: "InstaPay transfers are limited to PHP 50,000 per transfer. Choose PESONET for a larger amount." });
+    return res
+      .status(400)
+      .json({
+        error:
+          "InstaPay transfers are limited to PHP 50,000 per transfer. Choose PESONET for a larger amount.",
+      })
   }
-  if (!remarks) return res.status(400).json({ error: "Transfer remarks are required." });
-  if (remarks.length > 80) return res.status(400).json({ error: "Transfer remarks must be 80 characters or fewer." });
-  if (!["INSTAPAY", "PESONET"].includes(channel) || !institutionCode || institutionCode.length > 16) return res.status(400).json({ error: "Choose a valid bank and transfer rail." });
-  if (!/^[0-9]{5,64}$/.test(accountNumber) || !fullName || fullName.length > 128) return res.status(400).json({ error: "Check the recipient name and account number." });
+  if (!remarks)
+    return res.status(400).json({ error: "Transfer remarks are required." })
+  if (remarks.length > 80)
+    return res
+      .status(400)
+      .json({ error: "Transfer remarks must be 80 characters or fewer." })
+  if (
+    !["INSTAPAY", "PESONET"].includes(channel) ||
+    !institutionCode ||
+    institutionCode.length > 16
+  )
+    return res
+      .status(400)
+      .json({ error: "Choose a valid bank and transfer rail." })
+  if (
+    !/^[0-9]{5,64}$/.test(accountNumber) ||
+    !fullName ||
+    fullName.length > 128
+  )
+    return res
+      .status(400)
+      .json({ error: "Check the recipient name and account number." })
 
-  const existing = await pool.query("SELECT * FROM disbursements WHERE idempotency_key = $1 AND merchant_email = $2", [idempotencyKey, req.merchantEmail]);
+  const existing = await pool.query(
+    "SELECT * FROM disbursements WHERE idempotency_key = $1 AND merchant_email = $2",
+    [idempotencyKey, req.merchantEmail],
+  )
   if (existing.rowCount) {
-    const row = existing.rows[0];
+    const row = existing.rows[0]
     if ((row.refund_payment_id || "") !== refundPaymentId) {
-      return res.status(409).json({ error: "This idempotency key was already used for a different transfer." });
+      return res
+        .status(409)
+        .json({
+          error:
+            "This idempotency key was already used for a different transfer.",
+        })
     }
-    const outcomeUnknown = ["REQUESTING", "OUTCOME_UNKNOWN"].includes(row.status);
-    return res.json({ id: row.swiftpay_id, referenceNo: row.merchant_reference_no, status: outcomeUnknown ? "OUTCOME_UNKNOWN" : row.status, outcomeUnknown, message: row.error_message });
+    const outcomeUnknown = ["REQUESTING", "OUTCOME_UNKNOWN"].includes(
+      row.status,
+    )
+    return res.json({
+      id: row.swiftpay_id,
+      referenceNo: row.merchant_reference_no,
+      status: outcomeUnknown ? "OUTCOME_UNKNOWN" : row.status,
+      outcomeUnknown,
+      message: row.error_message,
+    })
   }
 
   const security = await pool.query(
     "SELECT pin_hash FROM merchant_security WHERE email = $1",
     [req.merchantEmail],
-  );
+  )
   if (!security.rows[0]?.pin_hash) {
-    return res.status(403).json({ error: "Set up an MPIN before transferring." });
+    return res
+      .status(403)
+      .json({ error: "Set up an MPIN before transferring." })
   }
-  const stepUpToken = req.get("X-Step-Up-Token") || "";
-  const expectedFingerprint = transferSecurityFingerprint(req.merchantEmail, req.body, idempotencyKey);
-  let stepUpPayload;
+  const stepUpToken = req.get("X-Step-Up-Token") || ""
+  const expectedFingerprint = transferSecurityFingerprint(
+    req.merchantEmail,
+    req.body,
+    idempotencyKey,
+  )
+  let stepUpPayload
   try {
-    ({ payload: stepUpPayload } = await jwtVerify(stepUpToken, jwtSecret, { algorithms: ["HS256"] }));
+    ;({
+      payload: stepUpPayload,
+    } = await jwtVerify(stepUpToken, jwtSecret, { algorithms: ["HS256"] }))
   } catch {
-    return res.status(403).json({ error: "Confirm this transfer with your MPIN." });
+    return res
+      .status(403)
+      .json({ error: "Confirm this transfer with your MPIN." })
   }
   if (
-    stepUpPayload.sub !== req.merchantEmail
-    || stepUpPayload.purpose !== "transfer_step_up"
-    || stepUpPayload.fingerprint !== expectedFingerprint
-    || typeof stepUpPayload.jti !== "string"
+    stepUpPayload.sub !== req.merchantEmail ||
+    stepUpPayload.purpose !== "transfer_step_up" ||
+    stepUpPayload.fingerprint !== expectedFingerprint ||
+    typeof stepUpPayload.jti !== "string"
   ) {
-    return res.status(403).json({ error: "The security confirmation does not match this transfer. Verify again." });
+    return res
+      .status(403)
+      .json({
+        error:
+          "The security confirmation does not match this transfer. Verify again.",
+      })
   }
-  const institutions = institutionCache.get(channel);
-  let selectedInstitution = institutions?.expiresAt > Date.now() ? institutions.items.find((item) => item.code === institutionCode) : null;
+  const institutions = institutionCache.get(channel)
+  let selectedInstitution =
+    institutions?.expiresAt > Date.now()
+      ? institutions.items.find((item) => item.code === institutionCode)
+      : null
   if (!selectedInstitution) {
     try {
-      const { data } = await swiftPayRequest(`/disbursements/institutions?channel=${channel}`);
-      institutionCache.set(channel, { items: data, expiresAt: Date.now() + 6 * 60 * 60 * 1000 });
-      selectedInstitution = data.find((item) => item.code === institutionCode);
+      const { data } = await swiftPayRequest(
+        `/disbursements/institutions?channel=${channel}`,
+      )
+      institutionCache.set(channel, {
+        items: data,
+        expiresAt: Date.now() + 6 * 60 * 60 * 1000,
+      })
+      selectedInstitution = data.find((item) => item.code === institutionCode)
     } catch {
-      return res.status(503).json({ error: "Could not verify the selected institution. Try again later." });
+      return res
+        .status(503)
+        .json({
+          error: "Could not verify the selected institution. Try again later.",
+        })
     }
   }
-  if (!selectedInstitution) return res.status(400).json({ error: "That institution is not enabled for the selected transfer rail." });
+  if (!selectedInstitution)
+    return res
+      .status(400)
+      .json({
+        error:
+          "That institution is not enabled for the selected transfer rail.",
+      })
 
   if (refundPaymentId) {
-    let refundDetails;
+    let refundDetails
     try {
-      refundDetails = await getRefundTransferDetails(refundPaymentId, req.merchantEmail);
+      refundDetails = await getRefundTransferDetails(
+        refundPaymentId,
+        req.merchantEmail,
+      )
     } catch (error) {
-      console.error("Collection refund validation failed", error.status || "provider error");
-      return res.status(error.status || 503).json({ error: error.status ? error.message : "Refund eligibility could not be verified." });
+      console.error(
+        "Collection refund validation failed",
+        error.status || "provider error",
+      )
+      return res
+        .status(error.status || 503)
+        .json({
+          error: error.status
+            ? error.message
+            : "Refund eligibility could not be verified.",
+        })
     }
     if (
-      amount !== refundDetails.amount
-      || channel !== refundDetails.channel
-      || institutionCode !== refundDetails.institutionCode
-      || accountNumber !== refundDetails.accountNumber
-      || fullName.toLowerCase() !== refundDetails.fullName.toLowerCase()
-      || remarks !== refundDetails.remarks
+      amount !== refundDetails.amount ||
+      channel !== refundDetails.channel ||
+      institutionCode !== refundDetails.institutionCode ||
+      accountNumber !== refundDetails.accountNumber ||
+      fullName.toLowerCase() !== refundDetails.fullName.toLowerCase() ||
+      remarks !== refundDetails.remarks
     ) {
-      return res.status(400).json({ error: "The refund details do not match the confirmed collection and payer account." });
+      return res
+        .status(400)
+        .json({
+          error:
+            "The refund details do not match the confirmed collection and payer account.",
+        })
     }
   }
 
-  const requestFingerprintFields = [req.merchantEmail, amount.toFixed(2), channel, institutionCode, accountNumber, fullName.toLowerCase()];
-  if (refundPaymentId) requestFingerprintFields.push(refundPaymentId);
+  const requestFingerprintFields = [
+    req.merchantEmail,
+    amount.toFixed(2),
+    channel,
+    institutionCode,
+    accountNumber,
+    fullName.toLowerCase(),
+  ]
+  if (refundPaymentId) requestFingerprintFields.push(refundPaymentId)
   const requestFingerprint = createHmac("sha256", jwtSecretValue)
     .update(JSON.stringify(requestFingerprintFields))
-    .digest("hex");
-  const activeRequest = await pool.query(`SELECT merchant_reference_no, status FROM disbursements
+    .digest("hex")
+  const activeRequest = await pool.query(
+    `SELECT merchant_reference_no, status FROM disbursements
     WHERE merchant_email = $1 AND request_fingerprint = $2
       AND status NOT IN ('EXECUTED', 'SUCCESS', 'COMPLETED', 'REJECTED', 'ERROR', 'FAILED', 'CANCELED', 'CANCELLED', 'EXPIRED', 'REVERSED')
-    LIMIT 1`, [req.merchantEmail, requestFingerprint]);
-  if (activeRequest.rowCount) return res.status(409).json({ error: `A matching transfer is already ${activeRequest.rows[0].status.toLowerCase()}. Check wallet activity before creating another.` });
+    LIMIT 1`,
+    [req.merchantEmail, requestFingerprint],
+  )
+  if (activeRequest.rowCount)
+    return res
+      .status(409)
+      .json({
+        error: `A matching transfer is already ${activeRequest.rows[0].status.toLowerCase()}. Check wallet activity before creating another.`,
+      })
 
-  await pool.query("DELETE FROM used_step_up_tokens WHERE expires_at <= NOW()");
+  await pool.query("DELETE FROM used_step_up_tokens WHERE expires_at <= NOW()")
 
-  const id = randomUUID();
-  const merchantReferenceNo = `DRP-${randomUUID()}`;
-  const client = await pool.connect();
+  const id = randomUUID()
+  const merchantReferenceNo = `DRP-${randomUUID()}`
+  const client = await pool.connect()
   try {
-    await client.query("BEGIN");
+    await client.query("BEGIN")
     const merchant = await client.query(
       "SELECT email FROM merchant_accounts WHERE email = $1 AND active = TRUE FOR UPDATE",
       [req.merchantEmail],
-    );
+    )
     if (!merchant.rowCount) {
-      await client.query("ROLLBACK");
-      return res.status(401).json({ error: "This merchant account is no longer active." });
+      await client.query("ROLLBACK")
+      return res
+        .status(401)
+        .json({ error: "This merchant account is no longer active." })
     }
     const matchingRequest = await client.query(
       `SELECT status FROM disbursements
@@ -3996,12 +5449,16 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
          AND status NOT IN ('EXECUTED', 'SUCCESS', 'COMPLETED', 'REJECTED', 'ERROR', 'FAILED', 'CANCELED', 'CANCELLED', 'EXPIRED', 'REVERSED')
        LIMIT 1`,
       [req.merchantEmail, requestFingerprint],
-    );
+    )
     if (matchingRequest.rowCount) {
-      await client.query("ROLLBACK");
-      return res.status(409).json({ error: `A matching transfer is already ${matchingRequest.rows[0].status.toLowerCase()}. Check wallet activity before creating another.` });
+      await client.query("ROLLBACK")
+      return res
+        .status(409)
+        .json({
+          error: `A matching transfer is already ${matchingRequest.rows[0].status.toLowerCase()}. Check wallet activity before creating another.`,
+        })
     }
-    let walletDebitAmount = amount;
+    let walletDebitAmount = amount
     if (refundPaymentId) {
       const collection = await client.query(
         `SELECT p.status, GREATEST(p.amount - COALESCE(f.amount, 0), 0)::numeric AS net_amount
@@ -4010,57 +5467,93 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
          WHERE p.id = $1 AND p.merchant_email = $2
          FOR UPDATE OF p`,
         [refundPaymentId, req.merchantEmail],
-      );
+      )
       if (collection.rows[0]?.status !== "EXECUTED") {
-        await client.query("ROLLBACK");
-        return res.status(409).json({ error: "Only completed collections can be refunded." });
+        await client.query("ROLLBACK")
+        return res
+          .status(409)
+          .json({ error: "Only completed collections can be refunded." })
       }
       const previousRefund = await client.query(
         `SELECT status FROM disbursements WHERE refund_payment_id = $1
          ORDER BY created_at DESC LIMIT 1`,
         [refundPaymentId],
-      );
-      const previousStatus = previousRefund.rows[0]?.status;
-      if (previousStatus && !["REJECTED", "ERROR", "FAILED", "CANCELED", "CANCELLED"].includes(previousStatus.toUpperCase())) {
-        await client.query("ROLLBACK");
-        return res.status(409).json({ error: "A refund transfer for this collection is already in progress or complete." });
+      )
+      const previousStatus = previousRefund.rows[0]?.status
+      if (
+        previousStatus &&
+        !["REJECTED", "ERROR", "FAILED", "CANCELED", "CANCELLED"].includes(
+          previousStatus.toUpperCase(),
+        )
+      ) {
+        await client.query("ROLLBACK")
+        return res
+          .status(409)
+          .json({
+            error:
+              "A refund transfer for this collection is already in progress or complete.",
+          })
       }
-      walletDebitAmount = Number(collection.rows[0].net_amount);
+      walletDebitAmount = Number(collection.rows[0].net_amount)
     }
-    const wallet = await getMerchantWalletState(client, req.merchantEmail);
-    const availableBalance = Number(wallet.balance) - Number(wallet.reserved);
+    const wallet = await getMerchantWalletState(client, req.merchantEmail)
+    const availableBalance = Number(wallet.balance) - Number(wallet.reserved)
     if (availableBalance + 0.000001 < walletDebitAmount) {
-      await client.query("ROLLBACK");
+      await client.query("ROLLBACK")
       return res.status(409).json({
         error: `Insufficient merchant wallet balance. PHP ${Math.max(0, availableBalance).toFixed(2)} is available after pending transfers.`,
-      });
+      })
     }
     const consumedStepUp = await client.query(
       `INSERT INTO used_step_up_tokens (jti, merchant_email, expires_at)
        VALUES ($1, $2, to_timestamp($3))
        ON CONFLICT (jti) DO NOTHING RETURNING jti`,
       [stepUpPayload.jti, req.merchantEmail, stepUpPayload.exp],
-    );
+    )
     if (!consumedStepUp.rowCount) {
-      await client.query("ROLLBACK");
-      return res.status(403).json({ error: "This security confirmation has already been used. Verify again." });
+      await client.query("ROLLBACK")
+      return res
+        .status(403)
+        .json({
+          error:
+            "This security confirmation has already been used. Verify again.",
+        })
     }
     await client.query(
       `INSERT INTO disbursements
        (id, idempotency_key, merchant_reference_no, amount, channel, institution_code, recipient_name, recipient_account_number, remarks, request_fingerprint, status, merchant_email, refund_payment_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'REQUESTING', $11, $12)`,
-      [id, idempotencyKey, merchantReferenceNo, amount, channel, institutionCode, fullName, accountNumber, remarks, requestFingerprint, req.merchantEmail, refundPaymentId || null],
-    );
-    await client.query("COMMIT");
+      [
+        id,
+        idempotencyKey,
+        merchantReferenceNo,
+        amount,
+        channel,
+        institutionCode,
+        fullName,
+        accountNumber,
+        remarks,
+        requestFingerprint,
+        req.merchantEmail,
+        refundPaymentId || null,
+      ],
+    )
+    await client.query("COMMIT")
   } catch (error) {
-    await client.query("ROLLBACK");
-    if (error.code === "23505") return res.status(409).json({ error: "A matching transfer is already being processed. Check wallet activity before retrying." });
-    throw error;
+    await client.query("ROLLBACK")
+    if (error.code === "23505")
+      return res
+        .status(409)
+        .json({
+          error:
+            "A matching transfer is already being processed. Check wallet activity before retrying.",
+        })
+    throw error
   } finally {
-    client.release();
+    client.release()
   }
 
-  let data;
+  let data
   try {
     const result = await swiftPayRequest("/disbursements/send", {
       method: "POST",
@@ -4072,61 +5565,96 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
         creditInformation: { amount, remarks },
         recipientInformation: { accountNumber, fullName },
       },
-    });
-    data = result.data;
-    if (!data?.id) throw new Error("SwiftPay returned no disbursement id.");
+    })
+    data = result.data
+    if (!data?.id) throw new Error("SwiftPay returned no disbursement id.")
   } catch (error) {
-    const isAmbiguous = !error.status || error.status >= 500;
-    const status = isAmbiguous ? "OUTCOME_UNKNOWN" : "REJECTED";
+    const isAmbiguous = !error.status || error.status >= 500
+    const status = isAmbiguous ? "OUTCOME_UNKNOWN" : "REJECTED"
     const message = isAmbiguous
       ? "Transfer outcome is unknown. Do not retry until it is reconciled."
-      : error.providerMessage || `SwiftPay rejected the transfer request (${error.status}).`;
-    await updateDisbursementStatus(id, null, status, message);
-    console.error("SwiftPay disbursement request failed", error.status || "network error");
-    const responseStatus = isAmbiguous ? 503 : error.status === 400 ? 400 : 502;
-    return res.status(responseStatus).json({ referenceNo: merchantReferenceNo, status, outcomeUnknown: isAmbiguous, message });
+      : error.providerMessage ||
+        `SwiftPay rejected the transfer request (${error.status}).`
+    await updateDisbursementStatus(id, null, status, message)
+    console.error(
+      "SwiftPay disbursement request failed",
+      error.status || "network error",
+    )
+    const responseStatus = isAmbiguous ? 503 : error.status === 400 ? 400 : 502
+    return res
+      .status(responseStatus)
+      .json({
+        referenceNo: merchantReferenceNo,
+        status,
+        outcomeUnknown: isAmbiguous,
+        message,
+      })
   }
-  const status = typeof data.status === "string" ? data.status.toUpperCase() : "PENDING";
-  const failed = ["REJECTED", "ERROR", "FAILED", "CANCELED", "CANCELLED"].includes(status);
-  const settled = ["EXECUTED", "SUCCESS", "COMPLETED"].includes(status);
+  const status =
+    typeof data.status === "string" ? data.status.toUpperCase() : "PENDING"
+  const failed = [
+    "REJECTED",
+    "ERROR",
+    "FAILED",
+    "CANCELED",
+    "CANCELLED",
+  ].includes(status)
+  const settled = ["EXECUTED", "SUCCESS", "COMPLETED"].includes(status)
   const message = failed
     ? data.errorMessage || "SwiftPay rejected the transfer."
     : settled
       ? "SwiftPay confirmed the transfer as settled."
-      : "Provider accepted the transfer; settlement is not yet confirmed.";
-  await updateDisbursementStatus(id, data.id, status, failed ? message : null);
-  return res.status(202).json({ id: data.id, referenceNo: merchantReferenceNo, status, message });
-});
+      : "Provider accepted the transfer; settlement is not yet confirmed."
+  await updateDisbursementStatus(id, data.id, status, failed ? message : null)
+  return res
+    .status(202)
+    .json({ id: data.id, referenceNo: merchantReferenceNo, status, message })
+})
 
-app.use(express.static(clientBuildDirectory));
+app.use(express.static(clientBuildDirectory))
 app.use((req, res, next) => {
-  if (req.method !== "GET" || req.path === "/v1" || req.path.startsWith("/v1/") || req.path === "/healthz") return next();
+  if (
+    req.method !== "GET" ||
+    req.path === "/v1" ||
+    req.path.startsWith("/v1/") ||
+    req.path === "/healthz"
+  )
+    return next()
   return res.sendFile(join(clientBuildDirectory, "index.html"), (error) => {
-    if (error) next(error);
-  });
-});
+    if (error) next(error)
+  })
+})
 
 app.use((error, _req, res, _next) => {
-  console.error("API request failed", error.status || error.code || "unexpected error");
-  if (res.headersSent) return;
-  return res.status(500).json({ error: "The request could not be completed." });
-});
+  console.error(
+    "API request failed",
+    error.status || error.code || "unexpected error",
+  )
+  if (res.headersSent) return
+  return res.status(500).json({ error: "The request could not be completed." })
+})
 
 async function start() {
-  const missing = requiredEnvironment();
-  if (missing.length) throw new Error(`Missing or invalid server configuration: ${missing.join(", ")}`);
-  await initializeDatabase();
-  const port = Number(process.env.PORT || 10000);
+  const missing = requiredEnvironment()
+  if (missing.length)
+    throw new Error(
+      `Missing or invalid server configuration: ${missing.join(", ")}`,
+    )
+  await initializeDatabase()
+  const port = Number(process.env.PORT || 10000)
   app.listen(port, "0.0.0.0", () => {
-    console.log(`DRPAY API listening on ${port} (${swiftPayEnvironment})`);
-    startNotificationWorker();
+    console.log(`DRPAY API listening on ${port} (${swiftPayEnvironment})`)
+    startNotificationWorker()
     void reconcilePending().catch((error) => {
-      console.error("Initial transaction notification cycle failed", error.status || error.message || "unexpected error");
-    });
-  });
+      console.error(
+        "Initial transaction notification cycle failed",
+        error.status || error.message || "unexpected error",
+      )
+    })
+  })
 }
 
 start().catch((error) => {
-  console.error(error.message);
-  process.exitCode = 1;
-});
+  console.error(error.message)
+  process.exitCode = 1
+})
