@@ -119,20 +119,73 @@ export default function MerchantSignIn({
   }
 
   return (
-    <main className="auth-screen auth-screen-with-footer">
-      <div className="auth-brand">
-        <Brand />
-      </div>
-      <section className="auth-card">
-        <span className="eyebrow">MERCHANT ACCESS</span>
-        <h1>Welcome to DRPAY</h1>
-        <p>
-          {stage === "otp"
-            ? "Enter the six-digit code sent to your merchant email to verify this device."
-            : stage === "pin"
-              ? "Enter your MPIN on this verified device."
-              : "Use your MPIN on a verified device, or verify a new device by email."}
-        </p>
+    <main className="auth-screen auth-screen-with-footer auth-login-screen">
+      <div className="auth-login-layout">
+        <aside className="auth-login-aside">
+          <span className="auth-login-kicker">
+            <ShieldCheck size={15} />
+            SECURE MERCHANT ACCESS
+          </span>
+          <div className="auth-login-aside-copy">
+            <h2>
+              Your payments,
+              <br />
+              <span>in good hands.</span>
+            </h2>
+            <p>
+              A secure workspace to manage your merchant account and stay on
+              top of every transaction.
+            </p>
+          </div>
+          <div className="auth-login-benefits">
+            <div>
+              <span className="auth-login-benefit-icon">
+                <Lock size={16} />
+              </span>
+              <span>
+                <strong>Protected sign-in</strong>
+                <small>MPIN on your verified devices</small>
+              </span>
+            </div>
+            <div>
+              <span className="auth-login-benefit-icon">
+                <ShieldCheck size={16} />
+              </span>
+              <span>
+                <strong>Device verification</strong>
+                <small>Email code for new devices</small>
+              </span>
+            </div>
+          </div>
+          <span className="auth-login-glow" aria-hidden="true" />
+        </aside>
+        <div className="auth-login-panel">
+          <div className="auth-brand">
+            <Brand />
+          </div>
+          <section className="auth-card auth-login-card">
+            <span className="eyebrow">MERCHANT PORTAL</span>
+            <h1>
+              {stage === "otp"
+                ? "Verify your device"
+                : stage === "pin"
+                  ? "Welcome back"
+                  : "Sign in to DRPAY"}
+            </h1>
+            <p>
+              {stage === "otp"
+                ? "Enter the six-digit code sent to your merchant email."
+                : stage === "pin"
+                  ? "Enter your MPIN to continue to your account."
+                  : "Use your verified device or confirm your identity by email."}
+            </p>
+            <div className="auth-login-assurance">
+              <ShieldCheck size={17} />
+              <span>
+                <strong>Your account, protected</strong>
+                <small>New devices are verified using your merchant email.</small>
+              </span>
+            </div>
         {stage === "email" && (
           <form onSubmit={continueWithEmail}>
             <label>
@@ -330,16 +383,17 @@ export default function MerchantSignIn({
             </button>
           </form>
         )}
-        <div className="auth-trust">
-          <ShieldCheck size={16} />
-          <span>
-            New devices require an email code. Previously verified devices use
-            your MPIN or optional biometric sign-in. Sessions expire
-            automatically after eight hours.
-          </span>
+            <div className="auth-trust">
+              <Lock size={15} />
+              <span>
+                Your sign-in is protected with device verification. Sessions
+                expire automatically after eight hours.
+              </span>
+            </div>
+          </section>
+          <PoweredByFooter />
         </div>
-      </section>
-      <PoweredByFooter />
+      </div>
     </main>
   )
 }

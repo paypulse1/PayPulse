@@ -263,6 +263,23 @@ export type MerchantNotificationPreferences = {
   transfersEnabled: boolean;
 };
 
+export type MerchantNotification = {
+  id: string;
+  type: "PAYMENT" | "DISBURSEMENT";
+  title: string;
+  description: string;
+  reference: string;
+  amount: number;
+  createdAt: string;
+  readAt: string | null;
+};
+
+export type MerchantNotificationInboxPage = {
+  notifications: MerchantNotification[];
+  unreadCount: number;
+  hasMore: boolean;
+};
+
 export type WebhookDelivery = {
   id: string;
   eventType: string;
@@ -687,6 +704,33 @@ export async function removePushDevice(token: string) {
     method: "POST",
     body: JSON.stringify({ token }),
   });
+}
+
+export async function getMerchantNotificationInbox(input: {
+  limit?: number;
+  offset?: number;
+} = {}): Promise<MerchantNotificationInboxPage> {
+  const params = new URLSearchParams({
+    limit: String(input.limit ?? 20),
+    offset: String(input.offset ?? 0),
+  });
+  return backendRequest<MerchantNotificationInboxPage>(
+    `/v1/notifications/inbox?${params.toString()}`,
+  );
+}
+
+export async function markMerchantNotificationRead(id: string) {
+  return backendRequest<{ readAt: string }>(
+    `/v1/notifications/inbox/${encodeURIComponent(id)}/read`,
+    { method: "POST" },
+  );
+}
+
+export async function markAllMerchantNotificationsRead() {
+  return backendRequest<{ updated: number; unreadCount: number }>(
+    "/v1/notifications/inbox/read-all",
+    { method: "POST" },
+  );
 }
 
 export async function getMerchantNotificationPreferences(): Promise<MerchantNotificationPreferences> {

@@ -6,6 +6,7 @@ import {
   useState,
   type FormEvent,
   type ReactNode,
+  type TouchEvent,
 } from "react"
 import { Capacitor } from "@capacitor/core"
 import { App as CapacitorApp } from "@capacitor/app"
@@ -15,7 +16,6 @@ import { Share } from "@capacitor/share"
 import {
   AlertCircle,
   ArrowDownLeft,
-  ArrowUpRight,
   Bell,
   ChevronDown,
   ChevronLeft,
@@ -32,6 +32,7 @@ import {
   LoaderCircle,
   Lock,
   LogOut,
+  Mail,
   MoreHorizontal,
   Plus,
   QrCode,
@@ -64,6 +65,7 @@ import {
   createMerchantFloatingTransferRequest,
   getMerchantFloatingTransferRequests,
   getMerchantNotificationPreferences,
+  getMerchantNotificationInbox,
   saveMerchantNotificationPreferences,
   getMerchantPayoutAccount,
   getMerchantUsdtWallet,
@@ -118,13 +120,14 @@ import {
 } from "./lib/biometric"
 import Checkout from "./Checkout"
 import MarketingHome from "./MarketingHome"
-import LegalPage, { getLegalPage } from "./LegalPages"
+import LegalPage, { getLegalPage, supportEmail } from "./LegalPages"
 import QrPaymentDisplay, { InstitutionLogo } from "./QrPaymentDisplay"
 import InstitutionSelectionScreen from "./InstitutionSelectionScreen"
 import { DeveloperSetupPanel, KybSetupPanel } from "./MerchantSetup"
 import { Brand, Button } from "./AppPrimitives"
 import { SuperAdminConsole } from "./SuperAdminConsole"
 import MerchantSignIn from "./MerchantSignIn"
+import MerchantNotificationInbox from "./MerchantNotificationInbox"
 import OperationsSignIn from "./OperationsSignIn"
 import {
   DashboardLoading,
@@ -2602,7 +2605,6 @@ function HomeView({
   onScan,
   onActivity,
   onTransaction,
-  onWithdraw,
 }: {
   data: DashboardData
   onRequestPayment: () => void
@@ -2610,7 +2612,6 @@ function HomeView({
   onScan: () => void
   onActivity: () => void
   onTransaction: (transaction: Transaction) => void
-  onWithdraw: () => void
 }) {
   const { balanceVisible, toggleBalanceVisibility } = useBalanceVisibility()
 
@@ -2619,35 +2620,22 @@ function HomeView({
       <section className="balance-card">
         <div className="balance-top">
           <span>AVAILABLE BALANCE</span>
-          <button
-            onClick={toggleBalanceVisibility}
-            aria-label={balanceVisible ? "Hide balances" : "Show balances"}
-            aria-pressed={!balanceVisible}
-          >
-            <Eye size={15} /> PHP
-          </button>
+          <div className="balance-top-actions">
+            <span className="balance-bank-brand">
+              <img src="/powered-by/netbank.png" alt="Netbank" />
+            </span>
+            <button
+              onClick={toggleBalanceVisibility}
+              aria-label={balanceVisible ? "Hide balances" : "Show balances"}
+              aria-pressed={!balanceVisible}
+            >
+              <Eye size={15} /> PHP
+            </button>
+          </div>
         </div>
         <strong className="balance-value">
           {balanceVisible ? data.availableBalance : "₱ ••••••"}
         </strong>
-        <div className="balance-floating">
-          <div>
-            <span className="balance-floating-label">
-              <img src="/bank-logos/alipay-plus.svg" alt="Alipay+" />
-              Floating balance
-            </span>
-            <strong>
-              {balanceVisible ? data.internalWalletBalance : "₱ ••••••"}
-            </strong>
-          </div>
-          <button
-            type="button"
-            className="balance-withdraw-button"
-            onClick={onWithdraw}
-          >
-            Withdraw
-          </button>
-        </div>
       </section>
 
       <section className="quick-actions" aria-label="Quick actions">
@@ -2936,23 +2924,34 @@ function WalletBalancePanel({
   data,
   balanceVisible,
   onToggleBalanceVisibility,
+  onWithdraw,
 }: {
   data: DashboardData
   balanceVisible: boolean
   onToggleBalanceVisibility: () => void
+  onWithdraw: () => void
 }) {
   return (
     <section className="wallet-balance-panel">
       <div className="wallet-balance-heading">
         <span>Available balance</span>
-        <button
-          type="button"
-          onClick={onToggleBalanceVisibility}
-          aria-label={balanceVisible ? "Hide balances" : "Show balances"}
-          aria-pressed={!balanceVisible}
-        >
-          <Eye size={15} /> {balanceVisible ? "Hide" : "Show"}
-        </button>
+        <div className="wallet-balance-actions">
+          <button
+            type="button"
+            className="wallet-withdraw-button"
+            onClick={onWithdraw}
+          >
+            <Send size={14} /> Withdraw
+          </button>
+          <button
+            type="button"
+            onClick={onToggleBalanceVisibility}
+            aria-label={balanceVisible ? "Hide balances" : "Show balances"}
+            aria-pressed={!balanceVisible}
+          >
+            <Eye size={15} /> {balanceVisible ? "Hide" : "Show"}
+          </button>
+        </div>
       </div>
       <strong className="wallet-balance-value">
         {balanceVisible ? data.availableBalance : "₱ ••••••"}
@@ -3597,6 +3596,7 @@ function MainnetUsdtWallet() {
 
 function WalletView({
   data,
+  onWithdraw,
   onTransaction,
   onExportActivity,
   showUnsettledFunds,
@@ -3604,6 +3604,7 @@ function WalletView({
   onCloseUnsettledFunds,
 }: {
   data: DashboardData
+  onWithdraw: () => void
   onTransaction: (transaction: Transaction) => void
   onExportActivity: (fromDate: string, toDate: string) => void
   showUnsettledFunds: boolean
@@ -3728,6 +3729,7 @@ function WalletView({
         data={data}
         balanceVisible={balanceVisible}
         onToggleBalanceVisibility={toggleBalanceVisibility}
+        onWithdraw={onWithdraw}
       />
       <MainnetUsdtWallet />
       <button
@@ -4118,6 +4120,11 @@ function ProfileInfoPage({
   const failedTransactions = data.transactions.filter(
     (transaction) => transaction.status === "Failed",
   )
+  const supportSubject = encodeURIComponent("DRPAY merchant support request")
+  const supportBody = encodeURIComponent(
+    `Merchant account: ${session.email}\nIssue:\nTransaction reference (if applicable):\nCurrent status (if applicable):\n\nNever include your MPIN, one-time code, or full bank account details.`,
+  )
+  const supportHref = `mailto:${supportEmail}?subject=${supportSubject}&body=${supportBody}`
 
   return (
     <section className="profile-info-page" aria-label={title}>
@@ -4867,45 +4874,62 @@ export async function createInvoiceCheckout({ amount, invoiceId, customerEmail }
       {title === "Help center" && (
         <>
           <div className="profile-info-intro">
-            <strong>How can we help?</strong>
+            <strong>Guides and common questions</strong>
             <p>
-              Use these steps to resolve common account and payment questions.
+              Quick checks for payments, transfers, balances, and account access.
             </p>
           </div>
-          <div className="profile-guide-list">
-            <div>
-              <span>
-                <CircleHelp size={16} />
-              </span>
+          <div className="profile-help-faq-list">
+            <details>
+              <summary>Payment is pending or not showing</summary>
               <p>
-                <strong>Payment or transfer issue</strong>Keep the transaction
-                reference and current status available when requesting help.
+                Refresh Wallet activity and check the latest provider status.
+                A payer screenshot or return to checkout is not confirmation.
+                Wait for the status to resolve before creating another payment
+                request to avoid duplicates.
               </p>
-            </div>
-            <div>
-              <span>
-                <WalletCards size={16} />
-              </span>
+            </details>
+            <details>
+              <summary>Transfer is pending or the recipient has not received it</summary>
               <p>
-                <strong>Balance question</strong>Refresh the dashboard and
-                compare the wallet activity with your statement.
+                Pending means the provider has not confirmed settlement yet.
+                Don’t submit the transfer again while it is pending. Check the
+                final status in Wallet activity; if it is completed but the
+                recipient is not credited, contact the recipient’s bank and
+                DRPAY with the transfer reference.
               </p>
-            </div>
-            <div>
-              <span>
-                <ShieldCheck size={16} />
-              </span>
+            </details>
+            <details>
+              <summary>Available balance looks different</summary>
               <p>
-                <strong>Sign-in or security</strong>Verify your device using the
-                email code. Never share your MPIN or one-time code.
+                Pending or outcome-unknown transfers can reserve funds.
+                Floating balance is separate from the merchant operational
+                ledger. Compare Wallet activity with your statement for the
+                transaction-level amounts.
               </p>
-            </div>
+            </details>
+            <details>
+              <summary>I can’t sign in or forgot my MPIN</summary>
+              <p>
+                Verify a new device with the code sent to your merchant email.
+                On a trusted device, use your MPIN; choose the email-code
+                verification option if you need to recover access. If you can
+                no longer access that email, contact DRPAY support.
+              </p>
+            </details>
           </div>
+          <a className="profile-support-link" href={supportHref}>
+            <Mail size={17} />
+            <span>
+              <strong>Email DRPAY support</strong>
+              <small>{supportEmail}</small>
+            </span>
+            <ChevronRight size={17} />
+          </a>
           <p className="profile-info-note">
-            Contact DRPAY support at{" "}
-            <a href="mailto:support@denpay.cc">support@denpay.cc</a>. Include
-            the transaction reference and status, but never send your MPIN or
-            one-time verification code.
+            The email draft includes your merchant email and prompts for the
+            issue, transaction reference, and status. Never send your MPIN,
+            one-time verification code, or full bank account details.
           </p>
         </>
       )}
@@ -4976,6 +5000,7 @@ export default function App() {
     useState<TransferQrDetails | undefined>()
   const [showPaymentLink, setShowPaymentLink] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0)
   const [selectedTransaction, setSelectedTransaction] =
     useState<Transaction | null>(null)
   const [updateAvailable, setUpdateAvailable] = useState<{
@@ -4983,6 +5008,10 @@ export default function App() {
     downloadUrl: string
   } | null>(null)
   const [loading, setLoading] = useState(false)
+  const [pullDistance, setPullDistance] = useState(0)
+  const [pullRefreshing, setPullRefreshing] = useState(false)
+  const touchStartYRef = useRef<number | null>(null)
+  const pullDistanceRef = useRef(0)
   const [error, setError] = useState("")
   const dismissedUpdateVersionRef = useRef("")
 
@@ -5318,11 +5347,86 @@ export default function App() {
     setLoading(false)
   }
 
+  function handleDashboardTouchStart(event: TouchEvent<HTMLDivElement>) {
+    if (
+      activeTab !== "Home" ||
+      loading ||
+      event.touches.length !== 1 ||
+      event.currentTarget.scrollTop > 0
+    ) {
+      touchStartYRef.current = null
+      return
+    }
+    touchStartYRef.current = event.touches[0].clientY
+  }
+
+  function handleDashboardTouchMove(event: TouchEvent<HTMLDivElement>) {
+    const startY = touchStartYRef.current
+    if (startY === null || event.touches.length !== 1) return
+    const distance = event.touches[0].clientY - startY
+    if (distance <= 0) {
+      pullDistanceRef.current = 0
+      setPullDistance(0)
+      return
+    }
+    const nextDistance = Math.min(84, distance * 0.55)
+    pullDistanceRef.current = nextDistance
+    setPullDistance(nextDistance)
+  }
+
+  async function handleDashboardTouchEnd() {
+    const shouldRefresh =
+      activeTab === "Home" && !loading && pullDistanceRef.current >= 58
+    touchStartYRef.current = null
+    pullDistanceRef.current = 0
+    setPullDistance(0)
+    if (!shouldRefresh) return
+    setPullRefreshing(true)
+    try {
+      await loadDashboard()
+    } finally {
+      setPullRefreshing(false)
+    }
+  }
+
   useEffect(() => {
     if (!isDashboard || isAdminConsole) return
     void loadDashboard()
     // Session changes are the intended refresh boundary.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, isDashboard])
+
+  useEffect(() => {
+    if (!session || session.role !== "merchant" || !isDashboard) {
+      setUnreadNotificationCount(0)
+      return
+    }
+    let active = true
+    let requestPending = false
+    async function refreshUnreadCount() {
+      if (!active || requestPending || document.visibilityState === "hidden")
+        return
+      requestPending = true
+      try {
+        const page = await getMerchantNotificationInbox({ limit: 1 })
+        if (active) setUnreadNotificationCount(page.unreadCount)
+      } catch (requestError) {
+        console.warn("Could not load merchant notification count", requestError)
+      } finally {
+        requestPending = false
+      }
+    }
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") void refreshUnreadCount()
+    }
+    void refreshUnreadCount()
+    const pollId = window.setInterval(() => void refreshUnreadCount(), 30_000)
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    return () => {
+      active = false
+      window.clearInterval(pollId)
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
   }, [session, isDashboard])
 
   useEffect(() => {
@@ -5674,25 +5778,56 @@ export default function App() {
                     : activeTab}
           </h1>
           <div className="header-actions">
-            <span
-              className={`live-pill environment-${data.paymentEnvironment}`}
-            >
-              <i />
-              {data.paymentEnvironment === "production" ? "Live" : "Sandbox"}
-            </span>
-            <IconButton label="Refresh wallet" onClick={loadDashboard}>
-              <RefreshCw className={loading ? "spin" : ""} size={18} />
-            </IconButton>
             <IconButton
-              label="Notifications"
+              label={`Notifications${unreadNotificationCount ? `, ${unreadNotificationCount} unread` : ""}`}
               onClick={() => setShowNotifications(true)}
             >
               <Bell size={19} />
+              {unreadNotificationCount > 0 && (
+                <span className="notification-dot notification-count">
+                  {unreadNotificationCount > 99
+                    ? "99+"
+                    : unreadNotificationCount}
+                </span>
+              )}
             </IconButton>
           </div>
         </header>
 
-        <div className="app-scroll">
+        <div
+          className="app-scroll"
+          onTouchStart={handleDashboardTouchStart}
+          onTouchMove={handleDashboardTouchMove}
+          onTouchEnd={() => void handleDashboardTouchEnd()}
+          onTouchCancel={() => {
+            touchStartYRef.current = null
+            pullDistanceRef.current = 0
+            setPullDistance(0)
+          }}
+        >
+          {(pullDistance > 0 || pullRefreshing) && (
+            <div
+              className="pull-refresh-indicator"
+              role="status"
+              aria-live="polite"
+            >
+              <span
+                className={pullRefreshing ? "is-refreshing" : ""}
+                style={{
+                  transform: `translateY(${pullRefreshing ? 0 : pullDistance - 38}px)`,
+                }}
+              >
+                <RefreshCw size={15} />
+              </span>
+              <small>
+                {pullRefreshing
+                  ? "Refreshing wallet…"
+                  : pullDistance >= 58
+                    ? "Release to refresh"
+                    : "Pull to refresh"}
+              </small>
+            </div>
+          )}
           {error && (
             <div className="data-warning">
               <AlertCircle size={15} />
@@ -5714,15 +5849,12 @@ export default function App() {
                 onScan={() => setShowScanner(true)}
                 onActivity={() => setActiveTab("Wallet")}
                 onTransaction={setSelectedTransaction}
-                onWithdraw={() => {
-                  setWalletSubscreen("unsettled-funds")
-                  setActiveTab("Wallet")
-                }}
               />
             )}
             {activeTab === "Wallet" && (
               <WalletView
                 data={data}
+                onWithdraw={() => setShowTransfer(true)}
                 onTransaction={setSelectedTransaction}
                 onExportActivity={(fromDate, toDate) =>
                   void exportActivity(fromDate, toDate)
@@ -5874,13 +6006,14 @@ export default function App() {
             className="payment-sheet"
             role="dialog"
             aria-modal="true"
+            aria-labelledby="notification-inbox-title"
             onMouseDown={(event) => event.stopPropagation()}
           >
             <span className="sheet-handle" />
             <header className="sheet-header">
               <div>
-                <span className="eyebrow">ACCOUNT ACTIVITY</span>
-                <h2>Notifications</h2>
+                <span className="eyebrow">MERCHANT UPDATES</span>
+                <h2 id="notification-inbox-title">Notifications</h2>
               </div>
               <IconButton
                 label="Close"
@@ -5889,33 +6022,9 @@ export default function App() {
                 <X size={19} />
               </IconButton>
             </header>
-            <div className="notification-list">
-              {data.transactions.slice(0, 5).map((transaction) => (
-                <div key={transaction.id}>
-                  <span className="notification-icon">
-                    {transaction.numericAmount >= 0 ? (
-                      <ArrowDownLeft size={18} />
-                    ) : (
-                      <ArrowUpRight size={18} />
-                    )}
-                  </span>
-                  <div>
-                    <strong>
-                      {transaction.status === "Completed"
-                        ? "Transaction completed"
-                        : `Transaction ${transaction.status.toLowerCase()}`}
-                    </strong>
-                    <p>
-                      {transaction.customer} · {transaction.amount}
-                    </p>
-                    <small>
-                      {transaction.date} · {transaction.reference}
-                    </small>
-                  </div>
-                </div>
-              ))}
-              {data.transactions.length === 0 && <p>No wallet activity yet.</p>}
-            </div>
+            <MerchantNotificationInbox
+              onUnreadCountChange={setUnreadNotificationCount}
+            />
             <Button
               variant="secondary"
               onClick={() => setShowNotifications(false)}

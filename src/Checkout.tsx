@@ -141,6 +141,27 @@ export default function Checkout({ code }: { code: string }) {
         )}
       </section>
       <footer className="checkout-footer">
+        <div
+          className="checkout-badges"
+          role="group"
+          aria-label="Security and regulatory badges"
+        >
+          <img
+            src="/checkout-badges/pci-dss.webp"
+            alt="PCI DSS"
+            loading="lazy"
+          />
+          <img
+            src="/checkout-badges/iso-iec-27001.webp"
+            alt="ISO/IEC 27001"
+            loading="lazy"
+          />
+          <img
+            src="/checkout-badges/bangko-sentral-ng-pilipinas.webp"
+            alt="Bangko Sentral ng Pilipinas"
+            loading="lazy"
+          />
+        </div>
         <span>Payments are processed through SwiftPay QR Ph.</span>
         <nav aria-label="Legal and support">
           <a href="/privacy">Privacy</a>

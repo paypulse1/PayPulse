@@ -840,7 +840,7 @@ export function SuperAdminConsole({
       <header className="admin-header">
         <Brand />
         <div>
-          <span>DRPAY OPERATIONS</span>
+          <span>DRPAY TEAM</span>
           <strong>{session.email}</strong>
         </div>
         <Button
@@ -853,12 +853,12 @@ export function SuperAdminConsole({
       </header>
       <div className="admin-content">
         <div className="page-title">
-          <span className="eyebrow">CONTROL PLANE</span>
+          <span className="eyebrow">TEAM WORKSPACE</span>
           <div className="admin-page-heading">
             <div>
               <h1>
                 {activePage === "overview"
-                  ? "Backoffice overview"
+                  ? "Operations overview"
                   : activePage === "payments"
                     ? "QR Ph payments"
                     : activePage === "merchants"
@@ -911,7 +911,7 @@ export function SuperAdminConsole({
             </div>
           </div>
         </div>
-        <nav className="admin-nav" aria-label="Console pages">
+        <nav className="admin-nav" aria-label="Team workspace pages">
           {([
             ["overview", "Overview", Home],
             [
@@ -984,7 +984,7 @@ export function SuperAdminConsole({
         {loading ? (
           <div className="admin-loading" role="status">
             <LoaderCircle className="spin" size={20} />
-            Loading console…
+            Loading workspace…
           </div>
         ) : (
           <>
@@ -992,7 +992,7 @@ export function SuperAdminConsole({
               <>
                 <section
                   className="admin-stat-grid"
-                  aria-label="Backoffice summary"
+                  aria-label="Operations summary"
                 >
                   <article>
                     <span>Merchant accounts</span>

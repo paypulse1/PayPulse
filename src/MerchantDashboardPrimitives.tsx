@@ -26,6 +26,8 @@ export function DashboardLoading() {
       aria-busy="true"
     >
       <div className="dashboard-loading-ambient" aria-hidden="true">
+        <span className="loading-grid" />
+        <span className="loading-beam" />
         <span className="loading-orb loading-orb-one" />
         <span className="loading-orb loading-orb-two" />
         <span className="loading-grain" />
@@ -42,6 +44,7 @@ export function DashboardLoading() {
         <div className="loading-emblem" aria-hidden="true">
           <span className="loading-emblem-orbit loading-emblem-orbit-outer" />
           <span className="loading-emblem-orbit loading-emblem-orbit-inner" />
+          <span className="loading-emblem-orbit loading-emblem-orbit-tilted" />
           <span className="loading-emblem-core">
             <img src="/drpay-mark.png" alt="" />
           </span>

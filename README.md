@@ -68,9 +68,13 @@ The merchant dashboard displays a seven-day chart of this merchant's posted coll
 
 Merchants can hide or show balances using the dashboard or wallet visibility control. The preference is saved locally for that merchant account and remains in effect across app restarts and sign-outs on the same device.
 
+Profile → Help center provides guided checks for payment status, pending transfers, ledger balances, and device sign-in. Its support email draft includes the merchant email and prompts for a transaction reference and status; it warns users not to send their MPIN, one-time code, or full bank account details.
+
 ## Transaction notifications
 
 Confirmed successful incoming QR payments and outgoing transfers can be emailed to the merchant account that created the transaction, using the existing Resend sender configuration. Merchants can toggle email/push channels and successful payment/transfer event types in Profile → Notifications. Disabled events are not delivered. The API reconciles pending transactions and retries queued email delivery.
+
+The merchant app also keeps successful payment and transfer alerts in a server-backed inbox, regardless of email or push preferences. Unread state is synchronized across signed-in devices, and merchants can mark individual alerts or the entire inbox as read. Inbox endpoints require a merchant session and are not available to API keys.
 
 If a checkout includes a customer email, DRPAY sends the checkout request and a separate success notice. SwiftPay-confirmed payments use `EXECUTED`; when a DRPAY team member has independently verified a payment, the Payments page can record it as `MANUALLY_PAID` and send the customer a confirmation that clearly identifies it as independently verified. The team member must provide a 10–500 character verification note, retained with their identity and the confirmation timestamp. A manual confirmation does not cancel the underlying SwiftPay QR or increase the SwiftPay account balance, so verify the incoming funds and avoid duplicate payment before confirming. If manually confirmed before the request email is sent, DRPAY skips the now-obsolete checkout request and sends only the success notice.
 

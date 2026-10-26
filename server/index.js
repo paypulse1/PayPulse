@@ -1233,6 +1233,7 @@ async function initializeDatabase() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE (transaction_type, transaction_id)
     );
+    ALTER TABLE transaction_notifications ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;
     CREATE TABLE IF NOT EXISTS transaction_push_deliveries (
       notification_id UUID NOT NULL REFERENCES transaction_notifications(id) ON DELETE CASCADE,
       token TEXT NOT NULL,
@@ -4358,6 +4359,93 @@ app.post("/v1/notifications/push-token/remove", async (req, res) => {
     [token, req.merchantEmail],
   )
   return res.json({ removed: true })
+})
+
+app.get("/v1/notifications/inbox", async (req, res) => {
+  if (req.apiKey)
+    return res.status(403).json({
+      error: "Sign in to your merchant account to view notifications.",
+    })
+  const limit = Math.min(
+    Math.max(Number.parseInt(req.query.limit, 10) || 20, 1),
+    50,
+  )
+  const offset = Math.max(Number.parseInt(req.query.offset, 10) || 0, 0)
+  const [notifications, unreadResult] = await Promise.all([
+    pool.query(
+      `SELECT n.id, n.transaction_type AS type, n.reference_no AS reference,
+         n.amount::float8 AS amount, n.created_at AS "createdAt",
+         n.read_at AS "readAt",
+         CASE WHEN n.transaction_type = 'PAYMENT' THEN 'Payment received'
+           ELSE 'Transfer completed' END AS title,
+         COALESCE(NULLIF(p.title, ''), NULLIF(d.remarks, ''),
+           CASE WHEN n.transaction_type = 'PAYMENT' THEN 'Merchant payment'
+             ELSE 'Bank transfer' END) AS description
+       FROM transaction_notifications n
+       LEFT JOIN payment_links p
+         ON n.transaction_type = 'PAYMENT' AND p.id = n.transaction_id
+       LEFT JOIN disbursements d
+         ON n.transaction_type = 'DISBURSEMENT' AND d.id = n.transaction_id
+       WHERE n.merchant_email = $1
+       ORDER BY n.created_at DESC, n.id DESC
+       LIMIT $2 OFFSET $3`,
+      [req.merchantEmail, limit + 1, offset],
+    ),
+    pool.query(
+      `SELECT COUNT(*)::int AS count FROM transaction_notifications
+       WHERE merchant_email = $1 AND read_at IS NULL`,
+      [req.merchantEmail],
+    ),
+  ])
+  const hasMore = notifications.rows.length > limit
+  return res.set("Cache-Control", "no-store").json({
+    notifications: notifications.rows.slice(0, limit),
+    unreadCount: unreadResult.rows[0].count,
+    hasMore,
+  })
+})
+
+app.post("/v1/notifications/inbox/read-all", async (req, res) => {
+  if (req.apiKey)
+    return res.status(403).json({
+      error: "Sign in to your merchant account to update notifications.",
+    })
+  const result = await pool.query(
+    `UPDATE transaction_notifications SET read_at = NOW()
+     WHERE merchant_email = $1 AND read_at IS NULL`,
+    [req.merchantEmail],
+  )
+  const unread = await pool.query(
+    `SELECT COUNT(*)::int AS count FROM transaction_notifications
+     WHERE merchant_email = $1 AND read_at IS NULL`,
+    [req.merchantEmail],
+  )
+  return res.set("Cache-Control", "no-store").json({
+    updated: result.rowCount,
+    unreadCount: unread.rows[0].count,
+  })
+})
+
+app.post("/v1/notifications/inbox/:id/read", async (req, res) => {
+  if (req.apiKey)
+    return res.status(403).json({
+      error: "Sign in to your merchant account to update notifications.",
+    })
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      req.params.id,
+    )
+  )
+    return res.status(400).json({ error: "Choose a valid notification." })
+  const result = await pool.query(
+    `UPDATE transaction_notifications SET read_at = COALESCE(read_at, NOW())
+     WHERE id = $1 AND merchant_email = $2
+     RETURNING read_at AS "readAt"`,
+    [req.params.id, req.merchantEmail],
+  )
+  if (!result.rows[0])
+    return res.status(404).json({ error: "Notification not found." })
+  return res.set("Cache-Control", "no-store").json(result.rows[0])
 })
 
 app.get("/v1/notifications/preferences", async (req, res) => {

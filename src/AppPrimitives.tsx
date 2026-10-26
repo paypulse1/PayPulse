@@ -52,6 +52,11 @@ export function PoweredByFooter() {
         role="img"
         aria-label="DRPAY signature"
       />
+      <div className="auth-powered-by-partners" aria-label="Partners">
+        <img src="/powered-by/black-sheep.png" alt="Black Sheep" />
+        <img src="/powered-by/drl-technology.png" alt="DRL Technology" />
+        <img src="/powered-by/netbank.png" alt="Netbank" />
+      </div>
     </footer>
   )
 }

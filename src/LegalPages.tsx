@@ -3,7 +3,7 @@ import "./marketing-home.css";
 
 type LegalPageKind = "privacy" | "terms" | "contact";
 
-const supportEmail = "support@denpay.cc";
+export const supportEmail = "support@denpay.cc";
 const lastUpdated = "October 23, 2026";
 
 function LegalBrand() {
