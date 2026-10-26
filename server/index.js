@@ -74,7 +74,7 @@ app.use(
       error.status = 403
       return callback(error)
     },
-    methods: ["GET", "POST", "PUT", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "OPTIONS"],
     allowedHeaders: [
       "Content-Type",
       "Authorization",

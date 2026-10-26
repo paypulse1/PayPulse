@@ -434,6 +434,7 @@ export function getApiBaseUrl() {
   return getConfiguredApiBaseUrl().replace(/\/$/, "") || window.location.origin;
 }
 const SESSION_KEY = "drpay_session";
+export const SESSION_EXPIRED_EVENT = "drpay:session-expired";
 const PAYMENT_LINK_KEY = "drpay_pending_payment_link_key";
 const COLLECTION_INSTITUTION_CACHE_KEY = "drpay_collection_institutions";
 const DEVICE_TOKEN_PREFIX = "drpay_device_";
@@ -519,11 +520,21 @@ export function clearPaymentLinkIdempotencyKey() {
   sessionStorage.removeItem(PAYMENT_LINK_KEY);
 }
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message)
+    this.name = "ApiError"
+  }
+}
+
 async function parseResponse<T>(response: Response): Promise<T> {
   if (response.ok) return response.json() as Promise<T>;
   const body = await response.json().catch(() => ({})) as { error?: string };
   if (response.status === 401) clearSession();
-  throw new Error(body.error || (response.status === 401 ? "Your session has expired. Sign in again." : `Request failed (${response.status})`));
+  throw new ApiError(body.error || (response.status === 401 ? "Your session has expired. Sign in again." : `Request failed (${response.status})`), response.status);
 }
 
 async function publicRequest<T>(path: string, options?: RequestInit): Promise<T> {
@@ -540,7 +551,7 @@ async function backendRequest<T>(path: string, options?: RequestInit): Promise<T
   const apiBaseUrl = getConfiguredApiBaseUrl();
   if (!apiBaseUrl) throw new Error("Live transactions are disabled because the DRPAY backend is not configured.");
   const session = getSession();
-  if (!session) throw new Error("A verified DRPAY session is required");
+  if (!session) throw new ApiError("A verified DRPAY session is required", 401);
   const response = await fetch(`${apiBaseUrl.replace(/\/$/, "")}${path}`, {
     ...options,
     headers: {
@@ -549,6 +560,9 @@ async function backendRequest<T>(path: string, options?: RequestInit): Promise<T
       ...options?.headers,
     },
   });
+  if (response.status === 401 && typeof window !== "undefined") {
+    window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+  }
   return parseResponse<T>(response);
 }
 
