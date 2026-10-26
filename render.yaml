@@ -40,6 +40,12 @@ services:
         sync: false
       - key: RESEND_FROM_EMAIL
         sync: false
+      - key: FCM_PROJECT_ID
+        sync: false
+      - key: FCM_SERVICE_ACCOUNT_EMAIL
+        sync: false
+      - key: FCM_SERVICE_ACCOUNT_PRIVATE_KEY
+        sync: false
       - key: DRPAY_MAX_TRANSFER_PHP
         value: "100000"
       - key: SWIFTPAY_ENV
@@ -98,6 +104,12 @@ services:
       - key: RESEND_API_KEY
         sync: false
       - key: RESEND_FROM_EMAIL
+        sync: false
+      - key: FCM_PROJECT_ID
+        sync: false
+      - key: FCM_SERVICE_ACCOUNT_EMAIL
+        sync: false
+      - key: FCM_SERVICE_ACCOUNT_PRIVATE_KEY
         sync: false
       - key: DRPAY_MAX_TRANSFER_PHP
         value: "100000"
