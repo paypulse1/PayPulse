@@ -1,4 +1,4 @@
-import { ChevronRight, QrCode, ShieldCheck } from "lucide-react"
+import { ChevronRight, LoaderCircle, QrCode, ShieldCheck } from "lucide-react"
 import { InstitutionLogo } from "./QrPaymentDisplay"
 import { Brand } from "./AppPrimitives"
 import type { Transaction } from "./lib/swiftpay"
@@ -26,11 +26,8 @@ export function DashboardLoading() {
       aria-busy="true"
     >
       <div className="dashboard-loading-ambient" aria-hidden="true">
-        <span className="loading-grid" />
-        <span className="loading-beam" />
         <span className="loading-orb loading-orb-one" />
         <span className="loading-orb loading-orb-two" />
-        <span className="loading-grain" />
       </div>
       <section className="dashboard-loading-shell">
         <header className="dashboard-loading-brand">
@@ -41,21 +38,16 @@ export function DashboardLoading() {
           </span>
         </header>
 
-        <div className="loading-emblem" aria-hidden="true">
-          <span className="loading-emblem-orbit loading-emblem-orbit-outer" />
-          <span className="loading-emblem-orbit loading-emblem-orbit-inner" />
-          <span className="loading-emblem-orbit loading-emblem-orbit-tilted" />
-          <span className="loading-emblem-core">
+        <div className="dashboard-loading-intro">
+          <div className="loading-emblem" aria-hidden="true">
+            <LoaderCircle className="loading-emblem-spinner" size={66} />
             <img src="/drpay-mark.png" alt="" />
-          </span>
-          <span className="loading-emblem-spark loading-emblem-spark-one" />
-          <span className="loading-emblem-spark loading-emblem-spark-two" />
-        </div>
-
-        <div className="dashboard-loading-copy">
-          <span className="eyebrow">YOUR BUSINESS, IN MOTION</span>
-          <h1>Preparing your workspace</h1>
-          <p>Securely gathering your latest wallet and activity.</p>
+          </div>
+          <div className="dashboard-loading-copy">
+            <span className="eyebrow">MERCHANT WORKSPACE</span>
+            <h1>Preparing your dashboard</h1>
+            <p>Securely loading your wallet and recent activity.</p>
+          </div>
         </div>
 
         <div className="loading-progress" aria-hidden="true">
@@ -83,8 +75,7 @@ export function DashboardLoading() {
 
         <footer className="dashboard-loading-footer">
           <span className="loading-indicator" />
-          <span>Loading your merchant workspace</span>
-          <span className="loading-footer-status">PLEASE WAIT</span>
+          <span>Connecting to your secure workspace</span>
         </footer>
       </section>
     </main>

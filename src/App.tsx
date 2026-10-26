@@ -3379,6 +3379,13 @@ function WalletActivitySection({
   )
 }
 
+function getUsdtServiceErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiError && error.status === 404) {
+    return "The USDT service is unavailable on this API. Deploy the latest DRPAY API backend and verify its configured URL."
+  }
+  return error instanceof Error ? error.message : fallback
+}
+
 function MainnetUsdtWallet() {
   const [wallet, setWallet] = useState<MerchantUsdtWallet | null>(null)
   const [deposits, setDeposits] = useState<MerchantUsdtDeposit[]>([])
@@ -3400,9 +3407,10 @@ function MainnetUsdtWallet() {
     } catch (loadError) {
       setWallet(null)
       setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Could not load the USDT mainnet wallet.",
+        getUsdtServiceErrorMessage(
+          loadError,
+          "Could not load the USDT mainnet wallet.",
+        ),
       )
     } finally {
       setLoading(false)
@@ -3421,9 +3429,10 @@ function MainnetUsdtWallet() {
     } catch (loadError) {
       setDeposits([])
       setDepositError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Could not load confirmed USDT deposits.",
+        getUsdtServiceErrorMessage(
+          loadError,
+          "Could not load confirmed USDT deposits.",
+        ),
       )
     } finally {
       setDepositLoading(false)

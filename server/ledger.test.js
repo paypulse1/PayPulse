@@ -443,6 +443,12 @@ describe("authorization boundaries", () => {
 
   it("restricts API keys to explicitly granted read paths and payment creation", () => {
     expect(hasApiKeyPermission("GET", "/wallet/balance", ["read"])).toBe(true)
+    expect(hasApiKeyPermission("GET", "/crypto/usdt-wallet", ["read"])).toBe(
+      true,
+    )
+    expect(hasApiKeyPermission("GET", "/crypto/usdt-deposits", ["read"])).toBe(
+      true,
+    )
     expect(hasApiKeyPermission("GET", "/kyb", ["read"])).toBe(false)
     expect(
       hasApiKeyPermission("POST", "/payment-links", ["payments:write"]),

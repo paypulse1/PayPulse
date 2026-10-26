@@ -45,18 +45,24 @@ export function Brand() {
 
 export function PoweredByFooter() {
   return (
-    <footer className="auth-powered-by">
-      <span>POWERED BY</span>
+    <footer className="auth-powered-by" aria-label="Supported by our partners">
+      <span>Supported By</span>
       <span
         className="auth-powered-by-signature"
         role="img"
         aria-label="DRPAY signature"
       />
-      <div className="auth-powered-by-partners" aria-label="Partners">
-        <img src="/powered-by/black-sheep.png" alt="Black Sheep" />
-        <img src="/powered-by/drl-technology.png" alt="DRL Technology" />
-        <img src="/powered-by/netbank.png" alt="Netbank" />
-      </div>
+      <ul className="auth-powered-by-partners">
+        <li>
+          <img src="/powered-by/black-sheep.png" alt="Black Sheep" />
+        </li>
+        <li>
+          <img src="/powered-by/drl-technology.png" alt="DRL Technology" />
+        </li>
+        <li>
+          <img src="/powered-by/netbank.png" alt="Netbank" />
+        </li>
+      </ul>
     </footer>
   )
 }

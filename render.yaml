@@ -90,7 +90,7 @@ services:
       - key: DRPAY_SANDBOX_CHECKOUT_ORIGIN
         value: https://pay.sandbox.denpay.cc
       - key: DRPAY_PUBLIC_API_ORIGIN
-        value: https://drpay-live-api.onrender.com
+        value: https://denpay.cc
       - key: DRPAY_MERCHANT_EMAIL
         sync: false
       - key: DRPAY_SUPER_ADMIN_EMAIL
@@ -144,7 +144,7 @@ services:
       - key: VITE_DRPAY_BACKEND_URL
         value: https://drpay-api.onrender.com
       - key: VITE_DRPAY_LIVE_BACKEND_URL
-        value: https://drpay-live-api.onrender.com
+        value: https://denpay.cc
       - key: VITE_DRPAY_SANDBOX_BACKEND_URL
         value: https://drpay-api.onrender.com
     routes:

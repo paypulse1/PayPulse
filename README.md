@@ -10,13 +10,13 @@ Review `render.yaml` and create its Blueprint in Render. It defines a static sit
 
 All three hostnames are served by the same `drpay-web` static site, with the API selected by hostname:
 
-- `https://merchant.denpay.cc` opens merchant sign-in and uses the live API.
-- `https://pay.live.denpay.cc/checkout/<code>` serves live self-hosted checkouts and uses the live API/database.
+- `https://merchant.denpay.cc` opens merchant sign-in and uses the production API at `https://denpay.cc`.
+- `https://pay.live.denpay.cc/checkout/<code>` serves live self-hosted checkouts and uses the production API/database at `https://denpay.cc`.
 - `https://pay.sandbox.denpay.cc/checkout/<code>` serves sandbox self-hosted checkouts and uses the sandbox API/database.
 
 After the Blueprint is deployed, add `merchant.denpay.cc`, `pay.live.denpay.cc`, and `pay.sandbox.denpay.cc` under the `drpay-web` service's **Settings → Custom Domains** in Render. For each hostname, create the CNAME record Render displays at your DNS provider (the target is the `drpay-web.onrender.com` service hostname), then verify the domain in Render and wait for its TLS certificate to become active. Do not point these hostnames to the API services. The API services are reached through their separate API origins.
 
-The production API and sandbox API each have their own database, merchant registrations, API keys, KYB records, webhook settings, transactions, and signing configuration. Create/configure merchant accounts in the environment where they will be used; sandbox records do not carry over to production. Set the live SwiftPay credentials only on `drpay-live-api`, and sandbox credentials only on `drpay-api`. The frontend's hostname routing uses the corresponding API origins configured in `VITE_DRPAY_LIVE_BACKEND_URL` and `VITE_DRPAY_SANDBOX_BACKEND_URL`.
+The production API (`https://denpay.cc`) and sandbox API each have their own database, merchant registrations, API keys, KYB records, webhook settings, transactions, and signing configuration. Create/configure merchant accounts in the environment where they will be used; sandbox records do not carry over to production. Set the live SwiftPay credentials only on `drpay-live-api`, and sandbox credentials only on `drpay-api`. The frontend's hostname routing uses the corresponding API origins configured in `VITE_DRPAY_LIVE_BACKEND_URL` and `VITE_DRPAY_SANDBOX_BACKEND_URL`.
 
 Set these secrets directly in Render when prompted:
 

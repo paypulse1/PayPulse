@@ -3,6 +3,7 @@ const apiKeyReadPaths = new Set([
   "/wallet/activity",
   "/internal-wallet",
   "/crypto/usdt-wallet",
+  "/crypto/usdt-deposits",
   "/disbursement-institutions",
   "/payment-institutions",
 ])
