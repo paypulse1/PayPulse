@@ -39,6 +39,9 @@ export default function MerchantNotificationInbox({
 }: {
   onUnreadCountChange: (count: number) => void
 }) {
+  const [filter, setFilter] = useState<"All" | "Payments" | "Transfers">(
+    "All",
+  )
   const [notifications, setNotifications] = useState<MerchantNotification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [nextOffset, setNextOffset] = useState(0)
@@ -56,7 +59,16 @@ export default function MerchantNotificationInbox({
       const page = await getMerchantNotificationInbox({ limit: 20, offset })
       if (!activeRef.current) return
       setNotifications((current) =>
-        append ? [...current, ...page.notifications] : page.notifications,
+        append
+          ? [
+              ...new Map(
+                [...current, ...page.notifications].map((notification) => [
+                  notification.id,
+                  notification,
+                ] as const),
+              ).values(),
+            ]
+          : page.notifications,
       )
       setUnreadCount(page.unreadCount)
       onUnreadCountChange(page.unreadCount)
@@ -136,6 +148,22 @@ export default function MerchantNotificationInbox({
     }
   }
 
+  const filteredNotifications = notifications.filter((notification) => {
+    if (filter === "Payments") return notification.type === "PAYMENT"
+    if (filter === "Transfers") return notification.type === "DISBURSEMENT"
+    return true
+  })
+  const emptyTitle =
+    filter === "All"
+      ? "No notifications yet"
+      : `No ${filter.toLowerCase()} notifications`
+  const emptyDescription =
+    filter === "All"
+      ? "Payment and transfer updates will appear here."
+      : hasMore
+        ? "Load older notifications to check for more updates."
+        : `New ${filter.toLowerCase()} updates will appear here.`
+
   return (
     <div className="notification-inbox">
       <div className="notification-inbox-toolbar">
@@ -146,19 +174,50 @@ export default function MerchantNotificationInbox({
                 unreadCount === 1 ? "" : "s"
               }`}
         </p>
-        <button
-          type="button"
-          className="notification-mark-all"
-          disabled={!unreadCount || markingAllRead || Boolean(updatingId)}
-          onClick={() => void markAllRead()}
-        >
-          {markingAllRead ? (
-            <LoaderCircle className="spin" size={14} />
-          ) : (
-            <CheckCheck size={14} />
-          )}
-          Mark all read
-        </button>
+        <div className="notification-inbox-actions">
+          <button
+            type="button"
+            className="notification-mark-all"
+            disabled={loading || markingAllRead || Boolean(updatingId)}
+            onClick={() => void loadInbox()}
+          >
+            {loading ? (
+              <LoaderCircle className="spin" size={14} />
+            ) : (
+              <RefreshCw size={14} />
+            )}
+            Refresh
+          </button>
+          <button
+            type="button"
+            className="notification-mark-all"
+            disabled={!unreadCount || markingAllRead || Boolean(updatingId)}
+            onClick={() => void markAllRead()}
+          >
+            {markingAllRead ? (
+              <LoaderCircle className="spin" size={14} />
+            ) : (
+              <CheckCheck size={14} />
+            )}
+            Mark all read
+          </button>
+        </div>
+      </div>
+      <div
+        className="notification-inbox-filters"
+        aria-label="Filter notifications"
+      >
+        {(["All", "Payments", "Transfers"] as const).map((item) => (
+          <button
+            key={item}
+            type="button"
+            aria-pressed={filter === item}
+            className={filter === item ? "active" : ""}
+            onClick={() => setFilter(item)}
+          >
+            {item}
+          </button>
+        ))}
       </div>
       {error && (
         <div className="inline-error notification-inbox-error" role="alert">
@@ -178,17 +237,17 @@ export default function MerchantNotificationInbox({
           <LoaderCircle className="spin" size={19} />
           Loading notifications…
         </div>
-      ) : notifications.length === 0 ? (
-        <div className="notification-inbox-state">
+      ) : filteredNotifications.length === 0 ? (
+        <div className="notification-inbox-state" role="status">
           <span className="notification-empty-icon">
             <Inbox size={22} />
           </span>
-          <strong>No notifications yet</strong>
-          <p>Payment and transfer updates will appear here.</p>
+          <strong>{emptyTitle}</strong>
+          <p>{emptyDescription}</p>
         </div>
       ) : (
         <div className="notification-inbox-list">
-          {notifications.map((notification) => {
+          {filteredNotifications.map((notification) => {
             const unread = !notification.readAt
             const updating = updatingId === notification.id
             return (

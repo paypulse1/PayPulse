@@ -21,6 +21,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleHelp,
+  Clock3,
   Copy,
   Coins,
   CreditCard,
@@ -2662,6 +2663,8 @@ function HomeView({
   onTransfer,
   onScan,
   onActivity,
+  onCrypto,
+  onPendings,
   onTransaction,
 }: {
   data: DashboardData
@@ -2669,6 +2672,8 @@ function HomeView({
   onTransfer: () => void
   onScan: () => void
   onActivity: () => void
+  onCrypto: () => void
+  onPendings: () => void
   onTransaction: (transaction: Transaction) => void
 }) {
   const { balanceVisible, toggleBalanceVisibility } = useBalanceVisibility()
@@ -2701,6 +2706,16 @@ function HomeView({
           icon={<ReceiptText size={21} />}
           label="Activity"
           onClick={onActivity}
+        />
+        <QuickAction
+          icon={<Coins size={21} />}
+          label="Crypto"
+          onClick={onCrypto}
+        />
+        <QuickAction
+          icon={<Clock3 size={21} />}
+          label="Pendings"
+          onClick={onPendings}
         />
       </section>
 
@@ -3465,6 +3480,21 @@ function MainnetUsdtWallet() {
     }
   }
 
+  const networkLabel = loading
+    ? "CHECKING NETWORK"
+    : !wallet
+      ? "NETWORK UNAVAILABLE"
+      : wallet.network === "TRON_SHASTA"
+        ? "TESTNET · NO REAL FUNDS"
+        : "TRON MAINNET"
+  const addressNetworkLabel = loading
+    ? "CHECKING NETWORK"
+    : !wallet
+      ? "NETWORK UNAVAILABLE"
+      : wallet.network === "TRON_SHASTA"
+        ? "TRON SHASTA TESTNET"
+        : "TRC20 MAINNET"
+
   return (
     <section className="crypto-wallet" aria-labelledby="crypto-wallet-title">
       <header className="crypto-wallet-header">
@@ -3474,12 +3504,14 @@ function MainnetUsdtWallet() {
         </div>
         <span
           className={`crypto-wallet-badge ${
-            wallet?.network === "TRON_SHASTA" ? "testnet" : ""
+            wallet?.network === "TRON_SHASTA"
+              ? "testnet"
+              : !wallet && !loading
+                ? "unavailable"
+                : ""
           }`}
         >
-          {wallet?.network === "TRON_SHASTA"
-            ? "TESTNET · NO REAL FUNDS"
-            : "TRON MAINNET"}
+          {networkLabel}
         </span>
       </header>
       <div className="crypto-wallet-balance">
@@ -3494,10 +3526,7 @@ function MainnetUsdtWallet() {
       </div>
       <div className="crypto-wallet-address">
         <span>
-          DRPAY-ASSIGNED ADDRESS ·{" "}
-          {wallet?.network === "TRON_SHASTA"
-            ? "TRON SHASTA TESTNET"
-            : "TRC20 MAINNET"}
+          DRPAY-ASSIGNED ADDRESS · {addressNetworkLabel}
         </span>
         <strong className="crypto-wallet-address-value">
           {wallet?.address || (loading ? "Loading…" : "Not assigned")}
@@ -3741,7 +3770,7 @@ function WalletView({
         </Button>
         <div className="wallet-subpage-heading">
           <span className="eyebrow">WALLET</span>
-          <h2>Unsettled Balance</h2>
+          <h2>Unsettled Funds</h2>
           <p>
             Track your Alipay+ collection threshold for transferring unsettled
             funds to your live SwiftPay PHP wallet.
@@ -3763,36 +3792,6 @@ function WalletView({
         onToggleBalanceVisibility={toggleBalanceVisibility}
         onWithdraw={onWithdraw}
       />
-      <nav className="wallet-destination-list" aria-label="Wallet screens">
-        <button
-          type="button"
-          className="wallet-destination-entry"
-          onClick={() => onOpenSubscreen("usdt")}
-        >
-          <span className="wallet-ledger-icon">
-            <Coins size={18} aria-hidden="true" />
-          </span>
-          <span className="wallet-destination-entry-copy">
-            <strong>USDT Wallet</strong>
-            <small>View your assigned TRON wallet and deposits</small>
-          </span>
-          <ChevronRight size={18} aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className="wallet-destination-entry"
-          onClick={() => onOpenSubscreen("unsettled-balance")}
-        >
-          <span className="wallet-ledger-icon">
-            <WalletCards size={18} aria-hidden="true" />
-          </span>
-          <span className="wallet-destination-entry-copy">
-            <strong>Unsettled Balance</strong>
-            <small>Track collection progress and fund release</small>
-          </span>
-          <ChevronRight size={18} aria-hidden="true" />
-        </button>
-      </nav>
       <WalletActivitySection
         transactions={transactions}
         totalTransactions={activity.length}
@@ -5821,7 +5820,7 @@ export default function App() {
                     ? "USDT"
                     : activeTab === "Wallet" &&
                         walletSubscreen === "unsettled-balance"
-                      ? "Unsettled Balance"
+                      ? "Pendings"
                       : activeTab}
           </h1>
           <div className="header-actions">
@@ -5890,7 +5889,7 @@ export default function App() {
               activeTab === "Wallet" && walletSubscreen !== "overview"
                 ? walletSubscreen === "usdt"
                   ? "USDT"
-                  : "Unsettled Balance"
+                  : "Pendings"
                 : activeTab
             } page`}
           >
@@ -5900,7 +5899,18 @@ export default function App() {
                 onRequestPayment={() => setShowPayment(true)}
                 onTransfer={() => setShowTransfer(true)}
                 onScan={() => setShowScanner(true)}
-                onActivity={() => setActiveTab("Wallet")}
+                onActivity={() => {
+                  setWalletSubscreen("overview")
+                  setActiveTab("Wallet")
+                }}
+                onCrypto={() => {
+                  setWalletSubscreen("usdt")
+                  setActiveTab("Wallet")
+                }}
+                onPendings={() => {
+                  setWalletSubscreen("unsettled-balance")
+                  setActiveTab("Wallet")
+                }}
                 onTransaction={setSelectedTransaction}
               />
             )}
