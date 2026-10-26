@@ -426,8 +426,7 @@ function AvailableBalanceCard({
         <div className="balance-card-footer">
           <div className="balance-card-footer-copy">
             <span>
-              <i /> {data.paymentEnvironment === "production" ? "Live" : "Sandbox"}{" "}
-              merchant ledger
+              <i /> {data.paymentEnvironment === "production" ? "Live" : "Sandbox"}
             </span>
             {data.reservedBalance > 0 && (
               <small>
@@ -3807,7 +3806,6 @@ function TransfersView({
         <div>
           <span>Available Balance</span>
           <strong>{balanceVisible ? data.availableBalance : "₱ ••••••"}</strong>
-          <small>Available in your merchant ledger</small>
         </div>
         <Button icon={<Send size={17} />} onClick={onTransfer}>
           New transfer
@@ -3844,8 +3842,7 @@ function TransfersView({
         <ShieldCheck size={17} />
         <p>
           <strong>Review before sending</strong> Check the recipient and account
-          details carefully. Approve every transfer with your MPIN, then track
-          its provider-confirmed status in Wallet.
+          details carefully. Do not share your MPIN.
         </p>
       </aside>
       <section className="transfer-activity-section">

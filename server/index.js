@@ -47,7 +47,7 @@ app.use(express.json({ limit: "24kb" }))
 
 const frontendOrigin = process.env.DRPAY_FRONTEND_ORIGIN
 const liveCheckoutOrigin =
-  process.env.DRPAY_LIVE_CHECKOUT_ORIGIN || frontendOrigin
+  process.env.DRPAY_LIVE_CHECKOUT_ORIGIN || "https://pay.live.denpay.cc"
 const sandboxCheckoutOrigin =
   process.env.DRPAY_SANDBOX_CHECKOUT_ORIGIN || frontendOrigin
 const publicApiOrigin = process.env.DRPAY_PUBLIC_API_ORIGIN || frontendOrigin

@@ -20,7 +20,11 @@ const apkUrl = "/drpay.apk"
 
 function Brand() {
   return (
-    <a className="marketing-brand" href="/" aria-label="DRPAY home">
+    <a
+      className="marketing-brand"
+      href="https://denpay.cc"
+      aria-label="DRPAY home"
+    >
       <img src="/drpay-mark.png" alt="" />
       <strong>DRPAY</strong>
     </a>
@@ -167,7 +171,7 @@ export default function MarketingHome() {
           <a href="#workflow">How it works</a>
           <a href="#security">Security</a>
         </div>
-        <a className="nav-login" href="/?signin=1">
+        <a className="nav-login" href="https://merchant.denpay.cc">
           Merchant sign in <ArrowRight size={15} />
         </a>
       </nav>
@@ -187,7 +191,7 @@ export default function MarketingHome() {
             users; in-app USDT buying is not yet connected.
           </p>
           <div className="hero-actions">
-            <a className="hero-primary" href="/?signin=1">
+            <a className="hero-primary" href="https://merchant.denpay.cc">
               Sign in to DRPAY <ArrowRight size={17} />
             </a>
             {apkUrl ? (
@@ -360,7 +364,10 @@ export default function MarketingHome() {
             >
               Tiia Monto · CC BY 4.0
             </a>
-            <a className="service-contact-link" href="/?signin=1">
+            <a
+              className="service-contact-link"
+              href="https://merchant.denpay.cc"
+            >
               Open merchant workspace{" "}
               <ArrowRight size={14} aria-hidden="true" />
             </a>
@@ -533,7 +540,7 @@ export default function MarketingHome() {
               Create a hosted payment request and share a checkout link or QRPH
               code. Follow its status through provider confirmation.
             </p>
-            <a href="/?signin=1">
+            <a href="https://merchant.denpay.cc">
               Go to merchant sign in <ChevronRight size={15} />
             </a>
           </article>
@@ -546,7 +553,7 @@ export default function MarketingHome() {
               Transfer from your merchant ledger using a supported bank rail.
               Review recipient details and approve with your MPIN.
             </p>
-            <a href="/?signin=1">
+            <a href="https://merchant.denpay.cc">
               Go to merchant sign in <ChevronRight size={15} />
             </a>
           </article>
@@ -559,7 +566,7 @@ export default function MarketingHome() {
               Review payment and provider-transfer activity alongside
               floating-balance requests and their statuses.
             </p>
-            <a href="/?signin=1">
+            <a href="https://merchant.denpay.cc">
               Go to merchant sign in <ChevronRight size={15} />
             </a>
           </article>
@@ -585,7 +592,7 @@ export default function MarketingHome() {
           optional on supported Android devices. Provider credentials stay on
           the backend.
         </p>
-        <a href="/?signin=1">
+        <a href="https://merchant.denpay.cc">
           Sign in securely <ArrowRight size={16} />
         </a>
       </section>
@@ -597,7 +604,10 @@ export default function MarketingHome() {
           </span>
           <h2>Make your next payment step easier to see.</h2>
         </div>
-        <a className="hero-primary" href="/?signin=1">
+        <a
+          className="hero-primary"
+          href="https://merchant.denpay.cc"
+        >
           Open your workspace <ArrowRight size={17} />
         </a>
       </section>
@@ -618,7 +628,7 @@ export default function MarketingHome() {
         </div>
         <div className="footer-link-column">
           <strong>DRPAY</strong>
-          <a href="/?signin=1">Merchant sign in</a>
+          <a href="https://merchant.denpay.cc">Merchant sign in</a>
           {apkUrl && (
             <a href={apkUrl}>
               Android app <Download size={13} />

@@ -8,7 +8,7 @@ const lastUpdated = "October 23, 2026";
 
 function LegalBrand() {
   return (
-    <a className="marketing-brand" href="/" aria-label="DRPAY home">
+    <a className="marketing-brand" href="https://denpay.cc" aria-label="DRPAY home">
       <img src="/drpay-mark.png" alt="" />
       <strong>DRPAY</strong>
     </a>
@@ -27,11 +27,11 @@ function LegalPage({ page }: { page: LegalPageKind }) {
     <main className="marketing-shell legal-shell">
       <nav className="marketing-nav" aria-label="Main navigation">
         <LegalBrand />
-        <a className="nav-login" href="/?signin=1">Merchant sign in <ArrowRight size={15} /></a>
+        <a className="nav-login" href="https://merchant.denpay.cc">Merchant sign in <ArrowRight size={15} /></a>
       </nav>
 
       <article className="legal-document">
-        <a className="legal-back-link" href="/"><ArrowLeft size={15} /> DRPAY home</a>
+        <a className="legal-back-link" href="https://denpay.cc"><ArrowLeft size={15} /> DRPAY home</a>
         <span className="marketing-eyebrow">DRL TECHS. COMPUTER SOFTWARE TRADING</span>
         <h1>{title}</h1>
         {page === "privacy" && (
