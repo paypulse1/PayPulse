@@ -71,7 +71,7 @@ jobs:
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
           chmod 600 android/app/release.keystore
 
-      - name: Build signed release APK
+      - name: Build signed release APK and app bundle
         env:
           ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/android/app/release.keystore
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -88,19 +88,25 @@ jobs:
           export ANDROID_VERSION_NAME="$version"
           echo "Building Android version $ANDROID_VERSION_NAME ($ANDROID_VERSION_CODE)"
           cd android
-          ./gradlew --no-daemon assembleRelease
+          ./gradlew --no-daemon assembleRelease bundleRelease
 
-      - name: Verify APK signature
+      - name: Verify release signatures
         run: "$ANDROID_HOME/build-tools/36.0.0/apksigner verify --verbose android/app/build/outputs/apk/release/app-release.apk"
 
-      - name: Prepare direct-download artifact
+      - name: Verify app bundle signature
+        run: jarsigner -verify android/app/build/outputs/bundle/release/app-release.aab
+
+      - name: Prepare release artifacts
         run: |
           mkdir -p release
           cp android/app/build/outputs/apk/release/app-release.apk release/drpay.apk
+          cp android/app/build/outputs/bundle/release/app-release.aab release/drpay.aab
 
-      - name: Publish APK to GitHub Release
+      - name: Publish Android artifacts to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: DRPAY ${{ github.ref_name }}
           generate_release_notes: true
-          files: release/drpay.apk
+          files: |
+            release/drpay.apk
+            release/drpay.aab
