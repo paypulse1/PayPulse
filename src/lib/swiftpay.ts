@@ -869,7 +869,7 @@ export async function getAdminSettings(): Promise<AdminSettings> {
 }
 
 export async function getAdminAuditEvents(): Promise<AdminAuditEvent[]> {
-  return backendRequest<AdminAuditEvent[]>("/v1/admin/audit", undefined, false);
+  return backendRequest<AdminAuditEvent[]>("/v1/admin/audit");
 }
 
 export async function getAdminPaymentLinks(): Promise<AdminPaymentLink[]> {
@@ -1071,7 +1071,7 @@ export async function deleteMerchantWebhook() {
 }
 
 export async function getAdminKybApplications(): Promise<AdminKybApplication[]> {
-  return backendRequest("/v1/admin/kyb", undefined, false);
+  return backendRequest("/v1/admin/kyb");
 }
 
 export async function reviewAdminKybApplication(email: string, input: { status: "IN_REVIEW" | "APPROVED" | "REJECTED"; reviewNotes: string }) {

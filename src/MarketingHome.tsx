@@ -15,14 +15,15 @@ import {
 } from "lucide-react"
 import "./marketing-home.css"
 import LegalPage, { getLegalPage, supportEmail } from "./LegalPages"
+import { APP_ROUTES } from "./lib/routes"
 
-const apkUrl = "/drpay.apk"
+const apkUrl = APP_ROUTES.androidDownload
 
 function Brand() {
   return (
     <a
       className="marketing-brand"
-      href="https://denpay.cc"
+      href={APP_ROUTES.home}
       aria-label="DRPAY home"
     >
       <img src="/drpay-mark.png" alt="" />
@@ -167,11 +168,11 @@ export default function MarketingHome() {
       <nav className="marketing-nav" aria-label="Main navigation">
         <Brand />
         <div className="marketing-nav-links">
-          <a href="#capabilities">Capabilities</a>
-          <a href="#workflow">How it works</a>
-          <a href="#security">Security</a>
+          <a href={APP_ROUTES.capabilities}>Capabilities</a>
+          <a href={APP_ROUTES.workflow}>How it works</a>
+          <a href={APP_ROUTES.security}>Security</a>
         </div>
-        <a className="nav-login" href="https://merchant.denpay.cc">
+        <a className="nav-login" href={APP_ROUTES.merchantSignIn}>
           Merchant sign in <ArrowRight size={15} />
         </a>
       </nav>
@@ -191,7 +192,7 @@ export default function MarketingHome() {
             users; in-app USDT buying is not yet connected.
           </p>
           <div className="hero-actions">
-            <a className="hero-primary" href="https://merchant.denpay.cc">
+            <a className="hero-primary" href={APP_ROUTES.merchantSignIn}>
               Sign in to DRPAY <ArrowRight size={17} />
             </a>
             {apkUrl ? (
@@ -366,7 +367,7 @@ export default function MarketingHome() {
             </a>
             <a
               className="service-contact-link"
-              href="https://merchant.denpay.cc"
+              href={APP_ROUTES.merchantSignIn}
             >
               Open merchant workspace{" "}
               <ArrowRight size={14} aria-hidden="true" />
@@ -540,7 +541,7 @@ export default function MarketingHome() {
               Create a hosted payment request and share a checkout link or QRPH
               code. Follow its status through provider confirmation.
             </p>
-            <a href="https://merchant.denpay.cc">
+            <a href={APP_ROUTES.merchantSignIn}>
               Go to merchant sign in <ChevronRight size={15} />
             </a>
           </article>
@@ -553,7 +554,7 @@ export default function MarketingHome() {
               Transfer from your merchant ledger using a supported bank rail.
               Review recipient details and approve with your MPIN.
             </p>
-            <a href="https://merchant.denpay.cc">
+            <a href={APP_ROUTES.merchantSignIn}>
               Go to merchant sign in <ChevronRight size={15} />
             </a>
           </article>
@@ -566,7 +567,7 @@ export default function MarketingHome() {
               Review payment and provider-transfer activity alongside
               floating-balance requests and their statuses.
             </p>
-            <a href="https://merchant.denpay.cc">
+            <a href={APP_ROUTES.merchantSignIn}>
               Go to merchant sign in <ChevronRight size={15} />
             </a>
           </article>
@@ -592,7 +593,7 @@ export default function MarketingHome() {
           optional on supported Android devices. Provider credentials stay on
           the backend.
         </p>
-        <a href="https://merchant.denpay.cc">
+        <a href={APP_ROUTES.merchantSignIn}>
           Sign in securely <ArrowRight size={16} />
         </a>
       </section>
@@ -606,7 +607,7 @@ export default function MarketingHome() {
         </div>
         <a
           className="hero-primary"
-          href="https://merchant.denpay.cc"
+          href={APP_ROUTES.merchantSignIn}
         >
           Open your workspace <ArrowRight size={17} />
         </a>
@@ -622,21 +623,21 @@ export default function MarketingHome() {
         </div>
         <div className="footer-link-column">
           <strong>Explore</strong>
-          <a href="#capabilities">Capabilities</a>
-          <a href="#workflow">How it works</a>
-          <a href="#security">Security</a>
+          <a href={APP_ROUTES.capabilities}>Capabilities</a>
+          <a href={APP_ROUTES.workflow}>How it works</a>
+          <a href={APP_ROUTES.security}>Security</a>
         </div>
         <div className="footer-link-column">
           <strong>DRPAY</strong>
-          <a href="https://merchant.denpay.cc">Merchant sign in</a>
+          <a href={APP_ROUTES.merchantSignIn}>Merchant sign in</a>
           {apkUrl && (
             <a href={apkUrl}>
               Android app <Download size={13} />
             </a>
           )}
-          <a href="/privacy">Privacy Policy</a>
-          <a href="/terms">Terms of Service</a>
-          <a href="/contact">Contact Us</a>
+          <a href={APP_ROUTES.privacy}>Privacy Policy</a>
+          <a href={APP_ROUTES.terms}>Terms of Service</a>
+          <a href={APP_ROUTES.contact}>Contact Us</a>
         </div>
         <div className="footer-bottom">
           <span>© {new Date().getFullYear()} DRPAY</span>

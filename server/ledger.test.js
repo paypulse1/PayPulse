@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import {
   calculateCollectionFee,
   calculateRefundLedgerReversal,
+  calculateTransferDebit,
   calculateTransferRequestAvailableBalance,
   createLedgerService,
 } from "./ledger.js"
@@ -46,6 +47,16 @@ describe("ledger calculations", () => {
     expect(calculateRefundLedgerReversal("100.00", "2.50")).toBe(97.5)
     expect(() => calculateRefundLedgerReversal(10, 11)).toThrow(
       /refund ledger amount is invalid/,
+    )
+  })
+
+  it("includes the fixed fee in a transfer debit", () => {
+    expect(calculateTransferDebit("123.45", "2.50")).toBe(125.95)
+    expect(() => calculateTransferDebit(0, 2)).toThrow(
+      /transfer amount is invalid/,
+    )
+    expect(() => calculateTransferDebit(100, -1)).toThrow(
+      /transfer fee is invalid/,
     )
   })
 
@@ -159,6 +170,7 @@ describe("collection settlement", () => {
               refund_payment_id: "payment-1",
               merchant_email: "merchant@example.com",
               amount: "100",
+              transfer_fee: "0",
               merchant_reference_no: "REF-1",
             },
           ],
@@ -194,6 +206,9 @@ describe("collection settlement", () => {
       sql.includes("INSERT INTO merchant_wallet_ledger"),
     )
     expect(reversal.parameters[3]).toBe("-97.50")
+    expect(
+      calls.some(({ sql }) => sql.includes("INSERT INTO platform_fee_ledger")),
+    ).toBe(false)
     expect(calls.map(({ sql }) => sql)).toContain("COMMIT")
     expect(queueSuccessfulTransaction).toHaveBeenCalledWith(
       "DISBURSEMENT",
@@ -214,6 +229,7 @@ describe("collection settlement", () => {
               refund_payment_id: null,
               merchant_email: "merchant@example.com",
               amount: "50",
+              transfer_fee: "2.50",
               merchant_reference_no: "TRANSFER-1",
             },
           ],
@@ -240,6 +256,61 @@ describe("collection settlement", () => {
         sql.includes("INSERT INTO merchant_wallet_ledger"),
       ),
     ).toBe(false)
+    expect(
+      calls.some(({ sql }) => sql.includes("INSERT INTO platform_fee_ledger")),
+    ).toBe(false)
+  })
+
+  it("debits and records transfer fees only after successful settlement", async () => {
+    const { client, calls } = createClient((sql) => {
+      if (sql.includes("UPDATE disbursements")) {
+        return {
+          rows: [
+            {
+              refund_payment_id: null,
+              merchant_email: "merchant@example.com",
+              amount: "50",
+              transfer_fee: "2.50",
+              merchant_reference_no: "TRANSFER-1",
+            },
+          ],
+        }
+      }
+      return { rows: [] }
+    })
+    const service = createLedgerService({
+      pool: { connect: async () => client },
+      queueSuccessfulTransaction: vi.fn(),
+      queueTransactionWebhook: vi.fn(),
+    })
+
+    await service.updateDisbursementStatus("transfer-1", null, "SUCCESS", null)
+
+    const debit = calls.find(({ sql }) =>
+      sql.includes("INSERT INTO merchant_wallet_ledger"),
+    )
+    const fee = calls.find(({ sql }) =>
+      sql.includes("INSERT INTO platform_fee_ledger"),
+    )
+    expect(debit.parameters[3]).toBe("-52.50")
+    expect(fee.parameters).toEqual([
+      expect.any(String),
+      "transfer-1",
+      "merchant@example.com",
+      "2.50",
+    ])
+    expect(fee.sql).toContain("'DISBURSEMENT'")
+  })
+
+  it("reserves the fixed fee on pending transfers but not refunds", async () => {
+    const { client, calls } = createClient(() => ({ rows: [{}] }))
+    const service = createLedgerService({ pool: { connect: async () => client } })
+
+    await service.getMerchantWalletState(client, "merchant@example.com")
+
+    const query = calls[0].sql
+    expect(query).toContain("ELSE d.amount + d.transfer_fee")
+    expect(query).toContain("WHEN d.refund_payment_id IS NOT NULL")
   })
 
   it("makes repeated collection settlement idempotent at the unique ledger keys", async () => {

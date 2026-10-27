@@ -1,5 +1,6 @@
 import { ArrowLeft, ArrowRight, Mail } from "lucide-react";
 import "./marketing-home.css";
+import { APP_ROUTES, LEGAL_ROUTE_ALIASES } from "./lib/routes";
 
 type LegalPageKind = "privacy" | "terms" | "contact";
 
@@ -8,7 +9,7 @@ const lastUpdated = "October 23, 2026";
 
 function LegalBrand() {
   return (
-    <a className="marketing-brand" href="https://denpay.cc" aria-label="DRPAY home">
+    <a className="marketing-brand" href={APP_ROUTES.home} aria-label="DRPAY home">
       <img src="/drpay-mark.png" alt="" />
       <strong>DRPAY</strong>
     </a>
@@ -27,11 +28,11 @@ function LegalPage({ page }: { page: LegalPageKind }) {
     <main className="marketing-shell legal-shell">
       <nav className="marketing-nav" aria-label="Main navigation">
         <LegalBrand />
-        <a className="nav-login" href="https://merchant.denpay.cc">Merchant sign in <ArrowRight size={15} /></a>
+        <a className="nav-login" href={APP_ROUTES.merchantSignIn}>Merchant sign in <ArrowRight size={15} /></a>
       </nav>
 
       <article className="legal-document">
-        <a className="legal-back-link" href="https://denpay.cc"><ArrowLeft size={15} /> DRPAY home</a>
+        <a className="legal-back-link" href={APP_ROUTES.home}><ArrowLeft size={15} /> DRPAY home</a>
         <span className="marketing-eyebrow">DRL TECHS. COMPUTER SOFTWARE TRADING</span>
         <h1>{title}</h1>
         {page === "privacy" && (
@@ -87,7 +88,7 @@ function LegalPage({ page }: { page: LegalPageKind }) {
             <p>We may update, suspend, or discontinue parts of the service to maintain security, comply with law, or make operational changes. We do not guarantee uninterrupted access or that a payment provider will accept or complete a transaction.</p>
 
             <h2>Privacy</h2>
-            <p>Our handling of personal information is described in the <a href="/privacy">Privacy Policy</a>. Third-party providers may also apply their own terms and privacy notices.</p>
+            <p>Our handling of personal information is described in the <a href={APP_ROUTES.privacy}>Privacy Policy</a>. Third-party providers may also apply their own terms and privacy notices.</p>
 
             <h2>Governing law</h2>
             <p>These terms are governed by the laws of the Republic of the Philippines, subject to mandatory consumer, privacy, and other protections that apply to you.</p>
@@ -110,14 +111,14 @@ function LegalPage({ page }: { page: LegalPageKind }) {
             <p>Include the transaction reference and current status so we can investigate. Do not send your MPIN, password, one-time verification code, or full bank or wallet credentials by email.</p>
             <h2>Suspected fraud or unauthorized payment</h2>
             <p>Contact your bank or payment provider immediately as well as DRPAY. Keep relevant payment references and messages for their review.</p>
-            <p>For information about how we handle personal information, read our <a href="/privacy">Privacy Policy</a>. For service conditions, see our <a href="/terms">Terms of Service</a>.</p>
+            <p>For information about how we handle personal information, read our <a href={APP_ROUTES.privacy}>Privacy Policy</a>. For service conditions, see our <a href={APP_ROUTES.terms}>Terms of Service</a>.</p>
           </>
         )}
       </article>
 
       <footer className="legal-footer">
         <LegalBrand />
-        <div><a href="/privacy">Privacy Policy</a><a href="/terms">Terms of Service</a><a href="/contact">Contact Us</a></div>
+        <div><a href={APP_ROUTES.privacy}>Privacy Policy</a><a href={APP_ROUTES.terms}>Terms of Service</a><a href={APP_ROUTES.contact}>Contact Us</a></div>
         <span>© {new Date().getFullYear()} DRL TECHS. COMPUTER SOFTWARE TRADING</span>
       </footer>
     </main>
@@ -126,9 +127,9 @@ function LegalPage({ page }: { page: LegalPageKind }) {
 
 export function getLegalPage(pathname: string): LegalPageKind | null {
   const route = pathname.replace(/\/+$/, "") || "/";
-  if (route === "/privacy" || route === "/privacy-policy") return "privacy";
-  if (route === "/terms" || route === "/terms-of-service") return "terms";
-  if (route === "/contact" || route === "/contact-us") return "contact";
+  if (LEGAL_ROUTE_ALIASES.privacy.includes(route)) return "privacy";
+  if (LEGAL_ROUTE_ALIASES.terms.includes(route)) return "terms";
+  if (LEGAL_ROUTE_ALIASES.contact.includes(route)) return "contact";
   return null;
 }
 

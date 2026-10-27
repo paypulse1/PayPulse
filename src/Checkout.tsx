@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, Clock3, Copy, LoaderCircle, ShieldCheck, TriangleAlert } from "lucide-react";
 import { getPublicCheckout, type PublicCheckout } from "./lib/swiftpay";
+import { APP_ROUTES } from "./lib/routes";
 import QrPaymentDisplay from "./QrPaymentDisplay";
 
 function statusPresentation(checkout: PublicCheckout) {
@@ -175,9 +176,9 @@ export default function Checkout({ code }: { code: string }) {
         </div>
         <span>Payments are processed through SwiftPay QRPH.</span>
         <nav aria-label="Legal and support">
-          <a href="/privacy">Privacy</a>
-          <a href="/terms">Terms</a>
-          <a href="/contact">Contact</a>
+          <a href={APP_ROUTES.privacy}>Privacy</a>
+          <a href={APP_ROUTES.terms}>Terms</a>
+          <a href={APP_ROUTES.contact}>Contact</a>
         </nav>
       </footer>
     </main>

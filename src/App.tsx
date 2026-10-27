@@ -120,6 +120,7 @@ import {
 import Checkout from "./Checkout"
 import MarketingHome from "./MarketingHome"
 import LegalPage, { getLegalPage, supportEmail } from "./LegalPages"
+import { APP_ROUTES } from "./lib/routes"
 import QrPaymentDisplay, { InstitutionLogo } from "./QrPaymentDisplay"
 import InstitutionSelectionScreen from "./InstitutionSelectionScreen"
 import { DeveloperSetupPanel, KybSetupPanel } from "./MerchantSetup"
@@ -1285,8 +1286,8 @@ function TransactionSheet({
               {formatPeso(refundDetails.amount)} will be transferred via{" "}
               {refundDetails.channel} to {refundDetails.fullName} ·{" "}
               {refundDetails.institutionCode}, account ending{" "}
-              {refundDetails.accountNumber.slice(-4)}. The platform fee will not
-              be refunded.
+              {refundDetails.accountNumber.slice(-4)}. The original collection
+              fee remains charged; refund transfers have no fixed transfer fee.
             </p>
             <label>
               <span>Confirm with your MPIN</span>
@@ -1354,11 +1355,13 @@ function TransactionSheet({
 
 function TransferSheet({
   balance,
+  transferFeeFixed,
   onClose,
   onComplete,
   initialValues,
 }: {
   balance: number
+  transferFeeFixed: number
   onClose: () => void
   onComplete: () => void
   initialValues?: TransferQrDetails
@@ -1499,7 +1502,8 @@ function TransferSheet({
       `${item.name} ${item.code}`.toLowerCase().includes(query),
     )
   }, [bankSearch, institutions])
-  const invalidAmount = Number(amount) <= 0 || Number(amount) > balance
+  const invalidAmount =
+    Number(amount) <= 0 || Number(amount) + transferFeeFixed > balance
   const channelAvailable =
     channel === "INSTAPAY"
       ? selectedBank?.instapayEnabled !== false
@@ -1806,6 +1810,14 @@ function TransferSheet({
                   <dd>{remarks.trim()}</dd>
                 </div>
               )}
+              <div>
+                <dt>Transfer fee</dt>
+                <dd>{formatPeso(transferFeeFixed)}</dd>
+              </div>
+              <div>
+                <dt>Total wallet debit</dt>
+                <dd>{formatPeso(Number(amount) + transferFeeFixed)}</dd>
+              </div>
             </dl>
             {error && (
               <div className="inline-error">
@@ -2008,7 +2020,7 @@ function TransferSheet({
                 <input
                   type="number"
                   min="1"
-                  max={balance}
+                  max={Math.max(0, balance - transferFeeFixed)}
                   step=".01"
                   inputMode="decimal"
                   value={amount}
@@ -2019,6 +2031,10 @@ function TransferSheet({
                 <small>PHP</small>
               </div>
             </label>
+            <small className="transfer-fee-note">
+              A fixed fee of {formatPeso(transferFeeFixed)} is charged only if
+              the transfer settles.
+            </small>
             <label>
               <span>Remarks</span>
               <input
@@ -2034,7 +2050,7 @@ function TransferSheet({
             {invalidAmount && amount && (
               <div className="inline-error">
                 <AlertCircle size={15} />
-                Enter an amount within your available balance.
+                Enter an amount that leaves enough balance for the transfer fee.
               </div>
             )}
             <Button
@@ -2549,6 +2565,7 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
 
 function HomeView({
   data,
+  refreshVersion,
   onRequestPayment,
   onTransfer,
   onScan,
@@ -2558,6 +2575,7 @@ function HomeView({
   onTransaction,
 }: {
   data: DashboardData
+  refreshVersion: number
   onRequestPayment: () => void
   onTransfer: () => void
   onScan: () => void
@@ -2635,7 +2653,7 @@ function HomeView({
         </div>
       </section>
 
-      <MerchantActivityChart />
+      <MerchantActivityChart refreshVersion={refreshVersion} />
 
       <section className="activity-section">
         <header className="section-header">
@@ -2661,7 +2679,11 @@ function HomeView({
   )
 }
 
-function MerchantActivityChart() {
+function MerchantActivityChart({
+  refreshVersion,
+}: {
+  refreshVersion: number
+}) {
   const [points, setPoints] = useState<MerchantActivityTrendPoint[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -2700,7 +2722,7 @@ function MerchantActivityChart() {
       active = false
       window.clearInterval(timer)
     }
-  }, [retryKey])
+  }, [refreshVersion, retryKey])
 
   const maxValue = Math.max(
     1,
@@ -2890,9 +2912,11 @@ function WalletBalancePanel({
 function WalletFloatingBalanceCard({
   data,
   balanceVisible,
+  refreshVersion,
 }: {
   data: DashboardData
   balanceVisible: boolean
+  refreshVersion: number
 }) {
   const [payoutAccount, setPayoutAccount] =
     useState<MerchantPayoutAccount | null>(null)
@@ -2929,6 +2953,8 @@ function WalletFloatingBalanceCard({
 
   useEffect(() => {
     let active = true
+    setPayoutAccountLoading(true)
+    setPayoutAccountError("")
     getMerchantPayoutAccount()
       .then((account) => {
         if (active) setPayoutAccount(account)
@@ -2947,7 +2973,13 @@ function WalletFloatingBalanceCard({
     return () => {
       active = false
     }
-  }, [])
+  }, [refreshVersion])
+
+  useEffect(() => {
+    setAvailableToRequest(
+      Math.max(0, data.availableFloatingBalance - data.transferFeeFixed),
+    )
+  }, [data.availableFloatingBalance, data.transferFeeFixed, refreshVersion])
 
   async function refreshPayoutRequests() {
     setRefreshingPayoutRequests(true)
@@ -2967,6 +2999,8 @@ function WalletFloatingBalanceCard({
 
   useEffect(() => {
     let active = true
+    setRefreshingPayoutRequests(true)
+    setPayoutRequestsError("")
     getMerchantFloatingTransferRequests()
       .then((requests) => {
         if (active) setPayoutRequests(requests)
@@ -2979,10 +3013,13 @@ function WalletFloatingBalanceCard({
               : "Could not load payout request history.",
           )
       })
+      .finally(() => {
+        if (active) setRefreshingPayoutRequests(false)
+      })
     return () => {
       active = false
     }
-  }, [])
+  }, [refreshVersion])
 
   async function submitTransferRequest() {
     setRequestError("")
@@ -3300,7 +3337,11 @@ function getUsdtServiceErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback
 }
 
-function MainnetUsdtWallet() {
+function MainnetUsdtWallet({
+  refreshVersion,
+}: {
+  refreshVersion: number
+}) {
   const [wallet, setWallet] = useState<MerchantUsdtWallet | null>(null)
   const [deposits, setDeposits] = useState<MerchantUsdtDeposit[]>([])
   const [loading, setLoading] = useState(true)
@@ -3354,10 +3395,13 @@ function MainnetUsdtWallet() {
     }
   }
 
+  const initialLoadRef = useRef(true)
   useEffect(() => {
-    void loadWallet()
-    void loadDeposits()
-  }, [])
+    const isRefresh = !initialLoadRef.current
+    initialLoadRef.current = false
+    void loadWallet(isRefresh)
+    void loadDeposits(isRefresh)
+  }, [refreshVersion])
 
   async function copyAddress() {
     if (!wallet?.address) return
@@ -3532,6 +3576,7 @@ function MainnetUsdtWallet() {
 
 function WalletView({
   data,
+  refreshVersion,
   onWithdraw,
   onTransaction,
   onExportActivity,
@@ -3540,6 +3585,7 @@ function WalletView({
   onCloseSubscreen,
 }: {
   data: DashboardData
+  refreshVersion: number
   onWithdraw: () => void
   onTransaction: (transaction: Transaction) => void
   onExportActivity: (fromDate: string, toDate: string) => void
@@ -3643,7 +3689,7 @@ function WalletView({
         >
           Back to Wallet
         </Button>
-        <MainnetUsdtWallet />
+        <MainnetUsdtWallet refreshVersion={refreshVersion} />
       </section>
     )
   }
@@ -3669,6 +3715,7 @@ function WalletView({
         <WalletFloatingBalanceCard
           data={data}
           balanceVisible={balanceVisible}
+          refreshVersion={refreshVersion}
         />
       </section>
     )
@@ -3921,9 +3968,9 @@ function MoreView({
         <Brand />
       </div>
       <nav className="app-legal-links" aria-label="Legal and support">
-        <a href="/privacy">Privacy Policy</a>
-        <a href="/terms">Terms of Service</a>
-        <a href="/contact">Contact Us</a>
+        <a href={APP_ROUTES.privacy}>Privacy Policy</a>
+        <a href={APP_ROUTES.terms}>Terms of Service</a>
+        <a href={APP_ROUTES.contact}>Contact Us</a>
       </nav>
     </section>
   )
@@ -3933,6 +3980,7 @@ function ProfileInfoPage({
   title,
   session,
   data,
+  refreshVersion,
   securityStatus,
   notificationPermission,
   pushRegistrationState,
@@ -3950,6 +3998,7 @@ function ProfileInfoPage({
   title: string
   session: Session
   data: DashboardData
+  refreshVersion: number
   securityStatus: MerchantSecurityStatus | null
   notificationPermission: string
   pushRegistrationState: "idle" | "registering" | "registered" | "error"
@@ -3979,6 +4028,7 @@ function ProfileInfoPage({
   useEffect(() => {
     if (title !== "Notifications") return
     let active = true
+    setNotificationPreferencesError("")
     getMerchantNotificationPreferences()
       .then((preferences) => {
         if (active) setNotificationPreferences(preferences)
@@ -3994,7 +4044,7 @@ function ProfileInfoPage({
     return () => {
       active = false
     }
-  }, [title])
+  }, [refreshVersion, title])
 
   async function toggleNotificationPreference(
     key: keyof MerchantNotificationPreferences,
@@ -4042,7 +4092,7 @@ function ProfileInfoPage({
     return () => {
       active = false
     }
-  }, [title, retryInstitutions])
+  }, [refreshVersion, retryInstitutions, title])
 
   const successfulTransactions = data.transactions.filter(
     (transaction) => transaction.status === "Completed",
@@ -4882,9 +4932,31 @@ const tabs = [
   { label: "Profile", icon: Store },
 ]
 
+function hasScrolledNestedContainer(
+  target: EventTarget | null,
+  root: HTMLElement,
+) {
+  let element = target instanceof Element ? target : null
+  while (element && element !== root) {
+    const overflowY = window.getComputedStyle(element).overflowY
+    if (
+      element instanceof HTMLElement &&
+      ["auto", "scroll", "overlay"].includes(overflowY) &&
+      element.scrollHeight > element.clientHeight &&
+      element.scrollTop > 0
+    ) {
+      return true
+    }
+    element = element.parentElement
+  }
+  return false
+}
+
 export default function App() {
   const pathCheckoutCode =
-    /^\/checkout\/([A-Za-z0-9_-]{40,50})\/?$/.exec(
+    new RegExp(
+      `^${APP_ROUTES.checkout}/([A-Za-z0-9_-]{40,50})/?$`,
+    ).exec(
       window.location.pathname,
     )?.[1] || ""
   const queryCheckoutCode =
@@ -4897,14 +4969,14 @@ export default function App() {
     hostname === "merchant.denpay.cc" ||
     hostname === "live.merchant.swiftpay.site"
   const isAdminConsole =
-    window.location.pathname === "/admin" ||
-    window.location.pathname.startsWith("/admin/")
+    window.location.pathname === APP_ROUTES.admin ||
+    window.location.pathname.startsWith(`${APP_ROUTES.admin}/`)
   const isDashboard =
     isMerchantHost ||
     Capacitor.isNativePlatform() ||
     new URLSearchParams(window.location.search).get("signin") === "1" ||
-    window.location.pathname === "/app" ||
-    window.location.pathname.startsWith("/app/")
+    window.location.pathname === APP_ROUTES.app ||
+    window.location.pathname.startsWith(`${APP_ROUTES.app}/`)
   const [session, setSession] = useState<Session | null>(() =>
     isDashboard || isAdminConsole ? getSession() : null,
   )
@@ -4941,9 +5013,11 @@ export default function App() {
     downloadUrl: string
   } | null>(null)
   const [loading, setLoading] = useState(false)
+  const [refreshVersion, setRefreshVersion] = useState(0)
   const [pullDistance, setPullDistance] = useState(0)
   const [pullRefreshing, setPullRefreshing] = useState(false)
   const touchStartYRef = useRef<number | null>(null)
+  const touchStartXRef = useRef<number | null>(null)
   const pullDistanceRef = useRef(0)
   const [error, setError] = useState("")
   const dismissedUpdateVersionRef = useRef("")
@@ -5282,21 +5356,34 @@ export default function App() {
 
   function handleDashboardTouchStart(event: TouchEvent<HTMLDivElement>) {
     if (
-      activeTab !== "Home" ||
       loading ||
+      pullRefreshing ||
       event.touches.length !== 1 ||
-      event.currentTarget.scrollTop > 0
+      event.currentTarget.scrollTop > 0 ||
+      hasScrolledNestedContainer(event.target, event.currentTarget)
     ) {
       touchStartYRef.current = null
+      touchStartXRef.current = null
       return
     }
     touchStartYRef.current = event.touches[0].clientY
+    touchStartXRef.current = event.touches[0].clientX
   }
 
   function handleDashboardTouchMove(event: TouchEvent<HTMLDivElement>) {
     const startY = touchStartYRef.current
-    if (startY === null || event.touches.length !== 1) return
-    const distance = event.touches[0].clientY - startY
+    const startX = touchStartXRef.current
+    if (startY === null || startX === null || event.touches.length !== 1) return
+    const deltaY = event.touches[0].clientY - startY
+    const deltaX = event.touches[0].clientX - startX
+    if (Math.abs(deltaX) > Math.abs(deltaY)) {
+      touchStartYRef.current = null
+      touchStartXRef.current = null
+      pullDistanceRef.current = 0
+      setPullDistance(0)
+      return
+    }
+    const distance = deltaY
     if (distance <= 0) {
       pullDistanceRef.current = 0
       setPullDistance(0)
@@ -5308,13 +5395,14 @@ export default function App() {
   }
 
   async function handleDashboardTouchEnd() {
-    const shouldRefresh =
-      activeTab === "Home" && !loading && pullDistanceRef.current >= 58
+    const shouldRefresh = !loading && pullDistanceRef.current >= 58
     touchStartYRef.current = null
+    touchStartXRef.current = null
     pullDistanceRef.current = 0
     setPullDistance(0)
     if (!shouldRefresh) return
     setPullRefreshing(true)
+    setRefreshVersion((version) => version + 1)
     try {
       await loadDashboard()
     } finally {
@@ -5736,6 +5824,7 @@ export default function App() {
           onTouchEnd={() => void handleDashboardTouchEnd()}
           onTouchCancel={() => {
             touchStartYRef.current = null
+            touchStartXRef.current = null
             pullDistanceRef.current = 0
             setPullDistance(0)
           }}
@@ -5756,7 +5845,7 @@ export default function App() {
               </span>
               <small>
                 {pullRefreshing
-                  ? "Refreshing wallet…"
+                  ? "Refreshing…"
                   : pullDistance >= 58
                     ? "Release to refresh"
                     : "Pull to refresh"}
@@ -5785,6 +5874,7 @@ export default function App() {
             {activeTab === "Home" && (
               <HomeView
                 data={data}
+                refreshVersion={refreshVersion}
                 onRequestPayment={() => setShowPayment(true)}
                 onTransfer={() => setShowTransfer(true)}
                 onScan={() => setShowScanner(true)}
@@ -5806,6 +5896,7 @@ export default function App() {
             {activeTab === "Wallet" && (
               <WalletView
                 data={data}
+                refreshVersion={refreshVersion}
                 onWithdraw={() => setShowTransfer(true)}
                 onTransaction={setSelectedTransaction}
                 onExportActivity={(fromDate, toDate) =>
@@ -5829,6 +5920,7 @@ export default function App() {
                   title={profileSection}
                   session={session}
                   data={data}
+                  refreshVersion={refreshVersion}
                   securityStatus={securityStatus}
                   notificationPermission={pushPermission}
                   pushRegistrationState={pushRegistrationState}
@@ -5897,6 +5989,7 @@ export default function App() {
       {showTransfer && (
         <TransferSheet
           balance={data.balance}
+          transferFeeFixed={data.transferFeeFixed}
           initialValues={transferQrPrefill}
           onClose={() => {
             setShowTransfer(false)

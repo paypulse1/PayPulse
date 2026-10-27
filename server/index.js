@@ -32,7 +32,7 @@ import {
   isOperationsSession,
 } from "./access.js"
 import { createFloatingTransferRequest } from "./floating-transfers.js"
-import { createLedgerService } from "./ledger.js"
+import { calculateTransferDebit, createLedgerService } from "./ledger.js"
 import {
   canManuallyConfirmPayment,
   createPaymentStateService,
@@ -1025,7 +1025,7 @@ async function initializeDatabase() {
     );
     CREATE TABLE IF NOT EXISTS platform_fee_ledger (
       id UUID PRIMARY KEY,
-      source_type TEXT NOT NULL CHECK (source_type IN ('COLLECTION', 'FLOATING_TRANSFER')),
+      source_type TEXT NOT NULL CHECK (source_type IN ('COLLECTION', 'FLOATING_TRANSFER', 'DISBURSEMENT')),
       source_id UUID NOT NULL,
       merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email),
       amount NUMERIC(18, 2) NOT NULL CHECK (amount >= 0),
@@ -1195,6 +1195,7 @@ async function initializeDatabase() {
       merchant_reference_no TEXT NOT NULL UNIQUE,
       swiftpay_id UUID UNIQUE,
       amount NUMERIC(18, 2) NOT NULL CHECK (amount > 0),
+      transfer_fee NUMERIC(18, 2) NOT NULL DEFAULT 0 CHECK (transfer_fee >= 0),
       channel TEXT NOT NULL CHECK (channel IN ('INSTAPAY', 'PESONET')),
       institution_code TEXT NOT NULL,
       recipient_name TEXT,
@@ -1304,6 +1305,10 @@ async function initializeDatabase() {
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS merchant_email TEXT REFERENCES merchant_accounts(email) ON DELETE CASCADE;
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS refund_payment_id UUID REFERENCES payment_links(id);
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS refund_ledger_reversed_at TIMESTAMPTZ;
+    ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS transfer_fee NUMERIC(18, 2) NOT NULL DEFAULT 0 CHECK (transfer_fee >= 0);
+    ALTER TABLE platform_fee_ledger DROP CONSTRAINT IF EXISTS platform_fee_ledger_source_type_check;
+    ALTER TABLE platform_fee_ledger ADD CONSTRAINT platform_fee_ledger_source_type_check
+      CHECK (source_type IN ('COLLECTION', 'FLOATING_TRANSFER', 'DISBURSEMENT'));
     CREATE INDEX IF NOT EXISTS disbursements_refund_payment_created_idx
       ON disbursements (refund_payment_id, created_at DESC)
       WHERE refund_payment_id IS NOT NULL;
@@ -4657,6 +4662,16 @@ app.get("/v1/internal-wallet", async (req, res) => {
   ])
   const balance = result.rows[0].balance
   const transferFeeFixed = Number(feeSetting.rows[0]?.setting_value || 0)
+  if (
+    !Number.isFinite(transferFeeFixed) ||
+    transferFeeFixed < 0 ||
+    Math.abs(transferFeeFixed * 100 - Math.round(transferFeeFixed * 100)) >
+      1e-7
+  ) {
+    return res
+      .status(503)
+      .json({ error: "The configured transfer fee is invalid." })
+  }
   return res.set("Cache-Control", "no-store").json({
     currency: "PHP",
     balance,
@@ -5880,6 +5895,7 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
         })
     }
     let walletDebitAmount = amount
+    let transferFee = 0
     if (refundPaymentId) {
       const collection = await client.query(
         `SELECT p.status, GREATEST(p.amount - COALESCE(f.amount, 0), 0)::numeric AS net_amount
@@ -5916,13 +5932,26 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
           })
       }
       walletDebitAmount = Number(collection.rows[0].net_amount)
+    } else {
+      const feeSetting = await client.query(
+        "SELECT setting_value FROM system_settings WHERE setting_key = 'transfer_fee_fixed'",
+      )
+      transferFee = Number(feeSetting.rows[0]?.setting_value || 0)
+      if (
+        !Number.isFinite(transferFee) ||
+        transferFee < 0 ||
+        Math.abs(transferFee * 100 - Math.round(transferFee * 100)) > 1e-7
+      ) {
+        throw new Error("The configured transfer fee is invalid.")
+      }
+      walletDebitAmount = calculateTransferDebit(amount, transferFee)
     }
     const wallet = await getMerchantWalletState(client, req.merchantEmail)
     const availableBalance = Number(wallet.balance) - Number(wallet.reserved)
     if (availableBalance + 0.000001 < walletDebitAmount) {
       await client.query("ROLLBACK")
       return res.status(409).json({
-        error: `Insufficient merchant wallet balance. PHP ${Math.max(0, availableBalance).toFixed(2)} is available after pending transfers.`,
+        error: `Insufficient merchant wallet balance. PHP ${Math.max(0, availableBalance).toFixed(2)} is available after pending transfers; the transfer amount plus its fee is PHP ${walletDebitAmount.toFixed(2)}.`,
       })
     }
     const consumedStepUp = await client.query(
@@ -5942,13 +5971,14 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
     }
     await client.query(
       `INSERT INTO disbursements
-       (id, idempotency_key, merchant_reference_no, amount, channel, institution_code, recipient_name, recipient_account_number, remarks, request_fingerprint, status, merchant_email, refund_payment_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'REQUESTING', $11, $12)`,
+       (id, idempotency_key, merchant_reference_no, amount, transfer_fee, channel, institution_code, recipient_name, recipient_account_number, remarks, request_fingerprint, status, merchant_email, refund_payment_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'REQUESTING', $12, $13)`,
       [
         id,
         idempotencyKey,
         merchantReferenceNo,
         amount,
+        transferFee.toFixed(2),
         channel,
         institutionCode,
         fullName,

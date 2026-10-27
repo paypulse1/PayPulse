@@ -27,6 +27,18 @@ export function calculateCollectionFee(amount, feePercent) {
   return Math.round(grossAmount * percent) / 100
 }
 
+export function calculateTransferDebit(amount, feeAmount) {
+  const transferAmount = Number(amount)
+  const fee = Number(feeAmount)
+  if (!Number.isFinite(transferAmount) || transferAmount <= 0) {
+    throw new Error("The transfer amount is invalid.")
+  }
+  if (!Number.isFinite(fee) || fee < 0) {
+    throw new Error("The configured transfer fee is invalid.")
+  }
+  return Math.round((transferAmount + fee) * 100) / 100
+}
+
 export function calculateRefundLedgerReversal(amount, feeAmount) {
   const grossAmount = Number(amount)
   const fee = Number(feeAmount)
@@ -70,7 +82,7 @@ export function createLedgerService({
          SELECT COALESCE(SUM(
            CASE WHEN d.refund_payment_id IS NOT NULL
              THEN GREATEST(COALESCE(p.amount, d.amount) - COALESCE(f.amount, 0), 0)
-             ELSE d.amount
+             ELSE d.amount + d.transfer_fee
            END
          ), 0)::numeric AS reserved
          FROM disbursements d
@@ -167,7 +179,7 @@ export function createLedgerService({
         `UPDATE disbursements
          SET swiftpay_id = COALESCE($1, swiftpay_id), status = $2, error_message = $3, updated_at = NOW()
          WHERE id = $4
-         RETURNING refund_payment_id, merchant_email, amount, merchant_reference_no`,
+         RETURNING refund_payment_id, merchant_email, amount, transfer_fee, merchant_reference_no`,
         [swiftpayId, status, errorMessage, id],
       )
       const successful = isSuccessfulDisbursementStatus(status)
@@ -184,7 +196,10 @@ export function createLedgerService({
           : null
         const amount = refundPaymentId
           ? -Number(walletAmount.rows[0]?.amount || 0)
-          : -Number(updated.rows[0].amount)
+          : -calculateTransferDebit(
+              updated.rows[0].amount,
+              updated.rows[0].transfer_fee || 0,
+            )
         await client.query(
           `INSERT INTO merchant_wallet_ledger (id, merchant_email, source_type, source_id, amount, reference_no)
            VALUES ($1, $2, 'DISBURSEMENT', $3, $4, $5)
@@ -197,6 +212,20 @@ export function createLedgerService({
             updated.rows[0].merchant_reference_no,
           ],
         )
+        const transferFee = Number(updated.rows[0].transfer_fee || 0)
+        if (!refundPaymentId && transferFee > 0) {
+          await client.query(
+            `INSERT INTO platform_fee_ledger (id, source_type, source_id, merchant_email, amount)
+             VALUES ($1, 'DISBURSEMENT', $2, $3, $4)
+             ON CONFLICT (source_type, source_id) DO NOTHING`,
+            [
+              randomUUID(),
+              id,
+              updated.rows[0].merchant_email,
+              transferFee.toFixed(2),
+            ],
+          )
+        }
       }
       if (successful && refundPaymentId) {
         const payment = await client.query(

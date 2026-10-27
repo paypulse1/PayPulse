@@ -450,7 +450,7 @@ export function SuperAdminConsole({
     applyResult(auditResult, "audit history", setAuditEvents)
     if (failures.length) {
       setError(
-        `Could not load ${failures.join("; ")}. Your session is still active; use Refresh to retry.`,
+        `Could not load ${failures.join("; ")}. Use Refresh to retry; if your session has expired, sign in again.`,
       )
     }
     setLoading(false)
@@ -494,7 +494,7 @@ export function SuperAdminConsole({
       const saved = await updateAdminSettings(settings)
       setSettings(saved)
       setNotice(
-        "Settings saved. New successful collections and transfer requests use these fee rates.",
+        "Settings saved. New successful collections, bank transfers, and payout requests use these fee rates.",
       )
       await refreshAuditEvents()
     } catch (requestError) {
@@ -1177,10 +1177,10 @@ export function SuperAdminConsole({
                   <ShieldCheck size={18} />
                   <p>
                     Successful collections credit merchants net of the
-                    collection fee. Successful floating-balance requests debit
-                    the requested amount plus the fixed transfer fee. Both fees
-                    are recorded in the platform fee wallet; bank payouts remain
-                    manually handled outside this app.
+                    collection fee. Successful bank transfers and
+                    floating-balance payout requests debit the requested amount
+                    plus the fixed transfer fee. Fees are recorded in the
+                    platform fee wallet; refunds are exempt.
                   </p>
                 </section>
               </>
@@ -1829,8 +1829,9 @@ export function SuperAdminConsole({
                   <div>
                     <h2>Collection and fee configuration</h2>
                     <p>
-                      Collection fees reduce merchant net collections; fixed
-                      transfer fees apply only on successful settlements.
+                      Collection fees reduce merchant net collections. The
+                      fixed transfer fee applies to successful bank transfers
+                      and floating-balance payout requests; refunds are exempt.
                     </p>
                   </div>
                 </div>
@@ -1858,7 +1859,7 @@ export function SuperAdminConsole({
                     </small>
                   </label>
                   <label>
-                    <span>Floating-balance transfer fee (PHP)</span>
+                    <span>Fixed transfer fee (PHP)</span>
                     <input
                       type="number"
                       min="0"
@@ -1875,9 +1876,9 @@ export function SuperAdminConsole({
                       }
                     />
                     <small>
-                      Reserved with each pending request, charged only when
-                      marked Successful, and credited to the platform fee
-                      wallet.
+                      Reserved with pending transfers and payout requests,
+                      charged only when settled, and credited to the platform
+                      fee wallet. Refund transfers are exempt.
                     </small>
                   </label>
                   <div className="internal-ledger-balance">

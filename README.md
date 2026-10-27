@@ -8,15 +8,15 @@ Review `render.yaml` and create its Blueprint in Render. It defines a static sit
 
 ### Merchant and checkout subdomains
 
-All three hostnames are served by the same `drpay-web` static site, with the API selected by hostname:
+The merchant and checkout hostnames are served by the `drpay-web` static site, with the API selected by hostname:
 
-- `https://merchant.denpay.cc` opens merchant sign-in and uses the production API at `https://denpay.cc`.
-- `https://pay.live.denpay.cc/checkout/<code>` serves live self-hosted checkouts and uses the production API/database at `https://denpay.cc`.
-- `https://pay.sandbox.denpay.cc/checkout/<code>` serves sandbox self-hosted checkouts and uses the sandbox API/database.
+- `https://merchant.denpay.cc` opens merchant sign-in and uses the production API at `https://api.live.denpay.cc`.
+- `https://pay.live.denpay.cc/checkout/<code>` serves live self-hosted checkouts and uses the production API/database at `https://api.live.denpay.cc`.
+- `https://pay.sandbox.denpay.cc/checkout/<code>` serves sandbox self-hosted checkouts and uses the sandbox API/database at `https://api.sandbox.denpay.cc`.
 
-After the Blueprint is deployed, add `merchant.denpay.cc`, `pay.live.denpay.cc`, and `pay.sandbox.denpay.cc` under the `drpay-web` service's **Settings → Custom Domains** in Render. For each hostname, create the CNAME record Render displays at your DNS provider (the target is the `drpay-web.onrender.com` service hostname), then verify the domain in Render and wait for its TLS certificate to become active. Do not point these hostnames to the API services. The API services are reached through their separate API origins.
+After the Blueprint is deployed, add `merchant.denpay.cc`, `pay.live.denpay.cc`, and `pay.sandbox.denpay.cc` under the `drpay-web` service's **Settings → Custom Domains** in Render. For each hostname, create the CNAME record Render displays at your DNS provider (the target is the `drpay-web.onrender.com` service hostname), then verify the domain in Render and wait for its TLS certificate to become active. Add `api.live.denpay.cc` to `drpay-live-api` and `api.sandbox.denpay.cc` to `drpay-api` as their respective custom domains, and create the matching DNS CNAME records using the targets Render provides. Wait for both API domains and TLS certificates to become active before routing traffic to them. Do not point the website hostnames to the API services.
 
-The production API (`https://denpay.cc`) and sandbox API each have their own database, merchant registrations, API keys, KYB records, webhook settings, transactions, and signing configuration. Create/configure merchant accounts in the environment where they will be used; sandbox records do not carry over to production. Set the live SwiftPay credentials only on `drpay-live-api`, and sandbox credentials only on `drpay-api`. The frontend's hostname routing uses the corresponding API origins configured in `VITE_DRPAY_LIVE_BACKEND_URL` and `VITE_DRPAY_SANDBOX_BACKEND_URL`.
+The production API (`https://api.live.denpay.cc`) and sandbox API (`https://api.sandbox.denpay.cc`) each have their own database, merchant registrations, API keys, KYB records, webhook settings, transactions, and signing configuration. Create/configure merchant accounts in the environment where they will be used; sandbox records do not carry over to production. Set the live SwiftPay credentials only on `drpay-live-api`, and sandbox credentials only on `drpay-api`. The frontend's hostname routing uses the corresponding API origins configured in `VITE_DRPAY_LIVE_BACKEND_URL` and `VITE_DRPAY_SANDBOX_BACKEND_URL`.
 
 Set these secrets directly in Render when prompted:
 
@@ -29,6 +29,7 @@ Set these secrets directly in Render when prompted:
 - `FCM_PROJECT_ID`, `FCM_SERVICE_ACCOUNT_EMAIL`, and `FCM_SERVICE_ACCOUNT_PRIVATE_KEY`: Firebase Cloud Messaging server credentials for Android transaction push alerts. Store the private key as a deployment secret; convert escaped `\n` sequences to newlines at runtime.
 - `SWIFTPAY_ACCESS_KEY` and `SWIFTPAY_SECRET_KEY`: credentials for the selected SwiftPay environment.
 - `TATUM_API_KEY`: server-only Tatum RPC credential. Configure only on `drpay-live-api`; never add it to any `VITE_*` variable.
+- `TRONGRID_API_KEY`: optional TRON Grid API key for mainnet wallet/deposit requests on `drpay-live-api`; leave unset if not using a key.
 - `TRON_USDT_NETWORK`: set to `mainnet` on `drpay-live-api`; the sandbox API blueprint sets it to `disabled`.
 - `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_BUCKET_NAME`: Cloudflare R2 S3-compatible credentials for private KYB documents. Grant the API service only the required bucket read/write permissions. Never make the bucket public or add these values to any `VITE_*` variable.
 - The homepage serves the current signed Android APK from `public/drpay.apk` at `/drpay.apk`. Android release tags publish the signed artifact to GitHub Releases; copy that artifact to `public/drpay.apk` and deploy the static site to update the public download.

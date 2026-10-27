@@ -25,7 +25,7 @@ services:
       - key: DRPAY_SANDBOX_CHECKOUT_ORIGIN
         value: https://pay.sandbox.denpay.cc
       - key: DRPAY_PUBLIC_API_ORIGIN
-        value: https://drpay-api.onrender.com
+        value: https://api.sandbox.denpay.cc
       - key: DRPAY_MERCHANT_EMAIL
         sync: false
       - key: DRPAY_SUPER_ADMIN_EMAIL
@@ -90,7 +90,7 @@ services:
       - key: DRPAY_SANDBOX_CHECKOUT_ORIGIN
         value: https://pay.sandbox.denpay.cc
       - key: DRPAY_PUBLIC_API_ORIGIN
-        value: https://denpay.cc
+        value: https://api.live.denpay.cc
       - key: DRPAY_MERCHANT_EMAIL
         sync: false
       - key: DRPAY_SUPER_ADMIN_EMAIL
@@ -131,6 +131,8 @@ services:
         sync: false
       - key: TATUM_API_KEY
         sync: false
+      - key: TRONGRID_API_KEY
+        sync: false
       - key: TRON_USDT_NETWORK
         value: mainnet
   - type: web
@@ -142,11 +144,11 @@ services:
       - key: NODE_VERSION
         value: 22
       - key: VITE_DRPAY_BACKEND_URL
-        value: https://drpay-api.onrender.com
+        value: https://api.sandbox.denpay.cc
       - key: VITE_DRPAY_LIVE_BACKEND_URL
-        value: https://denpay.cc
+        value: https://api.live.denpay.cc
       - key: VITE_DRPAY_SANDBOX_BACKEND_URL
-        value: https://drpay-api.onrender.com
+        value: https://api.sandbox.denpay.cc
     routes:
       - type: rewrite
         source: /checkout/*
