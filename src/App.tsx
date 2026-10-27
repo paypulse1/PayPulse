@@ -949,10 +949,6 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
                 autoComplete="email"
                 maxLength={254}
               />
-              <small>
-                We’ll email the checkout link and send a payment-confirmed email
-                after the customer pays.
-              </small>
             </label>
             {currency === "KRW" && (
               <div className="currency-quote" aria-live="polite">
@@ -981,13 +977,6 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
                 )}
               </div>
             )}
-            <div className="accepted-channels">
-              <span>
-                Generate a QR and a shareable link to your own DRPAY-hosted
-                checkout page. KRW amounts are converted to PHP using the
-                displayed reference rate.
-              </span>
-            </div>
             <Button
               type="submit"
               className="sheet-submit"
@@ -2541,10 +2530,6 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
                 autoComplete="email"
                 maxLength={254}
               />
-              <small>
-                We’ll email the checkout link and send a payment-confirmed email
-                after the customer pays.
-              </small>
             </label>
             {error && (
               <div className="inline-error">
