@@ -402,45 +402,58 @@ export function SuperAdminConsole({
   async function loadConsole() {
     setLoading(true)
     setError("")
-    try {
-      const [
-        nextSettings,
-        nextMerchants,
-        nextWallets,
-        nextTransferRequests,
-        nextPaymentLinks,
-        nextKybApplications,
-        nextAuditEvents,
-      ] = await Promise.all([
-        getAdminSettings(),
-        getAdminMerchantAccounts(),
-        getAdminInternalWallets(),
-        getAdminFloatingTransferRequests(),
-        getAdminPaymentLinks(),
-        getAdminKybApplications(),
-        getAdminAuditEvents(),
-      ])
-      setSettings(nextSettings)
-      setMerchants(nextMerchants)
+    const results = await Promise.allSettled([
+      getAdminSettings(),
+      getAdminMerchantAccounts(),
+      getAdminInternalWallets(),
+      getAdminFloatingTransferRequests(),
+      getAdminPaymentLinks(),
+      getAdminKybApplications(),
+      getAdminAuditEvents(),
+    ])
+    const failures: string[] = []
+    const applyResult = <T,>(
+      result: PromiseSettledResult<T>,
+      label: string,
+      update: (value: T) => void,
+    ) => {
+      if (result.status === "fulfilled") {
+        update(result.value)
+      } else {
+        const detail =
+          result.reason instanceof Error ? `: ${result.reason.message}` : ""
+        failures.push(`${label}${detail}`)
+      }
+    }
+    const [
+      settingsResult,
+      merchantsResult,
+      walletsResult,
+      requestsResult,
+      paymentLinksResult,
+      kybResult,
+      auditResult,
+    ] = results
+    applyResult(settingsResult, "Settings", setSettings)
+    applyResult(merchantsResult, "merchants", setMerchants)
+    applyResult(walletsResult, "floating balances", (nextWallets) => {
       setInternalWallets(nextWallets)
-      setTransferRequests(nextTransferRequests)
-      setPaymentLinks(nextPaymentLinks)
-      setKybApplications(nextKybApplications)
-      setAuditEvents(nextAuditEvents)
       setSelectedWalletEmail((current) =>
         nextWallets.some((wallet) => wallet.email === current)
           ? current
           : nextWallets[0]?.email || "",
       )
-    } catch (requestError) {
+    })
+    applyResult(requestsResult, "transfer requests", setTransferRequests)
+    applyResult(paymentLinksResult, "payment links", setPaymentLinks)
+    applyResult(kybResult, "KYB", setKybApplications)
+    applyResult(auditResult, "audit history", setAuditEvents)
+    if (failures.length) {
       setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Could not load console data.",
+        `Could not load ${failures.join("; ")}. Your session is still active; use Refresh to retry.`,
       )
-    } finally {
-      setLoading(false)
     }
+    setLoading(false)
   }
 
   useEffect(() => {

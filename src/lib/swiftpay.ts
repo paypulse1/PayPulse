@@ -552,10 +552,13 @@ export class ApiError extends Error {
   }
 }
 
-async function parseResponse<T>(response: Response): Promise<T> {
+async function parseResponse<T>(
+  response: Response,
+  expireSessionOnUnauthorized = true,
+): Promise<T> {
   if (response.ok) return response.json() as Promise<T>;
   const body = await response.json().catch(() => ({})) as { error?: string };
-  if (response.status === 401) clearSession();
+  if (response.status === 401 && expireSessionOnUnauthorized) clearSession();
   throw new ApiError(body.error || (response.status === 401 ? "Your session has expired. Sign in again." : `Request failed (${response.status})`), response.status);
 }
 
@@ -569,7 +572,11 @@ async function publicRequest<T>(path: string, options?: RequestInit): Promise<T>
   return parseResponse<T>(response);
 }
 
-async function backendRequest<T>(path: string, options?: RequestInit): Promise<T> {
+async function backendRequest<T>(
+  path: string,
+  options?: RequestInit,
+  expireSessionOnUnauthorized = true,
+): Promise<T> {
   const apiBaseUrl = getConfiguredApiBaseUrl();
   if (!apiBaseUrl) throw new Error("Live transactions are disabled because the DRPAY backend is not configured.");
   const session = getSession();
@@ -582,10 +589,14 @@ async function backendRequest<T>(path: string, options?: RequestInit): Promise<T
       ...options?.headers,
     },
   });
-  if (response.status === 401 && typeof window !== "undefined") {
+  if (
+    response.status === 401 &&
+    expireSessionOnUnauthorized &&
+    typeof window !== "undefined"
+  ) {
     window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
   }
-  return parseResponse<T>(response);
+  return parseResponse<T>(response, expireSessionOnUnauthorized);
 }
 
 export async function login(email: string, password: string): Promise<Session> {
@@ -858,7 +869,7 @@ export async function getAdminSettings(): Promise<AdminSettings> {
 }
 
 export async function getAdminAuditEvents(): Promise<AdminAuditEvent[]> {
-  return backendRequest<AdminAuditEvent[]>("/v1/admin/audit");
+  return backendRequest<AdminAuditEvent[]>("/v1/admin/audit", undefined, false);
 }
 
 export async function getAdminPaymentLinks(): Promise<AdminPaymentLink[]> {
@@ -1060,7 +1071,7 @@ export async function deleteMerchantWebhook() {
 }
 
 export async function getAdminKybApplications(): Promise<AdminKybApplication[]> {
-  return backendRequest("/v1/admin/kyb");
+  return backendRequest("/v1/admin/kyb", undefined, false);
 }
 
 export async function reviewAdminKybApplication(email: string, input: { status: "IN_REVIEW" | "APPROVED" | "REJECTED"; reviewNotes: string }) {
