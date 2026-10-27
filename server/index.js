@@ -1277,15 +1277,32 @@ async function requireMerchant(req, res, next) {
 
 async function requireSuperAdmin(req, res, next) {
   const match = /^Bearer\s+(.+)$/i.exec(req.get("authorization") || "");
-  if (!match || !jwtSecret) return res.status(401).json({ error: "Super-admin sign-in is required." });
+  if (!match || !jwtSecret) {
+    console.warn("Super-admin authorization rejected", {
+      path: req.path,
+      reason: match ? "jwt_secret_unavailable" : "missing_bearer",
+    });
+    return res.status(401).json({ error: "Super-admin sign-in is required." });
+  }
+  let payload;
   try {
-    const { payload } = await jwtVerify(match[1], jwtSecret, { algorithms: ["HS256"] });
-    if (payload.sub !== superAdminEmail || payload.role !== "super_admin") throw new Error("Invalid admin session");
-    req.adminEmail = payload.sub;
-    return next();
-  } catch {
+    ({ payload } = await jwtVerify(match[1], jwtSecret, { algorithms: ["HS256"] }));
+  } catch (error) {
+    console.warn("Super-admin authorization rejected", {
+      path: req.path,
+      reason: error.code || error.name || "invalid_token",
+    });
     return res.status(401).json({ error: "Your admin session has expired. Sign in again." });
   }
+  if (payload.sub !== superAdminEmail || payload.role !== "super_admin") {
+    console.warn("Super-admin authorization rejected", {
+      path: req.path,
+      reason: "claim_mismatch",
+    });
+    return res.status(401).json({ error: "Your admin session has expired. Sign in again." });
+  }
+  req.adminEmail = payload.sub;
+  return next();
 }
 
 app.get("/healthz", async (_req, res) => {
