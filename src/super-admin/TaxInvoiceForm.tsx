@@ -335,6 +335,19 @@ export default function TaxInvoiceForm({
         </div>
       </div>
       <form onSubmit={submit}>
+        <label>
+          <span>Required tax amount (PHP)</span>
+          <input
+            type="text"
+            value={unpaidTax > 0 ? formatPhp(unpaidTax) : ""}
+            readOnly
+            placeholder="Calculated from BIR Form 2307"
+            aria-describedby="calculated-tax-amount"
+          />
+          <small id="calculated-tax-amount">
+            Automatically calculated from the uploaded completed BIR Form 2307.
+          </small>
+        </label>
         <div className="admin-invoice-breakdown" aria-live="polite">
           <strong>Invoice breakdown</strong>
           <p>Tax category: Expanded withholding tax (WI830)</p>
