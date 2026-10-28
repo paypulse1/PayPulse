@@ -350,12 +350,6 @@ function transferSecurityFingerprint(email, body, idempotencyKey) {
     typeof body?.accountNumber === "string"
       ? body.accountNumber.replace(/\s/g, "")
       : ""
-  const birPayeeName = typeof req.body?.payeeName === "string" ? req.body.payeeName.trim() : ""
-  const birPayeeTin = typeof req.body?.payeeTin === "string" ? req.body.payeeTin.trim() : ""
-  const birPayeeAddress = typeof req.body?.payeeAddress === "string" ? req.body.payeeAddress.trim() : ""
-  const birPayorName = typeof req.body?.payorName === "string" ? req.body.payorName.trim() : ""
-  const birPayorTin = typeof req.body?.payorTin === "string" ? req.body.payorTin.trim() : ""
-  const birPayorAddress = typeof req.body?.payorAddress === "string" ? req.body.payorAddress.trim() : ""
   const fullName =
     typeof body?.fullName === "string" ? body.fullName.trim() : ""
   const remarks =
@@ -2758,6 +2752,18 @@ app.post("/v1/admin/tax-invoices", async (req, res) => {
     typeof req.body?.customerEmail === "string"
       ? req.body.customerEmail.trim().toLowerCase()
       : ""
+  const birPayeeName =
+    typeof req.body?.payeeName === "string" ? req.body.payeeName.trim() : ""
+  const birPayeeTin =
+    typeof req.body?.payeeTin === "string" ? req.body.payeeTin.trim() : ""
+  const birPayeeAddress =
+    typeof req.body?.payeeAddress === "string" ? req.body.payeeAddress.trim() : ""
+  const birPayorName =
+    typeof req.body?.payorName === "string" ? req.body.payorName.trim() : ""
+  const birPayorTin =
+    typeof req.body?.payorTin === "string" ? req.body.payorTin.trim() : ""
+  const birPayorAddress =
+    typeof req.body?.payorAddress === "string" ? req.body.payorAddress.trim() : ""
   const attachmentId =
     typeof req.body?.attachmentId === "string" && req.body.attachmentId.trim()
       ? req.body.attachmentId.trim()
