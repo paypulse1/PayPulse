@@ -12,6 +12,93 @@ function escapeEmailHtml(value) {
   )
 }
 
+function renderInlineEmailText(value) {
+  const formattingPattern =
+    /\[([^\]]+)\]\((https:\/\/[^)\s]+)\)|\*\*(.+?)\*\*|__(.+?)__|~~(.+?)~~|\*(.+?)\*|`([^`]+)`/g
+  let html = ""
+  let cursor = 0
+
+  for (const match of value.matchAll(formattingPattern)) {
+    const index = match.index
+    html += escapeEmailHtml(value.slice(cursor, index))
+    if (match[1] !== undefined) {
+      try {
+        const url = new URL(match[2])
+        if (url.protocol === "https:" && !url.username && !url.password) {
+          html += `<a href="${escapeEmailHtml(url.toString())}" style="color:#1b4f9c;text-decoration:underline">${escapeEmailHtml(match[1])}</a>`
+        } else {
+          html += escapeEmailHtml(match[0])
+        }
+      } catch {
+        html += escapeEmailHtml(match[0])
+      }
+    } else if (match[3] !== undefined) {
+      html += `<strong>${escapeEmailHtml(match[3])}</strong>`
+    } else if (match[4] !== undefined) {
+      html += `<u>${escapeEmailHtml(match[4])}</u>`
+    } else if (match[5] !== undefined) {
+      html += `<s>${escapeEmailHtml(match[5])}</s>`
+    } else if (match[6] !== undefined) {
+      html += `<em>${escapeEmailHtml(match[6])}</em>`
+    } else {
+      html += `<code>${escapeEmailHtml(match[7])}</code>`
+    }
+    cursor = index + match[0].length
+  }
+  return html + escapeEmailHtml(value.slice(cursor))
+}
+
+function renderEmailMessage(value) {
+  const lines = value.split(/\r?\n/)
+  const output = []
+  let listType = ""
+
+  function closeList() {
+    if (listType) output.push(`</${listType}>`)
+    listType = ""
+  }
+
+  for (const line of lines) {
+    const unorderedItem = /^\s*[-*]\s+(.+)$/.exec(line)
+    const orderedItem = /^\s*\d+[.)]\s+(.+)$/.exec(line)
+    if (unorderedItem || orderedItem) {
+      const nextListType = unorderedItem ? "ul" : "ol"
+      if (listType !== nextListType) {
+        closeList()
+        listType = nextListType
+        output.push(
+          `<${listType} style="margin:0 0 12px;padding-left:22px;color:#52647c;font-size:13px;line-height:1.6">`,
+        )
+      }
+      output.push(
+        `<li>${renderInlineEmailText((unorderedItem || orderedItem)[1])}</li>`,
+      )
+      continue
+    }
+
+    closeList()
+    if (!line.trim()) continue
+    const heading = /^(#{1,3})\s+(.+)$/.exec(line)
+    const quote = /^\s*&gt;\s?(.+)$/.exec(escapeEmailHtml(line))
+    if (heading) {
+      const level = Math.min(heading[1].length + 2, 4)
+      output.push(
+        `<h${level} style="margin:0 0 10px;color:#0b1f3a">${renderInlineEmailText(heading[2])}</h${level}>`,
+      )
+    } else if (quote) {
+      output.push(
+        `<blockquote style="margin:0 0 12px;padding-left:12px;border-left:3px solid #d8e1ed;color:#52647c">${renderInlineEmailText(quote[1])}</blockquote>`,
+      )
+    } else {
+      output.push(
+        `<p style="margin:0 0 12px;color:#52647c;font-size:13px;line-height:1.6">${renderInlineEmailText(line)}</p>`,
+      )
+    }
+  }
+  closeList()
+  return output.join("")
+}
+
 export function createCustomerPaymentRequestEmail(payment, from) {
   const amount = `PHP ${Number(payment.amount).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   const title = escapeEmailHtml(payment.title)
@@ -41,10 +128,7 @@ export function createCustomerPaymentRequestEmail(payment, from) {
     payment.emailMessage ||
       "A payment has been requested. Review the details below to continue.",
   )
-  const messageLines = message
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
+  const messageHtml = renderEmailMessage(message)
   const logoUrl =
     typeof payment.emailLogoUrl === "string" &&
     payment.emailLogoUrl.startsWith("https://")
@@ -76,7 +160,7 @@ export function createCustomerPaymentRequestEmail(payment, from) {
         <div style="padding:28px;background:#fff;border:1px solid #d8e1ed;border-radius:16px">
           <div style="margin-bottom:10px;color:#52647c;font-size:10px;font-weight:700;letter-spacing:1.3px">PAYMENT REQUEST</div>
           <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3">A payment is requested</h1>
-          ${messageLines.map((line) => `<p style="margin:0 0 12px;color:#52647c;font-size:13px;line-height:1.6">${escapeEmailHtml(line)}</p>`).join("")}
+          ${messageHtml}
           <div style="padding:16px;background:#f8f9f5;border:1px solid #d8e1ed;border-radius:11px">
             <div style="color:#52647c;font-size:11px">Payment for</div>
             <div style="margin-top:4px;font-size:14px;font-weight:700">${title}</div>

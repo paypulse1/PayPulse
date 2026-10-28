@@ -98,4 +98,35 @@ describe("customer payment request email", () => {
     expect(email.subject).toBe("Invoice Bcc: attacker@example.com")
     expect(email.subject).not.toContain("\n")
   })
+
+  it("renders rich text, headings, quotes, and lists without accepting HTML", () => {
+    const email = createCustomerPaymentRequestEmail(
+      {
+        customerEmail: "customer@example.com",
+        title: "Invoice 25",
+        amount: 25,
+        referenceNo: "DRP-25",
+        paymentUrl: "https://pay.live.denpay.cc/checkout/code",
+        emailMessage:
+          "# Hello {{title}}\n**Bold** *italic* __underlined__ ~~removed~~ `code`\n- First item\n- [Pay now]({{checkout_url}})\n1. One\n2. Two\n> A quote\n[unsafe](javascript:alert(1))\n<img src=x onerror=alert(1)>",
+      },
+      "payments@denpay.cc",
+    )
+
+    expect(email.html).toContain("<h3")
+    expect(email.html).toContain("<strong>Bold</strong>")
+    expect(email.html).toContain("<em>italic</em>")
+    expect(email.html).toContain("<u>underlined</u>")
+    expect(email.html).toContain("<s>removed</s>")
+    expect(email.html).toContain("<code>code</code>")
+    expect(email.html).toContain("<ul")
+    expect(email.html).toContain("<ol")
+    expect(email.html).toContain("<blockquote")
+    expect(email.html).toContain(
+      'href="https://pay.live.denpay.cc/checkout/code"',
+    )
+    expect(email.html).not.toContain('href="javascript:')
+    expect(email.html).toContain("&lt;img src=x onerror=alert(1)&gt;")
+    expect(email.html).not.toContain("<img src=x")
+  })
 })

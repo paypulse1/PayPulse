@@ -335,7 +335,13 @@ function PaymentLinkActions({ url }: { url: string }) {
   )
 }
 
-function ApiCodeBlock({ title, code }: { title: string; code: string }) {
+function ApiCodeBlock({
+  title,
+  code,
+}: {
+  title: string
+  code: string
+}) {
   const [copyState, setCopyState] = useState("")
 
   async function copyCode() {
@@ -744,6 +750,50 @@ function CheckoutBrandingFields({
     onChange({ ...value, [key]: nextValue })
   }
 
+  const messageInput = useRef<HTMLTextAreaElement>(null)
+
+  function insertEmailFormatting(before: string, after = before) {
+    const input = messageInput.current
+    if (!input) return
+    const start = input.selectionStart
+    const end = input.selectionEnd
+    const selected = value.emailMessage.slice(start, end)
+    const insertion = selected || "text"
+    const nextMessage =
+      value.emailMessage.slice(0, start) +
+      before +
+      insertion +
+      after +
+      value.emailMessage.slice(end)
+    update("emailMessage", nextMessage)
+    requestAnimationFrame(() => {
+      input.focus()
+      input.setSelectionRange(
+        start + before.length,
+        start + before.length + insertion.length,
+      )
+    })
+  }
+
+  function insertEmailBlock(prefix: string) {
+    const input = messageInput.current
+    if (!input) return
+    const start = input.selectionStart
+    const end = input.selectionEnd
+    const selected = value.emailMessage.slice(start, end) || "text"
+    const block = selected
+      .split("\n")
+      .map((line) => `${prefix}${line}`)
+      .join("\n")
+    const nextMessage =
+      value.emailMessage.slice(0, start) + block + value.emailMessage.slice(end)
+    update("emailMessage", nextMessage)
+    requestAnimationFrame(() => {
+      input.focus()
+      input.setSelectionRange(start, start + block.length)
+    })
+  }
+
   return (
     <div className="checkout-branding-fields">
       <label>
@@ -774,15 +824,104 @@ function CheckoutBrandingFields({
       </label>
       <label>
         <span>Payment request email message</span>
+        <div
+          className="email-format-toolbar"
+          role="group"
+          aria-label="Email message formatting"
+        >
+          <button
+            type="button"
+            aria-label="Bold"
+            title="Bold"
+            onClick={() => insertEmailFormatting("**")}
+          >
+            B
+          </button>
+          <button
+            type="button"
+            aria-label="Italic"
+            title="Italic"
+            onClick={() => insertEmailFormatting("*")}
+          >
+            <em>I</em>
+          </button>
+          <button
+            type="button"
+            aria-label="Underline"
+            title="Underline"
+            onClick={() => insertEmailFormatting("__")}
+          >
+            <u>U</u>
+          </button>
+          <button
+            type="button"
+            aria-label="Strikethrough"
+            title="Strikethrough"
+            onClick={() => insertEmailFormatting("~~")}
+          >
+            <s>S</s>
+          </button>
+          <button
+            type="button"
+            aria-label="Insert link"
+            title="Insert link"
+            onClick={() => insertEmailFormatting("[", "](https://example.com)")}
+          >
+            Link
+          </button>
+          <button
+            type="button"
+            aria-label="Heading"
+            title="Heading"
+            onClick={() => insertEmailBlock("## ")}
+          >
+            H
+          </button>
+          <button
+            type="button"
+            aria-label="Bulleted list"
+            title="Bulleted list"
+            onClick={() => insertEmailBlock("- ")}
+          >
+            • List
+          </button>
+          <button
+            type="button"
+            aria-label="Numbered list"
+            title="Numbered list"
+            onClick={() => insertEmailBlock("1. ")}
+          >
+            1. List
+          </button>
+          <button
+            type="button"
+            aria-label="Quote"
+            title="Quote"
+            onClick={() => insertEmailBlock("> ")}
+          >
+            Quote
+          </button>
+          <button
+            type="button"
+            aria-label="Inline code"
+            title="Inline code"
+            onClick={() => insertEmailFormatting("`")}
+          >
+            {"</>"}
+          </button>
+        </div>
         <textarea
+          ref={messageInput}
           value={value.emailMessage}
           maxLength={1000}
           onChange={(event) => update("emailMessage", event.target.value)}
           rows={4}
         />
         <small>
-          Available placeholders: {`{{title}}`}, {`{{amount}}`},{" "}
-          {`{{reference}}`}, {`{{checkout_url}}`}.
+          Supports headings, bold, italic, underline, strikethrough, links,
+          quotes, inline code, and ordered or bulleted lists. Placeholders:{" "}
+          {`{{title}}`}, {`{{amount}}`}, {`{{reference}}`}, {`{{checkout_url}}`}
+          .
         </small>
       </label>
       <label>
@@ -5446,7 +5585,10 @@ export default function App() {
           tag_name?: string
           draft?: boolean
           prerelease?: boolean
-          assets?: { name?: string; browser_download_url?: string }[]
+          assets?: {
+            name?: string
+            browser_download_url?: string
+          }[]
         }
         const versionMatch = /^android-v(\d+\.\d+\.\d+)$/.exec(
           release.tag_name || "",

@@ -625,6 +625,10 @@ h1, h2, p { margin-top: 0; }
 .checkout-branding-fields textarea { resize: vertical; }
 .checkout-branding-fields input:focus, .checkout-branding-fields textarea:focus { border-color: var(--ink); }
 .checkout-branding-fields small { display: block; margin-top: 5px; color: var(--muted); font-size: 7px; line-height: 1.5; }
+.email-format-toolbar { margin: 0 0 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+.email-format-toolbar button { min-width: 29px; height: 27px; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: 8px; font-weight: 700; }
+.email-format-toolbar button:hover { border-color: var(--ink); background: var(--surface-soft); }
+.email-format-toolbar button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .checkout-brand-color { display: flex; align-items: center; gap: 9px; }
 .checkout-brand-color > span { margin: 0 !important; }
 .checkout-brand-color input { width: 38px; height: 30px; padding: 2px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
