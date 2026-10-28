@@ -118,6 +118,7 @@ export type PaymentLinkResult = {
   status?: string;
   amount?: number;
   currency?: string;
+  requestEmailStatus?: "queued" | "sent" | "no_customer_email" | "queue_failed";
 };
 
 export type AdminPaymentLink = {

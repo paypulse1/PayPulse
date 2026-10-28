@@ -33,6 +33,7 @@ import {
 } from "./access.js"
 import { createFloatingTransferRequest } from "./floating-transfers.js"
 import { calculateTransferDebit, createLedgerService } from "./ledger.js"
+import { createCustomerPaymentRequestEmail } from "./customer-payment-email.js"
 import {
   canManuallyConfirmPayment,
   createPaymentStateService,
@@ -918,6 +919,88 @@ async function dispatchCustomerPaymentNotifications() {
   }
 }
 
+async function dispatchCustomerPaymentRequests() {
+  const pending = await pool.query(
+    `SELECT n.id, n.payment_id, n.customer_email, n.attempts,
+       p.title, p.reference_no, p.amount, p.code
+     FROM payment_request_notifications n
+     JOIN payment_links p ON p.id = n.payment_id
+     WHERE n.sent_at IS NULL AND n.next_attempt_at <= NOW() AND n.attempts < 8
+     ORDER BY n.created_at ASC
+     LIMIT 25`,
+  )
+  for (const notification of pending.rows) {
+    try {
+      const email = createCustomerPaymentRequestEmail(
+        {
+          customerEmail: notification.customer_email,
+          title: notification.title,
+          amount: notification.amount,
+          referenceNo: notification.reference_no,
+          paymentUrl: buildCheckoutUrl(notification.code),
+        },
+        resendFromEmail,
+      )
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer " + resendApiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(email),
+        signal: AbortSignal.timeout(10_000),
+      })
+      if (!response.ok) {
+        console.error("Customer payment request delivery failed", {
+          status: response.status,
+        })
+        throw new Error("Customer payment request delivery failed.")
+      }
+      await pool.query(
+        "UPDATE payment_request_notifications SET sent_at = NOW(), attempts = attempts + 1 WHERE id = $1",
+        [notification.id],
+      )
+    } catch (error) {
+      const delaySeconds = Math.min(3600, 30 * 2 ** notification.attempts)
+      await pool.query(
+        `UPDATE payment_request_notifications
+         SET attempts = attempts + 1,
+           next_attempt_at = NOW() + ($2 * INTERVAL '1 second')
+         WHERE id = $1`,
+        [notification.id, delaySeconds],
+      )
+      console.error("Customer payment request remains queued for retry", {
+        notificationId: notification.id,
+        attempt: notification.attempts + 1,
+        error: error.message,
+      })
+    }
+  }
+}
+
+async function queueCustomerPaymentRequest(paymentId) {
+  const result = await pool.query(
+    `WITH payment AS (
+       SELECT id, customer_email FROM payment_links WHERE id = $2
+     ), inserted AS (
+       INSERT INTO payment_request_notifications (id, payment_id, customer_email)
+       SELECT $1, id, customer_email
+       FROM payment
+       WHERE customer_email IS NOT NULL
+       ON CONFLICT (payment_id) DO NOTHING
+       RETURNING id
+     )
+     SELECT payment.customer_email, notification.sent_at
+     FROM payment
+     LEFT JOIN payment_request_notifications notification
+       ON notification.payment_id = payment.id`,
+    [randomUUID(), paymentId],
+  )
+  const payment = result.rows[0]
+  if (!payment?.customer_email) return "no_customer_email"
+  return payment.sent_at ? "sent" : "queued"
+}
+
 function passwordMatchesWithSalt(candidate, expectedPassword, salt) {
   const expected = scryptSync(expectedPassword, salt, 64)
   const actual = scryptSync(candidate, salt, 64)
@@ -1297,6 +1380,18 @@ async function initializeDatabase() {
     );
     CREATE INDEX IF NOT EXISTS customer_payment_notifications_pending_idx
       ON customer_payment_notifications (next_attempt_at)
+      WHERE sent_at IS NULL AND attempts < 8;
+    CREATE TABLE IF NOT EXISTS payment_request_notifications (
+      id UUID PRIMARY KEY,
+      payment_id UUID NOT NULL UNIQUE REFERENCES payment_links(id) ON DELETE CASCADE,
+      customer_email TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      sent_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS payment_request_notifications_pending_idx
+      ON payment_request_notifications (next_attempt_at)
       WHERE sent_at IS NULL AND attempts < 8;
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS request_fingerprint TEXT;
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS recipient_name TEXT;
@@ -4986,6 +5081,7 @@ async function reconcilePending() {
       }),
     ])
     await dispatchTransactionNotifications()
+    await dispatchCustomerPaymentRequests()
     await dispatchCustomerPaymentNotifications()
     await dispatchMerchantWebhooks()
   } finally {
@@ -5437,7 +5533,16 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
           .json({ error: "The payment QR is temporarily unavailable." })
       }
     }
-    if (row.payment_url)
+    if (row.payment_url) {
+      let requestEmailStatus = "no_customer_email"
+      try {
+        requestEmailStatus = await queueCustomerPaymentRequest(row.id)
+      } catch (error) {
+        requestEmailStatus = "queue_failed"
+        console.error("Customer payment request could not be queued", {
+          error: error.code || "database error",
+        })
+      }
       return res.json({
         id: row.id,
         code: row.code,
@@ -5454,7 +5559,9 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
         status: row.status,
         amount: Number(row.amount),
         currency: row.currency,
+        requestEmailStatus,
       })
+    }
     return res
       .status(409)
       .json({
@@ -5528,6 +5635,15 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
       "UPDATE payment_links SET payment_token = $1, qr_payload = $2, payment_url = $3, status = $4, amount = $5, updated_at = NOW() WHERE id = $6",
       [data.paymentId, data.qrCode, checkoutUrl, status, actualAmount, id],
     )
+    let requestEmailStatus = "no_customer_email"
+    try {
+      requestEmailStatus = await queueCustomerPaymentRequest(id)
+    } catch (error) {
+      requestEmailStatus = "queue_failed"
+      console.error("Customer payment request could not be queued", {
+        error: error.code || "database error",
+      })
+    }
     if (status === "EXECUTED") await settleSuccessfulCollection(id)
     await queueSuccessfulTransaction("PAYMENT", id)
     await queueTransactionWebhook("PAYMENT", id)
@@ -5546,6 +5662,7 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
         status,
         amount: actualAmount,
         currency: "PHP",
+        requestEmailStatus,
       })
   } catch (error) {
     const isAmbiguous = !error.status || error.status >= 500

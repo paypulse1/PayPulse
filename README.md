@@ -24,7 +24,7 @@ Set these secrets directly in Render when prompted:
 - `DRPAY_SUPER_ADMIN_EMAIL` and `DRPAY_SUPER_ADMIN_PASSWORD`: separate credentials for the restricted operations console.
 - `DRPAY_PASSWORD_SALT`: random salt with at least 32 characters for the operations account password.
 - `DRPAY_JWT_SECRET`: random signing secret with at least 32 characters.
-- `RESEND_API_KEY`: API key for sending first-device verification codes through Resend.
+- `RESEND_API_KEY`: API key for sending first-device verification codes, customer payment requests, and payment confirmations through Resend.
 - `RESEND_FROM_EMAIL`: sender address on a domain verified with Resend.
 - `FCM_PROJECT_ID`, `FCM_SERVICE_ACCOUNT_EMAIL`, and `FCM_SERVICE_ACCOUNT_PRIVATE_KEY`: Firebase Cloud Messaging server credentials for Android transaction push alerts. Store the private key as a deployment secret; convert escaped `\n` sequences to newlines at runtime.
 - `SWIFTPAY_ACCESS_KEY` and `SWIFTPAY_SECRET_KEY`: credentials for the selected SwiftPay environment.
@@ -37,7 +37,7 @@ Set these secrets directly in Render when prompted:
 
 The API starts in `sandbox` mode. Verify the full flow against SwiftPay sandbox first. For live mode, explicitly set `SWIFTPAY_ENV=production`, add `SWIFTPAY_LIVE_MONEY_ACKNOWLEDGED=I_UNDERSTAND_REAL_MONEY`, and use live credentials in the API service's Render secret environment. The API refuses to start in production mode without that explicit acknowledgement. Never put SwiftPay credentials in any `VITE_*` variable; Vite bundles those values into public browser code.
 
-Merchant sign-in uses an email one-time code to verify a new device, then a four-digit MPIN for future sign-ins on that device. Every outgoing transfer also requires MPIN approval. Verification codes are delivered by Resend; configure a verified sender address and API key in the Render API service environment. The merchant's device token is stored locally and only its SHA-256 hash is stored by the API. Operations-console access remains separate and password-protected.
+Merchant sign-in uses an email one-time code to verify a new device, then a four-digit MPIN for future sign-ins on that device. Every outgoing transfer also requires MPIN approval. Verification codes, customer payment requests, and payment confirmations are delivered by Resend; configure a verified sender address and API key in the Render API service environment. The merchant's device token is stored locally and only its SHA-256 hash is stored by the API. Operations-console access remains separate and password-protected.
 
 On a previously verified device, the app remembers the last merchant email locally and opens directly to MPIN sign-in. Merchants can use configured biometrics instead, recover access through email verification, or switch to another account.
 

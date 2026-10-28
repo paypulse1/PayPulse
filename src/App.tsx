@@ -849,8 +849,13 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
                 </p>
                 {customerEmail.trim() && (
                   <p className="accepted-channels">
-                    Payment request queued for {customerEmail.trim()}. We’ll
-                    email them again when payment is confirmed.
+                    {result.requestEmailStatus === "queue_failed"
+                      ? "The checkout was created, but the payment request email could not be queued. Share this link directly."
+                      : result.requestEmailStatus === "sent"
+                        ? `The payment request email was sent to ${customerEmail.trim()}. They’ll receive another email when payment is confirmed.`
+                        : result.requestEmailStatus === "queued"
+                          ? `The payment request email is queued for ${customerEmail.trim()}. They’ll receive another email when payment is confirmed.`
+                          : `The payment request is ready to share with ${customerEmail.trim()}.`}
                   </p>
                 )}
                 <span
@@ -2394,6 +2399,8 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState("")
   const [code, setCode] = useState("")
   const [paymentStatus, setPaymentStatus] = useState("")
+  const [requestEmailStatus, setRequestEmailStatus] =
+    useState<PaymentLinkResult["requestEmailStatus"]>()
   const [selectingInstitution, setSelectingInstitution] = useState(false)
   const [selectedInstitution, setSelectedInstitution] =
     useState<PaymentInstitution | null>(null)
@@ -2432,6 +2439,7 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
       setQrCode(result.qrCode || "")
       setCode(result.code)
       setPaymentStatus(result.status || "PENDING")
+      setRequestEmailStatus(result.requestEmailStatus)
       clearPaymentLinkIdempotencyKey()
     } catch (requestError) {
       const message =
@@ -2482,8 +2490,13 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
             <p>Share this DRPAY-hosted checkout page with your customer.</p>
             {customerEmail.trim() && (
               <p className="accepted-channels">
-                Payment request queued for {customerEmail.trim()}. We’ll email
-                them again when payment is confirmed.
+                {requestEmailStatus === "queue_failed"
+                  ? "The checkout was created, but the payment request email could not be queued. Share this link directly."
+                  : requestEmailStatus === "sent"
+                    ? `The payment request email was sent to ${customerEmail.trim()}. They’ll receive another email when payment is confirmed.`
+                    : requestEmailStatus === "queued"
+                      ? `The payment request email is queued for ${customerEmail.trim()}. They’ll receive another email when payment is confirmed.`
+                      : `The payment request is ready to share with ${customerEmail.trim()}.`}
               </p>
             )}
             <span
