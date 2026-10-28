@@ -6,6 +6,14 @@ const birSealPath = fileURLToPath(
   new URL("../public/checkout-badges/bir-seal.png", import.meta.url),
 )
 
+const layout = {
+  pageWidth: 612,
+  pageHeight: 792,
+  contentX: 48,
+  contentRight: 564,
+  contentWidth: 516,
+}
+
 const colors = {
   ink: rgb(0.035, 0.075, 0.125),
   slate: rgb(0.29, 0.34, 0.39),
@@ -33,6 +41,12 @@ function fitText(font, text, size, maxWidth) {
     value = `${value.slice(0, -2).trim()}...`
   }
   return value
+}
+
+function parseAmount(value) {
+  const numericValue = String(value).replace(/[^0-9.-]/g, "")
+  const amount = Number(numericValue)
+  return Number.isFinite(amount) ? amount : 0
 }
 
 function rightAlign(page, font, text, size, right, y, color) {
@@ -73,7 +87,7 @@ function drawLabelValue(
 
 async function createDocument({ documentType, status, payment }) {
   const document = await PDFDocument.create()
-  const page = document.addPage([612, 792])
+  const page = document.addPage([layout.pageWidth, layout.pageHeight])
   const { height } = page.getSize()
   const regular = await document.embedFont(StandardFonts.Helvetica)
   const bold = await document.embedFont(StandardFonts.HelveticaBold)
@@ -98,6 +112,7 @@ async function createDocument({ documentType, status, payment }) {
     isBirTaxDocument,
     birSeal,
     bold,
+    accent,
   })
 
   const issuedAt = new Date(payment.createdAt || Date.now())
@@ -161,6 +176,7 @@ function drawDocumentHeader({
   isBirTaxDocument,
   birSeal,
   bold,
+  accent,
 }) {
   page.drawRectangle({
     x: 0,
@@ -371,8 +387,9 @@ function drawInvoiceDetails({
     borderWidth: 1,
   })
   if (isBirTaxDocument) {
+    const taxAmount = parseAmount(amount)
     const grossRemittances = formatMoney(
-      Math.round((Number(amount.replace(/[^0-9.-]/g, "")) / 0.005) * 100) / 100,
+      Math.round((taxAmount / 0.005) * 100) / 100,
     )
     const rows = [
       ["Tax period", String(title)],

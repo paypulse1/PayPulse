@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent } from "react"
 import { FilePlus2 } from "lucide-react"
+import { PDFDocument, PDFTextField } from "pdf-lib"
 import { Button } from "../AppPrimitives"
 import type { PaymentLinkResult } from "../lib/swiftpay"
 
@@ -35,6 +36,44 @@ const initialValues = {
   payorAddress: "",
 }
 
+function normalizeFieldName(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+}
+
+function parseInvoiceAmount(value: string) {
+  const amount = value.replace(/[^\d.-]/g, "")
+  return Number(amount) || 0
+}
+
+async function readPdfFormFields(file: File) {
+  const pdf = await PDFDocument.load(await file.arrayBuffer(), {
+    updateMetadata: false,
+  })
+  const form = pdf.getForm()
+  const fields = form.getFields()
+  const values = new Map<string, string>()
+
+  for (const field of fields) {
+    if (!(field instanceof PDFTextField)) continue
+    const text = field.getText()?.trim()
+    if (text) values.set(normalizeFieldName(field.getName()), text)
+  }
+  return values
+}
+
+function firstMatchingValue(
+  fields: Map<string, string>,
+  matches: string[],
+) {
+  for (const [name, value] of fields) {
+    if (matches.some((match) => name.includes(match))) return value
+  }
+  return ""
+}
+
 export default function TaxInvoiceForm({
   onCreateTaxInvoice,
 }: TaxInvoiceFormProps) {
@@ -48,6 +87,7 @@ export default function TaxInvoiceForm({
   const [error, setError] = useState("")
   const [createdInvoice, setCreatedInvoice] =
     useState<PaymentLinkResult | null>(null)
+  const [autofillMessage, setAutofillMessage] = useState("")
   const unpaidTax = Number(values.amount)
   const grossRemittances = Number.isFinite(unpaidTax)
     ? Math.round((unpaidTax / 0.005) * 100) / 100
@@ -62,6 +102,76 @@ export default function TaxInvoiceForm({
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     })
+  }
+
+  async function handleAttachment(file: File | null) {
+    setAttachment(file)
+    setAutofillMessage("")
+    if (!file) return
+
+    try {
+      const fields = await readPdfFormFields(file)
+      const payeeName =
+        firstMatchingValue(fields, ["payee registered name", "taxpayer registered name"]) ||
+        firstMatchingValue(fields, ["payee name", "taxpayer name", "taxpayer"])
+      const payeeTin =
+        firstMatchingValue(fields, ["payee tin", "taxpayer tin"]) ||
+        firstMatchingValue(fields, ["payee taxpayer tin"])
+      const payeeAddress =
+        firstMatchingValue(fields, ["payee address", "taxpayer address"])
+      const payorName =
+        firstMatchingValue(fields, ["payor registered name", "withholding agent name"]) ||
+        firstMatchingValue(fields, ["payor name", "income payor"])
+      const payorTin =
+        firstMatchingValue(fields, ["payor tin", "withholding agent tin", "agent tin"])
+      const payorAddress =
+        firstMatchingValue(fields, ["payor address", "withholding agent address"])
+      const description =
+        firstMatchingValue(fields, ["tax period", "period covered", "period"]) ||
+        values.description
+      const withheldAmount =
+        firstMatchingValue(fields, [
+          "tax withheld",
+          "total tax required withheld",
+          "amount of tax withheld",
+          "creditable tax",
+          "income tax withheld",
+        ])
+      const amount = parseInvoiceAmount(withheldAmount)
+
+      if (
+        payeeName ||
+        payeeTin ||
+        payeeAddress ||
+        payorName ||
+        payorTin ||
+        payorAddress ||
+        description ||
+        amount
+      ) {
+        setValues((current) => ({
+          ...current,
+          ...(description ? { description } : {}),
+          ...(amount > 0 ? { amount: String(amount) } : {}),
+          ...(payeeName ? { payeeName } : {}),
+          ...(payeeTin ? { payeeTin } : {}),
+          ...(payeeAddress ? { payeeAddress } : {}),
+          ...(payorName ? { payorName } : {}),
+          ...(payorTin ? { payorTin } : {}),
+          ...(payorAddress ? { payorAddress } : {}),
+        }))
+        setAutofillMessage("Available BIR Form 2307 fields were filled automatically.")
+      } else {
+        setAutofillMessage(
+          "This PDF has no readable fillable fields. Upload it normally and enter the invoice details manually.",
+        )
+      }
+    } catch (error) {
+      console.warn("Could not read uploaded BIR Form 2307 fields:", error)
+      setAutofillMessage(
+        "This PDF could not be read for autofill. The original file will still be attached to the email.",
+      )
+    }
   }
 
   async function submit(event: FormEvent) {
@@ -233,7 +343,7 @@ export default function TaxInvoiceForm({
             ref={attachmentInput}
             type="file"
             accept=".pdf,application/pdf"
-            onChange={(event) => setAttachment(event.target.files?.[0] || null)}
+            onChange={(event) => void handleAttachment(event.target.files?.[0] || null)}
             required
           />
           <small>
@@ -241,6 +351,7 @@ export default function TaxInvoiceForm({
             attached to the customer email without being modified.
           </small>
           {attachment && <small>{attachment.name}</small>}
+          {autofillMessage && <small>{autofillMessage}</small>}
         </label>
         {error && (
           <div className="inline-error" role="alert">
