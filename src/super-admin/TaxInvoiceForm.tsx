@@ -338,14 +338,19 @@ export default function TaxInvoiceForm({
         <label>
           <span>Required tax amount (PHP)</span>
           <input
-            type="text"
-            value={unpaidTax > 0 ? formatPhp(unpaidTax) : ""}
-            readOnly
-            placeholder="Calculated from BIR Form 2307"
+            type="number"
+            min="0.01"
+            max="1000000"
+            step="0.01"
+            inputMode="decimal"
+            value={values.amount}
+            onChange={(event) => updateValue("amount", event.target.value)}
+            placeholder="Enter the amount from BIR Form 2307"
             aria-describedby="calculated-tax-amount"
+            required
           />
           <small id="calculated-tax-amount">
-            Automatically calculated from the uploaded completed BIR Form 2307.
+            Enter the required tax amount. Gross remittances are calculated automatically.
           </small>
         </label>
         <div className="admin-invoice-breakdown" aria-live="polite">
