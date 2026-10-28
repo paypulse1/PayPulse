@@ -202,42 +202,28 @@ function drawDocumentHeader({
   })
   page.drawImage(drpayMark, {
     x: 48,
-    y: height - 68,
-    width: 40,
-    height: 40,
+    y: height - 66,
+    width: 36,
+    height: 36,
   })
   page.drawText("DRPAY", {
-    x: 96,
-    y: height - 52,
-    size: 22,
+    x: 92,
+    y: height - 54,
+    size: 20,
     font: bold,
     color: colors.white,
   })
   if (isBirTaxDocument) {
     page.drawImage(birSeal, {
       x: 502,
-      y: height - 106,
-      width: 46,
-      height: 46,
-    })
-    page.drawRectangle({
-      x: 96,
-      y: height - 82,
-      width: 154,
-      height: 1,
-      color: colors.birRed,
-    })
-    page.drawText("BUREAU OF INTERNAL REVENUE", {
-      x: 96,
-      y: height - 96,
-      size: 7,
-      font: bold,
-      color: colors.white,
+      y: height - 70,
+      width: 44,
+      height: 44,
     })
   }
   if (!isBirTaxDocument) {
     page.drawText("DIGITAL PAYMENT SERVICES", {
-      x: 96,
+      x: 92,
       y: height - 75,
       size: 8,
       font: bold,
@@ -245,15 +231,16 @@ function drawDocumentHeader({
     })
   }
 
-  page.drawText(documentType.toUpperCase(), {
-    x: 564 - bold.widthOfTextAtSize(documentType.toUpperCase(), 18),
+  const centeredDocumentType = documentType.toUpperCase()
+  page.drawText(centeredDocumentType, {
+    x: 306 - bold.widthOfTextAtSize(centeredDocumentType, 17) / 2,
     y: height - 54,
-    size: 18,
+    size: 17,
     font: bold,
     color: colors.white,
   })
   page.drawText("OFFICIAL DRPAY DOCUMENT", {
-    x: 564 - bold.widthOfTextAtSize("OFFICIAL DRPAY DOCUMENT", 7.5),
+    x: 306 - bold.widthOfTextAtSize("OFFICIAL DRPAY DOCUMENT", 7.5) / 2,
     y: height - 74,
     size: 7.5,
     font: bold,
