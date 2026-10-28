@@ -48,6 +48,19 @@ function parseInvoiceAmount(value: string) {
   return Number(amount) || 0
 }
 
+function extractTin(text: string, labels: string[]) {
+  const normalizedText = text.replace(/\s+/g, " ")
+  for (const label of labels) {
+    const pattern = new RegExp(
+      `${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[^0-9]{0,30}(\\d{3}-?\\d{3}-?\\d{3}-?\\d{3})`,
+      "i",
+    )
+    const match = normalizedText.match(pattern)
+    if (match) return match[1].replace(/-/g, "").replace(/(\d{3})(\d{3})(\d{3})(\d{3})/, "$1-$2-$3-$4")
+  }
+  return ""
+}
+
 async function readPdfFormFields(file: File) {
   const pdf = await PDFDocument.load(await file.arrayBuffer(), {
     updateMetadata: false,
@@ -62,6 +75,68 @@ async function readPdfFormFields(file: File) {
     if (text) values.set(normalizeFieldName(field.getName()), text)
   }
   return values
+}
+
+async function readPdfText(file: File, onProgress: (message: string) => void) {
+  const pdfjs = await import("pdfjs-dist")
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+    "pdfjs-dist/build/pdf.worker.min.mjs",
+    import.meta.url,
+  ).toString()
+  const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise
+  let text = ""
+
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    onProgress(`Reading PDF page ${pageNumber} of ${pdf.numPages}…`)
+    const page = await pdf.getPage(pageNumber)
+    const content = await page.getTextContent()
+    const pageText = content.items
+      .map((item) => ("str" in item ? item.str : ""))
+      .join(" ")
+    text += `${pageText}\n`
+
+    if (!pageText.trim() && pageNumber <= 2) {
+      onProgress(`Scanning PDF page ${pageNumber} with OCR…`)
+      const { createWorker } = await import("tesseract.js")
+      const worker = await createWorker("eng")
+      const viewport = page.getViewport({ scale: 2 })
+      const canvas = document.createElement("canvas")
+      canvas.width = Math.ceil(viewport.width)
+      canvas.height = Math.ceil(viewport.height)
+      const context = canvas.getContext("2d")
+      if (context) {
+        await page.render({ canvas, canvasContext: context, viewport }).promise
+        const result = await worker.recognize(canvas)
+        text += `${result.data.text}\n`
+      }
+      await worker.terminate()
+    }
+  }
+  return text.replace(/\s+/g, " ").trim()
+}
+
+function extractLabeledValue(text: string, labels: string[]) {
+  const normalizedText = text.replace(/\s+/g, " ")
+  for (const label of labels) {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    const pattern = new RegExp(
+      `${escaped}\\s*:?\\s*`,
+      "i",
+    )
+    const match = normalizedText.match(pattern)
+    if (!match || match.index === undefined) continue
+
+    const remainder = normalizedText.slice(match.index + match[0].length).trim()
+    const nextLabel = remainder.search(
+      /\b(?:TIN|Registered Name|Taxpayer Name|Payee Name|Payor Name|Address|Tax Period|Period Covered|Tax Code)\b/i,
+    )
+    const candidate = (nextLabel > 0 ? remainder.slice(0, nextLabel) : remainder)
+      .trim()
+      .slice(0, 120)
+      .replace(/^[.:;\s]+/, "")
+    if (candidate) return candidate.split(/\b(?:BIR|Page|Certificate)\b/i)[0].trim()
+  }
+  return ""
 }
 
 function firstMatchingValue(
@@ -111,23 +186,43 @@ export default function TaxInvoiceForm({
 
     try {
       const fields = await readPdfFormFields(file)
+      setAutofillMessage("Reading the uploaded BIR Form 2307…")
+      const pdfText = await readPdfText(file, setAutofillMessage)
       const payeeName =
         firstMatchingValue(fields, ["payee registered name", "taxpayer registered name"]) ||
-        firstMatchingValue(fields, ["payee name", "taxpayer name", "taxpayer"])
+        firstMatchingValue(fields, ["payee name", "taxpayer name", "taxpayer"]) ||
+        extractLabeledValue(pdfText, [
+          "Payee Registered Name",
+          "Taxpayer Registered Name",
+          "Payee Name",
+          "Taxpayer Name",
+        ])
       const payeeTin =
         firstMatchingValue(fields, ["payee tin", "taxpayer tin"]) ||
-        firstMatchingValue(fields, ["payee taxpayer tin"])
+        firstMatchingValue(fields, ["payee taxpayer tin"]) ||
+        extractTin(pdfText, ["Payee TIN", "Taxpayer TIN"]) ||
+        extractLabeledValue(pdfText, ["Payee TIN", "Taxpayer TIN"])
       const payeeAddress =
-        firstMatchingValue(fields, ["payee address", "taxpayer address"])
+        firstMatchingValue(fields, ["payee address", "taxpayer address"]) ||
+        extractLabeledValue(pdfText, ["Payee Address", "Taxpayer Address"])
       const payorName =
         firstMatchingValue(fields, ["payor registered name", "withholding agent name"]) ||
-        firstMatchingValue(fields, ["payor name", "income payor"])
+        firstMatchingValue(fields, ["payor name", "income payor"]) ||
+        extractLabeledValue(pdfText, [
+          "Payor Registered Name",
+          "Withholding Agent Name",
+          "Payor Name",
+        ])
       const payorTin =
-        firstMatchingValue(fields, ["payor tin", "withholding agent tin", "agent tin"])
+        firstMatchingValue(fields, ["payor tin", "withholding agent tin", "agent tin"]) ||
+        extractTin(pdfText, ["Payor TIN", "Withholding Agent TIN"]) ||
+        extractLabeledValue(pdfText, ["Payor TIN", "Withholding Agent TIN"])
       const payorAddress =
-        firstMatchingValue(fields, ["payor address", "withholding agent address"])
+        firstMatchingValue(fields, ["payor address", "withholding agent address"]) ||
+        extractLabeledValue(pdfText, ["Payor Address", "Withholding Agent Address"])
       const description =
         firstMatchingValue(fields, ["tax period", "period covered", "period"]) ||
+        extractLabeledValue(pdfText, ["Tax Period", "Period Covered"]) ||
         values.description
       const withheldAmount =
         firstMatchingValue(fields, [
@@ -136,6 +231,11 @@ export default function TaxInvoiceForm({
           "amount of tax withheld",
           "creditable tax",
           "income tax withheld",
+        ]) || extractLabeledValue(pdfText, [
+          "Amount of Tax Withheld",
+          "Tax Withheld",
+          "Total Tax Required to be Withheld",
+          "Creditable Tax Withheld",
         ])
       const amount = parseInvoiceAmount(withheldAmount)
 
