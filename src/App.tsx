@@ -2423,6 +2423,8 @@ function ScannerSheet({
   const [cameraRetry, setCameraRetry] = useState(0)
   const [decodingUpload, setDecodingUpload] = useState(false)
   const [merchantQr, setMerchantQr] = useState<MerchantQrDetails | null>(null)
+  const [merchantQrPayload, setMerchantQrPayload] = useState("")
+  const [merchantQrAction, setMerchantQrAction] = useState("")
 
   function handlePayload(payload: string) {
     const scannedQr = parseScannedQr(payload)
@@ -2437,6 +2439,8 @@ function ScannerSheet({
       return
     }
     setMerchantQr(scannedQr.merchant)
+    setMerchantQrPayload(payload)
+    setMerchantQrAction("")
     setMode("merchant")
   }
 
@@ -2718,8 +2722,37 @@ function ScannerSheet({
               complete the payment.
             </p>
             <Button
+              onClick={async () => {
+                try {
+                  if (navigator.share) {
+                    await navigator.share({
+                      title: "DRPAY merchant QR payment",
+                      text: merchantQrPayload,
+                    })
+                  } else {
+                    await navigator.clipboard.writeText(merchantQrPayload)
+                    setMerchantQrAction(
+                      "Merchant QR copied. Open your banking app and paste or scan the QR payload.",
+                    )
+                  }
+                } catch {
+                  setMerchantQrAction(
+                    "Could not open a payment app. Try copying the QR from the QR screen again.",
+                  )
+                }
+              }}
+            >
+              Pay merchant
+            </Button>
+            {merchantQrAction && (
+              <p role="status">{merchantQrAction}</p>
+            )}
+            <Button
+              variant="secondary"
               onClick={() => {
                 setMerchantQr(null)
+                setMerchantQrPayload("")
+                setMerchantQrAction("")
                 setCameraError("")
                 setMode("scan")
               }}
