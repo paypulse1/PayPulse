@@ -35,7 +35,10 @@ describe("customer payment request email", () => {
     expect(email.text).toContain("Previously Paid: PHP 0.00")
     expect(email.text).toContain("Outstanding Balance: PHP 16,898.00")
     expect(email.text).toContain(
-      "After paying the tax, the remittance payout request will start the process.",
+      "Complete the tax payment using the secure payment link in this email.",
+    )
+    expect(email.text).toContain(
+      "verify your payout details, and submit the payout request",
     )
     expect(email.text).toContain("Tax Payment Instructions")
     expect(email.text).toContain("What Happens Next")
