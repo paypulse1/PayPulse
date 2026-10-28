@@ -2539,9 +2539,24 @@ function ScannerSheet({
         )
       }
       const { BrowserQRCodeReader } = await import("@zxing/browser")
-      const result = await new BrowserQRCodeReader().decodeFromImageUrl(
-        imageUrl,
-      )
+      const reader = new BrowserQRCodeReader()
+      let result
+      try {
+        result = await reader.decodeFromImageUrl(imageUrl)
+      } catch {
+        const canvas = document.createElement("canvas")
+        const scale = Math.max(
+          1,
+          Math.min(3, 1600 / Math.max(image.naturalWidth, image.naturalHeight)),
+        )
+        canvas.width = Math.round(image.naturalWidth * scale)
+        canvas.height = Math.round(image.naturalHeight * scale)
+        const context = canvas.getContext("2d")
+        if (!context) throw new Error("Could not prepare the uploaded image.")
+        context.imageSmoothingEnabled = false
+        context.drawImage(image, 0, 0, canvas.width, canvas.height)
+        result = await reader.decodeFromImageUrl(canvas.toDataURL("image/png"))
+      }
       handlePayload(result.getText())
     } catch (error) {
       setCameraError(
