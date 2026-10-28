@@ -63,6 +63,7 @@ describe("customer payment request email", () => {
     expect(email.html).toContain("INVOICE SUMMARY")
     expect(email.html).toContain("Gross remittances")
     expect(email.html).toContain("Outstanding balance")
+    expect(email.html).toContain("BUREAU OF INTERNAL REVENUE")
     expect(email.html).not.toContain("not an official BIR Form 2307")
     expect(email.html).toContain("Tax invoice: &lt;Q3 remittances&gt;")
     expect(email.html).not.toContain("<Q3 remittances>")

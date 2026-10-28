@@ -10,6 +10,8 @@ const colors = {
   greenPale: rgb(0.925, 0.965, 0.948),
   navy: rgb(0.035, 0.105, 0.18),
   white: rgb(1, 1, 1),
+  birBlue: rgb(0.08, 0.18, 0.34),
+  birRed: rgb(0.62, 0.08, 0.09),
 }
 
 function formatMoney(amount) {
@@ -74,6 +76,7 @@ async function createDocument({ documentType, status, payment }) {
   const title = fitText(regular, payment.title, 10, 330)
   const isReceipt = documentType === "Receipt"
   const accent = isReceipt ? colors.green : colors.navy
+  const isBirTaxDocument = !isReceipt && payment.isTaxInvoice === true
 
   // Document header
   page.drawRectangle({
@@ -81,7 +84,7 @@ async function createDocument({ documentType, status, payment }) {
     y: height - 118,
     width: 612,
     height: 118,
-    color: accent,
+    color: isBirTaxDocument ? colors.birBlue : accent,
   })
   page.drawRectangle({
     x: 0,
@@ -97,6 +100,22 @@ async function createDocument({ documentType, status, payment }) {
     font: bold,
     color: colors.white,
   })
+  if (isBirTaxDocument) {
+    page.drawRectangle({
+      x: 48,
+      y: height - 82,
+      width: 150,
+      height: 1,
+      color: colors.birRed,
+    })
+    page.drawText("BUREAU OF INTERNAL REVENUE", {
+      x: 48,
+      y: height - 94,
+      size: 7,
+      font: bold,
+      color: colors.white,
+    })
+  }
   page.drawText("DIGITAL PAYMENT SERVICES", {
     x: 48,
     y: height - 75,

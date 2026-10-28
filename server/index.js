@@ -986,6 +986,9 @@ async function dispatchCustomerPaymentRequests() {
         referenceNo: notification.reference_no,
         title: notification.title,
         createdAt: notification.created_at,
+        isTaxInvoice:
+          notification.email_subject?.startsWith("DRPAY: BIR 2307") ||
+          notification.email_subject?.startsWith("DRPAY: Tax invoice"),
       })
       const email = createCustomerPaymentRequestEmail(
         {
@@ -2767,11 +2770,9 @@ app.post("/v1/admin/tax-invoice-attachments/complete", async (req, res) => {
       "Could not verify private tax invoice attachment",
       error.name || "storage error",
     )
-    return res
-      .status(503)
-      .json({
-        error: "Private document verification is temporarily unavailable.",
-      })
+    return res.status(503).json({
+      error: "Private document verification is temporarily unavailable.",
+    })
   }
 })
 

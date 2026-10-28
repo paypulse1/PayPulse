@@ -194,6 +194,12 @@ export function createCustomerPaymentRequestEmail(payment, from) {
             </table>
           </div>`
     : ""
+  const taxBrandHtml = isTaxInvoice
+    ? `<div style="margin-bottom:22px;padding:14px 16px;background:#13213a;border-left:4px solid #a7192d;border-radius:4px">
+        <div style="font-size:9px;font-weight:700;letter-spacing:1.4px;color:#b9c7dc">REPUBLIC OF THE PHILIPPINES</div>
+        <div style="margin-top:4px;font-size:14px;font-weight:700;letter-spacing:.2px;color:#fff">BUREAU OF INTERNAL REVENUE</div>
+      </div>`
+    : ""
   const brandColor = /^#[0-9A-Fa-f]{6}$/.test(payment.emailBrandColor || "")
     ? payment.emailBrandColor
     : "#153e2c"
@@ -259,6 +265,7 @@ export function createCustomerPaymentRequestEmail(payment, from) {
             : "DRPAY"
         }</div>
         <div style="padding:36px;background:#fff;border:1px solid #d8e1ed;border-radius:8px;box-shadow:0 4px 18px rgba(11,31,58,0.06)">
+          ${taxBrandHtml}
           <div style="margin-bottom:10px;color:#52647c;font-size:10px;font-weight:700;letter-spacing:1.3px">${badge}</div>
           <h1 style="margin:0 0 18px;font-size:26px;line-height:1.25">${heading}</h1>
           ${messageHtml}
