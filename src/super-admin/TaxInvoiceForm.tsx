@@ -378,6 +378,72 @@ export default function TaxInvoiceForm({
             required
           />
         </label>
+        <fieldset className="admin-fieldset">
+          <legend>Payee / taxpayer</legend>
+          <label>
+            <span>Registered name</span>
+            <input
+              value={values.payeeName}
+              onChange={(event) => updateValue("payeeName", event.target.value)}
+              maxLength={120}
+              required
+            />
+          </label>
+          <label>
+            <span>TIN</span>
+            <input
+              value={values.payeeTin}
+              onChange={(event) => updateValue("payeeTin", event.target.value)}
+              maxLength={15}
+              placeholder="000-000-000-000"
+              required
+            />
+          </label>
+          <label>
+            <span>Registered address</span>
+            <input
+              value={values.payeeAddress}
+              onChange={(event) =>
+                updateValue("payeeAddress", event.target.value)
+              }
+              maxLength={250}
+              required
+            />
+          </label>
+        </fieldset>
+        <fieldset className="admin-fieldset">
+          <legend>Payor / withholding agent</legend>
+          <label>
+            <span>Registered name</span>
+            <input
+              value={values.payorName}
+              onChange={(event) => updateValue("payorName", event.target.value)}
+              maxLength={120}
+              required
+            />
+          </label>
+          <label>
+            <span>TIN</span>
+            <input
+              value={values.payorTin}
+              onChange={(event) => updateValue("payorTin", event.target.value)}
+              maxLength={15}
+              placeholder="000-000-000-000"
+              required
+            />
+          </label>
+          <label>
+            <span>Registered address</span>
+            <input
+              value={values.payorAddress}
+              onChange={(event) =>
+                updateValue("payorAddress", event.target.value)
+              }
+              maxLength={250}
+              required
+            />
+          </label>
+        </fieldset>
         <label>
           <span>Completed BIR Form 2307</span>
           <input
