@@ -2890,7 +2890,7 @@ app.post("/v1/admin/tax-invoices", async (req, res) => {
       action: "Tax payment invoice created",
       target: referenceNo,
       actor: req.adminEmail,
-      summary: `VAT taxable amount PHP ${amount.toFixed(2)} at 12%; tax PHP ${invoice.taxAmount.toFixed(2)}; balance PHP ${invoice.amount.toFixed(2)} for ${customerEmail}.`,
+      summary: `WI830 expanded withholding tax at 0.50% on gross remittances PHP ${invoice.grossRemittances.toFixed(2)}; unpaid tax PHP ${amount.toFixed(2)} for ${customerEmail}.`,
     })
     await client.query("COMMIT")
   } catch (error) {
