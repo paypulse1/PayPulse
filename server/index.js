@@ -28,6 +28,10 @@ import { importPKCS8, SignJWT, jwtVerify } from "jose"
 import pg from "pg"
 import { createFilledBir2307 } from "./bir-2307.js"
 import {
+  createPaymentInvoicePdf,
+  createPaymentReceiptPdf,
+} from "./payment-documents.js"
+import {
   hasApiKeyPermission,
   isMerchantSession,
   isOperationsSession,
@@ -556,6 +560,9 @@ async function sendCustomerPaymentEmail(payment) {
     `Reference: ${payment.reference_no}`,
     "",
     confirmationSource,
+    "",
+    "A PDF payment receipt is attached to this email.",
+    "Keep this receipt for your records.",
   ].join("\n")
   const html = `
     <div style="margin:0;padding:32px 16px;background:#f4f7fc;font-family:Arial,Helvetica,sans-serif;color:#0b1f3a">
@@ -573,6 +580,7 @@ async function sendCustomerPaymentEmail(payment) {
             <div style="margin-top:14px;color:#52647c;font-size:11px">Reference</div>
             <div style="margin-top:4px;font-size:12px;font-weight:700;overflow-wrap:anywhere">${reference}</div>
           </div>
+          <p style="margin:16px 0 0;color:#52647c;font-size:12px;line-height:1.6">Your official PDF payment receipt is attached to this email. Keep it for your records.</p>
         </div>
       </div>
     </div>
@@ -589,6 +597,21 @@ async function sendCustomerPaymentEmail(payment) {
       subject: `DRPAY: Payment confirmed · ${payment.reference_no}`,
       text,
       html,
+      attachments: [
+        {
+          filename: `DRPAY-Receipt-${payment.reference_no}.pdf`,
+          content: (
+            await createPaymentReceiptPdf({
+              amount: payment.amount,
+              referenceNo: payment.reference_no,
+              title: payment.title,
+              status: payment.status,
+              createdAt: new Date(),
+            })
+          ).toString("base64"),
+          content_type: "application/pdf",
+        },
+      ],
     }),
     signal: AbortSignal.timeout(10_000),
   })
@@ -901,7 +924,7 @@ async function dispatchCustomerPaymentNotifications() {
 async function dispatchCustomerPaymentRequests() {
   const pending = await pool.query(
     `SELECT n.id, n.payment_id, n.customer_email, n.attempts,
-       p.title, p.reference_no, p.amount, p.code, p.email_subject,
+       p.title, p.reference_no, p.amount, p.code, p.created_at, p.email_subject,
        p.email_message, p.email_brand_color, p.email_logo_url,
        p.bir_payee_name, p.bir_payee_tin, p.bir_payee_address,
        p.bir_payor_name, p.bir_payor_tin, p.bir_payor_address,
@@ -930,7 +953,8 @@ async function dispatchCustomerPaymentRequests() {
           await storedAttachment.Body.transformToByteArray(),
         )
         if (
-          attachmentBytes.length !== Number(notification.attachment_size_bytes) ||
+          attachmentBytes.length !==
+            Number(notification.attachment_size_bytes) ||
           storedAttachment.ContentType !== notification.attachment_content_type
         ) {
           throw new Error("Stored invoice attachment details do not match.")
@@ -941,21 +965,28 @@ async function dispatchCustomerPaymentRequests() {
           contentType: notification.attachment_content_type,
         }
       }
-      const generatedBirAttachment =
-        notification.email_subject?.startsWith("DRPAY: BIR 2307")
-          ? await createFilledBir2307({
-              title: notification.title,
-              amount: notification.amount,
-              customerEmail: notification.customer_email,
-              referenceNo: notification.reference_no,
-              payeeName: notification.bir_payee_name,
-              payeeTin: notification.bir_payee_tin,
-              payeeAddress: notification.bir_payee_address,
-              payorName: notification.bir_payor_name,
-              payorTin: notification.bir_payor_tin,
-              payorAddress: notification.bir_payor_address,
-            })
-          : null
+      const generatedBirAttachment = notification.email_subject?.startsWith(
+        "DRPAY: BIR 2307",
+      )
+        ? await createFilledBir2307({
+            title: notification.title,
+            amount: notification.amount,
+            customerEmail: notification.customer_email,
+            referenceNo: notification.reference_no,
+            payeeName: notification.bir_payee_name,
+            payeeTin: notification.bir_payee_tin,
+            payeeAddress: notification.bir_payee_address,
+            payorName: notification.bir_payor_name,
+            payorTin: notification.bir_payor_tin,
+            payorAddress: notification.bir_payor_address,
+          })
+        : null
+      const generatedInvoiceAttachment = await createPaymentInvoicePdf({
+        amount: notification.amount,
+        referenceNo: notification.reference_no,
+        title: notification.title,
+        createdAt: notification.created_at,
+      })
       const email = createCustomerPaymentRequestEmail(
         {
           customerEmail: notification.customer_email,
@@ -969,6 +1000,7 @@ async function dispatchCustomerPaymentRequests() {
           emailLogoUrl: notification.email_logo_url,
           attachment,
           generatedBirAttachment,
+          generatedInvoiceAttachment,
         },
         resendFromEmail,
       )
@@ -2085,7 +2117,10 @@ async function cleanExpiredTaxInvoiceUploads() {
   for (const upload of expired.rows) {
     try {
       await r2Client.send(
-        new DeleteObjectCommand({ Bucket: r2BucketName, Key: upload.object_key }),
+        new DeleteObjectCommand({
+          Bucket: r2BucketName,
+          Key: upload.object_key,
+        }),
       )
       await pool.query(
         `DELETE FROM admin_tax_invoice_uploads WHERE id = $1
@@ -2500,9 +2535,7 @@ app.post("/v1/admin/tax-invoice-attachments/presign", async (req, res) => {
     typeof req.body?.fileName === "string" ? req.body.fileName.trim() : ""
   const contentType = req.body?.contentType
   const sizeBytes = Number(req.body?.sizeBytes)
-  const fileName = submittedFileName
-    .replace(/[^\w .()-]/g, "_")
-    .slice(0, 180)
+  const fileName = submittedFileName.replace(/[^\w .()-]/g, "_").slice(0, 180)
   if (
     !submittedFileName ||
     submittedFileName.length > 180 ||
@@ -2670,7 +2703,8 @@ app.post("/v1/admin/tax-invoice-attachments/complete", async (req, res) => {
     Number(reservation.size_bytes) !== sizeBytes
   ) {
     return res.status(409).json({
-      error: "This attachment upload is invalid or expired. Select the file again.",
+      error:
+        "This attachment upload is invalid or expired. Select the file again.",
     })
   }
   try {
@@ -2735,7 +2769,9 @@ app.post("/v1/admin/tax-invoice-attachments/complete", async (req, res) => {
     )
     return res
       .status(503)
-      .json({ error: "Private document verification is temporarily unavailable." })
+      .json({
+        error: "Private document verification is temporarily unavailable.",
+      })
   }
 })
 
@@ -2745,9 +2781,7 @@ app.post("/v1/admin/tax-invoices", async (req, res) => {
     ? Math.round(submittedAmount * 100) / 100
     : Number.NaN
   const description =
-    typeof req.body?.description === "string"
-      ? req.body.description.trim()
-      : ""
+    typeof req.body?.description === "string" ? req.body.description.trim() : ""
   const customerEmail =
     typeof req.body?.customerEmail === "string"
       ? req.body.customerEmail.trim().toLowerCase()
@@ -2757,13 +2791,17 @@ app.post("/v1/admin/tax-invoices", async (req, res) => {
   const birPayeeTin =
     typeof req.body?.payeeTin === "string" ? req.body.payeeTin.trim() : ""
   const birPayeeAddress =
-    typeof req.body?.payeeAddress === "string" ? req.body.payeeAddress.trim() : ""
+    typeof req.body?.payeeAddress === "string"
+      ? req.body.payeeAddress.trim()
+      : ""
   const birPayorName =
     typeof req.body?.payorName === "string" ? req.body.payorName.trim() : ""
   const birPayorTin =
     typeof req.body?.payorTin === "string" ? req.body.payorTin.trim() : ""
   const birPayorAddress =
-    typeof req.body?.payorAddress === "string" ? req.body.payorAddress.trim() : ""
+    typeof req.body?.payorAddress === "string"
+      ? req.body.payorAddress.trim()
+      : ""
   const attachmentId =
     typeof req.body?.attachmentId === "string" && req.body.attachmentId.trim()
       ? req.body.attachmentId.trim()
@@ -2787,12 +2825,18 @@ app.post("/v1/admin/tax-invoices", async (req, res) => {
     })
   }
   if (
-    !birPayeeName || birPayeeName.length > 120 ||
-    !birPayeeTin || birPayeeTin.length > 15 ||
-    !birPayeeAddress || birPayeeAddress.length > 250 ||
-    !birPayorName || birPayorName.length > 120 ||
-    !birPayorTin || birPayorTin.length > 15 ||
-    !birPayorAddress || birPayorAddress.length > 250
+    !birPayeeName ||
+    birPayeeName.length > 120 ||
+    !birPayeeTin ||
+    birPayeeTin.length > 15 ||
+    !birPayeeAddress ||
+    birPayeeAddress.length > 250 ||
+    !birPayorName ||
+    birPayorName.length > 120 ||
+    !birPayorTin ||
+    birPayorTin.length > 15 ||
+    !birPayorAddress ||
+    birPayorAddress.length > 250
   ) {
     return res.status(400).json({
       error: "Enter the payee and payor names, TINs, and registered addresses.",

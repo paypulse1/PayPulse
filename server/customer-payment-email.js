@@ -241,19 +241,32 @@ export function createCustomerPaymentRequestEmail(payment, from) {
   `
 
   const attachments = [
+    ...(payment.generatedInvoiceAttachment
+      ? [
+          {
+            filename: `DRPAY-Invoice-${payment.referenceNo}.pdf`,
+            content: payment.generatedInvoiceAttachment.toString("base64"),
+            content_type: "application/pdf",
+          },
+        ]
+      : []),
     ...(payment.generatedBirAttachment
-      ? [{
-          filename: `BIR-2307-${payment.referenceNo}.pdf`,
-          content: payment.generatedBirAttachment.toString("base64"),
-          content_type: "application/pdf",
-        }]
+      ? [
+          {
+            filename: `BIR-2307-${payment.referenceNo}.pdf`,
+            content: payment.generatedBirAttachment.toString("base64"),
+            content_type: "application/pdf",
+          },
+        ]
       : []),
     ...(payment.attachment
-      ? [{
-          filename: payment.attachment.fileName,
-          content: payment.attachment.content,
-          content_type: payment.attachment.contentType,
-        }]
+      ? [
+          {
+            filename: payment.attachment.fileName,
+            content: payment.attachment.content,
+            content_type: payment.attachment.contentType,
+          },
+        ]
       : []),
   ]
 
