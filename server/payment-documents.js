@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url"
 const birSealPath = fileURLToPath(
   new URL("../public/checkout-badges/bir-seal.png", import.meta.url),
 )
+const drpayMarkPath = fileURLToPath(
+  new URL("../public/drpay-mark.png", import.meta.url),
+)
 
 const layout = {
   pageWidth: 612,
@@ -91,11 +94,14 @@ async function createDocument({ documentType, status, payment }) {
   const { height } = page.getSize()
   const regular = await document.embedFont(StandardFonts.Helvetica)
   const bold = await document.embedFont(StandardFonts.HelveticaBold)
-  const birSealBytes =
+  const [birSealBytes, drpayMarkBytes] = await Promise.all([
     !payment.isTaxInvoice || documentType === "Receipt"
-      ? null
-      : await readFile(birSealPath)
+      ? Promise.resolve(null)
+      : readFile(birSealPath),
+    readFile(drpayMarkPath),
+  ])
   const birSeal = birSealBytes ? await document.embedPng(birSealBytes) : null
+  const drpayMark = await document.embedPng(drpayMarkBytes)
   const amount = formatMoney(payment.amount)
   const reference = String(payment.referenceNo || "N/A")
   const title = fitText(regular, payment.title, 10, 330)
@@ -111,6 +117,7 @@ async function createDocument({ documentType, status, payment }) {
     isReceipt,
     isBirTaxDocument,
     birSeal,
+    drpayMark,
     bold,
     accent,
   })
@@ -175,6 +182,7 @@ function drawDocumentHeader({
   isReceipt,
   isBirTaxDocument,
   birSeal,
+  drpayMark,
   bold,
   accent,
 }) {
@@ -192,10 +200,16 @@ function drawDocumentHeader({
     height: 118,
     color: isReceipt ? colors.green : rgb(0.12, 0.31, 0.49),
   })
-  page.drawText("DRPAY", {
+  page.drawImage(drpayMark, {
     x: 48,
+    y: height - 66,
+    width: 32,
+    height: 32,
+  })
+  page.drawText("DRPAY", {
+    x: 88,
     y: height - 55,
-    size: 25,
+    size: 24,
     font: bold,
     color: colors.white,
   })
@@ -223,7 +237,7 @@ function drawDocumentHeader({
   }
   if (!isBirTaxDocument) {
     page.drawText("DIGITAL PAYMENT SERVICES", {
-      x: 48,
+      x: 88,
       y: height - 75,
       size: 8,
       font: bold,
