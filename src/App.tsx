@@ -67,8 +67,10 @@ import {
   createMerchantFloatingTransferRequest,
   getMerchantFloatingTransferRequests,
   getMerchantNotificationPreferences,
+  getMerchantCheckoutPreferences,
   getMerchantNotificationInbox,
   saveMerchantNotificationPreferences,
+  saveMerchantCheckoutPreferences,
   getMerchantPayoutAccount,
   getMerchantUsdtWallet,
   getMerchantUsdtDeposits,
@@ -88,6 +90,7 @@ import {
   type DashboardData,
   type MerchantActivityTrendPoint,
   type MerchantPayoutAccount,
+  type MerchantCheckoutPreferences,
   type FloatingTransferRequest,
   type MerchantNotificationPreferences,
   type MerchantUsdtWallet,
@@ -426,11 +429,13 @@ function AvailableBalanceCard({
         <div className="balance-card-footer">
           <div className="balance-card-footer-copy">
             <span>
-              <i /> {data.paymentEnvironment === "production" ? "Live" : "Sandbox"}
+              <i />{" "}
+              {data.paymentEnvironment === "production" ? "Live" : "Sandbox"}
             </span>
             {data.reservedBalance > 0 && (
               <small>
-                {formatPeso(data.reservedBalance)} reserved for pending transfers
+                {formatPeso(data.reservedBalance)} reserved for pending
+                transfers
               </small>
             )}
           </div>
@@ -678,6 +683,172 @@ function BiometricEnrollmentPrompt({
   )
 }
 
+const DEFAULT_CHECKOUT_BRANDING: MerchantCheckoutPreferences = {
+  checkoutInstructions:
+    "Open your {bank} or supported banking app.\nOpen your {bank} QR scanner and scan the code above.\nConfirm the PHP amount before completing payment.",
+  emailSubject: "DRPAY: Payment request · {{reference}}",
+  emailMessage:
+    "A payment has been requested. Review the details below to continue.",
+  emailBrandColor: "#153e2c",
+  emailLogoUrl: "",
+}
+
+function useMerchantCheckoutBranding() {
+  const [branding, setBranding] = useState(DEFAULT_CHECKOUT_BRANDING)
+  const [brandingLoading, setBrandingLoading] = useState(true)
+  const [brandingLoadError, setBrandingLoadError] = useState("")
+  const [retryVersion, setRetryVersion] = useState(0)
+  useEffect(() => {
+    let active = true
+    setBrandingLoading(true)
+    setBrandingLoadError("")
+    getMerchantCheckoutPreferences()
+      .then((preferences) => {
+        if (active) setBranding(preferences)
+      })
+      .catch((error) => {
+        if (active)
+          setBrandingLoadError(
+            error instanceof Error
+              ? error.message
+              : "Could not load saved checkout branding.",
+          )
+      })
+      .finally(() => {
+        if (active) setBrandingLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [retryVersion])
+  return {
+    branding,
+    setBranding,
+    brandingLoading,
+    brandingLoadError,
+    retryBranding: () => setRetryVersion((version) => version + 1),
+  }
+}
+
+function CheckoutBrandingFields({
+  value,
+  onChange,
+}: {
+  value: MerchantCheckoutPreferences
+  onChange: (value: MerchantCheckoutPreferences) => void
+}) {
+  function update<K extends keyof MerchantCheckoutPreferences>(
+    key: K,
+    nextValue: MerchantCheckoutPreferences[K],
+  ) {
+    onChange({ ...value, [key]: nextValue })
+  }
+
+  return (
+    <div className="checkout-branding-fields">
+      <label>
+        <span>Checkout payment instructions</span>
+        <textarea
+          value={value.checkoutInstructions}
+          maxLength={600}
+          onChange={(event) =>
+            update("checkoutInstructions", event.target.value)
+          }
+          rows={4}
+        />
+        <small>
+          Use {`{bank}`} to insert the selected bank or payment app.
+        </small>
+      </label>
+      <label>
+        <span>Payment request email subject</span>
+        <input
+          value={value.emailSubject}
+          maxLength={160}
+          onChange={(event) => update("emailSubject", event.target.value)}
+        />
+        <small>
+          Available placeholders: {`{{title}}`}, {`{{amount}}`},{" "}
+          {`{{reference}}`}.
+        </small>
+      </label>
+      <label>
+        <span>Payment request email message</span>
+        <textarea
+          value={value.emailMessage}
+          maxLength={1000}
+          onChange={(event) => update("emailMessage", event.target.value)}
+          rows={4}
+        />
+        <small>
+          Available placeholders: {`{{title}}`}, {`{{amount}}`},{" "}
+          {`{{reference}}`}, {`{{checkout_url}}`}.
+        </small>
+      </label>
+      <label>
+        <span>Brand logo URL (optional)</span>
+        <input
+          type="url"
+          value={value.emailLogoUrl}
+          maxLength={2048}
+          onChange={(event) => update("emailLogoUrl", event.target.value)}
+          placeholder="https://example.com/logo.png"
+        />
+        <small>Use a public HTTPS image URL.</small>
+      </label>
+      <label className="checkout-brand-color">
+        <span>Brand color</span>
+        <input
+          type="color"
+          value={value.emailBrandColor}
+          onChange={(event) => update("emailBrandColor", event.target.value)}
+        />
+        <code>{value.emailBrandColor}</code>
+      </label>
+    </div>
+  )
+}
+
+function PaymentBrandingOverrides({
+  branding,
+  setBranding,
+  brandingLoading,
+  brandingLoadError,
+  retryBranding,
+}: {
+  branding: MerchantCheckoutPreferences
+  setBranding: (branding: MerchantCheckoutPreferences) => void
+  brandingLoading: boolean
+  brandingLoadError: string
+  retryBranding: () => void
+}) {
+  return (
+    <>
+      {brandingLoadError && (
+        <div className="inline-error" role="alert">
+          <AlertCircle size={15} />
+          <span>{brandingLoadError}</span>
+          <button
+            type="button"
+            className="profile-inline-action"
+            onClick={retryBranding}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+      <details className="checkout-branding-overrides">
+        <summary>
+          Customize checkout and email for this request
+          {brandingLoading && <small>Loading saved defaults…</small>}
+        </summary>
+        <p>Changes here apply only to this payment request.</p>
+        <CheckoutBrandingFields value={branding} onChange={setBranding} />
+      </details>
+    </>
+  )
+}
+
 function PaymentSheet({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("")
   const [amount, setAmount] = useState("")
@@ -695,6 +866,13 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
   const [selectingInstitution, setSelectingInstitution] = useState(false)
   const [selectedInstitution, setSelectedInstitution] =
     useState<PaymentInstitution | null>(null)
+  const {
+    branding,
+    setBranding,
+    brandingLoading,
+    brandingLoadError,
+    retryBranding,
+  } = useMerchantCheckoutBranding()
 
   useEffect(() => {
     if (currency !== "KRW") {
@@ -746,10 +924,12 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
 
   async function submit(event: FormEvent) {
     event.preventDefault()
+    if (brandingLoading || brandingLoadError) return
     setSelectingInstitution(true)
   }
 
   async function createCheckout(institution: PaymentInstitution) {
+    if (brandingLoading || brandingLoadError) return
     const enteredAmount = Number(amount)
     const phpAmount =
       currency === "KRW" && krwPhpQuote
@@ -771,6 +951,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
           customerEmail,
           institution,
           collectionAmountKrw: currency === "KRW" ? enteredAmount : undefined,
+          branding,
         },
         idempotencyKey,
       )
@@ -956,6 +1137,13 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
                 maxLength={254}
               />
             </label>
+            <PaymentBrandingOverrides
+              branding={branding}
+              setBranding={setBranding}
+              brandingLoading={brandingLoading}
+              brandingLoadError={brandingLoadError}
+              retryBranding={retryBranding}
+            />
             {currency === "KRW" && (
               <div className="currency-quote" aria-live="polite">
                 {quoteLoading ? (
@@ -988,6 +1176,8 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
               className="sheet-submit"
               disabled={
                 submitting ||
+                brandingLoading ||
+                Boolean(brandingLoadError) ||
                 currency === "USDT" ||
                 (currency === "KRW" && (!krwPhpQuote || quoteLoading))
               }
@@ -1945,8 +2135,8 @@ function TransferSheet({
               <span className="bank-picker-label">Transfer network</span>
               <div className="rail-selector">
                 {(pesonetAvailable
-                  ? (["INSTAPAY", "PESONET"] as const)
-                  : (["INSTAPAY"] as const)
+                  ? ["INSTAPAY", "PESONET"] as const
+                  : ["INSTAPAY"] as const
                 ).map((item) => {
                   const available =
                     item === "INSTAPAY"
@@ -2404,6 +2594,13 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
   const [selectingInstitution, setSelectingInstitution] = useState(false)
   const [selectedInstitution, setSelectedInstitution] =
     useState<PaymentInstitution | null>(null)
+  const {
+    branding,
+    setBranding,
+    brandingLoading,
+    brandingLoadError,
+    retryBranding,
+  } = useMerchantCheckoutBranding()
   const [idempotencyKey, setIdempotencyKey] = useState(() =>
     getPaymentLinkIdempotencyKey(),
   )
@@ -2424,15 +2621,23 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
   }, [code])
   async function submit(event: FormEvent) {
     event.preventDefault()
+    if (brandingLoading || brandingLoadError) return
     setSelectingInstitution(true)
   }
   async function createCheckout(institution: PaymentInstitution) {
+    if (brandingLoading || brandingLoadError) return
     setSelectedInstitution(institution)
     setBusy(true)
     setError("")
     try {
       const result = await createPaymentLink(
-        { amount: Number(amount), description, customerEmail, institution },
+        {
+          amount: Number(amount),
+          description,
+          customerEmail,
+          institution,
+          branding,
+        },
         idempotencyKey,
       )
       setUrl(result.paymentUrl)
@@ -2560,13 +2765,23 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
                 maxLength={254}
               />
             </label>
+            <PaymentBrandingOverrides
+              branding={branding}
+              setBranding={setBranding}
+              brandingLoading={brandingLoading}
+              brandingLoadError={brandingLoadError}
+              retryBranding={retryBranding}
+            />
             {error && (
               <div className="inline-error">
                 <AlertCircle size={15} />
                 {error}
               </div>
             )}
-            <Button type="submit" disabled={busy}>
+            <Button
+              type="submit"
+              disabled={busy || brandingLoading || Boolean(brandingLoadError)}
+            >
               {busy ? "Creating…" : "Create payment link"}
             </Button>
           </form>
@@ -2692,11 +2907,7 @@ function HomeView({
   )
 }
 
-function MerchantActivityChart({
-  refreshVersion,
-}: {
-  refreshVersion: number
-}) {
+function MerchantActivityChart({ refreshVersion }: { refreshVersion: number }) {
   const [points, setPoints] = useState<MerchantActivityTrendPoint[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -2938,9 +3149,11 @@ function WalletFloatingBalanceCard({
   const [requestError, setRequestError] = useState("")
   const [requestMessage, setRequestMessage] = useState("")
   const [requestSubmitting, setRequestSubmitting] = useState(false)
-  const [payoutRequests, setPayoutRequests] = useState<FloatingTransferRequest[]>([])
+  const [payoutRequests, setPayoutRequests] =
+    useState<FloatingTransferRequest[]>([])
   const [payoutRequestsError, setPayoutRequestsError] = useState("")
-  const [refreshingPayoutRequests, setRefreshingPayoutRequests] = useState(false)
+  const [refreshingPayoutRequests, setRefreshingPayoutRequests] =
+    useState(false)
   const collectionTargetKrw = 1_000_000
   const currentCollectionsKrw = Math.max(0, data.cumulativeKrwCollections)
   const collectionProgress = Math.min(
@@ -3168,7 +3381,10 @@ function WalletFloatingBalanceCard({
           </p>
         )}
       </section>
-      <section className="unsettled-request-history" aria-label="Payout request history">
+      <section
+        className="unsettled-request-history"
+        aria-label="Payout request history"
+      >
         <header className="section-header">
           <h3>Request history</h3>
           <button
@@ -3181,32 +3397,40 @@ function WalletFloatingBalanceCard({
           </button>
         </header>
         {payoutRequestsError ? (
-          <p className="inline-error" role="alert">{payoutRequestsError}</p>
+          <p className="inline-error" role="alert">
+            {payoutRequestsError}
+          </p>
         ) : payoutRequests.length ? (
           <div className="profile-recent-list">
             {payoutRequests.map((request) => (
               <div key={request.id}>
                 <span>
                   <strong>
-                    PHP {request.amount.toLocaleString("en-PH", {
+                    PHP{" "}
+                    {request.amount.toLocaleString("en-PH", {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
                     })}
                   </strong>
                   <small>
-                    {new Date(request.requestedAt).toLocaleDateString()} · {request.bankName} · {request.status}
+                    {new Date(request.requestedAt).toLocaleDateString()} ·{" "}
+                    {request.bankName} · {request.status}
                   </small>
                   {request.payoutReference && (
                     <small>Bank reference: {request.payoutReference}</small>
                   )}
                   {request.payoutNote && <small>{request.payoutNote}</small>}
-                  {request.failureReason && <small>{request.failureReason}</small>}
+                  {request.failureReason && (
+                    <small>{request.failureReason}</small>
+                  )}
                 </span>
               </div>
             ))}
           </div>
         ) : (
-          <p className="profile-info-note">Your payout requests and reconciliation references will appear here.</p>
+          <p className="profile-info-note">
+            Your payout requests and reconciliation references will appear here.
+          </p>
         )}
       </section>
     </section>
@@ -3329,13 +3553,13 @@ function WalletActivitySection({
           </div>
         )}
       </div>
-      {activityError && <p className="inline-error" role="alert">{activityError}</p>}
+      {activityError && (
+        <p className="inline-error" role="alert">
+          {activityError}
+        </p>
+      )}
       {hasMore && (
-        <Button
-          variant="secondary"
-          disabled={loadingMore}
-          onClick={onLoadMore}
-        >
+        <Button variant="secondary" disabled={loadingMore} onClick={onLoadMore}>
           {loadingMore ? "Loading…" : "Load more activity"}
         </Button>
       )}
@@ -3350,11 +3574,7 @@ function getUsdtServiceErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback
 }
 
-function MainnetUsdtWallet({
-  refreshVersion,
-}: {
-  refreshVersion: number
-}) {
+function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
   const [wallet, setWallet] = useState<MerchantUsdtWallet | null>(null)
   const [deposits, setDeposits] = useState<MerchantUsdtDeposit[]>([])
   const [loading, setLoading] = useState(true)
@@ -3472,9 +3692,7 @@ function MainnetUsdtWallet({
         </strong>
       </div>
       <div className="crypto-wallet-address">
-        <span>
-          DRPAY-ASSIGNED ADDRESS · {addressNetworkLabel}
-        </span>
+        <span>DRPAY-ASSIGNED ADDRESS · {addressNetworkLabel}</span>
         <strong className="crypto-wallet-address-value">
           {wallet?.address || (loading ? "Loading…" : "Not assigned")}
         </strong>
@@ -3489,7 +3707,10 @@ function MainnetUsdtWallet({
           </Button>
         )}
       </div>
-      <section className="crypto-deposit-history" aria-label="USDT deposit history">
+      <section
+        className="crypto-deposit-history"
+        aria-label="USDT deposit history"
+      >
         <header className="section-header">
           <div>
             <span className="eyebrow">TRON · TRC20</span>
@@ -3504,16 +3725,28 @@ function MainnetUsdtWallet({
           </Button>
         </header>
         {depositLoading ? (
-          <p className="crypto-wallet-feedback" role="status">Loading confirmed deposits…</p>
+          <p className="crypto-wallet-feedback" role="status">
+            Loading confirmed deposits…
+          </p>
         ) : depositError ? (
-          <p className="crypto-wallet-feedback crypto-wallet-error" role="alert">{depositError}</p>
+          <p
+            className="crypto-wallet-feedback crypto-wallet-error"
+            role="alert"
+          >
+            {depositError}
+          </p>
         ) : deposits.length ? (
           <div className="crypto-deposit-list">
             {deposits.map((deposit) => (
-              <article className="crypto-deposit-row" key={deposit.transactionId}>
+              <article
+                className="crypto-deposit-row"
+                key={deposit.transactionId}
+              >
                 <div>
                   <strong>{deposit.amount} USDT</strong>
-                  <small>{new Date(deposit.blockTimestamp).toLocaleString()}</small>
+                  <small>
+                    {new Date(deposit.blockTimestamp).toLocaleString()}
+                  </small>
                   <small>From {deposit.from}</small>
                 </div>
                 <span className="crypto-wallet-badge">
@@ -3531,7 +3764,8 @@ function MainnetUsdtWallet({
           </div>
         ) : (
           <p className="crypto-wallet-feedback" role="status">
-            {depositMessage || "No confirmed USDT deposits found in the latest 50 TRC20 transfers."}
+            {depositMessage ||
+              "No confirmed USDT deposits found in the latest 50 TRC20 transfers."}
           </p>
         )}
       </section>
@@ -3628,7 +3862,12 @@ function WalletView({
     let active = true
     setActivityLoading(true)
     setActivityError("")
-    getMerchantActivityPage({ limit: 50, offset: 0, from: fromDate, to: toDate })
+    getMerchantActivityPage({
+      limit: 50,
+      offset: 0,
+      from: fromDate,
+      to: toDate,
+    })
       .then((page) => {
         if (!active) return
         setActivity(page)
@@ -3880,6 +4119,12 @@ function MoreView({
       icon: Store,
       action: () => onInfo("Merchant profile"),
     },
+    {
+      label: "Checkout & email branding",
+      description: "Customize checkout instructions and payment emails",
+      icon: Settings,
+      action: () => onInfo("Checkout & email branding"),
+    },
     ...(data.walletMode === "pooled"
       ? [
           {
@@ -3986,6 +4231,106 @@ function MoreView({
         <a href={APP_ROUTES.contact}>Contact Us</a>
       </nav>
     </section>
+  )
+}
+
+function CheckoutEmailBrandingSettings() {
+  const [branding, setBranding] = useState(DEFAULT_CHECKOUT_BRANDING)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+  const [loadError, setLoadError] = useState("")
+  const [notice, setNotice] = useState("")
+  const [retryLoad, setRetryLoad] = useState(0)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setLoadError("")
+    getMerchantCheckoutPreferences()
+      .then((preferences) => {
+        if (active) setBranding(preferences)
+      })
+      .catch((requestError) => {
+        if (active)
+          setLoadError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Could not load checkout branding.",
+          )
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [retryLoad])
+
+  async function saveBranding() {
+    setSaving(true)
+    setError("")
+    setNotice("")
+    try {
+      setBranding(await saveMerchantCheckoutPreferences(branding))
+      setNotice("Checkout and email branding defaults saved.")
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not save checkout branding.",
+      )
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="checkout-branding-settings">
+      <div className="profile-info-intro">
+        <strong>Reusable payment defaults</strong>
+        <p>
+          These values prefill each new request. You can override them for an
+          individual payment without changing the saved defaults.
+        </p>
+      </div>
+      {loading ? (
+        <div className="profile-sheet-state" role="status">
+          <LoaderCircle className="spin" size={17} />
+          Loading branding…
+        </div>
+      ) : loadError ? (
+        <div className="inline-error" role="alert">
+          <AlertCircle size={15} />
+          <span>{loadError}</span>
+          <button
+            type="button"
+            className="profile-inline-action"
+            onClick={() => setRetryLoad((attempt) => attempt + 1)}
+          >
+            Retry
+          </button>
+        </div>
+      ) : (
+        <>
+          <CheckoutBrandingFields value={branding} onChange={setBranding} />
+          {error && (
+            <div className="inline-error" role="alert">
+              <AlertCircle size={15} />
+              {error}
+            </div>
+          )}
+          {notice && (
+            <p className="profile-info-note" role="status">
+              {notice}
+            </p>
+          )}
+          <Button disabled={saving} onClick={() => void saveBranding()}>
+            {saving ? "Saving…" : "Save branding defaults"}
+          </Button>
+        </>
+      )}
+    </div>
   )
 }
 
@@ -4129,6 +4474,10 @@ function ProfileInfoPage({
           <ChevronLeft size={16} /> Profile
         </button>
       </header>
+
+      {title === "Checkout & email branding" && (
+        <CheckoutEmailBrandingSettings />
+      )}
 
       {title === "Merchant profile" && (
         <>
@@ -4380,12 +4729,18 @@ function ProfileInfoPage({
             <strong>Transaction events</strong>
             <p>Choose which successful transaction types can send alerts.</p>
           </div>
-          {(
+          {([
             [
-              ["paymentsEnabled", "Successful incoming payments", "Confirmed collections"],
-              ["transfersEnabled", "Successful outgoing transfers", "Provider-confirmed transfers"],
-            ] as const
-          ).map(([key, label, description]) => (
+              "paymentsEnabled",
+              "Successful incoming payments",
+              "Confirmed collections",
+            ],
+            [
+              "transfersEnabled",
+              "Successful outgoing transfers",
+              "Provider-confirmed transfers",
+            ],
+          ] as const).map(([key, label, description]) => (
             <div className="profile-notification-option" key={key}>
               <span className="profile-notification-icon">
                 {key === "paymentsEnabled" ? (
@@ -4475,16 +4830,16 @@ function ProfileInfoPage({
               {!notificationPreferences?.pushEnabled
                 ? "OFF"
                 : notificationPermission === "unavailable"
-                ? "APP ONLY"
-                : notificationPermission === "denied"
-                  ? "BLOCKED"
-                  : pushRegistrationState === "registered"
-                    ? "ON"
-                    : pushRegistrationState === "registering"
-                      ? "SETUP"
-                      : notificationPermission === "granted"
-                        ? "RETRY"
-                        : "OFF"}
+                  ? "APP ONLY"
+                  : notificationPermission === "denied"
+                    ? "BLOCKED"
+                    : pushRegistrationState === "registered"
+                      ? "ON"
+                      : pushRegistrationState === "registering"
+                        ? "SETUP"
+                        : notificationPermission === "granted"
+                          ? "RETRY"
+                          : "OFF"}
             </button>
           </div>
           {pushError && (
@@ -4872,21 +5227,24 @@ export async function createInvoiceCheckout({ amount, invoiceId, customerEmail }
           <div className="profile-info-intro">
             <strong>Guides and common questions</strong>
             <p>
-              Quick checks for payments, transfers, balances, and account access.
+              Quick checks for payments, transfers, balances, and account
+              access.
             </p>
           </div>
           <div className="profile-help-faq-list">
             <details>
               <summary>Payment is pending or not showing</summary>
               <p>
-                Refresh Wallet activity and check the latest provider status.
-                A payer screenshot or return to checkout is not confirmation.
-                Wait for the status to resolve before creating another payment
+                Refresh Wallet activity and check the latest provider status. A
+                payer screenshot or return to checkout is not confirmation. Wait
+                for the status to resolve before creating another payment
                 request to avoid duplicates.
               </p>
             </details>
             <details>
-              <summary>Transfer is pending or the recipient has not received it</summary>
+              <summary>
+                Transfer is pending or the recipient has not received it
+              </summary>
               <p>
                 Pending means the provider has not confirmed settlement yet.
                 Don’t submit the transfer again while it is pending. Check the
@@ -4898,9 +5256,9 @@ export async function createInvoiceCheckout({ amount, invoiceId, customerEmail }
             <details>
               <summary>Available Balance Looks Different</summary>
               <p>
-                Pending or outcome-unknown transfers can reserve funds.
-                Floating balance is separate from the merchant operational
-                ledger. Compare Wallet activity with your statement for the
+                Pending or outcome-unknown transfers can reserve funds. Floating
+                balance is separate from the merchant operational ledger.
+                Compare Wallet activity with your statement for the
                 transaction-level amounts.
               </p>
             </details>
@@ -4909,8 +5267,8 @@ export async function createInvoiceCheckout({ amount, invoiceId, customerEmail }
               <p>
                 Verify a new device with the code sent to your merchant email.
                 On a trusted device, use your MPIN; choose the email-code
-                verification option if you need to recover access. If you can
-                no longer access that email, contact DRPAY support.
+                verification option if you need to recover access. If you can no
+                longer access that email, contact DRPAY support.
               </p>
             </details>
           </div>
@@ -4967,9 +5325,7 @@ function hasScrolledNestedContainer(
 
 export default function App() {
   const pathCheckoutCode =
-    new RegExp(
-      `^${APP_ROUTES.checkout}/([A-Za-z0-9_-]{40,50})/?$`,
-    ).exec(
+    new RegExp(`^${APP_ROUTES.checkout}/([A-Za-z0-9_-]{40,50})/?$`).exec(
       window.location.pathname,
     )?.[1] || ""
   const queryCheckoutCode =
@@ -5815,7 +6171,11 @@ export default function App() {
           </h1>
           <div className="header-actions">
             <IconButton
-              label={`Notifications${unreadNotificationCount ? `, ${unreadNotificationCount} unread` : ""}`}
+              label={`Notifications${
+                unreadNotificationCount
+                  ? `, ${unreadNotificationCount} unread`
+                  : ""
+              }`}
               onClick={() => setShowNotifications(true)}
             >
               <Bell size={19} />
@@ -5851,7 +6211,9 @@ export default function App() {
               <span
                 className={pullRefreshing ? "is-refreshing" : ""}
                 style={{
-                  transform: `translateY(${pullRefreshing ? 0 : pullDistance - 38}px)`,
+                  transform: `translateY(${
+                    pullRefreshing ? 0 : pullDistance - 38
+                  }px)`,
                 }}
               >
                 <RefreshCw size={15} />

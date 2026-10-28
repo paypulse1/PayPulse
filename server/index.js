@@ -40,6 +40,12 @@ import {
 } from "./payment-state.js"
 
 const { Pool } = pg
+const defaultCheckoutInstructions =
+  "Open your {bank} or supported banking app.\nOpen your {bank} QR scanner and scan the code above.\nConfirm the PHP amount before completing payment."
+const defaultPaymentEmailSubject = "DRPAY: Payment request · {{reference}}"
+const defaultPaymentEmailMessage =
+  "A payment has been requested. Review the details below to continue."
+const defaultPaymentEmailColor = "#153e2c"
 const app = express()
 const clientBuildDirectory = fileURLToPath(new URL("../dist", import.meta.url))
 app.set("trust proxy", 1)
@@ -836,7 +842,11 @@ async function dispatchTransactionNotifications() {
         [notification.id],
       )
     }
-    if (notification.push_enabled && !notification.push_sent_at && fcmConfigured()) {
+    if (
+      notification.push_enabled &&
+      !notification.push_sent_at &&
+      fcmConfigured()
+    ) {
       try {
         const devices = await pool.query(
           "SELECT token FROM merchant_push_devices WHERE merchant_email = $1",
@@ -922,7 +932,8 @@ async function dispatchCustomerPaymentNotifications() {
 async function dispatchCustomerPaymentRequests() {
   const pending = await pool.query(
     `SELECT n.id, n.payment_id, n.customer_email, n.attempts,
-       p.title, p.reference_no, p.amount, p.code
+       p.title, p.reference_no, p.amount, p.code, p.email_subject,
+       p.email_message, p.email_brand_color, p.email_logo_url
      FROM payment_request_notifications n
      JOIN payment_links p ON p.id = n.payment_id
      WHERE n.sent_at IS NULL AND n.next_attempt_at <= NOW() AND n.attempts < 8
@@ -938,6 +949,10 @@ async function dispatchCustomerPaymentRequests() {
           amount: notification.amount,
           referenceNo: notification.reference_no,
           paymentUrl: buildCheckoutUrl(notification.code),
+          emailSubject: notification.email_subject,
+          emailMessage: notification.email_message,
+          emailBrandColor: notification.email_brand_color,
+          emailLogoUrl: notification.email_logo_url,
         },
         resendFromEmail,
       )
@@ -1306,6 +1321,15 @@ async function initializeDatabase() {
     );
     ALTER TABLE merchant_notification_preferences ADD COLUMN IF NOT EXISTS payments_enabled BOOLEAN NOT NULL DEFAULT TRUE;
     ALTER TABLE merchant_notification_preferences ADD COLUMN IF NOT EXISTS transfers_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+    CREATE TABLE IF NOT EXISTS merchant_checkout_preferences (
+      merchant_email TEXT PRIMARY KEY REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      checkout_instructions TEXT NOT NULL DEFAULT E'Open your {bank} or supported banking app.\\nOpen your {bank} QR scanner and scan the code above.\\nConfirm the PHP amount before completing payment.',
+      email_subject TEXT NOT NULL DEFAULT 'DRPAY: Payment request · {{reference}}',
+      email_message TEXT NOT NULL DEFAULT 'A payment has been requested. Review the details below to continue.',
+      email_brand_color TEXT NOT NULL DEFAULT '#153e2c',
+      email_logo_url TEXT NOT NULL DEFAULT '',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
     CREATE TABLE IF NOT EXISTS transaction_notifications (
       id UUID PRIMARY KEY,
       merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
@@ -1366,6 +1390,11 @@ async function initializeDatabase() {
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_institution_deep_link TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS merchant_email TEXT REFERENCES merchant_accounts(email) ON DELETE CASCADE;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS customer_email TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS checkout_instructions TEXT NOT NULL DEFAULT E'Open your {bank} or supported banking app.\\nOpen your {bank} QR scanner and scan the code above.\\nConfirm the PHP amount before completing payment.';
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS email_subject TEXT NOT NULL DEFAULT 'DRPAY: Payment request · {{reference}}';
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS email_message TEXT NOT NULL DEFAULT 'A payment has been requested. Review the details below to continue.';
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS email_brand_color TEXT NOT NULL DEFAULT '#153e2c';
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS email_logo_url TEXT NOT NULL DEFAULT '';
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS manually_paid_by TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS manually_paid_at TIMESTAMPTZ;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS manual_paid_reason TEXT;
@@ -1645,12 +1674,10 @@ async function requireMerchant(req, res, next) {
     return res.status(401).json({ error: "Sign in is required." })
   if (match[1].startsWith("drp_")) {
     if (!match[1].startsWith(`drp_${swiftPayEnvironment}_`)) {
-      return res
-        .status(401)
-        .json({
-          error:
-            "The API key is invalid or belongs to another payment environment.",
-        })
+      return res.status(401).json({
+        error:
+          "The API key is invalid or belongs to another payment environment.",
+      })
     }
     const keyHash = createHash("sha256").update(match[1]).digest("hex")
     const result = await pool.query(
@@ -1670,11 +1697,9 @@ async function requireMerchant(req, res, next) {
         .json({ error: "This API key does not have read permission." })
     }
     if (!hasApiKeyPermission(req.method, req.path, apiKey.scopes)) {
-      return res
-        .status(403)
-        .json({
-          error: "This API key does not have permission for this operation.",
-        })
+      return res.status(403).json({
+        error: "This API key does not have permission for this operation.",
+      })
     }
     req.merchantEmail = apiKey.merchant_email
     req.apiKey = true
@@ -2068,11 +2093,9 @@ app.post("/v1/auth/device/otp/request", loginLimiter, async (req, res) => {
     email.length > 254 ||
     !/^[A-Za-z0-9_-]{32,128}$/.test(deviceToken)
   ) {
-    return res
-      .status(400)
-      .json({
-        error: "Enter a valid merchant email to request a verification code.",
-      })
+    return res.status(400).json({
+      error: "Enter a valid merchant email to request a verification code.",
+    })
   }
   const account = await pool.query(
     "SELECT email FROM merchant_accounts WHERE email = $1 AND active = TRUE",
@@ -2129,11 +2152,9 @@ app.post("/v1/auth/device/otp/request", loginLimiter, async (req, res) => {
       await pool.query("DELETE FROM merchant_email_otps WHERE id = $1", [
         challengeId,
       ])
-      return res
-        .status(503)
-        .json({
-          error: "Verification email could not be sent. Try again later.",
-        })
+      return res.status(503).json({
+        error: "Verification email could not be sent. Try again later.",
+      })
     }
   }
   return res.set("Cache-Control", "no-store").json({
@@ -2194,11 +2215,9 @@ app.post("/v1/auth/device/otp/verify", loginLimiter, async (req, res) => {
       !timingSafeEqual(actualHash, expectedHash)
     ) {
       await client.query("COMMIT")
-      return res
-        .status(401)
-        .json({
-          error: "That code is incorrect. Check the email and try again.",
-        })
+      return res.status(401).json({
+        error: "That code is incorrect. Check the email and try again.",
+      })
     }
     const consumed = await client.query(
       `UPDATE merchant_email_otps SET consumed_at = NOW()
@@ -2241,12 +2260,10 @@ app.post("/v1/auth/device/pin", loginLimiter, async (req, res) => {
     !/^\d{4}$/.test(pin) ||
     !/^[A-Za-z0-9_-]{32,128}$/.test(deviceToken)
   ) {
-    return res
-      .status(401)
-      .json({
-        error:
-          "Check your email and four-digit MPIN, or verify this device by email.",
-      })
+    return res.status(401).json({
+      error:
+        "Check your email and four-digit MPIN, or verify this device by email.",
+    })
   }
   const { rows } = await pool.query(
     `SELECT s.pin_salt, s.pin_hash FROM merchant_accounts a
@@ -2256,12 +2273,9 @@ app.post("/v1/auth/device/pin", loginLimiter, async (req, res) => {
     [email, deviceTokenHash(deviceToken)],
   )
   const security = rows[0]
-  if (!security?.pin_hash)
-    return res
-      .status(403)
-      .json({
-        error: "Verify this device by email and set up an MPIN to continue.",
-      })
+  if (!security?.pin_hash) return res.status(403).json({
+      error: "Verify this device by email and set up an MPIN to continue.",
+    })
   await pool.query(
     "DELETE FROM merchant_pin_attempts WHERE created_at <= NOW() - INTERVAL '1 day'",
   )
@@ -2269,12 +2283,9 @@ app.post("/v1/auth/device/pin", loginLimiter, async (req, res) => {
     "SELECT COUNT(*)::int AS count FROM merchant_pin_attempts WHERE merchant_email = $1 AND created_at > NOW() - INTERVAL '15 minutes'",
     [email],
   )
-  if (attempts.rows[0].count >= 5)
-    return res
-      .status(429)
-      .json({
-        error: "Too many incorrect MPIN attempts. Try again in 15 minutes.",
-      })
+  if (attempts.rows[0].count >= 5) return res.status(429).json({
+      error: "Too many incorrect MPIN attempts. Try again in 15 minutes.",
+    })
   if (!matchesPasswordHash(pin, security.pin_salt, security.pin_hash)) {
     await pool.query(
       "INSERT INTO merchant_pin_attempts (merchant_email) VALUES ($1)",
@@ -2308,12 +2319,10 @@ app.post("/v1/auth/device/biometric", loginLimiter, async (req, res) => {
     !/^[A-Za-z0-9_-]{43}$/.test(secret) ||
     !/^[A-Za-z0-9_-]{32,128}$/.test(deviceToken)
   ) {
-    return res
-      .status(401)
-      .json({
-        error:
-          "Biometric sign-in is unavailable. Use your MPIN or verify this device by email.",
-      })
+    return res.status(401).json({
+      error:
+        "Biometric sign-in is unavailable. Use your MPIN or verify this device by email.",
+    })
   }
   const { rows } = await pool.query(
     `SELECT credential.secret_hash FROM merchant_accounts account
@@ -2333,12 +2342,10 @@ app.post("/v1/auth/device/biometric", loginLimiter, async (req, res) => {
     storedHash.length !== actualHash.length ||
     !timingSafeEqual(storedHash, actualHash)
   ) {
-    return res
-      .status(401)
-      .json({
-        error:
-          "Biometric sign-in is unavailable. Use your MPIN or verify this device by email.",
-      })
+    return res.status(401).json({
+      error:
+        "Biometric sign-in is unavailable. Use your MPIN or verify this device by email.",
+    })
   }
   await pool.query(
     `UPDATE merchant_biometric_credentials SET last_used_at = NOW()
@@ -2415,12 +2422,10 @@ app.post("/v1/admin/payment-links/:id/mark-paid", async (req, res) => {
     return res.status(400).json({ error: "The payment ID is invalid." })
   }
   if (verificationNote.length < 10 || verificationNote.length > 500) {
-    return res
-      .status(400)
-      .json({
-        error:
-          "Enter 10–500 characters of independent payment verification details.",
-      })
+    return res.status(400).json({
+      error:
+        "Enter 10–500 characters of independent payment verification details.",
+    })
   }
 
   const client = await pool.connect()
@@ -2583,11 +2588,9 @@ app.put("/v1/admin/settings", async (req, res) => {
   const usdtNetwork =
     typeof req.body?.usdtNetwork === "string" ? req.body.usdtNetwork.trim() : ""
   if (rate !== null && (!Number.isFinite(rate) || rate <= 0 || rate > 1000)) {
-    return res
-      .status(400)
-      .json({
-        error: "KRW/PHP rate must be greater than zero and no more than 1000.",
-      })
+    return res.status(400).json({
+      error: "KRW/PHP rate must be greater than zero and no more than 1000.",
+    })
   }
   if (
     !Number.isFinite(collectionFeePercent) ||
@@ -2604,20 +2607,15 @@ app.put("/v1/admin/settings", async (req, res) => {
     transferFeeFixed > 1_000_000 ||
     Math.abs(transferFeeFixed * 100 - Math.round(transferFeeFixed * 100)) > 1e-7
   ) {
-    return res
-      .status(400)
-      .json({
-        error:
-          "Transfer fee must be a non-negative PHP amount with no more than two decimal places.",
-      })
+    return res.status(400).json({
+      error:
+        "Transfer fee must be a non-negative PHP amount with no more than two decimal places.",
+    })
   }
   if ((usdtAddress && !usdtNetwork) || (!usdtAddress && usdtNetwork)) {
-    return res
-      .status(400)
-      .json({
-        error:
-          "Set both the USDT address and its network, or leave both empty.",
-      })
+    return res.status(400).json({
+      error: "Set both the USDT address and its network, or leave both empty.",
+    })
   }
   if (usdtAddress.length > 256 || usdtNetwork.length > 64) {
     return res
@@ -2770,12 +2768,10 @@ app.post("/v1/admin/internal-wallets/:email/adjustments", async (req, res) => {
     Math.abs(submittedAmount - amount) > 1e-7 ||
     Math.abs(amount) > 1_000_000_000
   ) {
-    return res
-      .status(400)
-      .json({
-        error:
-          "Enter a non-zero PHP adjustment with no more than two decimal places.",
-      })
+    return res.status(400).json({
+      error:
+        "Enter a non-zero PHP adjustment with no more than two decimal places.",
+    })
   }
   if (!reason || reason.length > 250) {
     return res
@@ -2804,12 +2800,10 @@ app.post("/v1/admin/internal-wallets/:email/adjustments", async (req, res) => {
       Number(balances.rows[0].reserved)
     ) {
       await client.query("ROLLBACK")
-      return res
-        .status(409)
-        .json({
-          error:
-            "This adjustment would reduce the floating balance below pending transfer requests.",
-        })
+      return res.status(409).json({
+        error:
+          "This adjustment would reduce the floating balance below pending transfer requests.",
+      })
     }
     const adjustmentId = randomUUID()
     const result = await client.query(
@@ -2874,24 +2868,22 @@ app.post(
       decision === "failed" &&
       (!failureReason || failureReason.length > 500)
     ) {
-      return res
-        .status(400)
-        .json({
-          error: "Enter a reason for the failed settlement (1–500 characters).",
-        })
+      return res.status(400).json({
+        error: "Enter a reason for the failed settlement (1–500 characters).",
+      })
     }
     if (
-        decision === "successful" &&
-        (!payoutReference || payoutReference.length > 120)
+      decision === "successful" &&
+      (!payoutReference || payoutReference.length > 120)
     ) {
-        return res.status(400).json({
-          error: "Enter the bank payout reference (1–120 characters).",
-        })
+      return res.status(400).json({
+        error: "Enter the bank payout reference (1–120 characters).",
+      })
     }
     if (payoutNote.length > 500) {
-        return res
-          .status(400)
-          .json({ error: "Payout notes must be no longer than 500 characters." })
+      return res
+        .status(400)
+        .json({ error: "Payout notes must be no longer than 500 characters." })
     }
     const client = await pool.connect()
     try {
@@ -2976,7 +2968,9 @@ app.post(
         summary: `PHP ${Number(request.rows[0].amount).toFixed(2)} · ${
           nextStatus === "FAILED"
             ? failureReason
-            : `Payout reference ${payoutReference} · transfer fee PHP ${Number(request.rows[0].transfer_fee).toFixed(2)}${payoutNote ? ` · ${payoutNote}` : ""}`
+            : `Payout reference ${payoutReference} · transfer fee PHP ${Number(request.rows[0].transfer_fee).toFixed(2)}${
+                payoutNote ? ` · ${payoutNote}` : ""
+              }`
         }`,
       })
       await client.query("COMMIT")
@@ -3046,19 +3040,15 @@ app.put("/v1/admin/merchants/:email/usdt-wallet", async (req, res) => {
     return res.status(400).json({ error: "Choose a valid merchant account." })
   }
   if (address && !tronAddressPayload(address)) {
-    return res
-      .status(400)
-      .json({
-        error: "Enter a valid TRON address with a valid Base58Check checksum.",
-      })
+    return res.status(400).json({
+      error: "Enter a valid TRON address with a valid Base58Check checksum.",
+    })
   }
   if (address && tronUsdtNetwork !== "mainnet") {
-    return res
-      .status(503)
-      .json({
-        error:
-          "Mainnet USDT address assignment is disabled on this API environment.",
-      })
+    return res.status(503).json({
+      error:
+        "Mainnet USDT address assignment is disabled on this API environment.",
+    })
   }
   const client = await pool.connect()
   try {
@@ -3112,11 +3102,9 @@ app.put("/v1/admin/merchants/:email/usdt-wallet", async (req, res) => {
   } catch (error) {
     await client.query("ROLLBACK")
     if (error.code === "23505") {
-      return res
-        .status(409)
-        .json({
-          error: "That TRON address is already assigned to another merchant.",
-        })
+      return res.status(409).json({
+        error: "That TRON address is already assigned to another merchant.",
+      })
     }
     throw error
   } finally {
@@ -3167,12 +3155,9 @@ app.patch("/v1/admin/merchants/:email", async (req, res) => {
       phoneNumber.length > 40 ||
       businessAddress.length > 500
     ) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "One or more merchant profile fields exceed the allowed length.",
-        })
+      return res.status(400).json({
+        error: "One or more merchant profile fields exceed the allowed length.",
+      })
     }
     if (
       (bankName || accountName || accountNumber) &&
@@ -3182,12 +3167,10 @@ app.patch("/v1/admin/merchants/:email", async (req, res) => {
         accountName.length > 120 ||
         !/^[A-Za-z0-9-]{4,34}$/.test(accountNumber))
     ) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "Enter a complete payout bank name, account holder name, and valid account number, or leave all payout fields blank.",
-        })
+      return res.status(400).json({
+        error:
+          "Enter a complete payout bank name, account holder name, and valid account number, or leave all payout fields blank.",
+      })
     }
     const client = await pool.connect()
     try {
@@ -3278,11 +3261,9 @@ app.patch("/v1/admin/merchants/:email", async (req, res) => {
       )
       if (remaining.rows[0].count === 0) {
         await client.query("ROLLBACK")
-        return res
-          .status(409)
-          .json({
-            error: "The last active merchant account cannot be disabled.",
-          })
+        return res.status(409).json({
+          error: "The last active merchant account cannot be disabled.",
+        })
       }
       await client.query("DELETE FROM merchant_devices WHERE email = $1", [
         email,
@@ -3404,12 +3385,10 @@ app.patch("/v1/admin/kyb/:email", async (req, res) => {
     reviewNotes.length > 1000 ||
     (status === "REJECTED" && !reviewNotes)
   ) {
-    return res
-      .status(400)
-      .json({
-        error:
-          "Choose a valid KYB review status. Rejected applications require review notes.",
-      })
+    return res.status(400).json({
+      error:
+        "Choose a valid KYB review status. Rejected applications require review notes.",
+    })
   }
   if (status === "APPROVED") {
     const requiredDocuments = await pool.query(
@@ -3420,12 +3399,10 @@ app.patch("/v1/admin/kyb/:email", async (req, res) => {
       [email],
     )
     if (requiredDocuments.rows[0].count !== 3) {
-      return res
-        .status(409)
-        .json({
-          error:
-            "A business registration certificate and both owner identity images are required before approval.",
-        })
+      return res.status(409).json({
+        error:
+          "A business registration certificate and both owner identity images are required before approval.",
+      })
     }
   }
   const client = await pool.connect()
@@ -3538,7 +3515,8 @@ app.get(
     const record = await pool.query(
       `SELECT code, title, reference_no, amount::float8 AS amount, currency, status, payment_token, qr_payload,
         payment_institution_code, payment_institution_name, payment_institution_logo_url,
-        payment_institution_deep_link
+        payment_institution_deep_link, checkout_instructions,
+        email_brand_color, email_logo_url
      FROM payment_links WHERE code = $1 AND checkout_type = 'DIRECT_QRPH'`,
       [code],
     )
@@ -3577,6 +3555,12 @@ app.get(
       institutionName: row.payment_institution_name,
       institutionLogoUrl: row.payment_institution_logo_url,
       institutionDeepLink: row.payment_institution_deep_link,
+      checkoutInstructions: row.checkout_instructions.replaceAll(
+        "{bank}",
+        row.payment_institution_name || "bank",
+      ),
+      brandColor: row.email_brand_color,
+      logoUrl: row.email_logo_url,
     })
   },
 )
@@ -3696,11 +3680,16 @@ app.get("/v1/crypto/usdt-deposits", cryptoWalletLimiter, async (req, res) => {
     [req.merchantEmail],
   )
   const assigned = wallet.rows[0]
-  if (!assigned || assigned.network !== "TRON_MAINNET" || tronUsdtNetwork !== "mainnet") {
+  if (
+    !assigned ||
+    assigned.network !== "TRON_MAINNET" ||
+    tronUsdtNetwork !== "mainnet"
+  ) {
     return res.set("Cache-Control", "no-store").json({
       deposits: [],
       configured: false,
-      message: "A confirmed TRON mainnet wallet is required to view USDT deposits.",
+      message:
+        "A confirmed TRON mainnet wallet is required to view USDT deposits.",
     })
   }
   try {
@@ -3717,10 +3706,15 @@ app.get("/v1/crypto/usdt-deposits", cryptoWalletLimiter, async (req, res) => {
       headers,
       signal: AbortSignal.timeout(10_000),
     })
-    if (!response.ok) throw new Error(`TRON transaction service returned HTTP ${response.status}`)
+    if (!response.ok)
+      throw new Error(
+        `TRON transaction service returned HTTP ${response.status}`,
+      )
     const result = await response.json()
     if (!Array.isArray(result?.data)) {
-      throw new Error("TRON transaction service returned an invalid deposit list")
+      throw new Error(
+        "TRON transaction service returned an invalid deposit list",
+      )
     }
     const deposits = result.data
       .filter(
@@ -3738,7 +3732,10 @@ app.get("/v1/crypto/usdt-deposits", cryptoWalletLimiter, async (req, res) => {
       )
       .map((item) => ({
         transactionId: item.transaction_id,
-        amount: formatTokenBalance(BigInt(item.value).toString(16), tronMainnetUsdtDecimals),
+        amount: formatTokenBalance(
+          BigInt(item.value).toString(16),
+          tronMainnetUsdtDecimals,
+        ),
         from: item.from,
         blockTimestamp: new Date(Number(item.block_timestamp)).toISOString(),
         confirmed: true,
@@ -3789,13 +3786,10 @@ app.put("/v1/kyb", async (req, res) => {
     "SELECT 1 FROM merchant_kyb_profiles WHERE merchant_email = $1 AND status = 'APPROVED'",
     [req.merchantEmail],
   )
-  if (approved.rowCount)
-    return res
-      .status(409)
-      .json({
-        error:
-          "Your KYB profile is approved. Contact DRPAY support to request a verified profile change.",
-      })
+  if (approved.rowCount) return res.status(409).json({
+      error:
+        "Your KYB profile is approved. Contact DRPAY support to request a verified profile change.",
+    })
   const fields = {
     legalBusinessName: req.body?.legalBusinessName,
     registrationNumber: req.body?.registrationNumber,
@@ -3824,12 +3818,10 @@ app.put("/v1/kyb", async (req, res) => {
       .slice(0, 10) !== fields.ownerDateOfBirth ||
     new Date(`${fields.ownerDateOfBirth}T00:00:00Z`) >= new Date()
   ) {
-    return res
-      .status(400)
-      .json({
-        error:
-          "Complete each required business and beneficial-owner field with valid details.",
-      })
+    return res.status(400).json({
+      error:
+        "Complete each required business and beneficial-owner field with valid details.",
+    })
   }
   const result = await pool.query(
     `INSERT INTO merchant_kyb_profiles (
@@ -3855,12 +3847,9 @@ app.put("/v1/kyb", async (req, res) => {
 })
 
 app.post("/v1/kyb/documents/presign", async (req, res) => {
-  if (!r2Client || !r2BucketName)
-    return res
-      .status(503)
-      .json({
-        error: "Private document storage is not configured on this server.",
-      })
+  if (!r2Client || !r2BucketName) return res.status(503).json({
+      error: "Private document storage is not configured on this server.",
+    })
   const documentType = req.body?.documentType
   const fileName =
     typeof req.body?.fileName === "string" ? req.body.fileName.trim() : ""
@@ -3876,30 +3865,22 @@ app.post("/v1/kyb/documents/presign", async (req, res) => {
     sizeBytes <= 0 ||
     sizeBytes > kybDocumentMaxBytes
   ) {
-    return res
-      .status(400)
-      .json({
-        error: "Upload a PDF, JPEG, or PNG document no larger than 10 MB.",
-      })
+    return res.status(400).json({
+      error: "Upload a PDF, JPEG, or PNG document no larger than 10 MB.",
+    })
   }
   const profile = await pool.query(
     "SELECT status FROM merchant_kyb_profiles WHERE merchant_email = $1",
     [req.merchantEmail],
   )
-  if (!profile.rowCount)
-    return res
-      .status(409)
-      .json({
-        error:
-          "Save the KYB business and owner details before uploading documents.",
-      })
-  if (profile.rows[0].status === "APPROVED")
-    return res
-      .status(409)
-      .json({
-        error:
-          "Your KYB profile is approved. Contact DRPAY support to request a verified document change.",
-      })
+  if (!profile.rowCount) return res.status(409).json({
+      error:
+        "Save the KYB business and owner details before uploading documents.",
+    })
+  if (profile.rows[0].status === "APPROVED") return res.status(409).json({
+      error:
+        "Your KYB profile is approved. Contact DRPAY support to request a verified document change.",
+    })
   const objectKey = `kyb/${randomUUID()}`
   const documentId = randomUUID()
   const safeName = fileName.replace(/[^\w .()-]/g, "_").slice(0, 180)
@@ -3952,12 +3933,9 @@ app.post("/v1/kyb/documents/presign", async (req, res) => {
 })
 
 app.post("/v1/kyb/documents/complete", async (req, res) => {
-  if (!r2Client || !r2BucketName)
-    return res
-      .status(503)
-      .json({
-        error: "Private document storage is not configured on this server.",
-      })
+  if (!r2Client || !r2BucketName) return res.status(503).json({
+      error: "Private document storage is not configured on this server.",
+    })
   const {
     documentId,
     objectKey,
@@ -3997,24 +3975,19 @@ app.post("/v1/kyb/documents/complete", async (req, res) => {
     reservation.content_type !== contentType ||
     Number(reservation.size_bytes) !== Number(sizeBytes)
   ) {
-    return res
-      .status(409)
-      .json({
-        error:
-          "This document upload is invalid or expired. Request a new upload URL.",
-      })
+    return res.status(409).json({
+      error:
+        "This document upload is invalid or expired. Request a new upload URL.",
+    })
   }
   const profile = await pool.query(
     "SELECT status FROM merchant_kyb_profiles WHERE merchant_email = $1",
     [req.merchantEmail],
   )
-  if (!profile.rowCount)
-    return res
-      .status(409)
-      .json({
-        error:
-          "Save the KYB business and owner details before uploading documents.",
-      })
+  if (!profile.rowCount) return res.status(409).json({
+      error:
+        "Save the KYB business and owner details before uploading documents.",
+    })
   if (profile.rows[0].status === "APPROVED") {
     await r2Client
       .send(new DeleteObjectCommand({ Bucket: r2BucketName, Key: objectKey }))
@@ -4024,12 +3997,10 @@ app.post("/v1/kyb/documents/complete", async (req, res) => {
           error.name || "storage error",
         )
       })
-    return res
-      .status(409)
-      .json({
-        error:
-          "Your KYB profile is approved. Contact DRPAY support to request a verified document change.",
-      })
+    return res.status(409).json({
+      error:
+        "Your KYB profile is approved. Contact DRPAY support to request a verified document change.",
+    })
   }
   try {
     const object = await r2Client.send(
@@ -4040,12 +4011,9 @@ app.post("/v1/kyb/documents/complete", async (req, res) => {
       object.ContentType !== contentType ||
       object.Metadata?.["document-id"] !== documentId
     ) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "The stored document does not match the uploaded file details.",
-        })
+      return res.status(400).json({
+        error: "The stored document does not match the uploaded file details.",
+      })
     }
     const prefix = await r2Client.send(
       new GetObjectCommand({
@@ -4073,11 +4041,9 @@ app.post("/v1/kyb/documents/complete", async (req, res) => {
       await r2Client.send(
         new DeleteObjectCommand({ Bucket: r2BucketName, Key: objectKey }),
       )
-      return res
-        .status(400)
-        .json({
-          error: "The uploaded file does not match its declared document type.",
-        })
+      return res.status(400).json({
+        error: "The uploaded file does not match its declared document type.",
+      })
     }
     const client = await pool.connect()
     let oldObjectKey = null
@@ -4091,11 +4057,9 @@ app.post("/v1/kyb/documents/complete", async (req, res) => {
       )
       if (!lockedUpload.rowCount) {
         await client.query("ROLLBACK")
-        return res
-          .status(409)
-          .json({
-            error: "This document upload is invalid, expired, or already used.",
-          })
+        return res.status(409).json({
+          error: "This document upload is invalid, expired, or already used.",
+        })
       }
       const old = await client.query(
         "SELECT object_key FROM merchant_kyb_documents WHERE merchant_email = $1 AND document_type = $2",
@@ -4151,11 +4115,9 @@ app.post("/v1/kyb/documents/complete", async (req, res) => {
       "Could not verify private KYB document upload",
       error.name || "storage error",
     )
-    return res
-      .status(503)
-      .json({
-        error: "The uploaded document could not be verified. Try again.",
-      })
+    return res.status(503).json({
+      error: "The uploaded document could not be verified. Try again.",
+    })
   }
 })
 
@@ -4186,13 +4148,10 @@ app.post("/v1/api-keys", async (req, res) => {
     "SELECT COUNT(*)::int AS count FROM merchant_api_keys WHERE merchant_email = $1 AND revoked_at IS NULL",
     [req.merchantEmail],
   )
-  if (activeKeys.rows[0].count >= 10)
-    return res
-      .status(409)
-      .json({
-        error:
-          "Revoke an existing API key before creating another. Each merchant can have up to 10 active keys.",
-      })
+  if (activeKeys.rows[0].count >= 10) return res.status(409).json({
+      error:
+        "Revoke an existing API key before creating another. Each merchant can have up to 10 active keys.",
+    })
   const key = `drp_${swiftPayEnvironment}_${randomBytes(32).toString("hex")}`
   const result = await pool.query(
     `INSERT INTO merchant_api_keys (id, merchant_email, name, key_prefix, key_hash, scopes)
@@ -4260,7 +4219,9 @@ app.get("/v1/webhook/deliveries", async (req, res) => {
 
 app.post("/v1/webhook/deliveries/:id/retry", async (req, res) => {
   if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) {
-    return res.status(400).json({ error: "The webhook delivery ID is invalid." })
+    return res
+      .status(400)
+      .json({ error: "The webhook delivery ID is invalid." })
   }
   const result = await pool.query(
     `UPDATE merchant_webhook_deliveries
@@ -4306,11 +4267,9 @@ app.put("/v1/webhook", async (req, res) => {
     !(await validateWebhookUrl(endpointUrl)) ||
     (callbackUrl && !(await validateWebhookUrl(callbackUrl)))
   ) {
-    return res
-      .status(400)
-      .json({
-        error: "Webhook and callback URLs must be public HTTPS endpoints.",
-      })
+    return res.status(400).json({
+      error: "Webhook and callback URLs must be public HTTPS endpoints.",
+    })
   }
   const signingSecret = `whsec_${randomBytes(32).toString("hex")}`
   const result = await pool.query(
@@ -4365,12 +4324,10 @@ app.put("/v1/floating-balance/payout-account", async (req, res) => {
     accountName.length > 120 ||
     !/^[A-Za-z0-9-]{4,34}$/.test(accountNumber)
   ) {
-    return res
-      .status(400)
-      .json({
-        error:
-          "Enter a bank name, account holder name, and valid account number.",
-      })
+    return res.status(400).json({
+      error:
+        "Enter a bank name, account holder name, and valid account number.",
+    })
   }
   const result = await pool.query(
     `INSERT INTO merchant_payout_accounts (merchant_email, bank_name, account_name, account_number)
@@ -4380,12 +4337,10 @@ app.put("/v1/floating-balance/payout-account", async (req, res) => {
     [req.merchantEmail, bankName, accountName, accountNumber],
   )
   if (!result.rowCount) {
-    return res
-      .status(409)
-      .json({
-        error:
-          "A payout account is already saved. Contact the DRPAY team to change it.",
-      })
+    return res.status(409).json({
+      error:
+        "A payout account is already saved. Contact the DRPAY team to change it.",
+    })
   }
   return res.set("Cache-Control", "no-store").json(result.rows[0])
 })
@@ -4415,12 +4370,10 @@ app.post("/v1/floating-balance/transfer-requests", async (req, res) => {
     Math.abs(submittedAmount - amount) > 1e-7 ||
     amount > 1_000_000_000
   ) {
-    return res
-      .status(400)
-      .json({
-        error:
-          "Enter a positive PHP amount with no more than two decimal places.",
-      })
+    return res.status(400).json({
+      error:
+        "Enter a positive PHP amount with no more than two decimal places.",
+    })
   }
   try {
     return res
@@ -4469,9 +4422,115 @@ app.post("/v1/notifications/push-token/remove", async (req, res) => {
   return res.json({ removed: true })
 })
 
+function validPaymentBranding(input) {
+  const checkoutInstructions =
+    typeof input?.checkoutInstructions === "string"
+      ? input.checkoutInstructions.trim()
+      : ""
+  const emailSubject =
+    typeof input?.emailSubject === "string" ? input.emailSubject.trim() : ""
+  const emailMessage =
+    typeof input?.emailMessage === "string" ? input.emailMessage.trim() : ""
+  const emailBrandColor =
+    typeof input?.emailBrandColor === "string"
+      ? input.emailBrandColor.trim()
+      : ""
+  const emailLogoUrl =
+    typeof input?.emailLogoUrl === "string" ? input.emailLogoUrl.trim() : ""
+  let validLogoUrl = ""
+  if (emailLogoUrl) {
+    try {
+      const url = new URL(emailLogoUrl)
+      if (
+        url.protocol !== "https:" ||
+        url.username ||
+        url.password ||
+        emailLogoUrl.length > 2048
+      ) {
+        return null
+      }
+      validLogoUrl = url.toString()
+    } catch {
+      return null
+    }
+  }
+  if (
+    checkoutInstructions.length < 1 ||
+    checkoutInstructions.length > 600 ||
+    emailSubject.length < 1 ||
+    emailSubject.length > 160 ||
+    /[\r\n\u0000-\u001f\u007f]/.test(emailSubject) ||
+    emailMessage.length < 1 ||
+    emailMessage.length > 1000 ||
+    !/^#[0-9A-Fa-f]{6}$/.test(emailBrandColor)
+  ) {
+    return null
+  }
+  return {
+    checkoutInstructions,
+    emailSubject,
+    emailMessage,
+    emailBrandColor,
+    emailLogoUrl: validLogoUrl,
+  }
+}
+
+app.get("/v1/checkout/preferences", async (req, res) => {
+  const result = await pool.query(
+    `SELECT checkout_instructions AS "checkoutInstructions",
+       email_subject AS "emailSubject", email_message AS "emailMessage",
+       email_brand_color AS "emailBrandColor", email_logo_url AS "emailLogoUrl"
+     FROM merchant_checkout_preferences WHERE merchant_email = $1`,
+    [req.merchantEmail],
+  )
+  return res.set("Cache-Control", "no-store").json(
+    result.rows[0] || {
+      checkoutInstructions: defaultCheckoutInstructions,
+      emailSubject: defaultPaymentEmailSubject,
+      emailMessage: defaultPaymentEmailMessage,
+      emailBrandColor: defaultPaymentEmailColor,
+      emailLogoUrl: "",
+    },
+  )
+})
+
+app.put("/v1/checkout/preferences", async (req, res) => {
+  const branding = validPaymentBranding(req.body)
+  if (!branding) {
+    return res.status(400).json({
+      error:
+        "Check the checkout instructions, email subject and message, brand color, and secure logo URL.",
+    })
+  }
+  const result = await pool.query(
+    `INSERT INTO merchant_checkout_preferences
+       (merchant_email, checkout_instructions, email_subject, email_message,
+        email_brand_color, email_logo_url, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, NOW())
+     ON CONFLICT (merchant_email) DO UPDATE SET
+       checkout_instructions = EXCLUDED.checkout_instructions,
+       email_subject = EXCLUDED.email_subject,
+       email_message = EXCLUDED.email_message,
+       email_brand_color = EXCLUDED.email_brand_color,
+       email_logo_url = EXCLUDED.email_logo_url,
+       updated_at = NOW()
+     RETURNING checkout_instructions AS "checkoutInstructions",
+       email_subject AS "emailSubject", email_message AS "emailMessage",
+       email_brand_color AS "emailBrandColor", email_logo_url AS "emailLogoUrl"`,
+    [
+      req.merchantEmail,
+      branding.checkoutInstructions,
+      branding.emailSubject,
+      branding.emailMessage,
+      branding.emailBrandColor,
+      branding.emailLogoUrl,
+    ],
+  )
+  return res.set("Cache-Control", "no-store").json(result.rows[0])
+})
+
 app.get("/v1/notifications/inbox", async (req, res) => {
-  if (req.apiKey)
-    return res.status(403).json({
+  if (req.apiKey) return res.status(403).json({
       error: "Sign in to your merchant account to view notifications.",
     })
   const limit = Math.min(
@@ -4514,8 +4573,7 @@ app.get("/v1/notifications/inbox", async (req, res) => {
 })
 
 app.post("/v1/notifications/inbox/read-all", async (req, res) => {
-  if (req.apiKey)
-    return res.status(403).json({
+  if (req.apiKey) return res.status(403).json({
       error: "Sign in to your merchant account to update notifications.",
     })
   const result = await pool.query(
@@ -4535,8 +4593,7 @@ app.post("/v1/notifications/inbox/read-all", async (req, res) => {
 })
 
 app.post("/v1/notifications/inbox/:id/read", async (req, res) => {
-  if (req.apiKey)
-    return res.status(403).json({
+  if (req.apiKey) return res.status(403).json({
       error: "Sign in to your merchant account to update notifications.",
     })
   if (
@@ -4598,7 +4655,13 @@ app.put("/v1/notifications/preferences", async (req, res) => {
        transfers_enabled = EXCLUDED.transfers_enabled, updated_at = NOW()
      RETURNING email_enabled AS "emailEnabled", push_enabled AS "pushEnabled",
        payments_enabled AS "paymentsEnabled", transfers_enabled AS "transfersEnabled"`,
-    [req.merchantEmail, emailEnabled, pushEnabled, paymentsEnabled, transfersEnabled],
+    [
+      req.merchantEmail,
+      emailEnabled,
+      pushEnabled,
+      paymentsEnabled,
+      transfersEnabled,
+    ],
   )
   return res.set("Cache-Control", "no-store").json(result.rows[0])
 })
@@ -4620,12 +4683,9 @@ app.post("/v1/security/biometric", async (req, res) => {
     "SELECT 1 FROM merchant_devices WHERE email = $1 AND device_token_hash = $2",
     [req.merchantEmail, deviceHash],
   )
-  if (!device.rowCount)
-    return res
-      .status(403)
-      .json({
-        error: "Verify this device by email before enabling biometric sign-in.",
-      })
+  if (!device.rowCount) return res.status(403).json({
+      error: "Verify this device by email before enabling biometric sign-in.",
+    })
   await pool.query(
     `INSERT INTO merchant_biometric_credentials (email, device_token_hash, secret_hash)
      VALUES ($1, $2, $3)
@@ -4702,11 +4762,9 @@ app.post("/v1/security/transfer/pin", pinAttemptLimiter, async (req, res) => {
     [req.merchantEmail],
   )
   if (attempts.rows[0].count >= 5) {
-    return res
-      .status(429)
-      .json({
-        error: "Too many incorrect MPIN attempts. Try again in 15 minutes.",
-      })
+    return res.status(429).json({
+      error: "Too many incorrect MPIN attempts. Try again in 15 minutes.",
+    })
   }
   if (!matchesPasswordHash(pin, security.pin_salt, security.pin_hash)) {
     await pool.query(
@@ -4760,8 +4818,7 @@ app.get("/v1/internal-wallet", async (req, res) => {
   if (
     !Number.isFinite(transferFeeFixed) ||
     transferFeeFixed < 0 ||
-    Math.abs(transferFeeFixed * 100 - Math.round(transferFeeFixed * 100)) >
-      1e-7
+    Math.abs(transferFeeFixed * 100 - Math.round(transferFeeFixed * 100)) > 1e-7
   ) {
     return res
       .status(503)
@@ -4814,11 +4871,9 @@ app.get("/v1/exchange-rates/krw-php", async (_req, res) => {
   if (configuredRate !== undefined) {
     const rate = Number(configuredRate)
     if (!Number.isFinite(rate) || rate <= 0) {
-      return res
-        .status(503)
-        .json({
-          error: "The configured KRW/PHP exchange-rate override is invalid.",
-        })
+      return res.status(503).json({
+        error: "The configured KRW/PHP exchange-rate override is invalid.",
+      })
     }
     return res.json({
       baseCurrency: "KRW",
@@ -4877,11 +4932,9 @@ app.get("/v1/exchange-rates/krw-php", async (_req, res) => {
       "KRW/PHP live exchange-rate lookup failed",
       error.name === "AbortError" ? "timeout" : error.message,
     )
-    return res
-      .status(503)
-      .json({
-        error: "The live KRW/PHP reference rate is temporarily unavailable.",
-      })
+    return res.status(503).json({
+      error: "The live KRW/PHP reference rate is temporarily unavailable.",
+    })
   } finally {
     clearTimeout(timeout)
   }
@@ -4960,9 +5013,15 @@ function getSafePaymentInstitutionDeepLink(value) {
     if (url.protocol === "https:") return url.hostname ? url.toString() : null
     if (
       !/^[a-z][a-z0-9+.-]*:$/.test(url.protocol) ||
-      ["http:", "javascript:", "data:", "file:", "blob:", "intent:", "ftp:"].includes(
-        url.protocol,
-      ) ||
+      [
+        "http:",
+        "javascript:",
+        "data:",
+        "file:",
+        "blob:",
+        "intent:",
+        "ftp:",
+      ].includes(url.protocol) ||
       !url.hostname
     ) {
       return null
@@ -5261,13 +5320,11 @@ app.get("/v1/payment-links/:id/refund-details", async (req, res) => {
       "Collection refund eligibility lookup failed",
       error.status || "provider error",
     )
-    return res
-      .status(error.status || 503)
-      .json({
-        error: error.status
-          ? error.message
-          : "Refund details are temporarily unavailable.",
-      })
+    return res.status(error.status || 503).json({
+      error: error.status
+        ? error.message
+        : "Refund details are temporarily unavailable.",
+    })
   }
 })
 
@@ -5467,12 +5524,10 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
     amount > 1_000_000 ||
     !title
   )
-    return res
-      .status(400)
-      .json({
-        error:
-          "Enter a description and a valid PHP amount with no more than two decimal places.",
-      })
+    return res.status(400).json({
+      error:
+        "Enter a description and a valid PHP amount with no more than two decimal places.",
+    })
   if (
     submittedKrwAmount !== undefined &&
     (!Number.isSafeInteger(collectionAmountKrw) || collectionAmountKrw <= 0)
@@ -5489,6 +5544,36 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
     return res
       .status(400)
       .json({ error: "Enter a valid customer email address." })
+  }
+  const savedBranding = await pool.query(
+    `SELECT checkout_instructions AS "checkoutInstructions",
+       email_subject AS "emailSubject", email_message AS "emailMessage",
+       email_brand_color AS "emailBrandColor", email_logo_url AS "emailLogoUrl"
+     FROM merchant_checkout_preferences WHERE merchant_email = $1`,
+    [req.merchantEmail],
+  )
+  const merchantBranding = savedBranding.rows[0] || {
+    checkoutInstructions: defaultCheckoutInstructions,
+    emailSubject: defaultPaymentEmailSubject,
+    emailMessage: defaultPaymentEmailMessage,
+    emailBrandColor: defaultPaymentEmailColor,
+    emailLogoUrl: "",
+  }
+  const branding = validPaymentBranding({
+    ...merchantBranding,
+    checkoutInstructions:
+      req.body?.checkoutInstructions ?? merchantBranding.checkoutInstructions,
+    emailSubject: req.body?.emailSubject ?? merchantBranding.emailSubject,
+    emailMessage: req.body?.emailMessage ?? merchantBranding.emailMessage,
+    emailBrandColor:
+      req.body?.emailBrandColor ?? merchantBranding.emailBrandColor,
+    emailLogoUrl: req.body?.emailLogoUrl ?? merchantBranding.emailLogoUrl,
+  })
+  if (!branding) {
+    return res.status(400).json({
+      error:
+        "Check the checkout instructions, email subject and message, brand color, and secure logo URL.",
+    })
   }
   if (
     hasInstitution &&
@@ -5562,12 +5647,10 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
         requestEmailStatus,
       })
     }
-    return res
-      .status(409)
-      .json({
-        error:
-          "The checkout outcome is unknown. Check wallet activity before retrying.",
-      })
+    return res.status(409).json({
+      error:
+        "The checkout outcome is unknown. Check wallet activity before retrying.",
+    })
   }
 
   const id = randomUUID()
@@ -5578,9 +5661,10 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
       `INSERT INTO payment_links (
       id, idempotency_key, reference_no, code, title, amount, collection_amount_krw,
       payment_institution_code, payment_institution_name, payment_institution_logo_url,
-      payment_institution_deep_link,
+      payment_institution_deep_link, checkout_instructions, email_subject,
+      email_message, email_brand_color, email_logo_url,
       checkout_type, status, merchant_email, customer_email
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'DIRECT_QRPH', 'CREATING', $12, $13)`,
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'DIRECT_QRPH', 'CREATING', $17, $18)`,
       [
         id,
         idempotencyKey,
@@ -5593,18 +5677,20 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
         institutionName || null,
         institutionLogoUrl,
         institutionDeepLink,
+        branding.checkoutInstructions,
+        branding.emailSubject,
+        branding.emailMessage,
+        branding.emailBrandColor,
+        branding.emailLogoUrl,
         req.merchantEmail,
         customerEmail || null,
       ],
     )
   } catch (error) {
-    if (error.code === "23505")
-      return res
-        .status(409)
-        .json({
-          error:
-            "The checkout outcome is unknown. Check wallet activity before retrying.",
-        })
+    if (error.code === "23505") return res.status(409).json({
+        error:
+          "The checkout outcome is unknown. Check wallet activity before retrying.",
+      })
     throw error
   }
 
@@ -5651,19 +5737,17 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
       `/v1/public/checkout/${code}/qr.png`,
       publicApiOrigin,
     ).toString()
-    return res
-      .status(201)
-      .json({
-        id,
-        code,
-        paymentUrl: checkoutUrl,
-        qrCode: data.qrCode,
-        qrImageUrl,
-        status,
-        amount: actualAmount,
-        currency: "PHP",
-        requestEmailStatus,
-      })
+    return res.status(201).json({
+      id,
+      code,
+      paymentUrl: checkoutUrl,
+      qrCode: data.qrCode,
+      qrImageUrl,
+      status,
+      amount: actualAmount,
+      currency: "PHP",
+      requestEmailStatus,
+    })
   } catch (error) {
     const isAmbiguous = !error.status || error.status >= 500
     await updatePaymentLinkStatus(
@@ -5674,13 +5758,11 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
       "SwiftPay QR checkout creation failed",
       error.status || "network error",
     )
-    return res
-      .status(isAmbiguous ? 503 : 502)
-      .json({
-        error: isAmbiguous
-          ? "The checkout outcome is unknown. Check wallet activity before retrying."
-          : "SwiftPay could not create the QR checkout.",
-      })
+    return res.status(isAmbiguous ? 503 : 502).json({
+      error: isAmbiguous
+        ? "The checkout outcome is unknown. Check wallet activity before retrying."
+        : "SwiftPay could not create the QR checkout.",
+    })
   }
 })
 
@@ -5785,18 +5867,14 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
     amount <= 0 ||
     amount > maxTransferAmount
   )
-    return res
-      .status(400)
-      .json({
-        error: `Transfer amount must be greater than zero, no more than PHP ${maxTransferAmount.toLocaleString("en-PH")}, and have no more than two decimal places.`,
-      })
+    return res.status(400).json({
+      error: `Transfer amount must be greater than zero, no more than PHP ${maxTransferAmount.toLocaleString("en-PH")}, and have no more than two decimal places.`,
+    })
   if (channel === "INSTAPAY" && amount > maxInstapayAmount) {
-    return res
-      .status(400)
-      .json({
-        error:
-          "InstaPay transfers are limited to PHP 50,000 per transfer. Choose PESONET for a larger amount.",
-      })
+    return res.status(400).json({
+      error:
+        "InstaPay transfers are limited to PHP 50,000 per transfer. Choose PESONET for a larger amount.",
+    })
   }
   if (!remarks)
     return res.status(400).json({ error: "Transfer remarks are required." })
@@ -5828,12 +5906,10 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
   if (existing.rowCount) {
     const row = existing.rows[0]
     if ((row.refund_payment_id || "") !== refundPaymentId) {
-      return res
-        .status(409)
-        .json({
-          error:
-            "This idempotency key was already used for a different transfer.",
-        })
+      return res.status(409).json({
+        error:
+          "This idempotency key was already used for a different transfer.",
+      })
     }
     const outcomeUnknown = ["REQUESTING", "OUTCOME_UNKNOWN"].includes(
       row.status,
@@ -5878,12 +5954,10 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
     stepUpPayload.fingerprint !== expectedFingerprint ||
     typeof stepUpPayload.jti !== "string"
   ) {
-    return res
-      .status(403)
-      .json({
-        error:
-          "The security confirmation does not match this transfer. Verify again.",
-      })
+    return res.status(403).json({
+      error:
+        "The security confirmation does not match this transfer. Verify again.",
+    })
   }
   const institutions = institutionCache.get(channel)
   let selectedInstitution =
@@ -5901,20 +5975,14 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
       })
       selectedInstitution = data.find((item) => item.code === institutionCode)
     } catch {
-      return res
-        .status(503)
-        .json({
-          error: "Could not verify the selected institution. Try again later.",
-        })
+      return res.status(503).json({
+        error: "Could not verify the selected institution. Try again later.",
+      })
     }
   }
-  if (!selectedInstitution)
-    return res
-      .status(400)
-      .json({
-        error:
-          "That institution is not enabled for the selected transfer rail.",
-      })
+  if (!selectedInstitution) return res.status(400).json({
+      error: "That institution is not enabled for the selected transfer rail.",
+    })
 
   if (refundPaymentId) {
     let refundDetails
@@ -5928,13 +5996,11 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
         "Collection refund validation failed",
         error.status || "provider error",
       )
-      return res
-        .status(error.status || 503)
-        .json({
-          error: error.status
-            ? error.message
-            : "Refund eligibility could not be verified.",
-        })
+      return res.status(error.status || 503).json({
+        error: error.status
+          ? error.message
+          : "Refund eligibility could not be verified.",
+      })
     }
     if (
       amount !== refundDetails.amount ||
@@ -5944,12 +6010,10 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
       fullName.toLowerCase() !== refundDetails.fullName.toLowerCase() ||
       remarks !== refundDetails.remarks
     ) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "The refund details do not match the confirmed collection and payer account.",
-        })
+      return res.status(400).json({
+        error:
+          "The refund details do not match the confirmed collection and payer account.",
+      })
     }
   }
 
@@ -5972,12 +6036,9 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
     LIMIT 1`,
     [req.merchantEmail, requestFingerprint],
   )
-  if (activeRequest.rowCount)
-    return res
-      .status(409)
-      .json({
-        error: `A matching transfer is already ${activeRequest.rows[0].status.toLowerCase()}. Check wallet activity before creating another.`,
-      })
+  if (activeRequest.rowCount) return res.status(409).json({
+      error: `A matching transfer is already ${activeRequest.rows[0].status.toLowerCase()}. Check wallet activity before creating another.`,
+    })
 
   await pool.query("DELETE FROM used_step_up_tokens WHERE expires_at <= NOW()")
 
@@ -6005,11 +6066,9 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
     )
     if (matchingRequest.rowCount) {
       await client.query("ROLLBACK")
-      return res
-        .status(409)
-        .json({
-          error: `A matching transfer is already ${matchingRequest.rows[0].status.toLowerCase()}. Check wallet activity before creating another.`,
-        })
+      return res.status(409).json({
+        error: `A matching transfer is already ${matchingRequest.rows[0].status.toLowerCase()}. Check wallet activity before creating another.`,
+      })
     }
     let walletDebitAmount = amount
     let transferFee = 0
@@ -6041,12 +6100,10 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
         )
       ) {
         await client.query("ROLLBACK")
-        return res
-          .status(409)
-          .json({
-            error:
-              "A refund transfer for this collection is already in progress or complete.",
-          })
+        return res.status(409).json({
+          error:
+            "A refund transfer for this collection is already in progress or complete.",
+        })
       }
       walletDebitAmount = Number(collection.rows[0].net_amount)
     } else {
@@ -6079,12 +6136,10 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
     )
     if (!consumedStepUp.rowCount) {
       await client.query("ROLLBACK")
-      return res
-        .status(403)
-        .json({
-          error:
-            "This security confirmation has already been used. Verify again.",
-        })
+      return res.status(403).json({
+        error:
+          "This security confirmation has already been used. Verify again.",
+      })
     }
     await client.query(
       `INSERT INTO disbursements
@@ -6109,13 +6164,10 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
     await client.query("COMMIT")
   } catch (error) {
     await client.query("ROLLBACK")
-    if (error.code === "23505")
-      return res
-        .status(409)
-        .json({
-          error:
-            "A matching transfer is already being processed. Check wallet activity before retrying.",
-        })
+    if (error.code === "23505") return res.status(409).json({
+        error:
+          "A matching transfer is already being processed. Check wallet activity before retrying.",
+      })
     throw error
   } finally {
     client.release()
@@ -6149,14 +6201,12 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
       error.status || "network error",
     )
     const responseStatus = isAmbiguous ? 503 : error.status === 400 ? 400 : 502
-    return res
-      .status(responseStatus)
-      .json({
-        referenceNo: merchantReferenceNo,
-        status,
-        outcomeUnknown: isAmbiguous,
-        message,
-      })
+    return res.status(responseStatus).json({
+      referenceNo: merchantReferenceNo,
+      status,
+      outcomeUnknown: isAmbiguous,
+      message,
+    })
   }
   const status =
     typeof data.status === "string" ? data.status.toUpperCase() : "PENDING"
