@@ -4089,7 +4089,7 @@ app.get(
     const record = await pool.query(
       `SELECT code, title, reference_no, amount::float8 AS amount, currency, status, payment_token, qr_payload,
         payment_institution_code, payment_institution_name, payment_institution_logo_url,
-        payment_institution_deep_link, checkout_instructions,
+        payment_institution_deep_link, checkout_instructions, email_subject,
         email_brand_color, email_logo_url
      FROM payment_links WHERE code = $1 AND checkout_type = 'DIRECT_QRPH'`,
       [code],
@@ -4125,6 +4125,9 @@ app.get(
       status,
       statusCheckUnavailable,
       qrCode: row.qr_payload,
+      isTaxInvoice:
+        row.email_subject?.startsWith("DRPAY: BIR 2307") ||
+        row.email_subject?.startsWith("DRPAY: Tax invoice"),
       institutionCode: row.payment_institution_code,
       institutionName: row.payment_institution_name,
       institutionLogoUrl: row.payment_institution_logo_url,

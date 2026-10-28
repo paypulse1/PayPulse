@@ -150,6 +150,7 @@ export type PublicCheckout = {
   status: string
   statusCheckUnavailable: boolean
   qrCode: string
+  isTaxInvoice: boolean
   institutionCode?: string | null
   institutionName?: string | null
   institutionLogoUrl?: string | null

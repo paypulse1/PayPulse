@@ -48,7 +48,7 @@ export function InstitutionLogo({ institution, className = "" }: { institution: 
   );
 }
 
-export default function QrPaymentDisplay({ value, institution }: { value?: string; institution?: InstitutionBrand }) {
+export default function QrPaymentDisplay({ value, institution, showBirLogo = false }: { value?: string; institution?: InstitutionBrand; showBirLogo?: boolean }) {
   const [image, setImage] = useState("");
   const [error, setError] = useState("");
 
@@ -84,7 +84,16 @@ export default function QrPaymentDisplay({ value, institution }: { value?: strin
           <span>Selected payment app: <strong>{getPaymentInstitutionAppName(institution)}</strong></span>
         </div>
       )}
-      <img className="qr-preview" src={image} alt="Scan this QRPH payment code" />
+      <div className="qr-preview-frame">
+        <img className="qr-preview" src={image} alt="Scan this QRPH payment code" />
+        {showBirLogo && (
+          <img
+            className="qr-bir-logo"
+            src="/checkout-badges/bir-seal.png"
+            alt="Bureau of Internal Revenue seal"
+          />
+        )}
+      </div>
       {institution && (
         <p className="qr-brand-note">
           We will use your payment information. Please keep your reference

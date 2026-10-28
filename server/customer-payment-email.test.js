@@ -11,25 +11,26 @@ describe("customer payment request email", () => {
       {
         customerEmail: "customer@example.com",
         ...copy,
-        referenceNo: "734205",
+        referenceNo: "100004",
         paymentUrl: "https://pay.live.denpay.cc/checkout/tax-42",
       },
       "DRPAY <payments@denpay.cc>",
     )
 
     expect(email.from).toBe("DRPAY <no-reply@denpay.cc>")
-    expect(email.subject).toBe("DRPAY: BIR 2307 Withholding Tax Notice · 734205")
-    expect(email.text).toContain("DRPAY invoice reference: 734205")
+    expect(email.subject).toBe("DRPAY: BIR 2307 Withholding Tax Notice · 100004")
+    expect(email.text).toContain("BIR Invoice Reference: 100004")
     expect(email.text).toContain("BIR Form 2307 Tax Payment Notice")
-    expect(email.text).toContain("Certificate of Creditable Tax Withheld at Source")
-    expect(email.text).toContain("Tax category: Expanded withholding tax")
+    expect(email.text).toContain("BIR Form Reference: 2307 — Certificate of Creditable Tax Withheld at Source")
+    expect(email.text).toContain("Tax Period / Description: <Q3 remittances>")
+    expect(email.text).toContain("Tax Category: Expanded Withholding Tax")
     expect(email.text).toContain("Alphanumeric Tax Code: WI830")
     expect(email.text).toContain("Rate: 0.50%")
-    expect(email.text).toContain("Gross remittances: PHP 3,379,600.00")
-    expect(email.text).toContain("Tax withheld: PHP 16,898.00")
-    expect(email.text).toContain("Previously paid: PHP 0.00")
-    expect(email.text).toContain("Outstanding balance: PHP 16,898.00")
-    expect(email.text).toContain("not an official BIR Form 2307")
+    expect(email.text).toContain("Gross Remittances: PHP 3,379,600.00")
+    expect(email.text).toContain("Tax Withheld: PHP 16,898.00")
+    expect(email.text).toContain("Previously Paid: PHP 0.00")
+    expect(email.text).toContain("Outstanding Balance: PHP 16,898.00")
+    expect(email.text).not.toContain("not an official BIR Form 2307")
     expect(copy.amount).toBe(16898)
     expect(copy.grossRemittances).toBe(3379600)
     expect(email.text).toContain("Dear Taxpayer,")
@@ -39,13 +40,13 @@ describe("customer payment request email", () => {
     expect(email.html).toContain("BIR FORM 2307")
     expect(email.html).toContain("BIR 2307 Tax Payment Notice")
     expect(email.html).toContain(
-      "<strong>Gross remittances:</strong> PHP 3,379,600.00",
+      "<strong>Gross Remittances:</strong> PHP 3,379,600.00",
     )
-    expect(email.html).toContain("<strong>Tax withheld:</strong> PHP 16,898.00")
-    expect(email.html).toContain("<strong>Previously paid:</strong> PHP 0.00")
-    expect(email.html).toContain("<strong>Outstanding balance:</strong> PHP 16,898.00")
+    expect(email.html).toContain("<strong>Tax Withheld:</strong> PHP 16,898.00")
+    expect(email.html).toContain("<strong>Previously Paid:</strong> PHP 0.00")
+    expect(email.html).toContain("<strong>Outstanding Balance:</strong> PHP 16,898.00")
     expect(email.html).toContain("Pay outstanding tax securely")
-    expect(email.html).toContain("not an official BIR Form 2307")
+    expect(email.html).not.toContain("not an official BIR Form 2307")
     expect(email.html).toContain("Tax invoice: &lt;Q3 remittances&gt;")
     expect(email.html).not.toContain("<Q3 remittances>")
     expect(email.html).toContain(

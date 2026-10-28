@@ -204,6 +204,7 @@ export default function Checkout({ code }: { code: string }) {
             ) : (
               <QrPaymentDisplay
                 value={checkout.qrCode}
+                showBirLogo={checkout.isTaxInvoice}
                 institution={
                   checkout.institutionCode && checkout.institutionName
                     ? {
