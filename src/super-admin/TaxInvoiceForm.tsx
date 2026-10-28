@@ -276,12 +276,22 @@ export default function TaxInvoiceForm({
 
   async function submit(event: FormEvent) {
     event.preventDefault()
+    if (!attachment) {
+      setError("Upload the completed BIR Form 2307 before creating the invoice.")
+      return
+    }
+    if (!(Number(values.amount) > 0)) {
+      setError("The tax amount could not be read from the uploaded BIR Form 2307.")
+      return
+    }
     setCreating(true)
     setError("")
     try {
       const result = await onCreateTaxInvoice(
         {
-          description: values.description.trim(),
+          description:
+            values.description.trim() ||
+            "BIR Form 2307 withholding tax",
           amount: Number(values.amount),
           customerEmail: values.customerEmail.trim(),
           payeeName: values.payeeName.trim(),
@@ -325,35 +335,14 @@ export default function TaxInvoiceForm({
         </div>
       </div>
       <form onSubmit={submit}>
-        <label>
-          <span>Tax description or period</span>
-          <input
-            value={values.description}
-            onChange={(event) => updateValue("description", event.target.value)}
-            maxLength={80}
-            required
-            placeholder="e.g. Quarterly VAT, Q3 2026"
-          />
-        </label>
-        <label>
-          <span>Unpaid tax to collect (PHP)</span>
-          <input
-            type="number"
-            min="0.01"
-            max="1000000"
-            step="0.01"
-            inputMode="decimal"
-            value={values.amount}
-            onChange={(event) => updateValue("amount", event.target.value)}
-            required
-          />
-        </label>
         <div className="admin-invoice-breakdown" aria-live="polite">
           <strong>Invoice breakdown</strong>
           <p>Tax category: Expanded withholding tax (WI830)</p>
           <p>Rate: 0.50%</p>
           <p>Gross remittances: PHP {formatPhp(grossRemittances)}</p>
-          <p>Unpaid tax: PHP {formatPhp(unpaidTax || 0)}</p>
+          <p>
+            Required amount from BIR Form 2307: PHP {formatPhp(unpaidTax || 0)}
+          </p>
           <p>Paid: PHP {formatPhp(0)}</p>
           <p>Balance due: PHP {formatPhp(unpaidTax || 0)}</p>
         </div>
@@ -371,72 +360,6 @@ export default function TaxInvoiceForm({
             required
           />
         </label>
-        <fieldset className="admin-fieldset">
-          <legend>Payee / taxpayer</legend>
-          <label>
-            <span>Registered name</span>
-            <input
-              value={values.payeeName}
-              onChange={(event) => updateValue("payeeName", event.target.value)}
-              maxLength={120}
-              required
-            />
-          </label>
-          <label>
-            <span>TIN</span>
-            <input
-              value={values.payeeTin}
-              onChange={(event) => updateValue("payeeTin", event.target.value)}
-              maxLength={15}
-              placeholder="000-000-000-000"
-              required
-            />
-          </label>
-          <label>
-            <span>Registered address</span>
-            <input
-              value={values.payeeAddress}
-              onChange={(event) =>
-                updateValue("payeeAddress", event.target.value)
-              }
-              maxLength={250}
-              required
-            />
-          </label>
-        </fieldset>
-        <fieldset className="admin-fieldset">
-          <legend>Payor / withholding agent</legend>
-          <label>
-            <span>Registered name</span>
-            <input
-              value={values.payorName}
-              onChange={(event) => updateValue("payorName", event.target.value)}
-              maxLength={120}
-              required
-            />
-          </label>
-          <label>
-            <span>TIN</span>
-            <input
-              value={values.payorTin}
-              onChange={(event) => updateValue("payorTin", event.target.value)}
-              maxLength={15}
-              placeholder="000-000-000-000"
-              required
-            />
-          </label>
-          <label>
-            <span>Registered address</span>
-            <input
-              value={values.payorAddress}
-              onChange={(event) =>
-                updateValue("payorAddress", event.target.value)
-              }
-              maxLength={250}
-              required
-            />
-          </label>
-        </fieldset>
         <label>
           <span>Completed BIR Form 2307</span>
           <input
@@ -458,7 +381,15 @@ export default function TaxInvoiceForm({
             {error}
           </div>
         )}
-        <Button type="submit" disabled={creating}>
+        <Button
+          type="submit"
+          disabled={
+            creating ||
+            !attachment ||
+            !(Number(values.amount) > 0) ||
+            !values.customerEmail.trim()
+          }
+        >
           {creating ? "Creating invoice…" : "Create tax invoice"}
         </Button>
       </form>
