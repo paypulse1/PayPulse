@@ -242,6 +242,100 @@ function drawDocumentHeader({
   bold,
   accent,
 }) {
+  if (isBirTaxDocument) {
+    page.drawRectangle({
+      x: 0,
+      y: height - 118,
+      width: layout.pageWidth,
+      height: 118,
+      color: colors.white,
+    })
+    page.drawRectangle({
+      x: 0,
+      y: height - 118,
+      width: layout.pageWidth,
+      height: 5,
+      color: colors.birRed,
+    })
+    if (birSeal) {
+      page.drawImage(birSeal, {
+        x: 48,
+        y: height - 104,
+        width: 76,
+        height: 76,
+      })
+    } else {
+      page.drawEllipse({
+        x: 48,
+        y: height - 104,
+        width: 76,
+        height: 76,
+        borderColor: colors.birBlue,
+        borderWidth: 1,
+        color: colors.white,
+      })
+      page.drawText("BIR", {
+        x: 70,
+        y: height - 70,
+        size: 8,
+        font: bold,
+        color: colors.birBlue,
+      })
+    }
+    page.drawRectangle({
+      x: 138,
+      y: height - 58,
+      width: 1,
+      height: 50,
+      color: colors.birRed,
+    })
+    page.drawText("REPUBLIC OF THE PHILIPPINES", {
+      x: 152,
+      y: height - 34,
+      size: 7.5,
+      font: bold,
+      color: colors.birBlue,
+    })
+    page.drawText("BUREAU OF INTERNAL REVENUE", {
+      x: 152,
+      y: height - 47,
+      size: 10,
+      font: bold,
+      color: colors.birBlue,
+    })
+    page.drawText("Certificate of Creditable Tax Withheld at Source", {
+      x: 152,
+      y: height - 63,
+      size: 8,
+      font: bold,
+      color: colors.ink,
+    })
+    page.drawRectangle({
+      x: 452,
+      y: height - 85,
+      width: 112,
+      height: 62,
+      color: colors.white,
+      borderColor: colors.birBlue,
+      borderWidth: 1.5,
+    })
+    page.drawText("BIR Form No.", {
+      x: 467,
+      y: height - 43,
+      size: 7,
+      font: bold,
+      color: colors.birBlue,
+    })
+    page.drawText("2307", {
+      x: 477,
+      y: height - 70,
+      size: 24,
+      font: bold,
+      color: colors.birBlue,
+    })
+    return
+  }
+
   page.drawRectangle({
     x: 0,
     y: height - 118,
@@ -537,13 +631,12 @@ function drawDocumentFooter({
       : "Please keep this invoice for your payment records.",
     { x: 48, y: 70, size: 8, font: regular, color: colors.slate },
   )
-  page.drawText("DRPAY  |  Secure digital payments", {
-    x: 48,
-    y: 48,
-    size: 7.5,
-    font: bold,
-    color: colors.ink,
-  })
+  page.drawText(
+    isBirTaxDocument
+      ? "BIR FORM 2307  |  CERTIFICATE OF CREDITABLE TAX WITHHELD AT SOURCE"
+      : "DRPAY  |  Secure digital payments",
+    { x: 48, y: 48, size: 7.5, font: bold, color: colors.ink },
+  )
   rightAlign(
     page,
     regular,
