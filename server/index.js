@@ -2149,6 +2149,10 @@ async function requireSuperAdmin(req, res, next) {
 }
 
 app.get("/healthz", async (_req, res) => {
+  return res.json({ status: "ok", paymentEnvironment: swiftPayEnvironment })
+})
+
+app.get("/readyz", async (_req, res) => {
   try {
     await pool.query("SELECT 1")
     return res.json({ status: "ok", paymentEnvironment: swiftPayEnvironment })
