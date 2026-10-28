@@ -2152,7 +2152,12 @@ app.get("/healthz", async (_req, res) => {
   return res.json({ status: "ok", paymentEnvironment: swiftPayEnvironment })
 })
 
+let databaseReady = false
+
 app.get("/readyz", async (_req, res) => {
+  if (!databaseReady) {
+    return res.status(503).json({ status: "unavailable" })
+  }
   try {
     await pool.query("SELECT 1")
     return res.json({ status: "ok", paymentEnvironment: swiftPayEnvironment })
@@ -6941,10 +6946,14 @@ async function start() {
     throw new Error(
       `Missing or invalid server configuration: ${missing.join(", ")}`,
     )
-  await initializeDatabase()
   const port = Number(process.env.PORT || 10000)
   app.listen(port, "0.0.0.0", () => {
     console.log(`DRPAY API listening on ${port} (${swiftPayEnvironment})`)
+  })
+
+  try {
+    await initializeDatabase()
+    databaseReady = true
     startNotificationWorker()
     void reconcilePending().catch((error) => {
       console.error(
@@ -6952,7 +6961,12 @@ async function start() {
         error.status || error.message || "unexpected error",
       )
     })
-  })
+  } catch (error) {
+    console.error(
+      "Database initialization failed",
+      error.status || error.code || error.message || "unexpected error",
+    )
+  }
 }
 
 start().catch((error) => {
