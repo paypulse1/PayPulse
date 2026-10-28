@@ -19,7 +19,7 @@ services:
       - key: DRPAY_FRONTEND_ORIGIN
         value: https://merchant.denpay.cc
       - key: DRPAY_ADDITIONAL_FRONTEND_ORIGINS
-        value: https://pay.live.denpay.cc,https://pay.sandbox.denpay.cc,https://live.merchant.swiftpay.site,https://drpay-web.onrender.com
+        value: https://denpay.cc,https://pay.live.denpay.cc,https://pay.sandbox.denpay.cc,https://live.merchant.swiftpay.site,https://drpay-web.onrender.com
       - key: DRPAY_LIVE_CHECKOUT_ORIGIN
         value: https://pay.live.denpay.cc
       - key: DRPAY_SANDBOX_CHECKOUT_ORIGIN
@@ -84,7 +84,7 @@ services:
       - key: DRPAY_FRONTEND_ORIGIN
         value: https://merchant.denpay.cc
       - key: DRPAY_ADDITIONAL_FRONTEND_ORIGINS
-        value: https://pay.live.denpay.cc,https://pay.sandbox.denpay.cc,https://live.merchant.swiftpay.site,https://drpay-web.onrender.com
+        value: https://denpay.cc,https://pay.live.denpay.cc,https://pay.sandbox.denpay.cc,https://live.merchant.swiftpay.site,https://drpay-web.onrender.com
       - key: DRPAY_LIVE_CHECKOUT_ORIGIN
         value: https://pay.live.denpay.cc
       - key: DRPAY_SANDBOX_CHECKOUT_ORIGIN
