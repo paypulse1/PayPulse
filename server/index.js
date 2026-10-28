@@ -57,6 +57,11 @@ const defaultPaymentEmailColor = "#153e2c"
 const app = express()
 const clientBuildDirectory = fileURLToPath(new URL("../dist", import.meta.url))
 app.set("trust proxy", 1)
+
+app.get("/healthz", (_req, res) => {
+  return res.json({ status: "ok", paymentEnvironment: process.env.SWIFTPAY_ENV || "sandbox" })
+})
+
 app.use(helmet())
 app.use(express.json({ limit: "24kb" }))
 
