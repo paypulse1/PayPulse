@@ -110,7 +110,11 @@ describe("customer payment request email", () => {
         emailSubject: "DRPAY: BIR 2307 Withholding Tax Notice · TAX-43",
         emailMessage: "A professional tax payment notice.",
         generatedInvoiceAttachment: Buffer.from("invoice-pdf"),
-        generatedBirAttachment: Buffer.from("bir-pdf"),
+        attachment: {
+          fileName: "BIR-2307-TAX-43.pdf",
+          content: Buffer.from("bir-pdf").toString("base64"),
+          contentType: "application/pdf",
+        },
       },
       "DRPAY <payments@denpay.cc>",
     )

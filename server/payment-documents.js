@@ -89,7 +89,79 @@ async function createDocument({ documentType, status, payment }) {
   const accent = isReceipt ? colors.green : colors.navy
   const isBirTaxDocument = !isReceipt && payment.isTaxInvoice === true
 
-  // Document header
+  drawDocumentHeader({
+    page,
+    height,
+    documentType,
+    status,
+    isReceipt,
+    isBirTaxDocument,
+    birSeal,
+    bold,
+  })
+
+  const issuedAt = new Date(payment.createdAt || Date.now())
+  const issuedDate = Number.isNaN(issuedAt.getTime())
+    ? String(payment.createdAt || "")
+    : issuedAt.toLocaleDateString("en-PH", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
+
+  drawDocumentMetadata({
+    page,
+    bold,
+    regular,
+    height,
+    reference,
+    issuedDate,
+  })
+
+  const y = drawAmountPanel({
+    page,
+    bold,
+    regular,
+    height,
+    amount,
+    accent,
+    isBirTaxDocument,
+    isReceipt,
+  })
+
+  drawInvoiceDetails({
+    page,
+    bold,
+    regular,
+    amount,
+    title,
+    reference,
+    y,
+    isReceipt,
+    accent,
+    isBirTaxDocument,
+  })
+  drawDocumentFooter({
+    page,
+    bold,
+    regular,
+    isReceipt,
+    isBirTaxDocument,
+  })
+
+  return Buffer.from(await document.save())
+}
+
+function drawDocumentHeader({
+  page,
+  height,
+  documentType,
+  status,
+  isReceipt,
+  isBirTaxDocument,
+  birSeal,
+  bold,
+}) {
   page.drawRectangle({
     x: 0,
     y: height - 118,
@@ -114,9 +186,9 @@ async function createDocument({ documentType, status, payment }) {
   if (isBirTaxDocument) {
     page.drawImage(birSeal, {
       x: 48,
-      y: height - 66,
-      width: 38,
-      height: 34,
+      y: height - 100,
+      width: 42,
+      height: 42,
     })
     page.drawRectangle({
       x: 94,
@@ -127,19 +199,21 @@ async function createDocument({ documentType, status, payment }) {
     })
     page.drawText("BUREAU OF INTERNAL REVENUE", {
       x: 94,
-      y: height - 94,
+      y: height - 96,
       size: 7,
       font: bold,
       color: colors.white,
     })
   }
-  page.drawText("DIGITAL PAYMENT SERVICES", {
-    x: 48,
-    y: height - 75,
-    size: 8,
-    font: bold,
-    color: rgb(0.78, 0.86, 0.89),
-  })
+  if (!isBirTaxDocument) {
+    page.drawText("DIGITAL PAYMENT SERVICES", {
+      x: 48,
+      y: height - 75,
+      size: 8,
+      font: bold,
+      color: rgb(0.78, 0.86, 0.89),
+    })
+  }
 
   page.drawText(documentType.toUpperCase(), {
     x: 564 - bold.widthOfTextAtSize(documentType.toUpperCase(), 18),
@@ -172,16 +246,16 @@ async function createDocument({ documentType, status, payment }) {
     font: bold,
     color: isReceipt ? colors.green : colors.navy,
   })
+}
 
-  const issuedAt = new Date(payment.createdAt || Date.now())
-  const issuedDate = Number.isNaN(issuedAt.getTime())
-    ? String(payment.createdAt || "")
-    : issuedAt.toLocaleDateString("en-PH", {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      })
-
+function drawDocumentMetadata({
+  page,
+  bold,
+  regular,
+  height,
+  reference,
+  issuedDate,
+}) {
   let y = height - 154
   drawLabelValue(
     page,
@@ -202,9 +276,20 @@ async function createDocument({ documentType, status, payment }) {
     thickness: 1,
     color: colors.line,
   })
+  return y
+}
 
-  // Amount panel
-  y -= 30
+function drawAmountPanel({
+  page,
+  bold,
+  regular,
+  height,
+  amount,
+  accent,
+  isBirTaxDocument,
+  isReceipt,
+}) {
+  let y = height - 244
   page.drawRectangle({
     x: 48,
     y: y - 76,
@@ -228,9 +313,21 @@ async function createDocument({ documentType, status, payment }) {
     font: bold,
     color: accent,
   })
+  return y - 116
+}
 
-  // Itemized details
-  y -= 116
+function drawInvoiceDetails({
+  page,
+  bold,
+  regular,
+  amount,
+  title,
+  reference,
+  y,
+  isReceipt,
+  accent,
+  isBirTaxDocument,
+}) {
   page.drawText(isReceipt ? "PAYMENT SUMMARY" : "INVOICE DETAILS", {
     x: 48,
     y,
@@ -263,32 +360,73 @@ async function createDocument({ documentType, status, payment }) {
   rightAlign(page, bold, "AMOUNT", 7.5, 550, y - 16, colors.white)
 
   y -= 24
+  const detailHeight = isBirTaxDocument ? 118 : 68
   page.drawRectangle({
     x: 48,
-    y: y - 68,
+    y: y - detailHeight,
     width: 516,
-    height: 68,
+    height: detailHeight,
     color: colors.white,
     borderColor: colors.line,
     borderWidth: 1,
   })
-  page.drawText(title, {
-    x: 62,
-    y: y - 25,
-    size: 10,
-    font: bold,
-    color: colors.ink,
-  })
-  page.drawText("Reference: " + reference, {
-    x: 62,
-    y: y - 43,
-    size: 8,
-    font: regular,
-    color: colors.lightSlate,
-  })
-  rightAlign(page, bold, amount, 10, 550, y - 31, colors.ink)
+  if (isBirTaxDocument) {
+    const grossRemittances = formatMoney(
+      Math.round((Number(amount.replace(/[^0-9.-]/g, "")) / 0.005) * 100) / 100,
+    )
+    const rows = [
+      ["Tax period", String(title)],
+      ["Tax code", "WI830"],
+      ["Withholding tax rate", "0.50%"],
+      ["Gross remittances", grossRemittances],
+      ["Tax amount", amount],
+    ]
+    rows.forEach(([label, value], index) => {
+      const rowY = y - 16 - index * 23
+      if (index > 0) {
+        page.drawLine({
+          start: { x: 62, y: rowY + 8 },
+          end: { x: 550, y: rowY + 8 },
+          thickness: 0.5,
+          color: colors.line,
+        })
+      }
+      page.drawText(label, {
+        x: 62,
+        y: rowY,
+        size: 8,
+        font: index === rows.length - 1 ? bold : regular,
+        color: colors.ink,
+      })
+      rightAlign(
+        page,
+        index === rows.length - 1 ? bold : regular,
+        value,
+        8.5,
+        550,
+        rowY,
+        colors.ink,
+      )
+    })
+  } else {
+    page.drawText(title, {
+      x: 62,
+      y: y - 25,
+      size: 10,
+      font: bold,
+      color: colors.ink,
+    })
+    page.drawText("Reference: " + reference, {
+      x: 62,
+      y: y - 43,
+      size: 8,
+      font: regular,
+      color: colors.lightSlate,
+    })
+    rightAlign(page, bold, amount, 10, 550, y - 31, colors.ink)
+  }
 
-  y -= 68
+  y -= isBirTaxDocument ? 118 : 68
   page.drawRectangle({
     x: 48,
     y: y - 54,
@@ -304,8 +442,15 @@ async function createDocument({ documentType, status, payment }) {
     color: colors.ink,
   })
   rightAlign(page, bold, amount, 12, 550, y - 31, accent)
+}
 
-  // Footer
+function drawDocumentFooter({
+  page,
+  bold,
+  regular,
+  isReceipt,
+  isBirTaxDocument,
+}) {
   page.drawLine({
     start: { x: 48, y: 91 },
     end: { x: 564, y: 91 },
@@ -334,8 +479,6 @@ async function createDocument({ documentType, status, payment }) {
     48,
     colors.lightSlate,
   )
-
-  return Buffer.from(await document.save())
 }
 
 export function createPaymentInvoicePdf(payment) {

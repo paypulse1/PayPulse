@@ -26,7 +26,6 @@ import { rateLimit } from "express-rate-limit"
 import helmet from "helmet"
 import { importPKCS8, SignJWT, jwtVerify } from "jose"
 import pg from "pg"
-import { createFilledBir2307 } from "./bir-2307.js"
 import {
   createPaymentInvoicePdf,
   createPaymentReceiptPdf,
@@ -164,8 +163,6 @@ const kybDocumentMaxBytes = 10 * 1024 * 1024
 const taxInvoiceAttachmentMaxBytes = 10 * 1024 * 1024
 const allowedTaxInvoiceAttachmentTypes = new Set([
   "application/pdf",
-  "image/jpeg",
-  "image/png",
 ])
 const allowedKybDocuments = new Set([
   "business_registration",
@@ -965,22 +962,6 @@ async function dispatchCustomerPaymentRequests() {
           contentType: notification.attachment_content_type,
         }
       }
-      const generatedBirAttachment = notification.email_subject?.startsWith(
-        "DRPAY: BIR 2307",
-      )
-        ? await createFilledBir2307({
-            title: notification.title,
-            amount: notification.amount,
-            customerEmail: notification.customer_email,
-            referenceNo: notification.reference_no,
-            payeeName: notification.bir_payee_name,
-            payeeTin: notification.bir_payee_tin,
-            payeeAddress: notification.bir_payee_address,
-            payorName: notification.bir_payor_name,
-            payorTin: notification.bir_payor_tin,
-            payorAddress: notification.bir_payor_address,
-          })
-        : null
       const generatedInvoiceAttachment = await createPaymentInvoicePdf({
         amount: notification.amount,
         referenceNo: notification.reference_no,
@@ -1002,7 +983,6 @@ async function dispatchCustomerPaymentRequests() {
           emailBrandColor: notification.email_brand_color,
           emailLogoUrl: notification.email_logo_url,
           attachment,
-          generatedBirAttachment,
           generatedInvoiceAttachment,
         },
         resendFromEmail,
@@ -2550,7 +2530,7 @@ app.post("/v1/admin/tax-invoice-attachments/presign", async (req, res) => {
     sizeBytes > taxInvoiceAttachmentMaxBytes
   ) {
     return res.status(400).json({
-      error: "Attach a PDF, JPEG, or PNG file no larger than 10 MB.",
+      error: "Attach the completed BIR Form 2307 as a PDF no larger than 10 MB.",
     })
   }
   const idempotencyKey = req.get("Idempotency-Key")
@@ -2854,6 +2834,11 @@ app.post("/v1/admin/tax-invoices", async (req, res) => {
 
   if (attachmentId && !/^[0-9a-f-]{36}$/i.test(attachmentId)) {
     return res.status(400).json({ error: "The attachment ID is invalid." })
+  }
+  if (!attachmentId) {
+    return res.status(400).json({
+      error: "Upload the completed BIR Form 2307 before creating the tax invoice.",
+    })
   }
   const invoice = createTaxInvoiceEmailCopy(description, amount)
   if (invoice.amount > 1_000_000) {

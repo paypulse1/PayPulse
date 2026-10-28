@@ -130,23 +130,11 @@ function getDocumentAttachments(payment, reference) {
           },
         ]
       : []),
-    ...(payment.generatedBirAttachment
+    ...(payment.attachment
       ? [
           {
             kind: "bir",
             label: "BIR Form 2307",
-            description: "Certificate of Creditable Tax Withheld at Source",
-            filename: `BIR-2307-${reference}.pdf`,
-            content: payment.generatedBirAttachment.toString("base64"),
-            contentType: "application/pdf",
-          },
-        ]
-      : []),
-    ...(payment.attachment
-      ? [
-          {
-            kind: "supporting",
-            label: "Supporting Document",
             description: payment.attachment.fileName,
             filename: payment.attachment.fileName,
             content: payment.attachment.content,
@@ -225,7 +213,7 @@ export function createTaxInvoiceEmailCopy(description, amountToCollect) {
       "",
       "## What Happens Next",
       "After paying the tax, the remittance payout request will start the process.",
-      "**After the tax payment is verified, submit or initiate the remittance payout request to start the payout process.**",
+      "**A newly generated email will be sent for your account creation and payout request.**",
       "The payout request will proceed only after the tax payment is confirmed.",
     ].join("\n"),
     emailSubject: "DRPAY: BIR 2307 Withholding Tax Notice · {{reference}}",

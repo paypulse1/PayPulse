@@ -228,16 +228,17 @@ export default function TaxInvoiceForm({
           </label>
         </fieldset>
         <label>
-          <span>Attachment (optional)</span>
+          <span>Completed BIR Form 2307</span>
           <input
             ref={attachmentInput}
             type="file"
-            accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+            accept=".pdf,application/pdf"
             onChange={(event) => setAttachment(event.target.files?.[0] || null)}
+            required
           />
           <small>
-            Add supporting evidence as PDF, JPEG, or PNG up to 10 MB. The email
-            also includes a completed BIR Form 2307 generated from this invoice.
+            Upload the completed official BIR Form 2307 as a PDF. It will be
+            attached to the customer email without being modified.
           </small>
           {attachment && <small>{attachment.name}</small>}
         </label>
