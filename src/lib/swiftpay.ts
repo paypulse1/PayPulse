@@ -489,7 +489,7 @@ function cacheCollectionInstitution(
 const defaultApiBaseUrl = import.meta.env.VITE_DRPAY_BACKEND_URL || ""
 const liveApiBaseUrl =
   import.meta.env.VITE_DRPAY_LIVE_BACKEND_URL ||
-  "https://swiftpay-merchant.onrender.com"
+  "https://api.live.denpay.cc"
 const sandboxApiBaseUrl =
   import.meta.env.VITE_DRPAY_SANDBOX_BACKEND_URL || defaultApiBaseUrl
 
