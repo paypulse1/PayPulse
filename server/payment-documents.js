@@ -1,15 +1,19 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib"
 
 const colors = {
-  navy: rgb(0.043, 0.122, 0.227),
-  muted: rgb(0.322, 0.392, 0.486),
-  border: rgb(0.847, 0.878, 0.918),
-  green: rgb(0.082, 0.243, 0.173),
-  background: rgb(0.973, 0.976, 0.987),
+  ink: rgb(0.035, 0.075, 0.125),
+  slate: rgb(0.29, 0.34, 0.39),
+  lightSlate: rgb(0.53, 0.57, 0.62),
+  line: rgb(0.88, 0.9, 0.92),
+  pale: rgb(0.965, 0.974, 0.98),
+  green: rgb(0.055, 0.25, 0.18),
+  greenPale: rgb(0.925, 0.965, 0.948),
+  navy: rgb(0.035, 0.105, 0.18),
+  white: rgb(1, 1, 1),
 }
 
 function formatMoney(amount) {
-  return `PHP ${Number(amount).toLocaleString("en-PH", {
+  return `PHP ${Number(amount || 0).toLocaleString("en-PH", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`
@@ -23,6 +27,42 @@ function fitText(font, text, size, maxWidth) {
   return value
 }
 
+function rightAlign(page, font, text, size, right, y, color) {
+  page.drawText(text, {
+    x: right - font.widthOfTextAtSize(text, size),
+    y,
+    size,
+    font,
+    color,
+  })
+}
+
+function drawLabelValue(
+  page,
+  fontBold,
+  fontRegular,
+  label,
+  value,
+  x,
+  y,
+  width,
+) {
+  page.drawText(label.toUpperCase(), {
+    x,
+    y,
+    size: 7.5,
+    font: fontBold,
+    color: colors.lightSlate,
+  })
+  page.drawText(fitText(fontRegular, value, 10, width), {
+    x,
+    y: y - 19,
+    size: 10,
+    font: fontRegular,
+    color: colors.ink,
+  })
+}
+
 async function createDocument({ documentType, status, payment }) {
   const document = await PDFDocument.create()
   const page = document.addPage([612, 792])
@@ -30,42 +70,71 @@ async function createDocument({ documentType, status, payment }) {
   const regular = await document.embedFont(StandardFonts.Helvetica)
   const bold = await document.embedFont(StandardFonts.HelveticaBold)
   const amount = formatMoney(payment.amount)
+  const reference = String(payment.referenceNo || "N/A")
+  const title = fitText(regular, payment.title, 10, 330)
+  const isReceipt = documentType === "Receipt"
+  const accent = isReceipt ? colors.green : colors.navy
 
+  // Document header
   page.drawRectangle({
     x: 0,
-    y: height - 96,
+    y: height - 118,
     width: 612,
-    height: 96,
-    color: colors.navy,
+    height: 118,
+    color: accent,
+  })
+  page.drawRectangle({
+    x: 0,
+    y: height - 118,
+    width: 8,
+    height: 118,
+    color: isReceipt ? colors.green : rgb(0.12, 0.31, 0.49),
   })
   page.drawText("DRPAY", {
     x: 48,
-    y: height - 42,
-    size: 22,
+    y: height - 55,
+    size: 25,
     font: bold,
-    color: rgb(1, 1, 1),
+    color: colors.white,
   })
-  page.drawText(documentType.toUpperCase(), {
+  page.drawText("DIGITAL PAYMENT SERVICES", {
     x: 48,
-    y: height - 68,
-    size: 10,
+    y: height - 75,
+    size: 8,
     font: bold,
-    color: rgb(0.78, 0.84, 0.91),
+    color: rgb(0.78, 0.86, 0.89),
   })
 
-  page.drawText(documentType, {
-    x: 48,
-    y: height - 136,
-    size: 26,
+  page.drawText(documentType.toUpperCase(), {
+    x: 564 - bold.widthOfTextAtSize(documentType.toUpperCase(), 18),
+    y: height - 54,
+    size: 18,
     font: bold,
-    color: colors.navy,
+    color: colors.white,
+  })
+  page.drawText("OFFICIAL DRPAY DOCUMENT", {
+    x: 564 - bold.widthOfTextAtSize("OFFICIAL DRPAY DOCUMENT", 7.5),
+    y: height - 74,
+    size: 7.5,
+    font: bold,
+    color: rgb(0.78, 0.86, 0.89),
+  })
+
+  // Status and reference
+  const statusWidth = bold.widthOfTextAtSize(status, 8) + 28
+  page.drawRectangle({
+    x: 564 - statusWidth,
+    y: height - 101,
+    width: statusWidth,
+    height: 17,
+    color: isReceipt ? colors.greenPale : rgb(0.89, 0.93, 0.97),
   })
   page.drawText(status, {
-    x: 564 - bold.widthOfTextAtSize(status, 9),
-    y: height - 132,
-    size: 9,
+    x: 550 - bold.widthOfTextAtSize(status, 8),
+    y: height - 95,
+    size: 8,
     font: bold,
-    color: documentType === "Receipt" ? colors.green : colors.navy,
+    color: isReceipt ? colors.green : colors.navy,
   })
 
   const issuedAt = new Date(payment.createdAt || Date.now())
@@ -76,116 +145,159 @@ async function createDocument({ documentType, status, payment }) {
         month: "long",
         day: "numeric",
       })
-  const rows = [
-    ["Reference number", payment.referenceNo],
-    ["Issued date", issuedDate],
-    ["Payment for", payment.title],
-  ]
 
-  let y = height - 180
-  for (const [label, value] of rows) {
-    page.drawText(label.toUpperCase(), {
-      x: 48,
-      y,
-      size: 8,
-      font: bold,
-      color: colors.muted,
-    })
-    page.drawText(fitText(regular, value, 11, 360), {
-      x: 48,
-      y: y - 18,
-      size: 11,
-      font: regular,
-      color: colors.navy,
-    })
-    page.drawLine({
-      start: { x: 48, y: y - 31 },
-      end: { x: 564, y: y - 31 },
-      thickness: 1,
-      color: colors.border,
-    })
-    y -= 62
-  }
+  let y = height - 154
+  drawLabelValue(
+    page,
+    bold,
+    regular,
+    "Document reference",
+    reference,
+    48,
+    y,
+    220,
+  )
+  drawLabelValue(page, bold, regular, "Issue date", issuedDate, 328, y, 220)
 
+  y -= 60
+  page.drawLine({
+    start: { x: 48, y },
+    end: { x: 564, y },
+    thickness: 1,
+    color: colors.line,
+  })
+
+  // Amount panel
+  y -= 30
   page.drawRectangle({
     x: 48,
-    y: y - 48,
+    y: y - 76,
     width: 516,
-    height: 106,
-    color: colors.background,
-    borderColor: colors.border,
+    height: 90,
+    color: colors.pale,
+    borderColor: colors.line,
     borderWidth: 1,
   })
   page.drawText("TOTAL AMOUNT", {
     x: 72,
-    y: y + 28,
-    size: 9,
+    y: y - 10,
+    size: 8,
     font: bold,
-    color: colors.muted,
+    color: colors.lightSlate,
   })
   page.drawText(amount, {
     x: 72,
-    y: y - 12,
-    size: 24,
+    y: y - 42,
+    size: 22,
     font: bold,
-    color: colors.navy,
+    color: accent,
   })
 
-  page.drawText("PAYMENT DETAILS", {
+  // Itemized details
+  y -= 116
+  page.drawText(isReceipt ? "PAYMENT SUMMARY" : "INVOICE DETAILS", {
     x: 48,
-    y: y - 94,
+    y,
     size: 9,
     font: bold,
-    color: colors.navy,
+    color: colors.ink,
   })
-  page.drawText("Description", {
-    x: 48,
-    y: y - 124,
-    size: 9,
-    font: bold,
-    color: colors.muted,
-  })
-  page.drawText(fitText(regular, payment.title, 10, 330), {
-    x: 48,
-    y: y - 141,
-    size: 10,
-    font: regular,
-    color: colors.navy,
-  })
-  page.drawText("Amount", {
-    x: 455,
-    y: y - 124,
-    size: 9,
-    font: bold,
-    color: colors.muted,
-  })
-  page.drawText(amount, {
-    x: 564 - regular.widthOfTextAtSize(amount, 10),
-    y: y - 141,
-    size: 10,
-    font: bold,
-    color: colors.navy,
-  })
-  page.drawLine({
-    start: { x: 48, y: y - 156 },
-    end: { x: 564, y: y - 156 },
-    thickness: 1,
-    color: colors.border,
-  })
-
   page.drawText(
-    documentType === "Receipt"
-      ? "This document confirms the payment recorded by DRPAY."
-      : "This invoice requests payment of the amount stated above.",
-    { x: 48, y: 74, size: 8, font: regular, color: colors.muted },
+    isReceipt
+      ? "Payment received and recorded in DRPAY."
+      : "Payment due as itemized below.",
+    { x: 48, y: y - 17, size: 8.5, font: regular, color: colors.slate },
   )
-  page.drawText("DRPAY generated document", {
+
+  y -= 43
+  page.drawRectangle({
     x: 48,
-    y: 54,
-    size: 8,
-    font: bold,
+    y: y - 24,
+    width: 516,
+    height: 24,
     color: colors.navy,
   })
+  page.drawText("DESCRIPTION", {
+    x: 62,
+    y: y - 16,
+    size: 7.5,
+    font: bold,
+    color: colors.white,
+  })
+  rightAlign(page, bold, "AMOUNT", 7.5, 550, y - 16, colors.white)
+
+  y -= 24
+  page.drawRectangle({
+    x: 48,
+    y: y - 68,
+    width: 516,
+    height: 68,
+    color: colors.white,
+    borderColor: colors.line,
+    borderWidth: 1,
+  })
+  page.drawText(title, {
+    x: 62,
+    y: y - 25,
+    size: 10,
+    font: bold,
+    color: colors.ink,
+  })
+  page.drawText("Reference: " + reference, {
+    x: 62,
+    y: y - 43,
+    size: 8,
+    font: regular,
+    color: colors.lightSlate,
+  })
+  rightAlign(page, bold, amount, 10, 550, y - 31, colors.ink)
+
+  y -= 68
+  page.drawRectangle({
+    x: 48,
+    y: y - 54,
+    width: 516,
+    height: 54,
+    color: colors.pale,
+  })
+  page.drawText("TOTAL", {
+    x: 62,
+    y: y - 31,
+    size: 9,
+    font: bold,
+    color: colors.ink,
+  })
+  rightAlign(page, bold, amount, 12, 550, y - 31, accent)
+
+  // Footer
+  page.drawLine({
+    start: { x: 48, y: 91 },
+    end: { x: 564, y: 91 },
+    thickness: 1,
+    color: colors.line,
+  })
+  page.drawText(
+    isReceipt
+      ? "This receipt confirms payment status recorded by DRPAY."
+      : "Please keep this invoice for your payment records.",
+    { x: 48, y: 70, size: 8, font: regular, color: colors.slate },
+  )
+  page.drawText("DRPAY  |  Secure digital payments", {
+    x: 48,
+    y: 48,
+    size: 7.5,
+    font: bold,
+    color: colors.ink,
+  })
+  rightAlign(
+    page,
+    regular,
+    "Generated document",
+    7.5,
+    564,
+    48,
+    colors.lightSlate,
+  )
 
   return Buffer.from(await document.save())
 }
