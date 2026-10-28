@@ -99,6 +99,45 @@ describe("customer payment request email", () => {
     ])
   })
 
+  it("styles and includes generated invoice and BIR attachments", () => {
+    const email = createCustomerPaymentRequestEmail(
+      {
+        customerEmail: "taxpayer@example.com",
+        title: "Tax invoice: WI830 Q3 2026",
+        amount: 1250,
+        referenceNo: "TAX-43",
+        paymentUrl: "https://pay.live.denpay.cc/checkout/tax-43",
+        emailSubject: "DRPAY: BIR 2307 Withholding Tax Notice · TAX-43",
+        emailMessage: "A professional tax payment notice.",
+        generatedInvoiceAttachment: Buffer.from("invoice-pdf"),
+        generatedBirAttachment: Buffer.from("bir-pdf"),
+      },
+      "DRPAY <payments@denpay.cc>",
+    )
+
+    expect(email.attachments).toEqual([
+      {
+        filename: "DRPAY-Invoice-TAX-43.pdf",
+        content: Buffer.from("invoice-pdf").toString("base64"),
+        content_type: "application/pdf",
+      },
+      {
+        filename: "BIR-2307-TAX-43.pdf",
+        content: Buffer.from("bir-pdf").toString("base64"),
+        content_type: "application/pdf",
+      },
+    ])
+    expect(email.html).toContain("DOCUMENTS INCLUDED")
+    expect(email.html).toContain("DRPAY Official Invoice")
+    expect(email.html).toContain("BIR Form 2307")
+    expect(email.html).toContain("bir-seal.png")
+    expect(email.text).toContain("DOCUMENTS INCLUDED")
+    expect(email.text).toContain(
+      "DRPAY Official Invoice: DRPAY-Invoice-TAX-43.pdf",
+    )
+    expect(email.text).toContain("BIR Form 2307: BIR-2307-TAX-43.pdf")
+  })
+
   it("includes the recipient, payment details, and secure checkout link", () => {
     const email = createCustomerPaymentRequestEmail(
       {

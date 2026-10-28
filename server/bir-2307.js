@@ -32,7 +32,28 @@ const FIELD_LAYOUT = {
     size: 6.5,
     cover: { x: 205, y: 137, width: 194, height: 16 },
   },
-  periodTo: { x: 282, y: 140, width: 75, height: 16, size: 6.5 },
+  periodTo: {
+    x: 282,
+    y: 140,
+    width: 75,
+    height: 16,
+    size: 6.5,
+    cover: { x: 400, y: 137, width: 105, height: 16 },
+  },
+  payeeZipCode: {
+    x: 554,
+    y: 194,
+    width: 40,
+    size: 7,
+    cover: { x: 548, y: 190, width: 44, height: 18 },
+  },
+  payorZipCode: {
+    x: 554,
+    y: 314,
+    width: 40,
+    size: 7,
+    cover: { x: 548, y: 308, width: 44, height: 18 },
+  },
   payeeTin: {
     x: 210,
     y: 257,
@@ -45,7 +66,7 @@ const FIELD_LAYOUT = {
     y: 283,
     width: 150,
     size: 7,
-    cover: { x: 36, y: 279, width: 150, height: 15 },
+    cover: { x: 36, y: 279, width: 555, height: 15 },
   },
   payorAddress: {
     x: 39,
@@ -66,23 +87,35 @@ const FIELD_LAYOUT = {
     y: 370,
     width: 410,
     size: 7,
-    cover: { x: 180, y: 366, width: 410, height: 14 },
+    cover: { x: 180, y: 362, width: 412, height: 26 },
   },
-  grossRemittancesTable: { x: 402, y: 370, size: 7 },
-  withholdingTaxTable: { x: 514, y: 370, size: 7 },
+  grossRemittancesTable: {
+    x: 402,
+    y: 370,
+    width: 112,
+    size: 7,
+    cover: { x: 390, y: 362, width: 112, height: 26 },
+  },
+  withholdingTaxTable: {
+    x: 514,
+    y: 370,
+    width: 88,
+    size: 7,
+    cover: { x: 502, y: 362, width: 90, height: 26 },
+  },
   grossRemittancesSummary: {
     x: 464,
     y: 506,
     width: 150,
     size: 7,
-    cover: { x: 280, y: 502, width: 150, height: 13 },
+    cover: { x: 390, y: 498, width: 112, height: 24 },
   },
   withholdingTaxSummary: {
     x: 520,
     y: 506,
     width: 130,
     size: 7,
-    cover: { x: 460, y: 502, width: 130, height: 13 },
+    cover: { x: 500, y: 498, width: 92, height: 24 },
   },
   reference: {
     x: 254,
@@ -90,6 +123,12 @@ const FIELD_LAYOUT = {
     width: 150,
     size: 7,
     cover: { x: 250, y: 732, width: 150, height: 18 },
+  },
+  authorizedAgentSignature: {
+    cover: { x: 250, y: 728, width: 250, height: 24 },
+  },
+  authorizedPayeeSignature: {
+    cover: { x: 250, y: 848, width: 250, height: 28 },
   },
 }
 
@@ -189,6 +228,7 @@ function createOverlay({ page, font, height }) {
   }
 
   function text(value, field) {
+    clear(field)
     let displayValue = String(value || "")
     while (
       displayValue.length > 1 &&
@@ -230,6 +270,12 @@ export async function createFilledBir2307({
   const period = getPeriod(description)
   const overlay = createOverlay({ page, font, height })
   const text = overlay.text
+  const clear = overlay.clear
+
+  clear(FIELD_LAYOUT.payeeZipCode)
+  clear(FIELD_LAYOUT.payorZipCode)
+  clear(FIELD_LAYOUT.authorizedAgentSignature)
+  clear(FIELD_LAYOUT.authorizedPayeeSignature)
 
   text(payeeName, FIELD_LAYOUT.payeeName)
   text(payeeAddress, FIELD_LAYOUT.payeeAddress)

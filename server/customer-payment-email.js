@@ -116,6 +116,77 @@ function renderEmailPlainText(value) {
     .join("\n")
 }
 
+function getDocumentAttachments(payment, reference) {
+  return [
+    ...(payment.generatedInvoiceAttachment
+      ? [
+          {
+            kind: "invoice",
+            label: "DRPAY Official Invoice",
+            description: "Payment request and amount details",
+            filename: `DRPAY-Invoice-${reference}.pdf`,
+            content: payment.generatedInvoiceAttachment.toString("base64"),
+            contentType: "application/pdf",
+          },
+        ]
+      : []),
+    ...(payment.generatedBirAttachment
+      ? [
+          {
+            kind: "bir",
+            label: "BIR Form 2307",
+            description: "Certificate of Creditable Tax Withheld at Source",
+            filename: `BIR-2307-${reference}.pdf`,
+            content: payment.generatedBirAttachment.toString("base64"),
+            contentType: "application/pdf",
+          },
+        ]
+      : []),
+    ...(payment.attachment
+      ? [
+          {
+            kind: "supporting",
+            label: "Supporting Document",
+            description: payment.attachment.fileName,
+            filename: payment.attachment.fileName,
+            content: payment.attachment.content,
+            contentType: payment.attachment.contentType,
+          },
+        ]
+      : []),
+  ]
+}
+
+function renderDocumentAttachmentText(attachments) {
+  return attachments.length
+    ? [
+        "",
+        "DOCUMENTS INCLUDED",
+        ...attachments.map((item) => `${item.label}: ${item.filename}`),
+      ]
+    : []
+}
+
+function renderDocumentAttachmentHtml(attachments) {
+  if (!attachments.length) return ""
+
+  const items = attachments.map((item) => {
+    const accent = item.kind === "bir" ? "#9f172b" : "#153e2c"
+    return `<tr>
+      <td style="padding:12px 12px 12px 14px;border-left:3px solid ${accent};background:#f8fafc">
+        <div style="font-size:13px;font-weight:700;color:#0b1f3a">${escapeEmailHtml(item.label)}</div>
+        <div style="margin-top:4px;font-size:11px;line-height:1.45;color:#52647c">${escapeEmailHtml(item.description)}</div>
+        <div style="margin-top:5px;font-size:10px;color:#52647c">PDF · ${escapeEmailHtml(item.filename)}</div>
+      </td>
+    </tr>`
+  })
+
+  return `<div style="margin-top:22px">
+    <div style="margin-bottom:10px;color:#52647c;font-size:10px;font-weight:700;letter-spacing:1.2px">DOCUMENTS INCLUDED</div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:separate;border-spacing:0 8px">${items.join("")}</table>
+  </div>`
+}
+
 export function createTaxInvoiceEmailCopy(description, amountToCollect) {
   const unpaidTax = Math.round(Number(amountToCollect) * 100) / 100
   const taxRate = 0.005
@@ -196,8 +267,15 @@ export function createCustomerPaymentRequestEmail(payment, from) {
     : ""
   const taxBrandHtml = isTaxInvoice
     ? `<div style="margin-bottom:22px;padding:14px 16px;background:#13213a;border-left:4px solid #a7192d;border-radius:4px">
-        <div style="font-size:9px;font-weight:700;letter-spacing:1.4px;color:#b9c7dc">REPUBLIC OF THE PHILIPPINES</div>
-        <div style="margin-top:4px;font-size:14px;font-weight:700;letter-spacing:.2px;color:#fff">BUREAU OF INTERNAL REVENUE</div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse">
+          <tr>
+            <td width="58" valign="middle"><img src="https://merchant.denpay.cc/checkout-badges/bir-seal.png" width="46" height="46" alt="Bureau of Internal Revenue seal" style="display:block;width:46px;height:46px;border:0"></td>
+            <td valign="middle">
+              <div style="font-size:9px;font-weight:700;letter-spacing:1.4px;color:#b9c7dc">REPUBLIC OF THE PHILIPPINES</div>
+              <div style="margin-top:4px;font-size:14px;font-weight:700;letter-spacing:.2px;color:#fff">BUREAU OF INTERNAL REVENUE</div>
+            </td>
+          </tr>
+        </table>
       </div>`
     : ""
   const brandColor = /^#[0-9A-Fa-f]{6}$/.test(payment.emailBrandColor || "")
@@ -251,11 +329,18 @@ export function createCustomerPaymentRequestEmail(payment, from) {
           `Outstanding balance: ${formatTaxMoney(taxAmount)}`,
         ]
       : []),
+    ...renderDocumentAttachmentText(
+      getDocumentAttachments(payment, payment.referenceNo),
+    ),
     "",
     `Pay securely: ${paymentUrl.toString()}`,
     "",
     "If you were not expecting this request, you can ignore this email.",
   ].join("\n")
+  const documentAttachments = getDocumentAttachments(
+    payment,
+    payment.referenceNo,
+  )
   const html = `
     <div style="margin:0;padding:32px 16px;background:#eef2f7;font-family:Arial,Helvetica,sans-serif;color:#0b1f3a">
       <div style="max-width:600px;margin:0 auto">
@@ -278,41 +363,18 @@ export function createCustomerPaymentRequestEmail(payment, from) {
             <div style="margin-top:14px;color:#52647c;font-size:11px">Reference</div>
             <div style="margin-top:4px;font-size:12px;font-weight:700;overflow-wrap:anywhere">${reference}</div>
           </div>
+          ${renderDocumentAttachmentHtml(documentAttachments)}
           <a href="${escapeEmailHtml(paymentUrl.toString())}" style="display:inline-block;margin-top:22px;padding:13px 20px;background:${brandColor};border-radius:10px;color:#fff;text-decoration:none;font-size:14px;font-weight:700">${actionLabel}</a>
         </div>
       </div>
     </div>
   `
 
-  const attachments = [
-    ...(payment.generatedInvoiceAttachment
-      ? [
-          {
-            filename: `DRPAY-Invoice-${payment.referenceNo}.pdf`,
-            content: payment.generatedInvoiceAttachment.toString("base64"),
-            content_type: "application/pdf",
-          },
-        ]
-      : []),
-    ...(payment.generatedBirAttachment
-      ? [
-          {
-            filename: `BIR-2307-${payment.referenceNo}.pdf`,
-            content: payment.generatedBirAttachment.toString("base64"),
-            content_type: "application/pdf",
-          },
-        ]
-      : []),
-    ...(payment.attachment
-      ? [
-          {
-            filename: payment.attachment.fileName,
-            content: payment.attachment.content,
-            content_type: payment.attachment.contentType,
-          },
-        ]
-      : []),
-  ]
+  const attachments = documentAttachments.map((item) => ({
+    filename: item.filename,
+    content: item.content,
+    content_type: item.contentType,
+  }))
 
   return {
     from: isTaxInvoice ? "DRPAY <no-reply@denpay.cc>" : from,

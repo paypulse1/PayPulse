@@ -1,4 +1,10 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib"
+import { readFile } from "node:fs/promises"
+import { fileURLToPath } from "node:url"
+
+const birSealPath = fileURLToPath(
+  new URL("../public/checkout-badges/bir-seal.png", import.meta.url),
+)
 
 const colors = {
   ink: rgb(0.035, 0.075, 0.125),
@@ -71,6 +77,11 @@ async function createDocument({ documentType, status, payment }) {
   const { height } = page.getSize()
   const regular = await document.embedFont(StandardFonts.Helvetica)
   const bold = await document.embedFont(StandardFonts.HelveticaBold)
+  const birSealBytes =
+    !payment.isTaxInvoice || documentType === "Receipt"
+      ? null
+      : await readFile(birSealPath)
+  const birSeal = birSealBytes ? await document.embedPng(birSealBytes) : null
   const amount = formatMoney(payment.amount)
   const reference = String(payment.referenceNo || "N/A")
   const title = fitText(regular, payment.title, 10, 330)
@@ -101,15 +112,21 @@ async function createDocument({ documentType, status, payment }) {
     color: colors.white,
   })
   if (isBirTaxDocument) {
-    page.drawRectangle({
+    page.drawImage(birSeal, {
       x: 48,
+      y: height - 66,
+      width: 38,
+      height: 34,
+    })
+    page.drawRectangle({
+      x: 94,
       y: height - 82,
       width: 150,
       height: 1,
       color: colors.birRed,
     })
     page.drawText("BUREAU OF INTERNAL REVENUE", {
-      x: 48,
+      x: 94,
       y: height - 94,
       size: 7,
       font: bold,
