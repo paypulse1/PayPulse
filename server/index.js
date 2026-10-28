@@ -6946,15 +6946,18 @@ app.use((error, _req, res, _next) => {
 })
 
 async function start() {
-  const missing = requiredEnvironment()
-  if (missing.length)
-    throw new Error(
-      `Missing or invalid server configuration: ${missing.join(", ")}`,
-    )
   const port = Number(process.env.PORT || 10000)
   app.listen(port, "0.0.0.0", () => {
     console.log(`DRPAY API listening on ${port} (${swiftPayEnvironment})`)
   })
+
+  const missing = requiredEnvironment()
+  if (missing.length) {
+    console.error(
+      `Missing or invalid server configuration: ${missing.join(", ")}`,
+    )
+    return
+  }
 
   try {
     await initializeDatabase()
