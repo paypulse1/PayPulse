@@ -134,8 +134,14 @@ export default function Checkout({ code }: { code: string }) {
               <div className="checkout-instructions">
                 <strong>How to pay</strong>
                 <ol>
-                  <li>Open your bank or supported payment app.</li>
-                  <li>Choose QR payment and scan the code above.</li>
+                  <li>
+                    Open your {checkout.institutionName || "bank"} or supported
+                    banking app.
+                  </li>
+                  <li>
+                    Open your {checkout.institutionName || "bank"} QR scanner
+                    and scan the code above.
+                  </li>
                   <li>Confirm the PHP amount before completing payment.</li>
                 </ol>
               </div>
