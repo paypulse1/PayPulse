@@ -87,7 +87,8 @@ export default function QrPaymentDisplay({ value, institution }: { value?: strin
       <img className="qr-preview" src={image} alt="Scan this QRPH payment code" />
       {institution && (
         <p className="qr-brand-note">
-          This uses the existing SwiftPay QRPH payment. Payment availability depends on the selected app and payer account.
+          We will use your payment information. Please keep your reference
+          number.
         </p>
       )}
       {institution && getPaymentInstitutionDeepLink(institution) ? (
