@@ -116,29 +116,54 @@ function renderEmailPlainText(value) {
     .join("\n")
 }
 
-export function createTaxInvoiceEmailCopy(description) {
+export function createTaxInvoiceEmailCopy(description, amountToCollect) {
+  const unpaidTax = Math.round(Number(amountToCollect) * 100) / 100
+  const taxRate = 0.005
+  const grossRemittances = Math.round((unpaidTax / taxRate) * 100) / 100
+  const formatMoney = (amount) =>
+    `PHP ${amount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
   return {
     title: `Tax invoice: ${description}`,
-    emailSubject: "DRPAY: Tax invoice · {{reference}}",
+    amount: unpaidTax,
+    grossRemittances,
     emailMessage: [
-      "## Tax payment invoice",
+      "## BIR Form 2307 Tax Payment Notice",
       "",
-      "**Tax item:** {{title}}",
-      "**Tax amount due:** {{amount}}",
-      "**Invoice reference:** {{reference}}",
+      "Dear Taxpayer,",
       "",
-      "Use the secure checkout button below to complete payment.",
+      "This notice is for collection of the outstanding expanded withholding tax reflected in the supporting tax records. Please review the calculation below.",
+      "",
+      "**BIR form reference:** 2307 — Certificate of Creditable Tax Withheld at Source",
+      `**Tax period / description:** ${description}`,
+      "**Tax category:** Expanded withholding tax",
+      "**Alphanumeric Tax Code:** WI830",
+      "**Rate:** 0.50%",
+      `**Gross remittances:** ${formatMoney(grossRemittances)}`,
+      `**Tax withheld:** ${formatMoney(unpaidTax)}`,
+      `**Previously paid:** ${formatMoney(0)}`,
+      `**Outstanding balance:** ${formatMoney(unpaidTax)}`,
+      "**DRPAY invoice reference:** {{reference}}",
+      "",
+      "Please use the secure payment link below to settle the outstanding balance.",
+      "",
+      "This DRPAY payment notice is not an official BIR Form 2307 and does not replace the certificate issued by the withholding agent.",
     ].join("\n"),
+    emailSubject: "DRPAY: BIR 2307 Withholding Tax Notice · {{reference}}",
   }
 }
 
 export function createCustomerPaymentRequestEmail(payment, from) {
   const amount = `PHP ${Number(payment.amount).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-  const isTaxInvoice = payment.emailSubject?.startsWith("DRPAY: Tax invoice")
-  const heading = isTaxInvoice ? "Your tax invoice" : "Payment request"
-  const badge = isTaxInvoice ? "TAX INVOICE" : "PAYMENT REQUEST"
+  const isTaxInvoice =
+    payment.emailSubject?.startsWith("DRPAY: Tax invoice") ||
+    payment.emailSubject?.startsWith("DRPAY: BIR 2307")
+  const heading = isTaxInvoice
+    ? "BIR 2307 Tax Payment Notice"
+    : "Payment request"
+  const badge = isTaxInvoice ? "BIR FORM 2307" : "PAYMENT REQUEST"
   const actionLabel = isTaxInvoice
-    ? "Pay tax invoice securely"
+    ? "Pay outstanding tax securely"
     : "Review payment request"
   const title = escapeEmailHtml(payment.title)
   const reference = escapeEmailHtml(payment.referenceNo)

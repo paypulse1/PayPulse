@@ -2805,10 +2805,16 @@ app.post("/v1/admin/tax-invoices", async (req, res) => {
   if (attachmentId && !/^[0-9a-f-]{36}$/i.test(attachmentId)) {
     return res.status(400).json({ error: "The attachment ID is invalid." })
   }
-  const invoice = createTaxInvoiceEmailCopy(description)
+  const invoice = createTaxInvoiceEmailCopy(description, amount)
+  if (invoice.amount > 1_000_000) {
+    return res.status(400).json({
+      error: "The taxable amount plus VAT cannot exceed PHP 1,000,000.00.",
+    })
+  }
   const existing = await pool.query(
     `SELECT p.id, p.code, p.title, p.amount, p.customer_email, p.payment_url,
-       p.payment_token, p.qr_payload, p.status, a.upload_id AS attachment_id
+       p.payment_token, p.qr_payload, p.status, p.email_message,
+       a.upload_id AS attachment_id
      FROM payment_links p
      LEFT JOIN admin_tax_invoice_attachments a ON a.payment_id = p.id
      WHERE p.idempotency_key = $1 AND p.merchant_email IS NULL`,
@@ -2818,8 +2824,9 @@ app.post("/v1/admin/tax-invoices", async (req, res) => {
     const row = existing.rows[0]
     if (
       row.title !== invoice.title ||
-      Number(row.amount) !== amount ||
+      Number(row.amount) !== invoice.amount ||
       row.customer_email !== customerEmail ||
+      row.email_message !== invoice.emailMessage ||
       row.attachment_id !== attachmentId
     ) {
       return res.status(409).json({
@@ -2896,7 +2903,7 @@ app.post("/v1/admin/tax-invoices", async (req, res) => {
         referenceNo,
         code,
         invoice.title,
-        amount,
+        invoice.amount,
         defaultCheckoutInstructions,
         invoice.emailSubject,
         invoice.emailMessage,
@@ -2926,7 +2933,7 @@ app.post("/v1/admin/tax-invoices", async (req, res) => {
       action: "Tax payment invoice created",
       target: referenceNo,
       actor: req.adminEmail,
-      summary: `${amount.toFixed(2)} PHP tax invoice for ${customerEmail}.`,
+      summary: `VAT taxable amount PHP ${amount.toFixed(2)} at 12%; tax PHP ${invoice.taxAmount.toFixed(2)}; balance PHP ${invoice.amount.toFixed(2)} for ${customerEmail}.`,
     })
     await client.query("COMMIT")
   } catch (error) {
@@ -2945,7 +2952,7 @@ app.post("/v1/admin/tax-invoices", async (req, res) => {
   try {
     const { data } = await swiftPaySignedRequest("/bootstrap/qrph?type=P2M", {
       x_access_key: swiftPayAccessKey,
-      x_amount: amount.toFixed(2),
+      x_amount: invoice.amount.toFixed(2),
       x_currency: "PHP",
       x_reference_no: referenceNo,
       reject_qrph_duplicated_payments: true,
@@ -2962,7 +2969,7 @@ app.post("/v1/admin/tax-invoices", async (req, res) => {
     if (!validPaymentStatus(status))
       throw new Error("SwiftPay returned an invalid initial payment status.")
     const checkoutUrl = buildCheckoutUrl(code)
-    const actualAmount = Number(data.amount ?? amount)
+    const actualAmount = Number(data.amount ?? invoice.amount)
     if (!Number.isFinite(actualAmount) || actualAmount <= 0)
       throw new Error("SwiftPay returned an invalid payment amount.")
     await pool.query(

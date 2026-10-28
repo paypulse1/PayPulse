@@ -50,6 +50,15 @@ export default function PaymentAdminSection({
   const [taxInvoiceError, setTaxInvoiceError] = useState("")
   const [createdTaxInvoice, setCreatedTaxInvoice] =
     useState<PaymentLinkResult | null>(null)
+  const unpaidTax = Number(taxAmount)
+  const grossRemittances = Number.isFinite(unpaidTax)
+    ? Math.round((unpaidTax / 0.005) * 100) / 100
+    : 0
+  const formatPhp = (amount: number) =>
+    amount.toLocaleString("en-PH", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
 
   async function submitTaxInvoice(event: FormEvent) {
     event.preventDefault()
@@ -93,8 +102,8 @@ export default function PaymentAdminSection({
           <div>
             <h2>Create a tax invoice</h2>
             <p>
-              Create a secure QRPH checkout and email the tax amount and payment
-              link to the recipient.
+              Create a WI830 expanded withholding tax invoice using the example's
+              default 0.50% rate.
             </p>
           </div>
         </div>
@@ -110,7 +119,7 @@ export default function PaymentAdminSection({
             />
           </label>
           <label>
-            <span>Total tax due (PHP)</span>
+            <span>Unpaid tax to collect (PHP)</span>
             <input
               type="number"
               min="0.01"
@@ -122,6 +131,15 @@ export default function PaymentAdminSection({
               required
             />
           </label>
+          <div className="admin-invoice-breakdown" aria-live="polite">
+            <strong>Invoice breakdown</strong>
+            <p>Tax category: Expanded withholding tax (WI830)</p>
+            <p>Rate: 0.50%</p>
+            <p>Gross remittances: PHP {formatPhp(grossRemittances)}</p>
+            <p>Unpaid tax: PHP {formatPhp(unpaidTax || 0)}</p>
+            <p>Paid: PHP {formatPhp(0)}</p>
+            <p>Balance due: PHP {formatPhp(unpaidTax || 0)}</p>
+          </div>
           <label>
             <span>Recipient email</span>
             <input
