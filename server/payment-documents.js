@@ -202,34 +202,34 @@ function drawDocumentHeader({
   })
   page.drawImage(drpayMark, {
     x: 48,
-    y: height - 63,
-    width: 34,
-    height: 34,
+    y: height - 68,
+    width: 40,
+    height: 40,
   })
   page.drawText("DRPAY", {
-    x: 90,
-    y: height - 53,
-    size: 24,
+    x: 96,
+    y: height - 52,
+    size: 22,
     font: bold,
     color: colors.white,
   })
   if (isBirTaxDocument) {
     page.drawImage(birSeal, {
-      x: 48,
-      y: height - 108,
-      width: 38,
-      height: 38,
+      x: 502,
+      y: height - 106,
+      width: 46,
+      height: 46,
     })
     page.drawRectangle({
-      x: 94,
-      y: height - 84,
-      width: 138,
+      x: 96,
+      y: height - 82,
+      width: 154,
       height: 1,
       color: colors.birRed,
     })
     page.drawText("BUREAU OF INTERNAL REVENUE", {
-      x: 94,
-      y: height - 98,
+      x: 96,
+      y: height - 96,
       size: 7,
       font: bold,
       color: colors.white,
@@ -237,7 +237,7 @@ function drawDocumentHeader({
   }
   if (!isBirTaxDocument) {
     page.drawText("DIGITAL PAYMENT SERVICES", {
-      x: 90,
+      x: 96,
       y: height - 75,
       size: 8,
       font: bold,
