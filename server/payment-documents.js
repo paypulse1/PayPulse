@@ -151,6 +151,9 @@ async function createDocument({ documentType, status, payment }) {
     isReceipt,
   })
 
+  const invoiceDetailsY = isBirTaxDocument
+    ? drawBirPartyDetails({ page, bold, regular, payment, y })
+    : y
   drawInvoiceDetails({
     page,
     bold,
@@ -158,7 +161,7 @@ async function createDocument({ documentType, status, payment }) {
     amount,
     title,
     reference,
-    y,
+    y: invoiceDetailsY,
     isReceipt,
     accent,
     isBirTaxDocument,
@@ -172,6 +175,59 @@ async function createDocument({ documentType, status, payment }) {
   })
 
   return Buffer.from(await document.save())
+}
+
+function drawBirPartyDetails({ page, bold, regular, payment, y }) {
+  const panelY = y - 86
+  page.drawRectangle({
+    x: layout.contentX,
+    y: panelY,
+    width: layout.contentWidth,
+    height: 86,
+    color: colors.white,
+    borderColor: colors.birBlue,
+    borderWidth: 1.2,
+  })
+  page.drawRectangle({
+    x: layout.contentX,
+    y: panelY + 62,
+    width: layout.contentWidth,
+    height: 24,
+    color: colors.birBlue,
+  })
+  page.drawText("TAX CERTIFICATE PARTICULARS", {
+    x: layout.contentX + 14,
+    y: panelY + 69,
+    size: 7.5,
+    font: bold,
+    color: colors.white,
+  })
+
+  const halfWidth = layout.contentWidth / 2
+  page.drawLine({
+    start: { x: layout.contentX + halfWidth, y: panelY },
+    end: { x: layout.contentX + halfWidth, y: panelY + 62 },
+    thickness: 0.75,
+    color: colors.line,
+  })
+  const parties = [
+    ["PAYEE / TAXPAYER", payment.birPayeeName, payment.birPayeeTin, payment.birPayeeAddress],
+    ["PAYOR / WITHHOLDING AGENT", payment.birPayorName, payment.birPayorTin, payment.birPayorAddress],
+  ]
+  parties.forEach(([label, name, tin, address], index) => {
+    const x = layout.contentX + 14 + index * halfWidth
+    page.drawText(label, { x, y: panelY + 48, size: 6.5, font: bold, color: colors.birBlue })
+    page.drawText(fitText(regular, name || "NOT PROVIDED", 8, halfWidth - 28), {
+      x, y: panelY + 34, size: 8, font: bold, color: colors.ink,
+    })
+    page.drawText(`TIN: ${tin || "NOT PROVIDED"}`, {
+      x, y: panelY + 21, size: 7, font: regular, color: colors.slate,
+    })
+    page.drawText(fitText(regular, address || "NOT PROVIDED", 7, halfWidth - 28), {
+      x, y: panelY + 8, size: 7, font: regular, color: colors.slate,
+    })
+  })
+  return panelY - 18
 }
 
 function drawDocumentHeader({

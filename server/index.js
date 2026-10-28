@@ -970,6 +970,12 @@ async function dispatchCustomerPaymentRequests() {
         isTaxInvoice:
           notification.email_subject?.startsWith("DRPAY: BIR 2307") ||
           notification.email_subject?.startsWith("DRPAY: Tax invoice"),
+        birPayeeName: notification.bir_payee_name,
+        birPayeeTin: notification.bir_payee_tin,
+        birPayeeAddress: notification.bir_payee_address,
+        birPayorName: notification.bir_payor_name,
+        birPayorTin: notification.bir_payor_tin,
+        birPayorAddress: notification.bir_payor_address,
       })
       const email = createCustomerPaymentRequestEmail(
         {
