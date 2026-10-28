@@ -2806,21 +2806,15 @@ app.post("/v1/admin/tax-invoices", async (req, res) => {
     })
   }
   if (
-    !birPayeeName ||
     birPayeeName.length > 120 ||
-    !birPayeeTin ||
     birPayeeTin.length > 15 ||
-    !birPayeeAddress ||
     birPayeeAddress.length > 250 ||
-    !birPayorName ||
     birPayorName.length > 120 ||
-    !birPayorTin ||
     birPayorTin.length > 15 ||
-    !birPayorAddress ||
     birPayorAddress.length > 250
   ) {
     return res.status(400).json({
-      error: "Enter the payee and payor names, TINs, and registered addresses.",
+      error: "Payee and payor details are too long.",
     })
   }
   if (

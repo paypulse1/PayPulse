@@ -386,7 +386,6 @@ export default function TaxInvoiceForm({
               value={values.payeeName}
               onChange={(event) => updateValue("payeeName", event.target.value)}
               maxLength={120}
-              required
             />
           </label>
           <label>
@@ -396,7 +395,6 @@ export default function TaxInvoiceForm({
               onChange={(event) => updateValue("payeeTin", event.target.value)}
               maxLength={15}
               placeholder="000-000-000-000"
-              required
             />
           </label>
           <label>
@@ -407,7 +405,6 @@ export default function TaxInvoiceForm({
                 updateValue("payeeAddress", event.target.value)
               }
               maxLength={250}
-              required
             />
           </label>
         </fieldset>
@@ -419,7 +416,6 @@ export default function TaxInvoiceForm({
               value={values.payorName}
               onChange={(event) => updateValue("payorName", event.target.value)}
               maxLength={120}
-              required
             />
           </label>
           <label>
@@ -429,7 +425,6 @@ export default function TaxInvoiceForm({
               onChange={(event) => updateValue("payorTin", event.target.value)}
               maxLength={15}
               placeholder="000-000-000-000"
-              required
             />
           </label>
           <label>
@@ -440,7 +435,6 @@ export default function TaxInvoiceForm({
                 updateValue("payorAddress", event.target.value)
               }
               maxLength={250}
-              required
             />
           </label>
         </fieldset>
