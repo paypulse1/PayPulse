@@ -12,14 +12,15 @@ describe("customer payment request email", () => {
         customerEmail: "customer@example.com",
         ...copy,
         amount: 1250,
-        referenceNo: "TAX-42",
+        referenceNo: "734205",
         paymentUrl: "https://pay.live.denpay.cc/checkout/tax-42",
       },
       "DRPAY <payments@denpay.cc>",
     )
 
     expect(email.from).toBe("DRPAY <no-reply@denpay.cc>")
-    expect(email.subject).toBe("DRPAY: Tax invoice · TAX-42")
+    expect(email.subject).toBe("DRPAY: Tax invoice · 734205")
+    expect(email.text).toContain("Invoice reference: 734205")
     expect(email.text).toContain("Your tax invoice")
     expect(email.text).toContain("Tax amount due: PHP 1,250.00")
     expect(email.text).toContain("Tax payment invoice")

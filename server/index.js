@@ -1470,6 +1470,8 @@ async function initializeDatabase() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE (admin_email, idempotency_key)
     );
+    CREATE SEQUENCE IF NOT EXISTS admin_tax_invoice_reference_seq
+      START WITH 100000 MINVALUE 100000 MAXVALUE 999999 NO CYCLE;
     CREATE INDEX IF NOT EXISTS admin_tax_invoice_uploads_expiry_idx
       ON admin_tax_invoice_uploads (expires_at);
     CREATE TABLE IF NOT EXISTS admin_tax_invoice_attachments (
@@ -2854,7 +2856,10 @@ app.post("/v1/admin/tax-invoices", async (req, res) => {
   }
 
   const id = randomUUID()
-  const referenceNo = `TAX-${randomUUID()}`
+  const referenceResult = await pool.query(
+    "SELECT nextval('admin_tax_invoice_reference_seq')::text AS reference_no",
+  )
+  const referenceNo = referenceResult.rows[0].reference_no
   const code = randomBytes(32).toString("base64url")
   const client = await pool.connect()
   try {
