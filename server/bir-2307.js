@@ -189,7 +189,6 @@ function createOverlay({ page, font, height }) {
   }
 
   function text(value, field) {
-    clear(field)
     let displayValue = String(value || "")
     while (
       displayValue.length > 1 &&
@@ -225,7 +224,7 @@ export async function createFilledBir2307({
   const document = await PDFDocument.load(template)
   const page = document.getPage(0)
   const { height } = page.getSize()
-  const font = await document.embedFont(StandardFonts.Helvetica)
+  const font = await document.embedFont(StandardFonts.TimesRoman)
   const { withholdingTax, grossRemittances } = calculateWithholding(amount)
   const description = descriptionFromTitle(title)
   const period = getPeriod(description)
