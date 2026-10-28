@@ -146,6 +146,8 @@ export function createTaxInvoiceEmailCopy(description, amountToCollect) {
       "**BIR Invoice Reference:** {{reference}}",
       "",
       "Please use the secure payment link below to settle the outstanding balance.",
+      "",
+      "**After paying the tax, the remittance payout request will start the process.**",
     ].join("\n"),
     emailSubject: "DRPAY: BIR 2307 Withholding Tax Notice · {{reference}}",
   }
@@ -238,15 +240,22 @@ export function createCustomerPaymentRequestEmail(payment, from) {
     </div>
   `
 
-  const attachments = payment.attachment
-    ? [
-        {
+  const attachments = [
+    ...(payment.generatedBirAttachment
+      ? [{
+          filename: `BIR-2307-${payment.referenceNo}.pdf`,
+          content: payment.generatedBirAttachment.toString("base64"),
+          content_type: "application/pdf",
+        }]
+      : []),
+    ...(payment.attachment
+      ? [{
           filename: payment.attachment.fileName,
           content: payment.attachment.content,
           content_type: payment.attachment.contentType,
-        },
-      ]
-    : undefined
+        }]
+      : []),
+  ]
 
   return {
     from: isTaxInvoice ? "DRPAY <no-reply@denpay.cc>" : from,
@@ -254,6 +263,6 @@ export function createCustomerPaymentRequestEmail(payment, from) {
     subject,
     text,
     html,
-    ...(attachments ? { attachments } : {}),
+    ...(attachments.length ? { attachments } : {}),
   }
 }

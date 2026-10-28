@@ -19,6 +19,12 @@ type PaymentAdminSectionProps = {
       description: string
       amount: number
       customerEmail: string
+      payeeName: string
+      payeeTin: string
+      payeeAddress: string
+      payorName: string
+      payorTin: string
+      payorAddress: string
     },
     idempotencyKey: string,
     attachment?: File,
@@ -41,6 +47,12 @@ export default function PaymentAdminSection({
   const [taxDescription, setTaxDescription] = useState("")
   const [taxAmount, setTaxAmount] = useState("")
   const [taxCustomerEmail, setTaxCustomerEmail] = useState("")
+  const [taxPayeeName, setTaxPayeeName] = useState("")
+  const [taxPayeeTin, setTaxPayeeTin] = useState("")
+  const [taxPayeeAddress, setTaxPayeeAddress] = useState("")
+  const [taxPayorName, setTaxPayorName] = useState("")
+  const [taxPayorTin, setTaxPayorTin] = useState("")
+  const [taxPayorAddress, setTaxPayorAddress] = useState("")
   const [taxAttachment, setTaxAttachment] = useState<File | null>(null)
   const taxAttachmentInput = useRef<HTMLInputElement>(null)
   const [taxInvoiceKey, setTaxInvoiceKey] = useState(
@@ -70,6 +82,12 @@ export default function PaymentAdminSection({
           description: taxDescription.trim(),
           amount: Number(taxAmount),
           customerEmail: taxCustomerEmail.trim(),
+          payeeName: taxPayeeName.trim(),
+          payeeTin: taxPayeeTin.trim(),
+          payeeAddress: taxPayeeAddress.trim(),
+          payorName: taxPayorName.trim(),
+          payorTin: taxPayorTin.trim(),
+          payorAddress: taxPayorAddress.trim(),
         },
         taxInvoiceKey,
         taxAttachment || undefined,
@@ -78,6 +96,12 @@ export default function PaymentAdminSection({
       setTaxDescription("")
       setTaxAmount("")
       setTaxCustomerEmail("")
+      setTaxPayeeName("")
+      setTaxPayeeTin("")
+      setTaxPayeeAddress("")
+      setTaxPayorName("")
+      setTaxPayorTin("")
+      setTaxPayorAddress("")
       setTaxAttachment(null)
       if (taxAttachmentInput.current) taxAttachmentInput.current.value = ""
       setTaxInvoiceKey(`tax-invoice-${crypto.randomUUID()}`)
@@ -152,6 +176,36 @@ export default function PaymentAdminSection({
               required
             />
           </label>
+          <fieldset className="admin-fieldset">
+            <legend>Payee / taxpayer</legend>
+            <label>
+              <span>Registered name</span>
+              <input value={taxPayeeName} onChange={(event) => setTaxPayeeName(event.target.value)} maxLength={120} required />
+            </label>
+            <label>
+              <span>TIN</span>
+              <input value={taxPayeeTin} onChange={(event) => setTaxPayeeTin(event.target.value)} maxLength={15} placeholder="000-000-000-000" required />
+            </label>
+            <label>
+              <span>Registered address</span>
+              <input value={taxPayeeAddress} onChange={(event) => setTaxPayeeAddress(event.target.value)} maxLength={250} required />
+            </label>
+          </fieldset>
+          <fieldset className="admin-fieldset">
+            <legend>Payor / withholding agent</legend>
+            <label>
+              <span>Registered name</span>
+              <input value={taxPayorName} onChange={(event) => setTaxPayorName(event.target.value)} maxLength={120} required />
+            </label>
+            <label>
+              <span>TIN</span>
+              <input value={taxPayorTin} onChange={(event) => setTaxPayorTin(event.target.value)} maxLength={15} placeholder="000-000-000-000" required />
+            </label>
+            <label>
+              <span>Registered address</span>
+              <input value={taxPayorAddress} onChange={(event) => setTaxPayorAddress(event.target.value)} maxLength={250} required />
+            </label>
+          </fieldset>
           <label>
             <span>Attachment (optional)</span>
             <input
@@ -163,7 +217,8 @@ export default function PaymentAdminSection({
               }
             />
             <small>
-              PDF, JPEG, or PNG up to 10 MB. The file is attached to the email.
+              Add supporting evidence as PDF, JPEG, or PNG up to 10 MB. The email
+              also includes a completed BIR Form 2307 generated from this invoice.
             </small>
             {taxAttachment && <small>{taxAttachment.name}</small>}
           </label>

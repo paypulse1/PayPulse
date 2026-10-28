@@ -790,7 +790,17 @@ export function SuperAdminConsole({
   }
 
   async function createTaxInvoice(
-    input: { description: string; amount: number; customerEmail: string },
+    input: {
+      description: string
+      amount: number
+      customerEmail: string
+      payeeName: string
+      payeeTin: string
+      payeeAddress: string
+      payorName: string
+      payorTin: string
+      payorAddress: string
+    },
     idempotencyKey: string,
     attachment?: File,
   ): Promise<PaymentLinkResult> {

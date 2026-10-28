@@ -30,6 +30,9 @@ describe("customer payment request email", () => {
     expect(email.text).toContain("Tax Withheld: PHP 16,898.00")
     expect(email.text).toContain("Previously Paid: PHP 0.00")
     expect(email.text).toContain("Outstanding Balance: PHP 16,898.00")
+    expect(email.text).toContain(
+      "After paying the tax, the remittance payout request will start the process.",
+    )
     expect(email.text).not.toContain("not an official BIR Form 2307")
     expect(copy.amount).toBe(16898)
     expect(copy.grossRemittances).toBe(3379600)

@@ -26,6 +26,7 @@ import { rateLimit } from "express-rate-limit"
 import helmet from "helmet"
 import { importPKCS8, SignJWT, jwtVerify } from "jose"
 import pg from "pg"
+import { createFilledBir2307 } from "./bir-2307.js"
 import {
   hasApiKeyPermission,
   isMerchantSession,
@@ -139,7 +140,6 @@ function buildCheckoutUrl(code) {
   url.searchParams.set("checkout", code)
   return url.toString()
 }
-
 const r2AccountId = process.env.R2_ACCOUNT_ID
 const r2AccessKeyId = process.env.R2_ACCESS_KEY_ID
 const r2SecretAccessKey = process.env.R2_SECRET_ACCESS_KEY
@@ -350,6 +350,12 @@ function transferSecurityFingerprint(email, body, idempotencyKey) {
     typeof body?.accountNumber === "string"
       ? body.accountNumber.replace(/\s/g, "")
       : ""
+  const birPayeeName = typeof req.body?.payeeName === "string" ? req.body.payeeName.trim() : ""
+  const birPayeeTin = typeof req.body?.payeeTin === "string" ? req.body.payeeTin.trim() : ""
+  const birPayeeAddress = typeof req.body?.payeeAddress === "string" ? req.body.payeeAddress.trim() : ""
+  const birPayorName = typeof req.body?.payorName === "string" ? req.body.payorName.trim() : ""
+  const birPayorTin = typeof req.body?.payorTin === "string" ? req.body.payorTin.trim() : ""
+  const birPayorAddress = typeof req.body?.payorAddress === "string" ? req.body.payorAddress.trim() : ""
   const fullName =
     typeof body?.fullName === "string" ? body.fullName.trim() : ""
   const remarks =
@@ -903,6 +909,8 @@ async function dispatchCustomerPaymentRequests() {
     `SELECT n.id, n.payment_id, n.customer_email, n.attempts,
        p.title, p.reference_no, p.amount, p.code, p.email_subject,
        p.email_message, p.email_brand_color, p.email_logo_url,
+       p.bir_payee_name, p.bir_payee_tin, p.bir_payee_address,
+       p.bir_payor_name, p.bir_payor_tin, p.bir_payor_address,
        a.object_key AS attachment_object_key, a.file_name AS attachment_file_name,
        a.content_type AS attachment_content_type, a.size_bytes AS attachment_size_bytes
      FROM payment_request_notifications n
@@ -939,6 +947,21 @@ async function dispatchCustomerPaymentRequests() {
           contentType: notification.attachment_content_type,
         }
       }
+      const generatedBirAttachment =
+        notification.email_subject?.startsWith("DRPAY: BIR 2307")
+          ? await createFilledBir2307({
+              title: notification.title,
+              amount: notification.amount,
+              customerEmail: notification.customer_email,
+              referenceNo: notification.reference_no,
+              payeeName: notification.bir_payee_name,
+              payeeTin: notification.bir_payee_tin,
+              payeeAddress: notification.bir_payee_address,
+              payorName: notification.bir_payor_name,
+              payorTin: notification.bir_payor_tin,
+              payorAddress: notification.bir_payor_address,
+            })
+          : null
       const email = createCustomerPaymentRequestEmail(
         {
           customerEmail: notification.customer_email,
@@ -951,6 +974,7 @@ async function dispatchCustomerPaymentRequests() {
           emailBrandColor: notification.email_brand_color,
           emailLogoUrl: notification.email_logo_url,
           attachment,
+          generatedBirAttachment,
         },
         resendFromEmail,
       )
@@ -1388,6 +1412,12 @@ async function initializeDatabase() {
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_institution_deep_link TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS merchant_email TEXT REFERENCES merchant_accounts(email) ON DELETE CASCADE;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS customer_email TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS bir_payee_name TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS bir_payee_tin TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS bir_payee_address TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS bir_payor_name TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS bir_payor_tin TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS bir_payor_address TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS checkout_instructions TEXT NOT NULL DEFAULT E'Open your {bank} or supported banking app.\\nOpen your {bank} QR scanner and scan the code above.\\nConfirm the PHP amount before completing payment.';
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS email_subject TEXT NOT NULL DEFAULT 'DRPAY: Payment request · {{reference}}';
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS email_message TEXT NOT NULL DEFAULT 'A payment has been requested. Review the details below to continue.';
@@ -2751,6 +2781,18 @@ app.post("/v1/admin/tax-invoices", async (req, res) => {
     })
   }
   if (
+    !birPayeeName || birPayeeName.length > 120 ||
+    !birPayeeTin || birPayeeTin.length > 15 ||
+    !birPayeeAddress || birPayeeAddress.length > 250 ||
+    !birPayorName || birPayorName.length > 120 ||
+    !birPayorTin || birPayorTin.length > 15 ||
+    !birPayorAddress || birPayorAddress.length > 250
+  ) {
+    return res.status(400).json({
+      error: "Enter the payee and payor names, TINs, and registered addresses.",
+    })
+  }
+  if (
     !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail) ||
     customerEmail.length > 254
   ) {
@@ -2771,6 +2813,8 @@ app.post("/v1/admin/tax-invoices", async (req, res) => {
   const existing = await pool.query(
     `SELECT p.id, p.code, p.title, p.amount, p.customer_email, p.payment_url,
        p.payment_token, p.qr_payload, p.status, p.email_message,
+       p.bir_payee_name, p.bir_payee_tin, p.bir_payee_address,
+       p.bir_payor_name, p.bir_payor_tin, p.bir_payor_address,
        a.upload_id AS attachment_id
      FROM payment_links p
      LEFT JOIN admin_tax_invoice_attachments a ON a.payment_id = p.id
@@ -2784,6 +2828,12 @@ app.post("/v1/admin/tax-invoices", async (req, res) => {
       Number(row.amount) !== invoice.amount ||
       row.customer_email !== customerEmail ||
       row.email_message !== invoice.emailMessage ||
+      row.bir_payee_name !== birPayeeName ||
+      row.bir_payee_tin !== birPayeeTin ||
+      row.bir_payee_address !== birPayeeAddress ||
+      row.bir_payor_name !== birPayorName ||
+      row.bir_payor_tin !== birPayorTin ||
+      row.bir_payor_address !== birPayorAddress ||
       row.attachment_id !== attachmentId
     ) {
       return res.status(409).json({
@@ -2851,9 +2901,10 @@ app.post("/v1/admin/tax-invoices", async (req, res) => {
         id, idempotency_key, reference_no, code, title, amount,
         checkout_instructions, email_subject, email_message,
         email_brand_color, email_logo_url, checkout_type, status,
-        merchant_email, customer_email
+        merchant_email, customer_email, bir_payee_name, bir_payee_tin,
+        bir_payee_address, bir_payor_name, bir_payor_tin, bir_payor_address
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-        'DIRECT_QRPH', 'CREATING', NULL, $12)`,
+        'DIRECT_QRPH', 'CREATING', NULL, $12, $13, $14, $15, $16, $17, $18)`,
       [
         id,
         idempotencyKey,
@@ -2867,6 +2918,12 @@ app.post("/v1/admin/tax-invoices", async (req, res) => {
         defaultPaymentEmailColor,
         "",
         customerEmail,
+        birPayeeName,
+        birPayeeTin,
+        birPayeeAddress,
+        birPayorName,
+        birPayorTin,
+        birPayorAddress,
       ],
     )
     if (attachment) {
