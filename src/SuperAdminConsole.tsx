@@ -31,6 +31,7 @@ import {
   getAdminPaymentLinks,
   getAdminSettings,
   getAdminKybApplications,
+  createAdminTaxInvoice,
   markAdminPaymentLinkPaid,
   reviewAdminFloatingTransferRequest,
   reviewAdminKybApplication,
@@ -44,6 +45,7 @@ import {
   type AdminMerchantAccount,
   type AdminPaymentLink,
   type AdminSettings,
+  type PaymentLinkResult,
   type FloatingTransferRequest,
   type Session,
 } from "./lib/swiftpay"
@@ -787,6 +789,38 @@ export function SuperAdminConsole({
     }
   }
 
+  async function createTaxInvoice(
+    input: { description: string; amount: number; customerEmail: string },
+    idempotencyKey: string,
+    attachment?: File,
+  ): Promise<PaymentLinkResult> {
+    setError("")
+    setNotice("")
+    const result = await createAdminTaxInvoice(
+      input,
+      idempotencyKey,
+      attachment,
+    )
+    setNotice(
+      result.requestEmailStatus === "queued"
+        ? "Tax invoice created and payment email queued."
+        : result.requestEmailStatus === "sent"
+          ? "Tax invoice created; its payment email was already sent."
+          : "Tax invoice created, but its payment email could not be queued.",
+    )
+    try {
+      setPaymentLinks(await getAdminPaymentLinks())
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? `Invoice created, but the payments list could not be refreshed: ${requestError.message}`
+          : "Invoice created, but the payments list could not be refreshed.",
+      )
+    }
+    await refreshAuditEvents()
+    return result
+  }
+
   async function reviewKyb(
     application: AdminKybApplication,
     status: "IN_REVIEW" | "APPROVED" | "REJECTED",
@@ -1201,6 +1235,7 @@ export function SuperAdminConsole({
                   }))
                 }
                 markingPaymentId={markingPaymentId}
+                onCreateTaxInvoice={createTaxInvoice}
                 onConfirmPayment={(payment) => {
                   void confirmPaymentAsPaid(payment)
                 }}

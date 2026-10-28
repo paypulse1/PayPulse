@@ -1,7 +1,69 @@
 import { describe, expect, it } from "vitest"
-import { createCustomerPaymentRequestEmail } from "./customer-payment-email.js"
+import {
+  createCustomerPaymentRequestEmail,
+  createTaxInvoiceEmailCopy,
+} from "./customer-payment-email.js"
 
 describe("customer payment request email", () => {
+  it("formats tax invoices and escapes their description", () => {
+    const copy = createTaxInvoiceEmailCopy("<VAT settlement>")
+    const email = createCustomerPaymentRequestEmail(
+      {
+        customerEmail: "customer@example.com",
+        ...copy,
+        amount: 1250,
+        referenceNo: "TAX-42",
+        paymentUrl: "https://pay.live.denpay.cc/checkout/tax-42",
+      },
+      "DRPAY <payments@denpay.cc>",
+    )
+
+    expect(email.from).toBe("DRPAY <no-reply@denpay.cc>")
+    expect(email.subject).toBe("DRPAY: Tax invoice · TAX-42")
+    expect(email.text).toContain("Your tax invoice")
+    expect(email.text).toContain("Tax amount due: PHP 1,250.00")
+    expect(email.text).toContain("Tax payment invoice")
+    expect(email.text).not.toContain("**")
+    expect(email.text).not.toContain("##")
+    expect(email.html).toContain("<h4")
+    expect(email.html).toContain("TAX INVOICE")
+    expect(email.html).toContain("Your tax invoice")
+    expect(email.html).toContain("<strong>Tax amount due:</strong>")
+    expect(email.html).toContain("Pay tax invoice securely")
+    expect(email.html).toContain("Tax invoice: &lt;VAT settlement&gt;")
+    expect(email.html).not.toContain("<VAT settlement>")
+    expect(email.html).toContain(
+      'href="https://pay.live.denpay.cc/checkout/tax-42"',
+    )
+  })
+
+  it("includes an optional invoice attachment in the email payload", () => {
+    const email = createCustomerPaymentRequestEmail(
+      {
+        customerEmail: "customer@example.com",
+        title: "Tax invoice: VAT 2026",
+        amount: 1250,
+        referenceNo: "TAX-42",
+        paymentUrl: "https://pay.live.denpay.cc/checkout/tax-42",
+        emailSubject: "DRPAY: Tax invoice · {{reference}}",
+        attachment: {
+          fileName: "tax-support.pdf",
+          content: "JVBERi0xLjQ=",
+          contentType: "application/pdf",
+        },
+      },
+      "DRPAY <payments@denpay.cc>",
+    )
+
+    expect(email.attachments).toEqual([
+      {
+        filename: "tax-support.pdf",
+        content: "JVBERi0xLjQ=",
+        content_type: "application/pdf",
+      },
+    ])
+  })
+
   it("includes the recipient, payment details, and secure checkout link", () => {
     const email = createCustomerPaymentRequestEmail(
       {

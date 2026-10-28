@@ -160,10 +160,10 @@ services:
         source: /app/*
         destination: /index.html
       - type: rewrite
-        source: /admin
+        source: /bossd
         destination: /index.html
       - type: rewrite
-        source: /admin/*
+        source: /bossd/*
         destination: /index.html
       - type: rewrite
         source: /privacy

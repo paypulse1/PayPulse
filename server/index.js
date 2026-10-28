@@ -33,7 +33,10 @@ import {
 } from "./access.js"
 import { createFloatingTransferRequest } from "./floating-transfers.js"
 import { calculateTransferDebit, createLedgerService } from "./ledger.js"
-import { createCustomerPaymentRequestEmail } from "./customer-payment-email.js"
+import {
+  createCustomerPaymentRequestEmail,
+  createTaxInvoiceEmailCopy,
+} from "./customer-payment-email.js"
 import {
   canManuallyConfirmPayment,
   createPaymentStateService,
@@ -194,6 +197,12 @@ const r2Client =
       })
     : null
 const kybDocumentMaxBytes = 10 * 1024 * 1024
+const taxInvoiceAttachmentMaxBytes = 10 * 1024 * 1024
+const allowedTaxInvoiceAttachmentTypes = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+])
 const allowedKybDocuments = new Set([
   "business_registration",
   "identity_front",
@@ -933,15 +942,43 @@ async function dispatchCustomerPaymentRequests() {
   const pending = await pool.query(
     `SELECT n.id, n.payment_id, n.customer_email, n.attempts,
        p.title, p.reference_no, p.amount, p.code, p.email_subject,
-       p.email_message, p.email_brand_color, p.email_logo_url
+       p.email_message, p.email_brand_color, p.email_logo_url,
+       a.object_key AS attachment_object_key, a.file_name AS attachment_file_name,
+       a.content_type AS attachment_content_type, a.size_bytes AS attachment_size_bytes
      FROM payment_request_notifications n
      JOIN payment_links p ON p.id = n.payment_id
+     LEFT JOIN admin_tax_invoice_attachments a ON a.payment_id = p.id
      WHERE n.sent_at IS NULL AND n.next_attempt_at <= NOW() AND n.attempts < 8
      ORDER BY n.created_at ASC
      LIMIT 25`,
   )
   for (const notification of pending.rows) {
     try {
+      let attachment
+      if (notification.attachment_object_key) {
+        if (!r2Client || !r2BucketName)
+          throw new Error("Private invoice attachment storage is unavailable.")
+        const storedAttachment = await r2Client.send(
+          new GetObjectCommand({
+            Bucket: r2BucketName,
+            Key: notification.attachment_object_key,
+          }),
+        )
+        const attachmentBytes = Buffer.from(
+          await storedAttachment.Body.transformToByteArray(),
+        )
+        if (
+          attachmentBytes.length !== Number(notification.attachment_size_bytes) ||
+          storedAttachment.ContentType !== notification.attachment_content_type
+        ) {
+          throw new Error("Stored invoice attachment details do not match.")
+        }
+        attachment = {
+          fileName: notification.attachment_file_name,
+          content: attachmentBytes.toString("base64"),
+          contentType: notification.attachment_content_type,
+        }
+      }
       const email = createCustomerPaymentRequestEmail(
         {
           customerEmail: notification.customer_email,
@@ -953,6 +990,7 @@ async function dispatchCustomerPaymentRequests() {
           emailMessage: notification.email_message,
           emailBrandColor: notification.email_brand_color,
           emailLogoUrl: notification.email_logo_url,
+          attachment,
         },
         resendFromEmail,
       )
@@ -1417,6 +1455,30 @@ async function initializeDatabase() {
       attempts INTEGER NOT NULL DEFAULT 0,
       next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       sent_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS admin_tax_invoice_uploads (
+      id UUID PRIMARY KEY,
+      admin_email TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL,
+      object_key TEXT NOT NULL UNIQUE,
+      file_name TEXT NOT NULL,
+      content_type TEXT NOT NULL CHECK (content_type IN ('application/pdf', 'image/jpeg', 'image/png')),
+      size_bytes BIGINT NOT NULL CHECK (size_bytes > 0 AND size_bytes <= 10485760),
+      expires_at TIMESTAMPTZ NOT NULL,
+      completed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (admin_email, idempotency_key)
+    );
+    CREATE INDEX IF NOT EXISTS admin_tax_invoice_uploads_expiry_idx
+      ON admin_tax_invoice_uploads (expires_at);
+    CREATE TABLE IF NOT EXISTS admin_tax_invoice_attachments (
+      payment_id UUID PRIMARY KEY REFERENCES payment_links(id) ON DELETE CASCADE,
+      upload_id UUID NOT NULL UNIQUE REFERENCES admin_tax_invoice_uploads(id),
+      object_key TEXT NOT NULL UNIQUE,
+      file_name TEXT NOT NULL,
+      content_type TEXT NOT NULL,
+      size_bytes BIGINT NOT NULL CHECK (size_bytes > 0 AND size_bytes <= 10485760),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS payment_request_notifications_pending_idx
@@ -2023,6 +2085,40 @@ async function cleanExpiredKybUploads() {
   }
 }
 
+async function cleanExpiredTaxInvoiceUploads() {
+  if (!r2Client || !r2BucketName) return
+  const expired = await pool.query(
+    `SELECT upload.id, upload.object_key FROM admin_tax_invoice_uploads upload
+     WHERE upload.expires_at <= NOW()
+       AND NOT EXISTS (
+         SELECT 1 FROM admin_tax_invoice_attachments attachment
+         WHERE attachment.upload_id = upload.id
+       )
+     ORDER BY upload.expires_at ASC LIMIT 100`,
+  )
+  for (const upload of expired.rows) {
+    try {
+      await r2Client.send(
+        new DeleteObjectCommand({ Bucket: r2BucketName, Key: upload.object_key }),
+      )
+      await pool.query(
+        `DELETE FROM admin_tax_invoice_uploads WHERE id = $1
+         AND expires_at <= NOW()
+         AND NOT EXISTS (
+           SELECT 1 FROM admin_tax_invoice_attachments WHERE upload_id = $1
+         )`,
+        [upload.id],
+      )
+    } catch (error) {
+      console.error(
+        "Could not clean up an expired tax invoice attachment",
+        upload.id,
+        error.name || "storage error",
+      )
+    }
+  }
+}
+
 async function requireSuperAdmin(req, res, next) {
   const match = /^Bearer\s+(.+)$/i.exec(req.get("authorization") || "")
   if (!match || !jwtSecret)
@@ -2406,6 +2502,515 @@ app.get("/v1/admin/payment-links", async (_req, res) => {
      LIMIT 500`,
   )
   return res.set("Cache-Control", "no-store").json(result.rows)
+})
+
+app.post("/v1/admin/tax-invoice-attachments/presign", async (req, res) => {
+  if (!r2Client || !r2BucketName) {
+    return res.status(503).json({
+      error: "Private document storage is not configured on this server.",
+    })
+  }
+  const submittedFileName =
+    typeof req.body?.fileName === "string" ? req.body.fileName.trim() : ""
+  const contentType = req.body?.contentType
+  const sizeBytes = Number(req.body?.sizeBytes)
+  const fileName = submittedFileName
+    .replace(/[^\w .()-]/g, "_")
+    .slice(0, 180)
+  if (
+    !submittedFileName ||
+    submittedFileName.length > 180 ||
+    /[/\\\u0000-\u001f]/.test(submittedFileName) ||
+    !fileName ||
+    !allowedTaxInvoiceAttachmentTypes.has(contentType) ||
+    !Number.isSafeInteger(sizeBytes) ||
+    sizeBytes <= 0 ||
+    sizeBytes > taxInvoiceAttachmentMaxBytes
+  ) {
+    return res.status(400).json({
+      error: "Attach a PDF, JPEG, or PNG file no larger than 10 MB.",
+    })
+  }
+  const idempotencyKey = req.get("Idempotency-Key")
+  if (!validIdempotencyKey(idempotencyKey)) {
+    return res
+      .status(400)
+      .json({ error: "A valid Idempotency-Key header is required." })
+  }
+  const existingUpload = await pool.query(
+    `SELECT upload.id, upload.object_key, upload.file_name, upload.content_type,
+       upload.size_bytes, upload.completed_at, upload.expires_at,
+       attachment.payment_id
+     FROM admin_tax_invoice_uploads upload
+     LEFT JOIN admin_tax_invoice_attachments attachment
+       ON attachment.upload_id = upload.id
+     WHERE upload.admin_email = $1 AND upload.idempotency_key = $2`,
+    [req.adminEmail, idempotencyKey],
+  )
+  if (existingUpload.rowCount) {
+    const upload = existingUpload.rows[0]
+    if (
+      upload.file_name !== fileName ||
+      upload.content_type !== contentType ||
+      Number(upload.size_bytes) !== sizeBytes ||
+      (new Date(upload.expires_at).getTime() <= Date.now() &&
+        !upload.payment_id)
+    ) {
+      return res.status(409).json({
+        error:
+          "This invoice retry must use the original attachment. Start a new invoice to replace it.",
+      })
+    }
+    if (upload.completed_at) {
+      return res.set("Cache-Control", "no-store").json({
+        uploadId: upload.id,
+        fileName: upload.file_name,
+        completed: true,
+      })
+    }
+    try {
+      const uploadUrl = await getSignedUrl(
+        r2Client,
+        new PutObjectCommand({
+          Bucket: r2BucketName,
+          Key: upload.object_key,
+          ContentType: contentType,
+          ContentLength: sizeBytes,
+          Metadata: { "tax-invoice-upload-id": upload.id },
+        }),
+        { expiresIn: 600 },
+      )
+      return res.set("Cache-Control", "no-store").json({
+        uploadId: upload.id,
+        uploadUrl,
+        objectKey: upload.object_key,
+        fileName: upload.file_name,
+        headers: { "Content-Type": contentType },
+        completed: false,
+      })
+    } catch (error) {
+      console.error(
+        "Could not renew private tax invoice attachment upload",
+        error.name || "storage error",
+      )
+      return res
+        .status(503)
+        .json({ error: "Private document upload is temporarily unavailable." })
+    }
+  }
+  const uploadId = randomUUID()
+  const objectKey = `tax-invoices/${uploadId}`
+  await pool.query(
+    `INSERT INTO admin_tax_invoice_uploads
+       (id, admin_email, idempotency_key, object_key, file_name, content_type, size_bytes, expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW() + INTERVAL '10 minutes')`,
+    [
+      uploadId,
+      req.adminEmail,
+      idempotencyKey,
+      objectKey,
+      fileName,
+      contentType,
+      sizeBytes,
+    ],
+  )
+  try {
+    const uploadUrl = await getSignedUrl(
+      r2Client,
+      new PutObjectCommand({
+        Bucket: r2BucketName,
+        Key: objectKey,
+        ContentType: contentType,
+        ContentLength: sizeBytes,
+        Metadata: { "tax-invoice-upload-id": uploadId },
+      }),
+      { expiresIn: 600 },
+    )
+    return res.set("Cache-Control", "no-store").json({
+      uploadId,
+      uploadUrl,
+      objectKey,
+      fileName,
+      headers: { "Content-Type": contentType },
+      completed: false,
+    })
+  } catch (error) {
+    await pool.query("DELETE FROM admin_tax_invoice_uploads WHERE id = $1", [
+      uploadId,
+    ])
+    console.error(
+      "Could not create private tax invoice attachment upload",
+      error.name || "storage error",
+    )
+    return res
+      .status(503)
+      .json({ error: "Private document upload is temporarily unavailable." })
+  }
+})
+
+app.post("/v1/admin/tax-invoice-attachments/complete", async (req, res) => {
+  if (!r2Client || !r2BucketName) {
+    return res.status(503).json({
+      error: "Private document storage is not configured on this server.",
+    })
+  }
+  const { uploadId, objectKey, fileName, contentType } = req.body || {}
+  const sizeBytes = Number(req.body?.sizeBytes)
+  if (
+    !/^[0-9a-f-]{36}$/i.test(uploadId || "") ||
+    typeof objectKey !== "string" ||
+    !objectKey.startsWith("tax-invoices/") ||
+    typeof fileName !== "string" ||
+    fileName.length > 180 ||
+    !allowedTaxInvoiceAttachmentTypes.has(contentType) ||
+    !Number.isSafeInteger(sizeBytes) ||
+    sizeBytes <= 0 ||
+    sizeBytes > taxInvoiceAttachmentMaxBytes
+  ) {
+    return res
+      .status(400)
+      .json({ error: "The uploaded attachment details are invalid." })
+  }
+  const reservationResult = await pool.query(
+    `SELECT object_key, file_name, content_type, size_bytes
+     FROM admin_tax_invoice_uploads
+     WHERE id = $1 AND admin_email = $2 AND object_key = $3
+       AND expires_at > NOW() AND completed_at IS NULL`,
+    [uploadId, req.adminEmail, objectKey],
+  )
+  const reservation = reservationResult.rows[0]
+  if (
+    !reservation ||
+    reservation.file_name !== fileName ||
+    reservation.content_type !== contentType ||
+    Number(reservation.size_bytes) !== sizeBytes
+  ) {
+    return res.status(409).json({
+      error: "This attachment upload is invalid or expired. Select the file again.",
+    })
+  }
+  try {
+    const object = await r2Client.send(
+      new HeadObjectCommand({ Bucket: r2BucketName, Key: objectKey }),
+    )
+    if (
+      Number(object.ContentLength) !== sizeBytes ||
+      object.ContentType !== contentType ||
+      object.Metadata?.["tax-invoice-upload-id"] !== uploadId
+    ) {
+      return res.status(400).json({
+        error: "The stored attachment does not match the selected file.",
+      })
+    }
+    const prefix = await r2Client.send(
+      new GetObjectCommand({
+        Bucket: r2BucketName,
+        Key: objectKey,
+        Range: "bytes=0-7",
+      }),
+    )
+    const bytes = Buffer.from(await prefix.Body.transformToByteArray())
+    const validSignature =
+      contentType === "application/pdf"
+        ? bytes.subarray(0, 5).toString("ascii") === "%PDF-"
+        : contentType === "image/jpeg"
+          ? bytes.length >= 3 &&
+            bytes[0] === 0xff &&
+            bytes[1] === 0xd8 &&
+            bytes[2] === 0xff
+          : bytes.length >= 8 &&
+            bytes
+              .subarray(0, 8)
+              .equals(
+                Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+              )
+    if (!validSignature) {
+      await r2Client.send(
+        new DeleteObjectCommand({ Bucket: r2BucketName, Key: objectKey }),
+      )
+      return res.status(400).json({
+        error: "The attachment does not match its declared file type.",
+      })
+    }
+    const completed = await pool.query(
+      `UPDATE admin_tax_invoice_uploads SET completed_at = NOW()
+       WHERE id = $1 AND admin_email = $2 AND completed_at IS NULL
+         AND expires_at > NOW()
+       RETURNING id`,
+      [uploadId, req.adminEmail],
+    )
+    if (!completed.rowCount) {
+      return res.status(409).json({
+        error: "This attachment upload is invalid, expired, or already used.",
+      })
+    }
+    return res.set("Cache-Control", "no-store").json({ uploadId })
+  } catch (error) {
+    console.error(
+      "Could not verify private tax invoice attachment",
+      error.name || "storage error",
+    )
+    return res
+      .status(503)
+      .json({ error: "Private document verification is temporarily unavailable." })
+  }
+})
+
+app.post("/v1/admin/tax-invoices", async (req, res) => {
+  const submittedAmount = Number(req.body?.amount)
+  const amount = Number.isFinite(submittedAmount)
+    ? Math.round(submittedAmount * 100) / 100
+    : Number.NaN
+  const description =
+    typeof req.body?.description === "string"
+      ? req.body.description.trim()
+      : ""
+  const customerEmail =
+    typeof req.body?.customerEmail === "string"
+      ? req.body.customerEmail.trim().toLowerCase()
+      : ""
+  const attachmentId =
+    typeof req.body?.attachmentId === "string" && req.body.attachmentId.trim()
+      ? req.body.attachmentId.trim()
+      : null
+  const idempotencyKey = req.get("Idempotency-Key")
+  if (!validIdempotencyKey(idempotencyKey)) {
+    return res
+      .status(400)
+      .json({ error: "A valid Idempotency-Key header is required." })
+  }
+  if (
+    !Number.isFinite(amount) ||
+    Math.abs(submittedAmount - amount) > 1e-7 ||
+    amount <= 0 ||
+    amount > 1_000_000 ||
+    !description ||
+    description.length > 80
+  ) {
+    return res.status(400).json({
+      error: "Enter a tax description and a PHP amount up to 1,000,000.00.",
+    })
+  }
+  if (
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail) ||
+    customerEmail.length > 254
+  ) {
+    return res
+      .status(400)
+      .json({ error: "Enter a valid customer email address." })
+  }
+
+  if (attachmentId && !/^[0-9a-f-]{36}$/i.test(attachmentId)) {
+    return res.status(400).json({ error: "The attachment ID is invalid." })
+  }
+  const invoice = createTaxInvoiceEmailCopy(description)
+  const existing = await pool.query(
+    `SELECT p.id, p.code, p.title, p.amount, p.customer_email, p.payment_url,
+       p.payment_token, p.qr_payload, p.status, a.upload_id AS attachment_id
+     FROM payment_links p
+     LEFT JOIN admin_tax_invoice_attachments a ON a.payment_id = p.id
+     WHERE p.idempotency_key = $1 AND p.merchant_email IS NULL`,
+    [idempotencyKey],
+  )
+  if (existing.rowCount) {
+    const row = existing.rows[0]
+    if (
+      row.title !== invoice.title ||
+      Number(row.amount) !== amount ||
+      row.customer_email !== customerEmail ||
+      row.attachment_id !== attachmentId
+    ) {
+      return res.status(409).json({
+        error: "This idempotency key was already used for a different invoice.",
+      })
+    }
+    if (!row.payment_url) {
+      return res.status(409).json({
+        error:
+          "The checkout outcome is unknown. Check payment activity before retrying.",
+      })
+    }
+    let requestEmailStatus = "queued"
+    try {
+      requestEmailStatus = await queueCustomerPaymentRequest(row.id)
+    } catch (error) {
+      requestEmailStatus = "queue_failed"
+      console.error("Tax invoice email could not be queued", {
+        error: error.code || "database error",
+      })
+    }
+    return res.json({
+      id: row.id,
+      code: row.code,
+      paymentUrl: row.payment_token
+        ? buildCheckoutUrl(row.code)
+        : row.payment_url,
+      qrCode: row.qr_payload,
+      status: row.status,
+      amount: Number(row.amount),
+      currency: "PHP",
+      requestEmailStatus,
+    })
+  }
+
+  const id = randomUUID()
+  const referenceNo = `TAX-${randomUUID()}`
+  const code = randomBytes(32).toString("base64url")
+  const client = await pool.connect()
+  try {
+    await client.query("BEGIN")
+    let attachment = null
+    if (attachmentId) {
+      const selectedAttachment = await client.query(
+        `SELECT object_key, file_name, content_type, size_bytes
+         FROM admin_tax_invoice_uploads
+         WHERE id = $1 AND admin_email = $2 AND completed_at IS NOT NULL
+           AND expires_at > NOW()
+         FOR UPDATE`,
+        [attachmentId, req.adminEmail],
+      )
+      attachment = selectedAttachment.rows[0]
+      if (!attachment) {
+        await client.query("ROLLBACK")
+        return res.status(409).json({
+          error: "Upload a valid attachment before creating the invoice.",
+        })
+      }
+    }
+    await client.query(
+      `INSERT INTO payment_links (
+        id, idempotency_key, reference_no, code, title, amount,
+        checkout_instructions, email_subject, email_message,
+        email_brand_color, email_logo_url, checkout_type, status,
+        merchant_email, customer_email
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+        'DIRECT_QRPH', 'CREATING', NULL, $12)`,
+      [
+        id,
+        idempotencyKey,
+        referenceNo,
+        code,
+        invoice.title,
+        amount,
+        defaultCheckoutInstructions,
+        invoice.emailSubject,
+        invoice.emailMessage,
+        defaultPaymentEmailColor,
+        "",
+        customerEmail,
+      ],
+    )
+    if (attachment) {
+      await client.query(
+        `INSERT INTO admin_tax_invoice_attachments
+           (payment_id, upload_id, object_key, file_name, content_type, size_bytes)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          id,
+          attachmentId,
+          attachment.object_key,
+          attachment.file_name,
+          attachment.content_type,
+          attachment.size_bytes,
+        ],
+      )
+    }
+    await recordAdminAuditEvent(client, {
+      eventKey: `tax-invoice:${id}`,
+      category: "Tax invoice",
+      action: "Tax payment invoice created",
+      target: referenceNo,
+      actor: req.adminEmail,
+      summary: `${amount.toFixed(2)} PHP tax invoice for ${customerEmail}.`,
+    })
+    await client.query("COMMIT")
+  } catch (error) {
+    await client.query("ROLLBACK")
+    if (error.code === "23505") {
+      return res.status(409).json({
+        error:
+          "The checkout outcome is unknown. Check payment activity before retrying.",
+      })
+    }
+    throw error
+  } finally {
+    client.release()
+  }
+
+  try {
+    const { data } = await swiftPaySignedRequest("/bootstrap/qrph?type=P2M", {
+      x_access_key: swiftPayAccessKey,
+      x_amount: amount.toFixed(2),
+      x_currency: "PHP",
+      x_reference_no: referenceNo,
+      reject_qrph_duplicated_payments: true,
+    })
+    if (
+      typeof data?.paymentId !== "string" ||
+      !data.paymentId ||
+      typeof data.qrCode !== "string" ||
+      !data.qrCode
+    ) {
+      throw new Error("SwiftPay returned an incomplete QR payment.")
+    }
+    const status = data.paymentStatus || "PENDING"
+    if (!validPaymentStatus(status))
+      throw new Error("SwiftPay returned an invalid initial payment status.")
+    const checkoutUrl = buildCheckoutUrl(code)
+    const actualAmount = Number(data.amount ?? amount)
+    if (!Number.isFinite(actualAmount) || actualAmount <= 0)
+      throw new Error("SwiftPay returned an invalid payment amount.")
+    await pool.query(
+      `UPDATE payment_links
+       SET payment_token = $1, qr_payload = $2, payment_url = $3,
+         status = $4, amount = $5, updated_at = NOW()
+       WHERE id = $6`,
+      [data.paymentId, data.qrCode, checkoutUrl, status, actualAmount, id],
+    )
+    let requestEmailStatus = "queued"
+    try {
+      requestEmailStatus = await queueCustomerPaymentRequest(id)
+    } catch (error) {
+      requestEmailStatus = "queue_failed"
+      console.error("Tax invoice email could not be queued", {
+        error: error.code || "database error",
+      })
+    }
+    if (status === "EXECUTED") {
+      await settleSuccessfulCollection(id)
+      await queueSuccessfulTransaction("PAYMENT", id)
+    }
+    const qrImageUrl = new URL(
+      `/v1/public/checkout/${code}/qr.png`,
+      publicApiOrigin,
+    ).toString()
+    return res.status(201).json({
+      id,
+      code,
+      paymentUrl: checkoutUrl,
+      qrCode: data.qrCode,
+      qrImageUrl,
+      status,
+      amount: actualAmount,
+      currency: "PHP",
+      requestEmailStatus,
+    })
+  } catch (error) {
+    const isAmbiguous = !error.status || error.status >= 500
+    await updatePaymentLinkStatus(
+      id,
+      isAmbiguous ? "OUTCOME_UNKNOWN" : "FAILED",
+    )
+    console.error(
+      "SwiftPay tax invoice checkout creation failed",
+      error.status || "network error",
+    )
+    return res.status(isAmbiguous ? 503 : 502).json({
+      error: isAmbiguous
+        ? "The checkout outcome is unknown. Check payment activity before retrying."
+        : "SwiftPay could not create the tax invoice checkout.",
+    })
+  }
 })
 
 app.post("/v1/admin/payment-links/:id/mark-paid", async (req, res) => {
@@ -5172,6 +5777,15 @@ function startNotificationWorker() {
     })
   }, 5 * 60_000)
   kybCleanupTimer.unref()
+  const taxInvoiceCleanupTimer = setInterval(() => {
+    void cleanExpiredTaxInvoiceUploads().catch((error) => {
+      console.error(
+        "Tax invoice attachment cleanup failed",
+        error.name || "storage error",
+      )
+    })
+  }, 5 * 60_000)
+  taxInvoiceCleanupTimer.unref()
 }
 
 async function getRefundTransferDetails(paymentId, merchantEmail) {

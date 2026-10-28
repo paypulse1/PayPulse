@@ -99,8 +99,47 @@ function renderEmailMessage(value) {
   return output.join("")
 }
 
+function renderEmailPlainText(value) {
+  return value
+    .split(/\r?\n/)
+    .map((line) => {
+      const heading = /^(#{1,3})\s+(.+)$/.exec(line)
+      const content = heading ? heading[2] : line
+      return content.replace(
+        /\[([^\]]+)\]\((https:\/\/[^)\s]+)\)|\*\*(.+?)\*\*|__(.+?)__|~~(.+?)~~|\*(.+?)\*|`([^`]+)`/g,
+        (_match, linkText, linkUrl, bold, underline, strike, italic, code) =>
+          linkText !== undefined
+            ? `${linkText} <${linkUrl}>`
+            : (bold ?? underline ?? strike ?? italic ?? code),
+      )
+    })
+    .join("\n")
+}
+
+export function createTaxInvoiceEmailCopy(description) {
+  return {
+    title: `Tax invoice: ${description}`,
+    emailSubject: "DRPAY: Tax invoice · {{reference}}",
+    emailMessage: [
+      "## Tax payment invoice",
+      "",
+      "**Tax item:** {{title}}",
+      "**Tax amount due:** {{amount}}",
+      "**Invoice reference:** {{reference}}",
+      "",
+      "Use the secure checkout button below to complete payment.",
+    ].join("\n"),
+  }
+}
+
 export function createCustomerPaymentRequestEmail(payment, from) {
   const amount = `PHP ${Number(payment.amount).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const isTaxInvoice = payment.emailSubject?.startsWith("DRPAY: Tax invoice")
+  const heading = isTaxInvoice ? "Your tax invoice" : "Payment request"
+  const badge = isTaxInvoice ? "TAX INVOICE" : "PAYMENT REQUEST"
+  const actionLabel = isTaxInvoice
+    ? "Pay tax invoice securely"
+    : "Review payment request"
   const title = escapeEmailHtml(payment.title)
   const reference = escapeEmailHtml(payment.referenceNo)
   const safeAmount = escapeEmailHtml(amount)
@@ -128,6 +167,7 @@ export function createCustomerPaymentRequestEmail(payment, from) {
     payment.emailMessage ||
       "A payment has been requested. Review the details below to continue.",
   )
+  const plainTextMessage = renderEmailPlainText(message)
   const messageHtml = renderEmailMessage(message)
   const logoUrl =
     typeof payment.emailLogoUrl === "string" &&
@@ -139,8 +179,8 @@ export function createCustomerPaymentRequestEmail(payment, from) {
   const text = [
     "DRPAY",
     "",
-    "Payment request",
-    message,
+    heading,
+    plainTextMessage,
     `Payment for: ${payment.title}`,
     `Amount: ${amount}`,
     `Reference: ${payment.referenceNo}`,
@@ -158,8 +198,8 @@ export function createCustomerPaymentRequestEmail(payment, from) {
             : "DRPAY"
         }</div>
         <div style="padding:28px;background:#fff;border:1px solid #d8e1ed;border-radius:16px">
-          <div style="margin-bottom:10px;color:#52647c;font-size:10px;font-weight:700;letter-spacing:1.3px">PAYMENT REQUEST</div>
-          <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3">A payment is requested</h1>
+          <div style="margin-bottom:10px;color:#52647c;font-size:10px;font-weight:700;letter-spacing:1.3px">${badge}</div>
+          <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3">${heading}</h1>
           ${messageHtml}
           <div style="padding:16px;background:#f8f9f5;border:1px solid #d8e1ed;border-radius:11px">
             <div style="color:#52647c;font-size:11px">Payment for</div>
@@ -169,17 +209,28 @@ export function createCustomerPaymentRequestEmail(payment, from) {
             <div style="margin-top:14px;color:#52647c;font-size:11px">Reference</div>
             <div style="margin-top:4px;font-size:12px;font-weight:700;overflow-wrap:anywhere">${reference}</div>
           </div>
-          <a href="${escapeEmailHtml(paymentUrl.toString())}" style="display:inline-block;margin-top:22px;padding:13px 20px;background:${brandColor};border-radius:10px;color:#fff;text-decoration:none;font-size:14px;font-weight:700">Review payment request</a>
+          <a href="${escapeEmailHtml(paymentUrl.toString())}" style="display:inline-block;margin-top:22px;padding:13px 20px;background:${brandColor};border-radius:10px;color:#fff;text-decoration:none;font-size:14px;font-weight:700">${actionLabel}</a>
         </div>
       </div>
     </div>
   `
 
+  const attachments = payment.attachment
+    ? [
+        {
+          filename: payment.attachment.fileName,
+          content: payment.attachment.content,
+          content_type: payment.attachment.contentType,
+        },
+      ]
+    : undefined
+
   return {
-    from,
+    from: isTaxInvoice ? "DRPAY <no-reply@denpay.cc>" : from,
     to: [payment.customerEmail],
     subject,
     text,
     html,
+    ...(attachments ? { attachments } : {}),
   }
 }

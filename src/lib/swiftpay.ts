@@ -1085,6 +1085,73 @@ export async function getAdminPaymentLinks(): Promise<AdminPaymentLink[]> {
   return backendRequest<AdminPaymentLink[]>("/v1/admin/payment-links")
 }
 
+export async function createAdminTaxInvoice(
+  input: { description: string; amount: number; customerEmail: string },
+  idempotencyKey: string,
+  attachment?: File,
+): Promise<PaymentLinkResult> {
+  let attachmentId: string | undefined
+  if (attachment) {
+    const extension = attachment.name.toLowerCase().split(".").pop()
+    const contentType =
+      attachment.type ||
+      (extension === "pdf"
+        ? "application/pdf"
+        : extension === "jpg" || extension === "jpeg"
+          ? "image/jpeg"
+          : extension === "png"
+            ? "image/png"
+            : "")
+    const signed = await backendRequest<{
+      uploadId: string
+      uploadUrl?: string
+      objectKey?: string
+      fileName: string
+      headers?: Record<string, string>
+      completed: boolean
+    }>("/v1/admin/tax-invoice-attachments/presign", {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify({
+        fileName: attachment.name,
+        contentType,
+        sizeBytes: attachment.size,
+      }),
+    })
+    if (!signed.completed) {
+      if (!signed.uploadUrl || !signed.objectKey || !signed.headers) {
+        throw new Error("Could not prepare the invoice attachment upload.")
+      }
+      const upload = await fetch(signed.uploadUrl, {
+        method: "PUT",
+        headers: signed.headers,
+        body: attachment,
+      })
+      if (!upload.ok)
+        throw new Error(`Invoice attachment upload failed (${upload.status}).`)
+      await backendRequest<{ uploadId: string }>(
+        "/v1/admin/tax-invoice-attachments/complete",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            uploadId: signed.uploadId,
+            objectKey: signed.objectKey,
+            fileName: signed.fileName,
+            contentType,
+            sizeBytes: attachment.size,
+          }),
+        },
+      )
+    }
+    attachmentId = signed.uploadId
+  }
+  return backendRequest<PaymentLinkResult>("/v1/admin/tax-invoices", {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify({ ...input, ...(attachmentId ? { attachmentId } : {}) }),
+  })
+}
+
 export async function markAdminPaymentLinkPaid(
   id: string,
   verificationNote: string,
