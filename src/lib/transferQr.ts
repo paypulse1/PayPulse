@@ -127,7 +127,18 @@ function parseQrPh(payload: string): ScannedQrPayload | undefined {
 
   const p2mTemplate = accountTemplates.find((candidate) => {
     const gui = candidate?.get("00")?.toLowerCase();
-    return Boolean(gui && qrPhP2mGuis.has(gui));
+    if (!gui) return false;
+    if (qrPhP2mGuis.has(gui) || gui.includes("p2m")) return true;
+
+    const merchantTemplate =
+      gui === "com.qrph" ||
+      gui.startsWith("com.qrph.") ||
+      gui.startsWith("ph.ppmi.") ||
+      gui.includes("qrph");
+    const hasMerchantId = ["01", "02", "03"].some((tag) =>
+      Boolean(candidate?.get(tag)?.trim()),
+    );
+    return Boolean(merchantTemplate && hasMerchantId);
   });
   if (!p2mTemplate) return undefined;
 
