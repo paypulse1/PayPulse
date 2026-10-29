@@ -496,7 +496,11 @@ const sandboxApiBaseUrl =
 function getConfiguredApiBaseUrl() {
   const hostname =
     typeof window === "undefined" ? "" : window.location.hostname.toLowerCase()
-  if (hostname === "pay.sandbox.denpay.cc") return sandboxApiBaseUrl
+  if (
+    hostname === "pay.sandbox.denpay.cc" ||
+    hostname === "merchant.sandbox.denpay.cc"
+  )
+    return sandboxApiBaseUrl
   if (
     hostname === "pay.live.denpay.cc" ||
     hostname === "merchant.denpay.cc" ||

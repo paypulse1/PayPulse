@@ -1,6 +1,7 @@
 services:
   - type: web
     name: drpay-api
+    branch: Sandbox
     runtime: node
     plan: starter
     region: oregon
@@ -17,7 +18,7 @@ services:
       - key: DATABASE_SSL
         value: "false"
       - key: DRPAY_FRONTEND_ORIGIN
-        value: https://merchant.denpay.cc
+        value: https://merchant.sandbox.denpay.cc
       - key: DRPAY_ADDITIONAL_FRONTEND_ORIGINS
         value: https://denpay.cc,https://pay.live.denpay.cc,https://pay.sandbox.denpay.cc,https://live.merchant.swiftpay.site,https://drpay-web.onrender.com
       - key: DRPAY_LIVE_CHECKOUT_ORIGIN
@@ -66,6 +67,7 @@ services:
         value: disabled
   - type: web
     name: drpay-live-api
+    branch: Production
     runtime: node
     plan: starter
     region: oregon
@@ -137,6 +139,7 @@ services:
         value: mainnet
   - type: web
     name: drpay-web
+    branch: Production
     runtime: static
     buildCommand: corepack enable && corepack prepare pnpm@10.34.3 --activate && pnpm install --frozen-lockfile && pnpm typecheck && pnpm build
     staticPublishPath: dist
@@ -144,9 +147,62 @@ services:
       - key: NODE_VERSION
         value: 22
       - key: VITE_DRPAY_BACKEND_URL
-        value: https://api.sandbox.denpay.cc
+        value: https://api.live.denpay.cc
+      - key: VITE_DRPAY_MERCHANT_SIGNIN_URL
+        value: https://merchant.denpay.cc
       - key: VITE_DRPAY_LIVE_BACKEND_URL
-        value: https://drpay-live-api-fixed.onrender.com
+        value: https://api.live.denpay.cc
+      - key: VITE_DRPAY_SANDBOX_BACKEND_URL
+        value: https://api.sandbox.denpay.cc
+    routes:
+      - type: rewrite
+        source: /checkout/*
+        destination: /index.html
+      - type: rewrite
+        source: /app
+        destination: /index.html
+      - type: rewrite
+        source: /app/*
+        destination: /index.html
+      - type: rewrite
+        source: /bossd
+        destination: /index.html
+      - type: rewrite
+        source: /bossd/*
+        destination: /index.html
+      - type: rewrite
+        source: /privacy
+        destination: /index.html
+      - type: rewrite
+        source: /privacy-policy
+        destination: /index.html
+      - type: rewrite
+        source: /terms
+        destination: /index.html
+      - type: rewrite
+        source: /terms-of-service
+        destination: /index.html
+      - type: rewrite
+        source: /contact
+        destination: /index.html
+      - type: rewrite
+        source: /contact-us
+        destination: /index.html
+  - type: web
+    name: drpay-sandbox-web
+    branch: Sandbox
+    runtime: static
+    buildCommand: corepack enable && corepack prepare pnpm@10.34.3 --activate && pnpm install --frozen-lockfile && pnpm typecheck && pnpm build
+    staticPublishPath: dist
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: VITE_DRPAY_BACKEND_URL
+        value: https://api.sandbox.denpay.cc
+      - key: VITE_DRPAY_MERCHANT_SIGNIN_URL
+        value: https://merchant.sandbox.denpay.cc
+      - key: VITE_DRPAY_LIVE_BACKEND_URL
+        value: https://api.live.denpay.cc
       - key: VITE_DRPAY_SANDBOX_BACKEND_URL
         value: https://api.sandbox.denpay.cc
     routes:
