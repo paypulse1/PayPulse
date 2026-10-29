@@ -7,7 +7,7 @@ services:
     region: oregon
     buildCommand: corepack enable && corepack prepare pnpm@10.34.3 --activate && pnpm install --frozen-lockfile && pnpm check:api
     startCommand: pnpm start:api
-    healthCheckPath: /healthz
+    healthCheckPath: /readyz
     envVars:
       - key: NODE_VERSION
         value: "22"
@@ -73,7 +73,7 @@ services:
     region: oregon
     buildCommand: corepack enable && corepack prepare pnpm@10.34.3 --activate && pnpm install --frozen-lockfile && pnpm check:api
     startCommand: pnpm start:api
-    healthCheckPath: /healthz
+    healthCheckPath: /readyz
     envVars:
       - key: NODE_VERSION
         value: "22"

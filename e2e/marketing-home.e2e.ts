@@ -9,30 +9,24 @@ test("marketing page shows credited sector photography and sourced updates", asy
   await stories.scrollIntoViewIfNeeded()
   await expect(stories).toHaveAttribute("data-visible", "true")
   await expect(
-    page.getByRole("img", { name: /Roulette wheel in a physical casino/ }),
+    page.getByRole("img", {
+      name: "Customer completing a mobile payment at a payment terminal",
+    }),
   ).toHaveCount(1)
   await expect(
-    page.getByRole("img", { name: /Currency exchange kiosks/ }),
+    page.getByRole("img", {
+      name: "Currency exchange kiosks and international exchange-rate boards",
+    }),
   ).toHaveCount(1)
   await expect(
-    page.getByRole("img", { name: /cryptocurrency wallet/ }),
+    page.getByRole("img", {
+      name: "A hardware digital-asset wallet connected to a laptop displaying a transaction",
+    }),
   ).toHaveCount(1)
-  await expect(
-    page.getByRole("img", { name: /Philippine Stock Exchange Center/ }),
-  ).toHaveCount(1)
-  await expect(
-    page.getByRole("img", { name: /Yeouido financial district/ }),
-  ).toHaveCount(1)
-  await expect(
-    page.getByRole("img", { name: /mobile phone with a payment terminal/ }),
-  ).toHaveCount(1)
-  await expect(
-    page.getByRole("img", { name: /card reader payment terminal/ }),
-  ).toHaveCount(1)
-  await expect(page.locator(".photo-credit")).toHaveCount(7)
+  await expect(page.locator(".photo-credit")).toHaveCount(3)
 
   const photos = page.locator(".merchant-scene-photo img")
-  await expect(photos).toHaveCount(7)
+  await expect(photos).toHaveCount(3)
   await expect
     .poll(() =>
       photos.evaluateAll((images) =>

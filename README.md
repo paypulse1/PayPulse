@@ -4,7 +4,7 @@ Vite marketing site and merchant workspace, with a server-side SwiftPay adapter.
 
 ## Render
 
-Review `render.yaml` and create its Blueprint in Render. It defines separate production and sandbox static sites and Node APIs, plus isolated persistent PostgreSQL databases. Production services deploy from `Production`; sandbox services deploy from `Sandbox`. The APIs and databases use paid plans; review Render's current pricing before provisioning. Each site publishes `dist` and rewrites application routes to the client app.
+Review `render.yaml` and create its Blueprint in Render. It defines separate production and sandbox static sites and Node APIs, plus isolated persistent PostgreSQL databases. Production services deploy from `Production`; sandbox services deploy from `Sandbox`. The APIs and databases use paid plans; review Render's current pricing before provisioning. Each site publishes `dist` and rewrites application routes to the client app. API health checks use `/readyz` and remain unavailable until the database is initialized.
 
 ### Merchant and checkout subdomains
 
