@@ -76,6 +76,13 @@ const allowedOrigins = new Set(
     frontendOrigin,
     liveCheckoutOrigin,
     sandboxCheckoutOrigin,
+    "https://merchant.denpay.cc",
+    "https://denpay.cc",
+    "https://www.denpay.cc",
+    "https://pay.live.denpay.cc",
+    "https://pay.sandbox.denpay.cc",
+    "https://live.merchant.swiftpay.site",
+    "https://drpay-web.onrender.com",
     ...(process.env.DRPAY_ADDITIONAL_FRONTEND_ORIGINS || "")
       .split(",")
       .map((origin) => origin.trim()),
