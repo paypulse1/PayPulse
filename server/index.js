@@ -2644,34 +2644,11 @@ app.post("/v1/admin/tax-invoice-attachments/presign", async (req, res) => {
         completed: true,
       })
     }
-    try {
-      const uploadUrl = await getSignedUrl(
-        r2Client,
-        new PutObjectCommand({
-          Bucket: r2BucketName,
-          Key: upload.object_key,
-          ContentType: contentType,
-          ContentLength: sizeBytes,
-        }),
-        { expiresIn: 600 },
-      )
-      return res.set("Cache-Control", "no-store").json({
-        uploadId: upload.id,
-        uploadUrl,
-        objectKey: upload.object_key,
-        fileName: upload.file_name,
-        headers: { "Content-Type": contentType },
-        completed: false,
-      })
-    } catch (error) {
-      console.error(
-        "Could not renew private tax invoice attachment upload",
-        error.name || "storage error",
-      )
-      return res
-        .status(503)
-        .json({ error: "Private document upload is temporarily unavailable." })
-    }
+    return res.set("Cache-Control", "no-store").json({
+      uploadId: upload.id,
+      fileName: upload.file_name,
+      completed: false,
+    })
   }
   const uploadId = randomUUID()
   const objectKey = `tax-invoices/${uploadId}`
@@ -2689,38 +2666,98 @@ app.post("/v1/admin/tax-invoice-attachments/presign", async (req, res) => {
       sizeBytes,
     ],
   )
-  try {
-    const uploadUrl = await getSignedUrl(
-      r2Client,
-      new PutObjectCommand({
-        Bucket: r2BucketName,
-        Key: objectKey,
-        ContentType: contentType,
-        ContentLength: sizeBytes,
-      }),
-      { expiresIn: 600 },
-    )
-    return res.set("Cache-Control", "no-store").json({
-      uploadId,
-      uploadUrl,
-      objectKey,
-      fileName,
-      headers: { "Content-Type": contentType },
-      completed: false,
-    })
-  } catch (error) {
-    await pool.query("DELETE FROM admin_tax_invoice_uploads WHERE id = $1", [
-      uploadId,
-    ])
-    console.error(
-      "Could not create private tax invoice attachment upload",
-      error.name || "storage error",
-    )
-    return res
-      .status(503)
-      .json({ error: "Private document upload is temporarily unavailable." })
-  }
+  return res.set("Cache-Control", "no-store").json({
+    uploadId,
+    fileName,
+    completed: false,
+  })
 })
+
+app.post(
+  "/v1/admin/tax-invoice-attachments/:uploadId",
+  express.raw({
+    type: "application/pdf",
+    limit: taxInvoiceAttachmentMaxBytes,
+  }),
+  async (req, res) => {
+    if (!r2Client || !r2BucketName) {
+      return res.status(503).json({
+        error: "Private document storage is not configured on this server.",
+      })
+    }
+    const uploadId = req.params.uploadId
+    const bytes = req.body
+    if (
+      !/^[0-9a-f-]{36}$/i.test(uploadId) ||
+      !Buffer.isBuffer(bytes) ||
+      bytes.length === 0 ||
+      bytes.length > taxInvoiceAttachmentMaxBytes ||
+      bytes.subarray(0, 5).toString("ascii") !== "%PDF-"
+    ) {
+      return res.status(400).json({
+        error: "Attach a valid BIR Form 2307 PDF no larger than 10 MB.",
+      })
+    }
+    const reservationResult = await pool.query(
+      `SELECT object_key, content_type, size_bytes, completed_at
+       FROM admin_tax_invoice_uploads
+       WHERE id = $1 AND admin_email = $2 AND expires_at > NOW()`,
+      [uploadId, req.adminEmail],
+    )
+    const reservation = reservationResult.rows[0]
+    if (!reservation) {
+      return res.status(409).json({
+        error: "This attachment upload is invalid or expired. Select the file again.",
+      })
+    }
+    if (
+      reservation.content_type !== "application/pdf" ||
+      Number(reservation.size_bytes) !== bytes.length
+    ) {
+      return res.status(400).json({
+        error: "The uploaded PDF does not match the reserved attachment.",
+      })
+    }
+    if (reservation.completed_at) {
+      return res.set("Cache-Control", "no-store").json({ uploadId })
+    }
+    try {
+      await r2Client.send(
+        new PutObjectCommand({
+          Bucket: r2BucketName,
+          Key: reservation.object_key,
+          Body: bytes,
+          ContentType: reservation.content_type,
+          ContentLength: bytes.length,
+        }),
+      )
+      const completed = await pool.query(
+        `UPDATE admin_tax_invoice_uploads SET completed_at = NOW()
+         WHERE id = $1 AND admin_email = $2 AND completed_at IS NULL
+           AND expires_at > NOW()
+         RETURNING id`,
+        [uploadId, req.adminEmail],
+      )
+      if (!completed.rowCount) {
+        return res.status(409).json({
+          error: "This attachment upload expired before it could be completed.",
+        })
+      }
+      return res.set("Cache-Control", "no-store").json({ uploadId })
+    } catch (error) {
+      console.error("Could not store private tax invoice attachment", {
+        name: error instanceof Error ? error.name : typeof error,
+        code:
+          error && typeof error === "object" && "code" in error
+            ? String(error.code)
+            : null,
+      })
+      return res
+        .status(503)
+        .json({ error: "Private document upload is temporarily unavailable." })
+    }
+  },
+)
 
 app.post("/v1/admin/tax-invoice-attachments/complete", async (req, res) => {
   if (!r2Client || !r2BucketName) {
@@ -6999,15 +7036,24 @@ app.use((req, res, next) => {
 })
 
 app.use((error, req, res, _next) => {
+  const status =
+    Number.isInteger(error.status) && error.status >= 400 && error.status < 600
+      ? error.status
+      : 500
   console.error("API request failed", {
     method: req.method,
     path: req.path,
-    status: error.status || 500,
+    status,
     code: error.code || null,
     message: error.message || "unexpected error",
   })
   if (res.headersSent) return
-  return res.status(500).json({ error: "The request could not be completed." })
+  return res.status(status).json({
+    error:
+      status === 413
+        ? "The uploaded attachment exceeds the 10 MB limit."
+        : "The request could not be completed.",
+  })
 })
 
 async function start() {
