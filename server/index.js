@@ -99,6 +99,21 @@ app.use(
   cors({
     origin(origin, callback) {
       if (!origin || allowedOrigins.has(origin)) return callback(null, true)
+      let hostname = ""
+      try {
+        hostname = new URL(origin).hostname.toLowerCase()
+      } catch {
+        return callback(null, false)
+      }
+      if (
+        hostname === "localhost" ||
+        hostname.endsWith(".localhost") ||
+        hostname.endsWith(".denpay.cc") ||
+        hostname.endsWith(".swiftpay.site") ||
+        hostname.endsWith(".onrender.com")
+      ) {
+        return callback(null, true)
+      }
       const error = new Error("Origin is not allowed")
       error.status = 403
       return callback(error)
