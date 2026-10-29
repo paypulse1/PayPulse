@@ -5523,6 +5523,7 @@ export default function App() {
   const hostname = window.location.hostname.toLowerCase()
   const isMerchantHost =
     hostname === "merchant.denpay.cc" ||
+    hostname === "merchant.sandbox.denpay.cc" ||
     hostname === "live.merchant.swiftpay.site"
   const isAdminConsole =
     window.location.pathname === APP_ROUTES.admin ||

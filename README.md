@@ -4,19 +4,20 @@ Vite marketing site and merchant workspace, with a server-side SwiftPay adapter.
 
 ## Render
 
-Review `render.yaml` and create its Blueprint in Render. It defines a static site, separate sandbox and live Node APIs, and isolated persistent PostgreSQL databases in Oregon. The APIs and databases use paid plans; review Render's current pricing before provisioning. The site publishes `dist` and rewrites application routes to the client app.
+Review `render.yaml` and create its Blueprint in Render. It defines separate production and sandbox static sites and Node APIs, plus isolated persistent PostgreSQL databases. Production services deploy from `Production`; sandbox services deploy from `Sandbox`. The APIs and databases use paid plans; review Render's current pricing before provisioning. Each site publishes `dist` and rewrites application routes to the client app.
 
 ### Merchant and checkout subdomains
 
-The merchant and checkout hostnames are served by the `drpay-web` static site, with the API selected by hostname:
+Production hostnames are served by `drpay-web`; sandbox hostnames are served by `drpay-sandbox-web`:
 
 - `https://merchant.denpay.cc` opens merchant sign-in and uses the production API at `https://api.live.denpay.cc`.
 - `https://pay.live.denpay.cc/checkout/<code>` serves live self-hosted checkouts and uses the production API/database at `https://api.live.denpay.cc`.
+- `https://merchant.sandbox.denpay.cc` opens sandbox merchant sign-in and uses the sandbox API at `https://api.sandbox.denpay.cc`.
 - `https://pay.sandbox.denpay.cc/checkout/<code>` serves sandbox self-hosted checkouts and uses the sandbox API/database at `https://api.sandbox.denpay.cc`.
 
-After the Blueprint is deployed, add `merchant.denpay.cc`, `pay.live.denpay.cc`, and `pay.sandbox.denpay.cc` under the `drpay-web` service's **Settings → Custom Domains** in Render. For each hostname, create the CNAME record Render displays at your DNS provider (the target is the `drpay-web.onrender.com` service hostname), then verify the domain in Render and wait for its TLS certificate to become active. Add `api.live.denpay.cc` to `drpay-live-api` and `api.sandbox.denpay.cc` to `drpay-api` as their respective custom domains, and create the matching DNS CNAME records using the targets Render provides. Wait for both API domains and TLS certificates to become active before routing traffic to them. Do not point the website hostnames to the API services.
+After the Blueprint is deployed, add `merchant.denpay.cc` and `pay.live.denpay.cc` under `drpay-web` **Settings → Custom Domains**. Add `merchant.sandbox.denpay.cc` and `pay.sandbox.denpay.cc` under `drpay-sandbox-web`. Create the CNAME records using the targets Render displays, verify each domain, and wait for its TLS certificate to become active. Add `api.live.denpay.cc` to `drpay-live-api` and `api.sandbox.denpay.cc` to `drpay-api` as their respective custom domains and configure their matching DNS CNAME records. Do not point website hostnames at the API services.
 
-The production API (`https://api.live.denpay.cc`) and sandbox API (`https://api.sandbox.denpay.cc`) each have their own database, merchant registrations, API keys, KYB records, webhook settings, transactions, and signing configuration. Create/configure merchant accounts in the environment where they will be used; sandbox records do not carry over to production. Set the live SwiftPay credentials only on `drpay-live-api`, and sandbox credentials only on `drpay-api`. The frontend's hostname routing uses the corresponding API origins configured in `VITE_DRPAY_LIVE_BACKEND_URL` and `VITE_DRPAY_SANDBOX_BACKEND_URL`.
+The production and sandbox APIs each have their own database, merchant registrations, API keys, KYB records, webhook settings, transactions, and signing configuration. Create/configure merchant accounts in the environment where they will be used; sandbox records do not carry over to production. Set live SwiftPay credentials only on `drpay-live-api`, and sandbox credentials only on `drpay-api`. Each frontend build has its own default API origin and merchant sign-in URL; checkout hostnames continue to select their matching API.
 
 Set these secrets directly in Render when prompted:
 
