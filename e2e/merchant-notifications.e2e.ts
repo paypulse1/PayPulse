@@ -99,11 +99,11 @@ test("merchant can verify a device and read inbox notifications", async ({
   })
   await expect(loadingScreen).toBeVisible()
   await expect(
-    loadingScreen.locator(".loading-emblem-orbit-tilted"),
+    loadingScreen.locator(".loading-emblem-spinner"),
   ).toBeVisible()
-  await expect(loadingScreen.locator(".dashboard-loading-shell")).toHaveCSS(
+  await expect(loadingScreen.locator(".loading-emblem-spinner")).toHaveCSS(
     "animation-name",
-    /loading-shell-enter/,
+    "spin",
   )
 
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible()
@@ -126,7 +126,7 @@ test("merchant can verify a device and read inbox notifications", async ({
     .getByRole("button", { name: "Wallet" })
     .click()
   await page
-    .locator(".wallet-balance-panel")
+    .locator(".balance-card")
     .getByRole("button", { name: "Withdraw" })
     .click()
   await expect(page.getByRole("dialog")).toBeVisible()
