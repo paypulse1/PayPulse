@@ -146,7 +146,7 @@ services:
       - key: VITE_DRPAY_BACKEND_URL
         value: https://api.sandbox.denpay.cc
       - key: VITE_DRPAY_LIVE_BACKEND_URL
-        value: https://api.live.denpay.cc
+        value: https://drpay-live-api-fixed.onrender.com
       - key: VITE_DRPAY_SANDBOX_BACKEND_URL
         value: https://api.sandbox.denpay.cc
     routes:
