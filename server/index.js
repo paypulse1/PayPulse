@@ -66,7 +66,20 @@ app.get("/healthz", (_req, res) => {
   return res.json({ status: "ok", paymentEnvironment: process.env.SWIFTPAY_ENV || "sandbox" })
 })
 
-app.use(helmet())
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        connectSrc: [
+          "'self'",
+          "https://drpay-merchant-production.up.railway.app",
+          "https://api.live.denpay.cc",
+          "https://api.sandbox.denpay.cc",
+        ],
+      },
+    },
+  }),
+)
 app.use(express.static(clientBuildDirectory))
 app.use(express.json({ limit: "24kb" }))
 
