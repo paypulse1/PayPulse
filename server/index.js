@@ -6986,21 +6986,24 @@ async function start() {
     return
   }
 
-  try {
-    await initializeDatabase()
-    databaseReady = true
-    startNotificationWorker()
-    void reconcilePending().catch((error) => {
+  while (!databaseReady) {
+    try {
+      await initializeDatabase()
+      databaseReady = true
+      startNotificationWorker()
+      void reconcilePending().catch((error) => {
+        console.error(
+          "Initial transaction notification cycle failed",
+          error.status || error.message || "unexpected error",
+        )
+      })
+    } catch (error) {
       console.error(
-        "Initial transaction notification cycle failed",
-        error.status || error.message || "unexpected error",
+        "Database initialization failed; retrying",
+        error.status || error.code || error.message || "unexpected error",
       )
-    })
-  } catch (error) {
-    console.error(
-      "Database initialization failed",
-      error.status || error.code || error.message || "unexpected error",
-    )
+      await new Promise((resolve) => setTimeout(resolve, 5000))
+    }
   }
 }
 
