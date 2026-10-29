@@ -80,7 +80,9 @@ const allowedOrigins = new Set(
       .split(",")
       .map((origin) => origin.trim()),
     "http://localhost:5173",
+    "http://localhost:8443",
     "http://127.0.0.1:5173",
+    "http://127.0.0.1:8443",
     "https://localhost",
     "capacitor://localhost",
   ].filter(Boolean),

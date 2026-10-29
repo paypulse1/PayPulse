@@ -621,6 +621,12 @@ async function parseResponse<T>(
   expireSessionOnUnauthorized = true,
 ): Promise<T> {
   if (response.ok) return response.json() as Promise<T>
+  if (response.status === 502 || response.status === 503 || response.status === 504) {
+    throw new ApiError(
+      "DRPAY is temporarily unavailable. Please try again in a few minutes.",
+      response.status,
+    )
+  }
   const body = (await response.json().catch(() => ({}))) as { error?: string }
   if (response.status === 401 && expireSessionOnUnauthorized) clearSession()
   throw new ApiError(
@@ -632,6 +638,18 @@ async function parseResponse<T>(
   )
 }
 
+async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, options)
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error
+    throw new ApiError(
+      "DRPAY is temporarily unavailable. Check your connection and try again.",
+      503,
+    )
+  }
+}
+
 async function publicRequest<T>(
   path: string,
   options?: RequestInit,
@@ -641,7 +659,7 @@ async function publicRequest<T>(
     throw new Error(
       "Live transactions are disabled because the DRPAY backend is not configured.",
     )
-  const response = await fetch(`${apiBaseUrl.replace(/\/$/, "")}${path}`, {
+  const response = await apiFetch(`${apiBaseUrl.replace(/\/$/, "")}${path}`, {
     ...options,
     headers: { "Content-Type": "application/json", ...options?.headers },
   })
@@ -660,7 +678,7 @@ async function backendRequest<T>(
     )
   const session = getSession()
   if (!session) throw new ApiError("A verified DRPAY session is required", 401)
-  const response = await fetch(`${apiBaseUrl.replace(/\/$/, "")}${path}`, {
+  const response = await apiFetch(`${apiBaseUrl.replace(/\/$/, "")}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
