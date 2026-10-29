@@ -348,8 +348,10 @@ function requiredEnvironment() {
   if (!resendApiKey) missing.push("RESEND_API_KEY")
   if (!resendFromEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(resendFromEmail))
     missing.push("RESEND_FROM_EMAIL (verified sender address)")
-  if (!swiftPayAccessKey) missing.push("SWIFTPAY_ACCESS_KEY")
-  if (!swiftPaySecretKey) missing.push("SWIFTPAY_SECRET_KEY")
+  if (swiftPayEnvironment === "production") {
+    if (!swiftPayAccessKey) missing.push("SWIFTPAY_ACCESS_KEY")
+    if (!swiftPaySecretKey) missing.push("SWIFTPAY_SECRET_KEY")
+  }
   if (!frontendOrigin) missing.push("DRPAY_FRONTEND_ORIGIN")
   if (!checkoutOrigin)
     missing.push(
@@ -1666,6 +1668,7 @@ async function swiftPayFetch(
   path,
   { method = "GET", body, headers = {}, timeoutMs = 12_000 } = {},
 ) {
+  requireSwiftPayCredentials()
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), timeoutMs)
   try {
@@ -1695,6 +1698,16 @@ async function swiftPayFetch(
     return { data, status: response.status }
   } finally {
     clearTimeout(timeout)
+  }
+}
+
+function requireSwiftPayCredentials() {
+  if (!swiftPayAccessKey || !swiftPaySecretKey) {
+    const error = new Error(
+      "SwiftPay credentials are not configured for this environment.",
+    )
+    error.status = 503
+    throw error
   }
 }
 
@@ -1735,6 +1748,7 @@ async function swiftPayPaymentRequest(path, paymentToken) {
 }
 
 async function swiftPaySignedRequest(path, payload) {
+  requireSwiftPayCredentials()
   const canonicalPayload = Object.entries(payload)
     .filter(
       ([key, value]) =>
