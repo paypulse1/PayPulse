@@ -6949,8 +6949,11 @@ app.use((error, _req, res, _next) => {
 
 async function start() {
   const port = Number(process.env.PORT || 10000)
-  app.listen(port, "0.0.0.0", () => {
+  const server = app.listen(port, "0.0.0.0", () => {
     console.log(`DRPAY API listening on ${port} (${swiftPayEnvironment})`)
+  })
+  server.on("error", (error) => {
+    console.error("DRPAY API listener failed", error.code || error.message)
   })
 
   const missing = requiredEnvironment()
