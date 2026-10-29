@@ -6,12 +6,22 @@ Vite marketing site and merchant workspace, with a server-side SwiftPay adapter.
 
 Review `render.yaml` and create its Blueprint in Render. It defines separate production and sandbox static sites and Node APIs, plus isolated persistent PostgreSQL databases. Production services deploy from `Production`; sandbox services deploy from `Sandbox`. The APIs and databases use paid plans; review Render's current pricing before provisioning. Each site publishes `dist` and rewrites application routes to the client app. API health checks use `/readyz` and remain unavailable until the database is initialized.
 
+## Railway production deployment
+
+Deploy the `Production` branch from the repository root as a single Railway service. `railway.json` installs the pinned pnpm version, runs the API check, typecheck, and Vite production build, then starts the API and serves the built frontend. Its `/readyz` health check passes only after the required configuration is present and the database is initialized.
+
+Attach a Railway PostgreSQL service and set `DATABASE_URL` using that service's connection string reference. Configure the API secrets listed below in Railway's Variables settings, including `DRPAY_FRONTEND_ORIGIN` for the deployed merchant site, `DRPAY_MERCHANT_EMAIL`, `DRPAY_SUPER_ADMIN_EMAIL`, `DRPAY_SUPER_ADMIN_PASSWORD`, `DRPAY_PASSWORD_SALT`, `DRPAY_JWT_SECRET`, `RESEND_API_KEY`, and `RESEND_FROM_EMAIL`. Set `DRPAY_LIVE_CHECKOUT_ORIGIN` and `DRPAY_PUBLIC_API_ORIGIN` to the corresponding public production URLs when they differ from their defaults.
+
+Live payment collection is enabled only when `SWIFTPAY_ENV=production`, `SWIFTPAY_LIVE_MONEY_ACKNOWLEDGED=I_UNDERSTAND_REAL_MONEY`, and live `SWIFTPAY_ACCESS_KEY` and `SWIFTPAY_SECRET_KEY` values are set. Keep all secrets in Railway Variables; never add them to source control or any `VITE_*` variable. The service exits with an error when required configuration is missing, so Railway will not mark an incomplete production deployment healthy.
+
+The Railway production service serves the API and Vite application together. Its live API URL is `https://drpay-merchant-production.up.railway.app`; the frontend uses this service URL rather than `api.live.denpay.cc`. Attach `merchant.denpay.cc` and `pay.live.denpay.cc` to this service and use the CNAME and TXT verification records Railway displays. Confirm DNS propagation and certificate issuance in Railway before directing production traffic.
+
 ### Merchant and checkout subdomains
 
-Production hostnames are served by `drpay-web`; sandbox hostnames are served by `drpay-sandbox-web`:
+On Render, production hostnames are served by `drpay-web` and sandbox hostnames by `drpay-sandbox-web`. During the Railway production cutover, `merchant.denpay.cc` and `pay.live.denpay.cc` are attached to the combined `drpay-merchant` service:
 
-- `https://merchant.denpay.cc` opens merchant sign-in and uses the production API at `https://api.live.denpay.cc`.
-- `https://pay.live.denpay.cc/checkout/<code>` serves live self-hosted checkouts and uses the production API/database at `https://api.live.denpay.cc`.
+- `https://merchant.denpay.cc` opens merchant sign-in and uses the production API at `https://drpay-merchant-production.up.railway.app`.
+- `https://pay.live.denpay.cc/checkout/<code>` serves live self-hosted checkouts and uses the production API/database at `https://drpay-merchant-production.up.railway.app`.
 - `https://merchant.sandbox.denpay.cc` opens sandbox merchant sign-in and uses the sandbox API at `https://api.sandbox.denpay.cc`.
 - `https://pay.sandbox.denpay.cc/checkout/<code>` serves sandbox self-hosted checkouts and uses the sandbox API/database at `https://api.sandbox.denpay.cc`.
 

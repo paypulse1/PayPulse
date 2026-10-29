@@ -67,6 +67,7 @@ app.get("/healthz", (_req, res) => {
 })
 
 app.use(helmet())
+app.use(express.static(clientBuildDirectory))
 app.use(express.json({ limit: "24kb" }))
 
 const frontendOrigin = process.env.DRPAY_FRONTEND_ORIGIN
@@ -80,7 +81,9 @@ const allowedOrigins = new Set(
     frontendOrigin,
     liveCheckoutOrigin,
     sandboxCheckoutOrigin,
+    publicApiOrigin,
     "https://merchant.denpay.cc",
+    "https://drpay-merchant-production.up.railway.app",
     "https://denpay.cc",
     "https://www.denpay.cc",
     "https://pay.live.denpay.cc",
@@ -1059,7 +1062,10 @@ async function dispatchCustomerPaymentRequests() {
       console.error("Customer payment request remains queued for retry", {
         notificationId: notification.id,
         attempt: notification.attempts + 1,
-        error: error.message,
+        error:
+          error instanceof Error
+            ? { name: error.name, message: error.message }
+            : { type: typeof error, message: String(error) },
       })
     }
   }
@@ -1101,6 +1107,8 @@ function matchesPasswordHash(candidate, salt, expectedHash) {
 }
 
 async function initializeDatabase() {
+  const initializationStartedAt = Date.now()
+  console.info("Database schema initialization started")
   await pool.query(`
     CREATE TABLE IF NOT EXISTS merchant_accounts (
       email TEXT PRIMARY KEY,
@@ -1575,6 +1583,7 @@ async function initializeDatabase() {
       ON disbursements (request_fingerprint)
       WHERE status IN ('REQUESTING', 'PENDING', 'OUTCOME_UNKNOWN');
   `)
+  console.info("Database schema initialization completed")
   await pool.query(`
     INSERT INTO admin_audit_events
       (id, event_key, category, action, target, actor, summary, occurred_at)
@@ -1666,6 +1675,9 @@ async function initializeDatabase() {
       )
     }
   }
+  console.info("Database initialization completed", {
+    durationMs: Date.now() - initializationStartedAt,
+  })
 }
 
 async function swiftPayFetch(
@@ -5814,6 +5826,8 @@ app.get("/v1/payment-institutions", async (_req, res) => {
 async function reconcilePending() {
   if (reconcilingPending) return
   reconcilingPending = true
+  const cycleStartedAt = Date.now()
+  console.info("Pending transaction reconciliation started")
   try {
     const [links, transfers] = await Promise.all([
       pool.query(
@@ -5865,12 +5879,19 @@ async function reconcilePending() {
         )
       }),
     ])
+    console.info("Pending transaction statuses reconciled", {
+      paymentCount: links.rowCount,
+      disbursementCount: transfers.rowCount,
+    })
     await dispatchTransactionNotifications()
     await dispatchCustomerPaymentRequests()
     await dispatchCustomerPaymentNotifications()
     await dispatchMerchantWebhooks()
   } finally {
     reconcilingPending = false
+    console.info("Pending transaction reconciliation completed", {
+      durationMs: Date.now() - cycleStartedAt,
+    })
   }
 }
 
@@ -6964,7 +6985,6 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
     .json({ id: data.id, referenceNo: merchantReferenceNo, status, message })
 })
 
-app.use(express.static(clientBuildDirectory))
 app.use((req, res, next) => {
   if (
     req.method !== "GET" ||
@@ -6978,16 +6998,26 @@ app.use((req, res, next) => {
   })
 })
 
-app.use((error, _req, res, _next) => {
-  console.error(
-    "API request failed",
-    error.status || error.code || "unexpected error",
-  )
+app.use((error, req, res, _next) => {
+  console.error("API request failed", {
+    method: req.method,
+    path: req.path,
+    status: error.status || 500,
+    code: error.code || null,
+    message: error.message || "unexpected error",
+  })
   if (res.headersSent) return
   return res.status(500).json({ error: "The request could not be completed." })
 })
 
 async function start() {
+  const missing = requiredEnvironment()
+  if (missing.length) {
+    throw new Error(
+      `Missing or invalid server configuration: ${missing.join(", ")}`,
+    )
+  }
+
   const port = Number(process.env.PORT || 10000)
   const server = app.listen(port, "0.0.0.0", () => {
     console.log(`DRPAY API listening on ${port} (${swiftPayEnvironment})`)
@@ -6996,18 +7026,11 @@ async function start() {
     console.error("DRPAY API listener failed", error.code || error.message)
   })
 
-  const missing = requiredEnvironment()
-  if (missing.length) {
-    console.error(
-      `Missing or invalid server configuration: ${missing.join(", ")}`,
-    )
-    return
-  }
-
   while (!databaseReady) {
     try {
       await initializeDatabase()
       databaseReady = true
+      console.info("Database ready; starting background workers")
       startNotificationWorker()
       void reconcilePending().catch((error) => {
         console.error(

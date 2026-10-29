@@ -40,10 +40,18 @@ function formatMoney(amount) {
 
 function fitText(font, text, size, maxWidth) {
   let value = String(text || "")
-  while (value.length > 1 && font.widthOfTextAtSize(value, size) > maxWidth) {
-    value = `${value.slice(0, -2).trim()}...`
+  if (font.widthOfTextAtSize(value, size) <= maxWidth) return value
+
+  const characters = Array.from(value)
+  let low = 0
+  let high = characters.length
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2)
+    const candidate = `${characters.slice(0, middle).join("")}...`
+    if (font.widthOfTextAtSize(candidate, size) <= maxWidth) low = middle
+    else high = middle - 1
   }
-  return value
+  return `${characters.slice(0, low).join("").trimEnd()}...`
 }
 
 function parseAmount(value) {

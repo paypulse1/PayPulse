@@ -27,3 +27,20 @@ test.each([
   const { getApiBaseUrl } = await import("./swiftpay.ts")
   assert.equal(getApiBaseUrl(), expectedApi)
 })
+
+test("uses the Railway production API when no live API URL is configured", async () => {
+  vi.stubEnv("VITE_DRPAY_BACKEND_URL", "")
+  vi.stubEnv("VITE_DRPAY_LIVE_BACKEND_URL", "")
+  vi.stubGlobal("window", {
+    location: {
+      hostname: "merchant.denpay.cc",
+      origin: "https://merchant.denpay.cc",
+    },
+  })
+
+  const { getApiBaseUrl } = await import("./swiftpay.ts")
+  assert.equal(
+    getApiBaseUrl(),
+    "https://drpay-merchant-production.up.railway.app",
+  )
+})
