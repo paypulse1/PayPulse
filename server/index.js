@@ -58,6 +58,10 @@ const app = express()
 const clientBuildDirectory = fileURLToPath(new URL("../dist", import.meta.url))
 app.set("trust proxy", 1)
 
+app.get("/", (_req, res) => {
+  return res.json({ status: "ok", service: "drpay-api" })
+})
+
 app.get("/healthz", (_req, res) => {
   return res.json({ status: "ok", paymentEnvironment: process.env.SWIFTPAY_ENV || "sandbox" })
 })
