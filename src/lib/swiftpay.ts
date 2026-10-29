@@ -489,7 +489,7 @@ function cacheCollectionInstitution(
 const defaultApiBaseUrl = import.meta.env.VITE_DRPAY_BACKEND_URL || ""
 const liveApiBaseUrl =
   import.meta.env.VITE_DRPAY_LIVE_BACKEND_URL ||
-  "https://drpay-live-api-fixed.onrender.com"
+  "https://api.live.denpay.cc"
 const sandboxApiBaseUrl =
   import.meta.env.VITE_DRPAY_SANDBOX_BACKEND_URL || defaultApiBaseUrl
 
@@ -639,15 +639,28 @@ async function parseResponse<T>(
 }
 
 async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
-  try {
-    return await fetch(url, options)
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") throw error
-    throw new ApiError(
-      "DRPAY is temporarily unavailable. Check your connection and try again.",
-      503,
-    )
+  const fixedLiveApiOrigin = "https://drpay-live-api-fixed.onrender.com"
+  const liveApiOrigin = "https://api.live.denpay.cc"
+  let urls = [url]
+
+  if (url.startsWith(fixedLiveApiOrigin)) {
+    urls.push(url.replace(fixedLiveApiOrigin, liveApiOrigin))
+  } else if (url.startsWith(liveApiOrigin)) {
+    urls.push(url.replace(liveApiOrigin, fixedLiveApiOrigin))
   }
+
+  for (const candidate of urls) {
+    try {
+      return await fetch(candidate, options)
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") throw error
+    }
+  }
+
+  throw new ApiError(
+    "DRPAY is temporarily unavailable. Check your connection and try again.",
+    503,
+  )
 }
 
 async function publicRequest<T>(
