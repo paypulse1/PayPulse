@@ -58,7 +58,12 @@ const app = express()
 const clientBuildDirectory = fileURLToPath(new URL("../dist", import.meta.url))
 app.set("trust proxy", 1)
 
-app.get("/", (_req, res) => {
+app.get("/", (req, res, next) => {
+  if (typeof req.query.checkout === "string") {
+    return res.sendFile(join(clientBuildDirectory, "index.html"), (error) => {
+      if (error) next(error)
+    })
+  }
   return res.json({ status: "ok", service: "drpay-api" })
 })
 
