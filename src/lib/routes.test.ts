@@ -19,11 +19,22 @@ test("legal routes resolve canonical paths and legacy aliases", () => {
   assert.equal(getLegalPage("/unknown"), null)
 })
 
-test("marketing homepage is available only through its explicit route", () => {
-  assert.equal(shouldShowMarketingHome("/"), false)
-  assert.equal(shouldShowMarketingHome("/?checkout=abc"), false)
-  assert.equal(shouldShowMarketingHome("/?signin=1"), false)
-  assert.equal(shouldShowMarketingHome("/app"), false)
-  assert.equal(shouldShowMarketingHome(APP_ROUTES.marketing), true)
-  assert.equal(shouldShowMarketingHome(`${APP_ROUTES.marketing}/`), true)
+test("merchant root and the explicit marketing route show the marketing homepage", () => {
+  assert.equal(shouldShowMarketingHome("/", "merchant.denpay.cc"), true)
+  assert.equal(
+    shouldShowMarketingHome("/", "merchant.denpay.cc", "?checkout=abc"),
+    false,
+  )
+  assert.equal(
+    shouldShowMarketingHome("/", "merchant.denpay.cc", "?signin=1"),
+    false,
+  )
+  assert.equal(shouldShowMarketingHome("/", "merchant.sandbox.denpay.cc"), false)
+  assert.equal(shouldShowMarketingHome("/app", "merchant.denpay.cc"), false)
+  assert.equal(shouldShowMarketingHome("/login", "merchant.denpay.cc"), false)
+  assert.equal(shouldShowMarketingHome(APP_ROUTES.marketing, "denpay.cc"), true)
+  assert.equal(
+    shouldShowMarketingHome(`${APP_ROUTES.marketing}/`, "denpay.cc"),
+    true,
+  )
 })

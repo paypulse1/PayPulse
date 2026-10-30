@@ -49,7 +49,7 @@ jobs:
 
       - name: Verify and build web assets
         env:
-          VITE_DRPAY_BACKEND_URL: ${{ vars.DRPAY_API_URL || 'https://denpay.cc' }}
+          VITE_DRPAY_BACKEND_URL: ${{ vars.DRPAY_API_URL || 'https://drpay-merchant-production.up.railway.app' }}
         run: |
           pnpm typecheck
           pnpm build

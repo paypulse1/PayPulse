@@ -5,7 +5,11 @@ import MarketingHome from './MarketingHome';
 import './index.css';
 import { shouldShowMarketingHome } from './lib/routes';
 
-const EntryScreen = shouldShowMarketingHome(window.location.pathname)
+const EntryScreen = shouldShowMarketingHome(
+  window.location.pathname,
+  window.location.hostname,
+  window.location.search,
+)
   ? MarketingHome
   : App;
 

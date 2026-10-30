@@ -1,149 +1,352 @@
-import React from 'react';
-import './marketing-home.css';
-import './marketing-brand.css';
-import { APP_ROUTES } from './lib/routes';
+import {
+  ArrowDown,
+  ArrowRight,
+  Check,
+  CircleDollarSign,
+  ClipboardList,
+  LockKeyhole,
+  LogIn,
+  Smartphone,
+} from "lucide-react"
+import "./marketing-home.css"
+import { APP_ROUTES } from "./lib/routes"
 
-const APK_DOWNLOAD_URL = 'https://github.com/blackhorsecn/drpay-merchant/releases/latest/download/drpay.apk';
+const APK_DOWNLOAD_URL =
+  "https://github.com/blackhorsecn/drpay-merchant/releases/latest/download/drpay.apk"
 
-const features = [
-  { icon: '↗', title: 'Collect payments faster', text: 'Accept transfers and payment requests with a merchant workspace designed for momentum.' },
-  { icon: '▣', title: 'Know every transaction', text: 'Keep balances, receipts, and transfer activity visible in one calm, focused dashboard.' },
-  { icon: '✓', title: 'Built for daily operations', text: 'Move from payment received to reconciliation without losing the context that matters.' },
-];
-
-const steps = [
-  ['01', 'Create your workspace', 'Set up your merchant profile in minutes.'],
-  ['02', 'Connect your flow', 'Configure the payment methods your business already uses.'],
-  ['03', 'Start moving money', 'Track activity and keep customers updated from one place.'],
-];
-
-const supportedChannels = [
+const paymentChannels = [
   {
-    name: 'QRPH',
-    logo: '/bank-logos/qrph.svg',
-    description: 'Collect payments through supported bank and e-wallet apps.',
+    name: "QRPH",
+    logo: "/bank-logos/qrph.svg",
+    description: "Collect through supported bank and e-wallet apps.",
   },
   {
-    name: 'InstaPay',
-    logo: '/bank-logos/instapay.png',
-    description: 'Send supported merchant bank transfers in real time.',
+    name: "InstaPay",
+    logo: "/bank-logos/instapay.png",
+    description: "Send supported bank transfers in real time.",
   },
   {
-    name: 'PESONet',
-    logo: '/bank-logos/pesonet.png',
-    description: 'Send supported merchant bank transfers through PESONet.',
+    name: "PESONet",
+    logo: "/bank-logos/pesonet.png",
+    description: "Send supported bank transfers through PESONet.",
   },
-];
+]
+
+const capabilities = [
+  {
+    number: "01",
+    title: "Keep activity in view",
+    description:
+      "Review balances, receipts, and payment activity from one merchant workspace.",
+    icon: ClipboardList,
+  },
+  {
+    number: "02",
+    title: "Give customers a clear path",
+    description:
+      "Create payment links and hosted checkout experiences for your business.",
+    icon: CircleDollarSign,
+  },
+  {
+    number: "03",
+    title: "Work from your phone",
+    description:
+      "Use the DRPAY Android app to stay close to your merchant operations.",
+    icon: Smartphone,
+  },
+]
+
+const onboardingSteps = [
+  {
+    number: "01",
+    title: "Set up your account",
+    description:
+      "Create a merchant workspace and provide your business details.",
+  },
+  {
+    number: "02",
+    title: "Configure your payment flow",
+    description:
+      "Choose the payment tools and methods available for your account.",
+  },
+  {
+    number: "03",
+    title: "Manage activity",
+    description:
+      "Follow payment status and review your merchant activity in DRPAY.",
+  },
+]
 
 export default function MarketingHome() {
   return (
-    <main className="drpay-home">
-      <div className="drpay-noise" />
-      <nav className="drpay-nav">
-      <a className="drpay-brand" href="#top" aria-label="DRPay home"><img className="drpay-brand-mark" src="/drpay-mark.svg" alt="" /><span>DRPAY</span></a>
-        <div className="drpay-nav-links"><a href="#why">Why DRPay</a><a href="#how">How it works</a><a href="#security">Security</a></div>
-        <div className="drpay-nav-actions"><a className="drpay-login" href={APP_ROUTES.merchantSignIn}>Log in</a><a className="drpay-button drpay-button-small" href={APK_DOWNLOAD_URL}>Download APK <span>↗</span></a></div>
-      </nav>
+    <main className="drpay-home" id="top">
+      <header className="drpay-header">
+        <nav className="drpay-nav" aria-label="Main navigation">
+          <a className="drpay-brand" href="#top" aria-label="DRPAY home">
+            <img className="drpay-brand-mark" src="/drpay-mark.svg" alt="" />
+            <span>DRPAY</span>
+          </a>
+          <div className="drpay-nav-links">
+            <a href="#capabilities">Platform</a>
+            <a href="#channels">Payment methods</a>
+            <a href="#how">Getting started</a>
+          </div>
+          <div className="drpay-nav-actions">
+            <a className="drpay-login" href={APP_ROUTES.merchantSignIn}>
+              Log in
+            </a>
+            <a
+              className="drpay-button drpay-button-small"
+              href={APK_DOWNLOAD_URL}
+            >
+              Get the app <ArrowRight size={15} aria-hidden="true" />
+            </a>
+          </div>
+          <a
+            className="drpay-mobile-login"
+            href={APP_ROUTES.merchantSignIn}
+            aria-label="Log in to your DRPAY account"
+          >
+            <LogIn size={20} aria-hidden="true" />
+          </a>
+        </nav>
+      </header>
 
-      <section id="top" className="drpay-hero">
+      <section className="drpay-hero" aria-labelledby="drpay-hero-title">
         <div className="drpay-hero-copy">
-          <p className="drpay-eyebrow"><span className="drpay-pulse" /> The smarter merchant workspace</p>
-          <h1>Payments that keep your business <em>moving.</em></h1>
-          <p className="drpay-hero-text">DRPay gives growing businesses a clearer way to collect, track, and manage money, so every transaction feels simple from start to finish.</p>
-          <div className="drpay-hero-actions"><a className="drpay-button" href={APK_DOWNLOAD_URL}>Download the Android app <span>↗</span></a><a className="drpay-text-link" href="#how">See how it works <span>↓</span></a></div>
-          <div className="drpay-proof"><div className="drpay-avatars"><span>AM</span><span>JD</span><span>LK</span><span>+</span></div><span>Trusted by teams that move fast</span></div>
+          <p className="drpay-eyebrow">
+            <span className="drpay-pulse" aria-hidden="true" />A merchant
+            workspace for the way you work
+          </p>
+          <h1 id="drpay-hero-title">
+            Payments,
+            <br />
+            <span>made clearer.</span>
+          </h1>
+          <p className="drpay-hero-text">
+            Collect, track, and manage business payments with one focused
+            workspace for your day-to-day operations.
+          </p>
+          <div className="drpay-hero-actions">
+            <a className="drpay-button" href={APP_ROUTES.merchantSignIn}>
+              Go to merchant sign in
+              <ArrowRight size={17} aria-hidden="true" />
+            </a>
+            <a className="drpay-text-link" href="#capabilities">
+              Explore DRPAY <ArrowDown size={15} aria-hidden="true" />
+            </a>
+          </div>
+          <div className="drpay-hero-note">
+            <LockKeyhole size={15} aria-hidden="true" />
+            <span>Merchant access with verified-device sign-in</span>
+          </div>
         </div>
-        <div className="drpay-hero-art">
+
+        <div className="drpay-hero-visual">
+          <div className="drpay-visual-orbit" aria-hidden="true" />
+          <div className="drpay-visual-label">
+            <span className="drpay-visual-label-dot" />
+            YOUR MERCHANT WORKSPACE
+          </div>
           <figure className="drpay-live-payout-frame">
             <img
               src="/marketing/drpay-live-payout.jpg"
-              alt="DRPAY confirmation showing an outgoing transfer completed; transaction details are omitted."
+              alt="Example DRPAY transaction confirmation screen"
+              fetchPriority="high"
             />
-            <figcaption>Live transaction confirmation in DRPAY</figcaption>
+            <figcaption>
+              <span className="drpay-confirmation-mark">
+                <Check size={14} aria-hidden="true" />
+              </span>
+              Example transaction confirmation
+            </figcaption>
           </figure>
+          <div className="drpay-visual-side-note" aria-hidden="true">
+            <span>COLLECT</span>
+            <span className="drpay-side-note-line" />
+            <span>TRACK</span>
+            <span className="drpay-side-note-line" />
+            <span>MANAGE</span>
+          </div>
         </div>
       </section>
 
-      <section id="payments" className="drpay-payments" aria-labelledby="drpay-payments-title">
-        <div className="drpay-payments-heading">
-          <p className="drpay-eyebrow">Supported payment channels</p>
-          <h2 id="drpay-payments-title">Built around trusted local rails.</h2>
-          <p>Availability depends on your merchant account and the receiving institution.</p>
+      <section
+        className="drpay-channel-section"
+        id="channels"
+        aria-labelledby="drpay-channels-title"
+      >
+        <div className="drpay-channel-intro">
+          <p className="drpay-eyebrow">Payment methods</p>
+          <h2 id="drpay-channels-title">Connected to local payment rails.</h2>
+          <p>
+            Explore supported collection and transfer methods for your merchant
+            account.
+          </p>
         </div>
-        <div className="drpay-payment-channel-grid">
-          {supportedChannels.map((channel) => (
-            <article className="drpay-payment-channel" key={channel.name}>
-              <span className="drpay-payment-channel-logo">
-                <img src={channel.logo} alt="" />
+        <div className="drpay-channel-list">
+          {paymentChannels.map((channel, index) => (
+            <article className="drpay-channel-card" key={channel.name}>
+              <span className="drpay-channel-index">0{index + 1}</span>
+              <span className="drpay-channel-logo">
+                <img src={channel.logo} alt="" loading="lazy" />
               </span>
-              <div>
-                <h3>{channel.name}</h3>
-                <p>{channel.description}</p>
+              <span className="drpay-channel-copy">
+                <strong>{channel.name}</strong>
+                <small>{channel.description}</small>
+              </span>
+              <ArrowRight
+                className="drpay-channel-arrow"
+                size={17}
+                aria-hidden="true"
+              />
+            </article>
+          ))}
+        </div>
+        <p className="drpay-disclaimer">
+          Payment method availability depends on merchant onboarding, provider
+          approval, and the receiving institution.
+        </p>
+      </section>
+
+      <section
+        className="drpay-capabilities"
+        id="capabilities"
+        aria-labelledby="drpay-capabilities-title"
+      >
+        <div className="drpay-section-heading">
+          <div>
+            <p className="drpay-eyebrow">One connected workspace</p>
+            <h2 id="drpay-capabilities-title">
+              Less switching.
+              <br />
+              <span>More perspective.</span>
+            </h2>
+          </div>
+          <p>
+            The tools you need to follow the flow of money and keep the details
+            close at hand.
+          </p>
+        </div>
+        <div className="drpay-capability-grid">
+          {capabilities.map(({ number, title, description, icon: Icon }) => (
+            <article className="drpay-capability-card" key={number}>
+              <div className="drpay-capability-card-top">
+                <span>{number}</span>
+                <Icon size={20} strokeWidth={1.7} aria-hidden="true" />
               </div>
+              <h3>{title}</h3>
+              <p>{description}</p>
+              <span className="drpay-capability-rule" aria-hidden="true" />
             </article>
           ))}
         </div>
       </section>
 
       <section
-        id="gaming-integration"
-        className="drpay-gaming-integration"
-        aria-labelledby="drpay-gaming-title"
+        className="drpay-process"
+        id="how"
+        aria-labelledby="drpay-process-title"
       >
-        <div className="drpay-gaming-copy">
-          <p className="drpay-eyebrow">Merchant payment integration</p>
-          <h2 id="drpay-gaming-title">
-            Payment flows for online gaming businesses.
+        <div className="drpay-process-intro">
+          <p className="drpay-eyebrow">Getting started</p>
+          <h2 id="drpay-process-title">
+            A considered start.
+            <br />
+            <span>A clearer day.</span>
           </h2>
           <p>
-            Present QRPH collection options and hosted checkout links within a
-            customer deposit journey. Payment methods depend on merchant
-            onboarding, provider approval, and applicable requirements.
+            Set up your merchant workspace, configure the tools available to
+            your account, and manage activity from one place.
           </p>
-          <div className="drpay-gaming-capabilities">
-            <span>Hosted payment links</span>
-            <span>QRPH collections</span>
-            <span>Payment status tracking</span>
-          </div>
-          <small>
-            The deposit screen is an illustrative merchant-provided example.
-            Displayed third-party names and marks do not imply endorsement or
-            partnership.
-          </small>
+          <a className="drpay-process-link" href={APP_ROUTES.merchantSignIn}>
+            Open merchant sign in <ArrowRight size={16} aria-hidden="true" />
+          </a>
         </div>
-        <div className="drpay-gaming-visuals">
-          <figure className="drpay-gaming-screenshot">
-            <img
-              src="/marketing/online-casino-deposit-example.jpg"
-              alt="Example online gaming deposit screen with e-wallet, online banking, and USDT options"
-              loading="lazy"
-            />
-            <figcaption>Example customer deposit experience</figcaption>
-          </figure>
-          <div className="drpay-gaming-photo-stack">
-            <img
-              src="/marketing/casino-roulette.jpg"
-              alt="Roulette wheel representing online gaming"
-              loading="lazy"
-            />
-            <img
-              src="/marketing/payment-integration.jpg"
-              alt="Customer using a payment terminal"
-              loading="lazy"
-            />
-          </div>
+        <ol className="drpay-steps">
+          {onboardingSteps.map((step) => (
+            <li className="drpay-step" key={step.number}>
+              <span className="drpay-step-number">{step.number}</span>
+              <div>
+                <h3>{step.title}</h3>
+                <p>{step.description}</p>
+              </div>
+              <ArrowRight
+                className="drpay-step-check"
+                size={17}
+                aria-hidden="true"
+              />
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section
+        className="drpay-security"
+        id="security"
+        aria-labelledby="drpay-security-title"
+      >
+        <span className="drpay-security-icon">
+          <LockKeyhole size={23} aria-hidden="true" />
+        </span>
+        <div>
+          <p className="drpay-eyebrow">Access with care</p>
+          <h2 id="drpay-security-title">
+            Your account.
+            <br />
+            <span>Protected at sign in.</span>
+          </h2>
+        </div>
+        <div className="drpay-security-copy">
+          <p>
+            Merchant sign-in supports verified-device checks and an MPIN.
+            Biometric sign-in is available on supported devices when enabled.
+          </p>
+          <a href={APP_ROUTES.merchantSignIn}>
+            Sign in to your account <ArrowRight size={16} aria-hidden="true" />
+          </a>
         </div>
       </section>
 
-      <section id="why" className="drpay-section drpay-features"><div className="drpay-section-heading"><p className="drpay-eyebrow">A better way to operate</p><h2>Everything your payments need.<br /><em>Nothing they don't.</em></h2></div><div className="drpay-feature-grid">{features.map((feature) => <article className="drpay-feature" key={feature.title}><span className="drpay-feature-icon">{feature.icon}</span><h3>{feature.title}</h3><p>{feature.text}</p><a href={APK_DOWNLOAD_URL}>Get the app <span>↗</span></a></article>)}</div></section>
+      <section className="drpay-cta" aria-labelledby="drpay-cta-title">
+        <div className="drpay-cta-art" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+        <p className="drpay-eyebrow">Your next step starts here</p>
+        <h2 id="drpay-cta-title">
+          Make room for
+          <br />
+          <span>clearer payments.</span>
+        </h2>
+        <div className="drpay-cta-actions">
+          <a
+            className="drpay-button drpay-button-light"
+            href={APK_DOWNLOAD_URL}
+          >
+            Download DRPAY for Android
+            <ArrowRight size={17} aria-hidden="true" />
+          </a>
+          <a className="drpay-cta-login" href={APP_ROUTES.merchantSignIn}>
+            Already have an account? Log in
+          </a>
+        </div>
+      </section>
 
-      <section id="how" className="drpay-section drpay-process"><div className="drpay-process-intro"><p className="drpay-eyebrow">Simple by design</p><h2>From first payment<br /><em>to full control.</em></h2><p>Less friction for you. More confidence for your customers.</p></div><div className="drpay-steps">{steps.map(([number, title, text]) => <div className="drpay-step" key={number}><span>{number}</span><div><h3>{title}</h3><p>{text}</p></div></div>)}</div></section>
-
-      <section id="security" className="drpay-security"><div><p className="drpay-eyebrow">Confidence included</p><h2>Your business deserves<br /><em>a steadier foundation.</em></h2></div><div className="drpay-security-copy"><p>Every detail in DRPay is designed to help you operate with clarity, from the first customer payment to the final reconciliation.</p><div className="drpay-security-points"><span>↗ Secure by design</span><span>↗ Always in view</span><span>↗ Ready to scale</span></div></div></section>
-
-      <section id="get-started" className="drpay-cta"><div className="drpay-cta-orb" /><p className="drpay-eyebrow">Ready when you are</p><h2>Make the next payment<br /><em>feel effortless.</em></h2><a className="drpay-button drpay-button-light" href={APK_DOWNLOAD_URL}>Download the Android app <span>↗</span></a></section>
-
-      <footer className="drpay-footer"><a className="drpay-brand" href="#top" aria-label="DRPay home"><img className="drpay-brand-mark" src="/drpay-mark.svg" alt="" /><span>DRPAY</span></a><span>Merchant payments, made clearer.</span><a href={APK_DOWNLOAD_URL}>Android APK</a><span>© 2026 DRPay</span></footer>
+      <footer className="drpay-footer">
+        <a className="drpay-brand" href="#top" aria-label="DRPAY home">
+          <img className="drpay-brand-mark" src="/drpay-mark.svg" alt="" />
+          <span>DRPAY</span>
+        </a>
+        <p>Merchant payments, made clearer.</p>
+        <nav aria-label="Footer navigation">
+          <a href={APP_ROUTES.privacy}>Privacy</a>
+          <a href={APP_ROUTES.terms}>Terms</a>
+          <a href={APP_ROUTES.contact}>Contact</a>
+        </nav>
+        <span className="drpay-copyright">© 2026 DRPAY</span>
+      </footer>
     </main>
-  );
+  )
 }

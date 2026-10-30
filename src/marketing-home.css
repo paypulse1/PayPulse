@@ -1,4 +1,1228 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+.drpay-home {
+  --marketing-ink: #10233f;
+  --marketing-muted: #617087;
+  --marketing-blue: #1d58a8;
+  --marketing-blue-dark: #133b76;
+  --marketing-gold: #e8c77d;
+  --marketing-line: #dce4ee;
+  --marketing-paper: #f7f9fc;
+  --marketing-white: #fff;
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  background: var(--marketing-paper);
+  color: var(--marketing-ink);
+  font-family: "Manrope", sans-serif;
+}
 
-:root{--ink:var(--brand-navy);--muted:#52647b;--paper:#f5f7fb;--line:#d8e1ed;--mint:#f7f0e1;--green:var(--brand-navy);--deep:#061d55}
-*{box-sizing:border-box}.drpay-home{min-height:100vh;background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif;overflow:hidden;position:relative}.drpay-noise{position:absolute;inset:0;pointer-events:none;opacity:.2;background-image:radial-gradient(#173d2e 0.5px,transparent .5px);background-size:9px 9px;mask-image:linear-gradient(to bottom,black,transparent 58%)}.drpay-nav,.drpay-hero,.drpay-section,.drpay-security,.drpay-cta,.drpay-footer{max-width:1240px;margin:auto;position:relative;z-index:1}.drpay-nav{height:88px;display:flex;align-items:center;justify-content:space-between;padding:0 32px}.drpay-brand{display:inline-flex;align-items:center;gap:10px;color:var(--ink);font-family:'Space Grotesk',sans-serif;font-size:20px;font-weight:700;text-decoration:none}.drpay-brand-mark{width:30px;height:30px;display:grid;place-items:center;border-radius:9px;background:var(--green);color:var(--mint);font-size:15px}.drpay-nav-links{display:flex;gap:34px}.drpay-nav-links a,.drpay-login{color:#4d554e;font-size:13px;text-decoration:none}.drpay-nav-actions{display:flex;align-items:center;gap:24px}.drpay-button{display:inline-flex;align-items:center;gap:18px;padding:17px 21px;border-radius:100px;background:var(--green);color:#fff;text-decoration:none;font-size:13px;font-weight:700;transition:transform .2s,background .2s}.drpay-button:hover{transform:translateY(-2px);background:#255744}.drpay-button span{font-size:18px;line-height:0}.drpay-button-small{padding:12px 16px;gap:12px}.drpay-hero{display:grid;grid-template-columns:1fr 1fr;gap:50px;align-items:center;padding:86px 70px 120px;min-height:670px}.drpay-eyebrow{text-transform:uppercase;letter-spacing:.16em;font-size:10px;font-weight:700;color:#6f796f;margin:0 0 22px}.drpay-pulse{display:inline-block;width:7px;height:7px;border-radius:50%;background:#8dc547;margin-right:8px;box-shadow:0 0 0 5px #e1efca}.drpay-hero h1,.drpay-section h2,.drpay-security h2,.drpay-cta h2{font-family:'Space Grotesk',sans-serif;letter-spacing:-.055em;line-height:.98;margin:0}.drpay-hero h1{font-size:clamp(50px,6vw,83px);max-width:650px}.drpay-home em{font-style:normal;color:#7a9477}.drpay-hero-text{max-width:465px;font-size:16px;line-height:1.75;color:#687168;margin:29px 0 32px}.drpay-hero-actions{display:flex;align-items:center;gap:25px}.drpay-text-link{color:var(--ink);font-size:13px;font-weight:700;text-decoration:none}.drpay-text-link span{margin-left:7px;color:#7a9477}.drpay-proof{display:flex;align-items:center;gap:13px;margin-top:52px;color:#7b837b;font-size:11px}.drpay-avatars{display:flex}.drpay-avatars span{width:26px;height:26px;display:grid;place-items:center;border:2px solid var(--paper);border-radius:50%;background:#d8b692;color:#fff;font-size:8px;margin-left:-6px}.drpay-avatars span:first-child{margin-left:0;background:#9db8a1}.drpay-avatars span:nth-child(2){background:#bc8a70}.drpay-avatars span:nth-child(3){background:#849cbb}.drpay-avatars span:last-child{background:#dfe8d8;color:#5b705d}.drpay-hero-art{height:480px;position:relative;display:grid;place-items:center}.drpay-glow{position:absolute;width:330px;height:330px;border-radius:50%;background:#dcefc0;filter:blur(10px)}.drpay-card{background:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.8);box-shadow:0 24px 60px rgba(27,58,38,.14);border-radius:20px;position:relative}.drpay-card-main{width:350px;padding:26px;transform:rotate(-6deg);z-index:2}.drpay-card-top,.drpay-card-bottom{display:flex;justify-content:space-between;align-items:center}.drpay-mini-label{font-size:9px;letter-spacing:.13em;color:#879287;font-weight:700}.drpay-more{font-size:14px;color:#9eaaa0;letter-spacing:2px}.drpay-card-main strong{display:block;font:600 44px 'Space Grotesk',sans-serif;letter-spacing:-.06em;margin:26px 0 8px}.drpay-card-main strong span{color:#aab6a7}.drpay-chart{height:90px;display:flex;gap:7px;align-items:end;padding:4px 0 14px}.drpay-chart i{display:block;width:11px;background:linear-gradient(to top,#a8cb62,#d7eda8);border-radius:8px 8px 2px 2px}.drpay-chart i:nth-child(1){height:29%}.drpay-chart i:nth-child(2){height:47%}.drpay-chart i:nth-child(3){height:38%}.drpay-chart i:nth-child(4){height:67%}.drpay-chart i:nth-child(5){height:52%}.drpay-chart i:nth-child(6){height:75%}.drpay-chart i:nth-child(7){height:61%}.drpay-chart i:nth-child(8){height:88%}.drpay-chart i:nth-child(9){height:69%}.drpay-chart i:nth-child(10){height:95%}.drpay-chart i:nth-child(11){height:78%}.drpay-chart i:nth-child(12){height:100%;background:var(--green)}.drpay-card-bottom{border-top:1px solid #edf0eb;padding-top:15px;color:#7b9275;font-size:10px}.drpay-card-bottom span:last-child{color:#9aa39a}.drpay-card-float{position:absolute;right:7%;bottom:66px;z-index:3;display:flex;align-items:center;gap:11px;padding:15px 17px;min-width:270px;transform:rotate(5deg)}.drpay-success{width:30px;height:30px;display:grid;place-items:center;border-radius:50%;background:#dff2b4;color:#4f7a34;font-weight:700}.drpay-card-float b,.drpay-card-float small{display:block}.drpay-card-float b{font-size:11px}.drpay-card-float small{color:#98a099;font-size:9px;margin-top:3px}.drpay-card-float strong{margin-left:auto;color:#4c8a40;font-size:12px}.drpay-orbit{position:absolute;border:1px solid #c6dcb3;border-radius:50%;width:430px;height:165px;transform:rotate(-27deg)}.drpay-orbit-one{top:50px;left:15px}.drpay-orbit-two{bottom:45px;right:12px;width:260px;height:110px;transform:rotate(32deg);border-color:#d8e6ce}.drpay-section{padding:105px 70px}.drpay-section-heading{display:flex;justify-content:space-between;align-items:end;margin-bottom:52px}.drpay-section h2,.drpay-security h2{font-size:clamp(38px,4.5vw,61px)}.drpay-section-heading .drpay-eyebrow{margin-bottom:12px}.drpay-feature-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.drpay-feature{border-top:1px solid var(--line);padding:28px 16px 24px 0}.drpay-feature-icon{font-size:24px;color:#76986b}.drpay-feature h3,.drpay-step h3{font:600 18px 'Space Grotesk',sans-serif;margin:28px 0 10px}.drpay-feature p,.drpay-step p,.drpay-process-intro>p:last-child,.drpay-security-copy>p{color:var(--muted);font-size:14px;line-height:1.7;max-width:290px}.drpay-feature a{display:inline-block;color:var(--ink);font-size:12px;font-weight:700;text-decoration:none;margin-top:25px}.drpay-feature a span{color:#8aa97b;margin-left:8px}.drpay-process{display:grid;grid-template-columns:.8fr 1.2fr;gap:130px;background:#eaf0e6;max-width:none;padding-left:max(70px,calc((100vw - 1100px)/2));padding-right:max(70px,calc((100vw - 1100px)/2));}.drpay-process-intro{padding-top:8px}.drpay-process-intro>p:last-child{margin-top:25px}.drpay-steps{border-top:1px solid #cddac9}.drpay-step{display:flex;gap:35px;padding:28px 0;border-bottom:1px solid #cddac9}.drpay-step>span{font:600 12px 'Space Grotesk',sans-serif;color:#91a48e}.drpay-step h3{margin:0 0 8px}.drpay-step p{margin:0}.drpay-security{display:grid;grid-template-columns:1fr 1fr;gap:80px;padding:130px 70px}.drpay-security-copy{padding-top:45px}.drpay-security-copy>p{font-size:17px;max-width:420px}.drpay-security-points{display:flex;flex-wrap:wrap;gap:9px;margin-top:36px}.drpay-security-points span{border:1px solid #d8e2d2;padding:10px 13px;border-radius:100px;font-size:11px;color:#597159}.drpay-cta{max-width:none;text-align:center;background:var(--green);color:#fff;padding:125px 20px 135px;overflow:hidden}.drpay-cta .drpay-eyebrow{color:#b3ca9f}.drpay-cta h2{font-size:clamp(46px,6vw,78px);position:relative}.drpay-cta-orb{position:absolute;width:500px;height:500px;border-radius:50%;background:#2c6345;opacity:.45;left:50%;top:50%;transform:translate(-50%,-50%);filter:blur(2px)}.drpay-button-light{background:var(--mint);color:#183f32;margin-top:36px;position:relative}.drpay-button-light:hover{background:#d8fa91}.drpay-footer{display:flex;justify-content:space-between;align-items:center;padding:30px 32px;color:#8a9489;font-size:11px}.drpay-footer .drpay-brand{font-size:16px}.drpay-footer .drpay-brand-mark{width:24px;height:24px;font-size:12px}@media(max-width:800px){.drpay-nav{padding:0 20px}.drpay-nav-links{display:none}.drpay-hero{grid-template-columns:1fr;padding:58px 24px 80px}.drpay-hero-art{height:390px}.drpay-card-main{width:min(350px,90vw)}.drpay-card-float{right:0;bottom:28px}.drpay-section,.drpay-security{padding:76px 24px}.drpay-section-heading{display:block}.drpay-feature-grid{grid-template-columns:1fr}.drpay-process,.drpay-security{grid-template-columns:1fr;gap:38px}.drpay-process{padding-left:24px;padding-right:24px}.drpay-security-copy{padding-top:0}.drpay-footer{padding:24px;gap:18px;flex-wrap:wrap}.drpay-footer>span:nth-child(2){order:3;width:100%}}.drpay-hero-art{position:relative;display:grid;place-items:center;min-height:490px}.drpay-photo-stack{position:relative;width:min(100%,560px);height:470px}.drpay-photo{position:absolute;display:block;width:72%;height:auto;border-radius:28px;object-fit:cover;box-shadow:0 30px 80px rgba(14,36,28,.18);border:6px solid rgba(255,255,255,.75)}.drpay-photo-main{inset:52px 0 0 36px;width:78%;height:70%;object-position:center}.drpay-photo-top{top:0;right:0;width:46%;height:44%;object-position:center}.drpay-photo-bottom{bottom:0;right:48px;width:52%;height:42%;object-position:center}.drpay-floating-badge{position:absolute;padding:10px 16px;border-radius:999px;background:rgba(17,42,35,.92);color:#f5f7f2;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;box-shadow:0 18px 40px rgba(10,28,24,.2)}.drpay-floating-badge-primary{left:0;bottom:40px}.drpay-floating-badge-secondary{right:20px;top:44px;background:rgba(198,242,105,.94);color:var(--green)}
+.drpay-home *,
+.drpay-home *::before,
+.drpay-home *::after {
+  box-sizing: border-box;
+}
+
+.drpay-home a {
+  color: inherit;
+}
+
+.drpay-header {
+  position: relative;
+  z-index: 3;
+  border-bottom: 1px solid rgb(16 35 63 / 7%);
+  background: rgb(247 249 252 / 92%);
+  backdrop-filter: blur(18px);
+}
+
+.drpay-nav {
+  width: min(100% - 64px, 1280px);
+  min-height: 82px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 32px;
+}
+
+.drpay-home .drpay-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--marketing-ink);
+  font-family: "Manrope", sans-serif;
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: 0.045em;
+  text-decoration: none;
+}
+
+.drpay-home .drpay-brand-mark {
+  display: block;
+  width: 34px;
+  height: 34px;
+  border-radius: 0;
+  background: transparent;
+  object-fit: contain;
+}
+
+.drpay-nav-links,
+.drpay-nav-actions {
+  display: flex;
+  align-items: center;
+}
+
+.drpay-nav-links {
+  gap: clamp(20px, 3.2vw, 46px);
+  margin-left: auto;
+}
+
+.drpay-nav-links a,
+.drpay-login {
+  color: #53647b;
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: none;
+  transition: color 160ms ease;
+}
+
+.drpay-nav-links a:hover,
+.drpay-login:hover,
+.drpay-footer nav a:hover {
+  color: var(--marketing-blue);
+}
+
+.drpay-nav-actions {
+  gap: 22px;
+}
+
+.drpay-button {
+  min-height: 50px;
+  padding: 0 21px;
+  border: 1px solid var(--marketing-blue);
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: var(--marketing-blue);
+  color: white !important;
+  font-size: 12px;
+  font-weight: 750;
+  text-decoration: none;
+  transition:
+    transform 180ms ease,
+    background 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.drpay-button:hover {
+  transform: translateY(-2px);
+  background: var(--marketing-blue-dark);
+  box-shadow: 0 9px 22px rgb(19 59 118 / 18%);
+}
+
+.drpay-button-small {
+  min-height: 42px;
+  padding: 0 15px;
+  gap: 10px;
+  font-size: 11px;
+}
+
+.drpay-mobile-login {
+  display: none;
+}
+
+.drpay-hero {
+  position: relative;
+  width: min(100% - 64px, 1280px);
+  min-height: 625px;
+  margin: 0 auto;
+  padding: 78px 0 96px;
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(400px, 1.05fr);
+  align-items: center;
+  gap: clamp(40px, 7vw, 110px);
+}
+
+.drpay-hero::before {
+  position: absolute;
+  z-index: 0;
+  top: 30px;
+  right: -210px;
+  width: 680px;
+  height: 680px;
+  border: 1px solid rgb(29 88 168 / 8%);
+  border-radius: 50%;
+  content: "";
+  pointer-events: none;
+}
+
+.drpay-hero-copy,
+.drpay-hero-visual {
+  position: relative;
+  z-index: 1;
+}
+
+.drpay-eyebrow {
+  margin: 0 0 20px;
+  color: var(--marketing-blue);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+
+.drpay-pulse {
+  width: 8px;
+  height: 8px;
+  margin-right: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  background: #d4a842;
+  box-shadow: 0 0 0 4px rgb(212 168 66 / 14%);
+  vertical-align: 1px;
+}
+
+.drpay-hero h1,
+.drpay-section-heading h2,
+.drpay-process h2,
+.drpay-security h2,
+.drpay-cta h2 {
+  margin: 0;
+  font-family: "Manrope", sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.065em;
+}
+
+.drpay-hero h1 {
+  font-size: clamp(58px, 7.3vw, 94px);
+  line-height: 0.99;
+}
+
+.drpay-hero h1 span,
+.drpay-section-heading h2 span,
+.drpay-process h2 span,
+.drpay-security h2 span {
+  color: var(--marketing-blue);
+}
+
+.drpay-hero-text {
+  max-width: 470px;
+  margin: 27px 0 30px;
+  color: var(--marketing-muted);
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+.drpay-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 22px;
+}
+
+.drpay-text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--marketing-ink);
+  font-size: 12px;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.drpay-text-link svg {
+  color: var(--marketing-blue);
+  transition: transform 160ms ease;
+}
+
+.drpay-text-link:hover svg {
+  transform: translateY(3px);
+}
+
+.drpay-hero-note {
+  margin-top: 37px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #718097;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.drpay-hero-note svg {
+  color: var(--marketing-blue);
+}
+
+.drpay-hero-visual {
+  min-width: 0;
+  padding: 22px 24px 24px 18px;
+}
+
+.drpay-visual-orbit {
+  position: absolute;
+  inset: 3% 0 0 1%;
+  border: 1px solid rgb(29 88 168 / 12%);
+  border-radius: 48% 52% 43% 57% / 54% 44% 56% 46%;
+  transform: rotate(-12deg);
+}
+
+.drpay-visual-label {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 0;
+  padding: 11px 15px;
+  border: 1px solid var(--marketing-line);
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: var(--marketing-white);
+  box-shadow: 0 12px 30px rgb(16 35 63 / 8%);
+  color: #607087;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.drpay-visual-label-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #3aab78;
+  box-shadow: 0 0 0 4px rgb(58 171 120 / 12%);
+}
+
+.drpay-live-payout-frame {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 550px);
+  margin: 0 auto;
+  padding: 9px;
+  border: 1px solid rgb(255 255 255 / 90%);
+  border-radius: 13px;
+  background: var(--marketing-white);
+  box-shadow:
+    0 34px 80px rgb(16 35 63 / 14%),
+    0 3px 12px rgb(16 35 63 / 5%);
+  transform: rotate(1.7deg);
+}
+
+.drpay-live-payout-frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+
+.drpay-live-payout-frame figcaption {
+  min-height: 49px;
+  padding: 8px 12px 3px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #52647b;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.drpay-confirmation-mark {
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #e7f5ee;
+  color: #19865d;
+}
+
+.drpay-visual-side-note {
+  position: absolute;
+  right: -17px;
+  bottom: 35px;
+  z-index: 2;
+  padding: 15px 12px;
+  border: 1px solid var(--marketing-line);
+  border-radius: 6px;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  background: var(--marketing-white);
+  box-shadow: 0 12px 30px rgb(16 35 63 / 8%);
+  color: #728198;
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.drpay-side-note-line {
+  width: 1px;
+  height: 14px;
+  background: var(--marketing-line);
+}
+
+.drpay-channel-section {
+  padding: 70px max(32px, calc((100% - 1120px) / 2)) 82px;
+  background: #eef3f8;
+}
+
+.drpay-channel-intro {
+  max-width: 600px;
+  margin: 0 auto 30px;
+  text-align: center;
+}
+
+.drpay-channel-intro .drpay-eyebrow {
+  margin-bottom: 12px;
+}
+
+.drpay-channel-intro h2 {
+  margin: 0;
+  font-size: clamp(25px, 3.1vw, 36px);
+  font-weight: 700;
+  letter-spacing: -0.05em;
+  line-height: 1.2;
+}
+
+.drpay-channel-intro > p:last-child {
+  margin: 11px 0 0;
+  color: var(--marketing-muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.drpay-channel-list {
+  max-width: 1080px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 13px;
+}
+
+.drpay-channel-card {
+  min-width: 0;
+  min-height: 112px;
+  padding: 17px;
+  border: 1px solid #dfe6ee;
+  border-radius: 7px;
+  display: grid;
+  grid-template-columns: auto 52px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 13px;
+  background: var(--marketing-white);
+  transition:
+    border-color 180ms ease,
+    transform 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.drpay-channel-card:hover {
+  transform: translateY(-3px);
+  border-color: #b7c8dd;
+  box-shadow: 0 12px 28px rgb(16 35 63 / 6%);
+}
+
+.drpay-channel-index {
+  align-self: start;
+  padding-top: 4px;
+  color: #97a5b8;
+  font-family: "DM Mono", monospace;
+  font-size: 9px;
+}
+
+.drpay-channel-logo {
+  width: 50px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+}
+
+.drpay-channel-logo img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.drpay-channel-copy {
+  min-width: 0;
+}
+
+.drpay-channel-copy strong,
+.drpay-channel-copy small {
+  display: block;
+}
+
+.drpay-channel-copy strong {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.drpay-channel-copy small {
+  margin-top: 5px;
+  color: var(--marketing-muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.drpay-channel-arrow {
+  color: #8d9cb0;
+}
+
+.drpay-disclaimer {
+  max-width: 1080px;
+  margin: 16px auto 0;
+  color: #7a8798;
+  font-size: 9px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.drpay-capabilities {
+  width: min(100% - 64px, 1120px);
+  margin: 0 auto;
+  padding: 116px 0 124px;
+}
+
+.drpay-section-heading {
+  margin-bottom: 49px;
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 40px;
+}
+
+.drpay-section-heading .drpay-eyebrow {
+  margin-bottom: 15px;
+}
+
+.drpay-section-heading h2,
+.drpay-process h2,
+.drpay-security h2 {
+  font-size: clamp(38px, 5vw, 58px);
+  line-height: 1.07;
+}
+
+.drpay-section-heading > p {
+  max-width: 335px;
+  margin: 0 0 5px;
+  color: var(--marketing-muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.drpay-capability-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.drpay-capability-card {
+  position: relative;
+  min-height: 230px;
+  padding: 23px 23px 28px;
+  border: 1px solid var(--marketing-line);
+  border-radius: 7px;
+  background: #fff;
+}
+
+.drpay-capability-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--marketing-blue);
+}
+
+.drpay-capability-card-top > span {
+  color: #8797aa;
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+}
+
+.drpay-capability-card h3 {
+  margin: 35px 0 9px;
+  font-size: 16px;
+  font-weight: 750;
+  letter-spacing: -0.025em;
+}
+
+.drpay-capability-card p {
+  max-width: 280px;
+  margin: 0;
+  color: var(--marketing-muted);
+  font-size: 11px;
+  line-height: 1.75;
+}
+
+.drpay-capability-rule {
+  position: absolute;
+  right: 23px;
+  bottom: 0;
+  left: 23px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--marketing-blue), #c9d8eb 65%, transparent);
+}
+
+.drpay-process {
+  max-width: none;
+  padding: 102px max(32px, calc((100% - 1120px) / 2)) 108px;
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  align-items: center;
+  gap: clamp(50px, 9vw, 130px);
+  background: #eaf0f7;
+}
+
+.drpay-process-intro .drpay-eyebrow {
+  margin-bottom: 15px;
+}
+
+.drpay-process-intro > p:not(.drpay-eyebrow) {
+  max-width: 410px;
+  margin: 21px 0 25px;
+  color: var(--marketing-muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.drpay-process-link,
+.drpay-security-copy a {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--marketing-blue);
+  font-size: 11px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.drpay-process-link svg,
+.drpay-security-copy a svg {
+  transition: transform 160ms ease;
+}
+
+.drpay-process-link:hover svg,
+.drpay-security-copy a:hover svg {
+  transform: translateX(3px);
+}
+
+.drpay-steps {
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid #d1dce8;
+  list-style: none;
+}
+
+.drpay-step {
+  min-height: 104px;
+  padding: 20px 2px;
+  border-bottom: 1px solid #d1dce8;
+  display: grid;
+  grid-template-columns: 39px minmax(0, 1fr) 22px;
+  align-items: start;
+  gap: 14px;
+}
+
+.drpay-step-number {
+  padding-top: 2px;
+  color: var(--marketing-blue);
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+}
+
+.drpay-step h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.drpay-step p {
+  max-width: 385px;
+  margin: 0;
+  color: var(--marketing-muted);
+  font-size: 10px;
+  line-height: 1.65;
+}
+
+.drpay-step-check {
+  margin-top: 1px;
+  color: #418d71;
+}
+
+.drpay-security {
+  width: min(100% - 64px, 1120px);
+  margin: 0 auto;
+  padding: 104px 0;
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) minmax(240px, 0.72fr);
+  align-items: center;
+  gap: 30px;
+}
+
+.drpay-security-icon {
+  width: 54px;
+  height: 54px;
+  border: 1px solid #d7e2ee;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #edf3fa;
+  color: var(--marketing-blue);
+}
+
+.drpay-security .drpay-eyebrow {
+  margin-bottom: 12px;
+}
+
+.drpay-security h2 {
+  font-size: clamp(32px, 3.7vw, 46px);
+}
+
+.drpay-security-copy {
+  padding-left: 27px;
+  border-left: 1px solid var(--marketing-line);
+}
+
+.drpay-security-copy p {
+  margin: 0 0 19px;
+  color: var(--marketing-muted);
+  font-size: 11px;
+  line-height: 1.8;
+}
+
+.drpay-cta {
+  position: relative;
+  max-width: none;
+  padding: 88px 24px 92px;
+  overflow: hidden;
+  background: var(--marketing-blue-dark);
+  color: #fff;
+  text-align: center;
+}
+
+.drpay-cta .drpay-eyebrow,
+.drpay-cta h2,
+.drpay-cta-actions {
+  position: relative;
+  z-index: 1;
+}
+
+.drpay-cta .drpay-eyebrow {
+  margin-bottom: 17px;
+  color: #b9c9df;
+}
+
+.drpay-cta h2 {
+  font-size: clamp(45px, 6.2vw, 73px);
+  line-height: 1.02;
+}
+
+.drpay-cta h2 span {
+  color: var(--marketing-gold);
+}
+
+.drpay-cta-art {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 730px;
+  height: 730px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.drpay-cta-art span {
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: 50%;
+}
+
+.drpay-cta-art span:nth-child(2) {
+  inset: 72px;
+}
+
+.drpay-cta-art span:nth-child(3) {
+  inset: 144px;
+}
+
+.drpay-cta-actions {
+  margin-top: 29px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+}
+
+.drpay-button-light {
+  border-color: var(--marketing-gold);
+  background: var(--marketing-gold);
+  color: var(--marketing-ink) !important;
+}
+
+.drpay-button-light:hover {
+  border-color: #f1d996;
+  background: #f1d996;
+}
+
+.drpay-cta-login {
+  color: #d1dcec !important;
+  font-size: 10px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.drpay-cta-login:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.drpay-footer {
+  width: min(100% - 64px, 1280px);
+  min-height: 96px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.drpay-footer p,
+.drpay-copyright {
+  color: #7b899c;
+  font-size: 9px;
+}
+
+.drpay-footer p {
+  margin: 0 auto 0 0;
+}
+
+.drpay-footer nav {
+  display: flex;
+  align-items: center;
+  gap: 21px;
+}
+
+.drpay-footer nav a {
+  color: #66768a;
+  font-size: 9px;
+  font-weight: 650;
+  text-decoration: none;
+  transition: color 160ms ease;
+}
+
+.drpay-copyright {
+  margin-left: 14px;
+}
+
+@media (min-width: 1500px) {
+  .drpay-hero {
+    min-height: 700px;
+  }
+}
+
+@media (max-width: 900px) {
+  .drpay-nav,
+  .drpay-hero,
+  .drpay-capabilities,
+  .drpay-security,
+  .drpay-footer {
+    width: min(100% - 44px, 720px);
+  }
+
+  .drpay-nav {
+    min-height: 72px;
+    gap: 18px;
+  }
+
+  .drpay-nav-links {
+    gap: 17px;
+  }
+
+  .drpay-nav-links a {
+    font-size: 10px;
+  }
+
+  .drpay-nav-actions {
+    gap: 13px;
+  }
+
+  .drpay-hero {
+    min-height: 0;
+    padding: 76px 0 86px;
+    grid-template-columns: minmax(0, 0.9fr) minmax(310px, 1.1fr);
+    gap: 30px;
+  }
+
+  .drpay-hero h1 {
+    font-size: clamp(52px, 8vw, 72px);
+  }
+
+  .drpay-hero-visual {
+    padding-right: 12px;
+  }
+
+  .drpay-visual-side-note {
+    right: -7px;
+  }
+
+  .drpay-channel-section {
+    padding-right: 22px;
+    padding-left: 22px;
+  }
+
+  .drpay-channel-card {
+    grid-template-columns: 30px minmax(0, 1fr) auto;
+    gap: 9px;
+  }
+
+  .drpay-channel-index {
+    display: none;
+  }
+
+  .drpay-channel-logo {
+    width: 42px;
+  }
+
+  .drpay-process {
+    padding-right: max(22px, calc((100% - 720px) / 2));
+    padding-left: max(22px, calc((100% - 720px) / 2));
+    gap: 45px;
+  }
+
+  .drpay-security {
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 20px;
+  }
+
+  .drpay-security-icon {
+    width: 46px;
+    height: 46px;
+  }
+
+  .drpay-security-copy {
+    grid-column: 2;
+    padding: 0;
+    border: 0;
+  }
+
+  .drpay-footer {
+    flex-wrap: wrap;
+    padding: 23px 0;
+  }
+
+  .drpay-footer p {
+    margin-right: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .drpay-nav,
+  .drpay-hero,
+  .drpay-capabilities,
+  .drpay-security,
+  .drpay-footer {
+    width: min(100% - 36px, 520px);
+  }
+
+  .drpay-nav {
+    min-height: 66px;
+  }
+
+  .drpay-home .drpay-brand {
+    gap: 8px;
+    font-size: 17px;
+  }
+
+  .drpay-home .drpay-brand-mark {
+    width: 30px;
+    height: 30px;
+  }
+
+  .drpay-nav-links,
+  .drpay-nav-actions {
+    display: none;
+  }
+
+  .drpay-mobile-login {
+    width: 38px;
+    height: 38px;
+    border: 1px solid var(--marketing-line);
+    border-radius: 6px;
+    display: grid;
+    place-items: center;
+    color: var(--marketing-ink);
+    text-decoration: none;
+  }
+
+  .drpay-hero {
+    padding: 56px 0 58px;
+    grid-template-columns: 1fr;
+    gap: 46px;
+  }
+
+  .drpay-hero::before {
+    top: 260px;
+    right: -380px;
+    width: 600px;
+    height: 600px;
+  }
+
+  .drpay-eyebrow {
+    margin-bottom: 16px;
+    font-size: 9px;
+  }
+
+  .drpay-hero h1 {
+    font-size: clamp(58px, 14vw, 78px);
+  }
+
+  .drpay-hero-text {
+    max-width: 420px;
+    margin: 21px 0 24px;
+    font-size: 13px;
+  }
+
+  .drpay-hero-actions {
+    align-items: flex-start;
+    gap: 18px;
+  }
+
+  .drpay-hero-actions .drpay-button {
+    min-height: 47px;
+    padding: 0 15px;
+    gap: 10px;
+    font-size: 10px;
+  }
+
+  .drpay-text-link {
+    min-height: 47px;
+    font-size: 10px;
+  }
+
+  .drpay-hero-note {
+    margin-top: 25px;
+    font-size: 9px;
+  }
+
+  .drpay-hero-visual {
+    padding: 22px 11px 17px 4px;
+  }
+
+  .drpay-visual-label {
+    top: 0;
+    left: 0;
+    padding: 9px 11px;
+    font-size: 7px;
+  }
+
+  .drpay-visual-side-note {
+    right: -8px;
+    bottom: 18px;
+    padding: 11px 8px;
+    gap: 6px;
+    font-size: 6px;
+  }
+
+  .drpay-side-note-line {
+    height: 10px;
+  }
+
+  .drpay-live-payout-frame {
+    padding: 6px;
+    border-radius: 9px;
+  }
+
+  .drpay-live-payout-frame figcaption {
+    min-height: 40px;
+    padding: 6px 6px 2px;
+    font-size: 8px;
+  }
+
+  .drpay-confirmation-mark {
+    width: 21px;
+    height: 21px;
+  }
+
+  .drpay-channel-section {
+    padding: 54px 18px 56px;
+  }
+
+  .drpay-channel-intro {
+    margin-bottom: 22px;
+  }
+
+  .drpay-channel-intro h2 {
+    font-size: 27px;
+  }
+
+  .drpay-channel-list {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .drpay-channel-card {
+    min-height: 82px;
+    padding: 12px 13px;
+    grid-template-columns: 42px minmax(0, 1fr) auto;
+    gap: 12px;
+  }
+
+  .drpay-channel-copy strong {
+    font-size: 11px;
+  }
+
+  .drpay-channel-copy small {
+    font-size: 8px;
+  }
+
+  .drpay-disclaimer {
+    font-size: 8px;
+    text-align: left;
+  }
+
+  .drpay-capabilities {
+    padding: 72px 0 76px;
+  }
+
+  .drpay-section-heading {
+    margin-bottom: 27px;
+    display: block;
+  }
+
+  .drpay-section-heading h2,
+  .drpay-process h2 {
+    font-size: clamp(39px, 10vw, 52px);
+  }
+
+  .drpay-section-heading > p {
+    max-width: 390px;
+    margin-top: 16px;
+    font-size: 11px;
+  }
+
+  .drpay-capability-grid {
+    grid-template-columns: 1fr;
+    gap: 9px;
+  }
+
+  .drpay-capability-card {
+    min-height: 0;
+    padding: 18px 18px 22px;
+  }
+
+  .drpay-capability-card h3 {
+    margin-top: 21px;
+    font-size: 14px;
+  }
+
+  .drpay-capability-card p {
+    font-size: 10px;
+  }
+
+  .drpay-capability-rule {
+    right: 18px;
+    left: 18px;
+  }
+
+  .drpay-process {
+    padding: 69px 18px 70px;
+    grid-template-columns: 1fr;
+    gap: 31px;
+  }
+
+  .drpay-process-intro > p:not(.drpay-eyebrow) {
+    margin: 16px 0 19px;
+    font-size: 11px;
+  }
+
+  .drpay-step {
+    min-height: 92px;
+    grid-template-columns: 29px minmax(0, 1fr) 19px;
+    gap: 10px;
+  }
+
+  .drpay-step h3 {
+    font-size: 12px;
+  }
+
+  .drpay-step p {
+    font-size: 9px;
+  }
+
+  .drpay-security {
+    padding: 70px 0;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .drpay-security-icon {
+    width: 40px;
+    height: 40px;
+  }
+
+  .drpay-security-icon svg {
+    width: 19px;
+  }
+
+  .drpay-security h2 {
+    font-size: clamp(29px, 7vw, 39px);
+  }
+
+  .drpay-security-copy p {
+    font-size: 10px;
+  }
+
+  .drpay-cta {
+    padding: 71px 18px 74px;
+  }
+
+  .drpay-cta h2 {
+    font-size: clamp(42px, 10vw, 58px);
+  }
+
+  .drpay-cta-art {
+    width: 520px;
+    height: 520px;
+  }
+
+  .drpay-cta-art span:nth-child(2) {
+    inset: 52px;
+  }
+
+  .drpay-cta-art span:nth-child(3) {
+    inset: 104px;
+  }
+
+  .drpay-cta-actions {
+    margin-top: 24px;
+  }
+
+  .drpay-footer {
+    padding: 22px 0 25px;
+    gap: 14px;
+  }
+
+  .drpay-footer p {
+    width: calc(100% - 150px);
+    font-size: 8px;
+  }
+
+  .drpay-footer nav {
+    order: 2;
+    gap: 17px;
+  }
+
+  .drpay-copyright {
+    margin-left: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drpay-home *,
+  .drpay-home *::before,
+  .drpay-home *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

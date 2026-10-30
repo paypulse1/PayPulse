@@ -13,6 +13,7 @@ test.each([
   ["pay.live.denpay.cc", "https://api.live.example.test"],
   ["pay.sandbox.denpay.cc", "https://api.sandbox.example.test"],
   ["drpay-web.onrender.com", "https://api.default.example.test"],
+  ["localhost", "https://api.default.example.test"],
 ])("selects the matching API for %s", async (hostname, expectedApi) => {
   vi.stubEnv("VITE_DRPAY_BACKEND_URL", "https://api.default.example.test")
   vi.stubEnv("VITE_DRPAY_LIVE_BACKEND_URL", "https://api.live.example.test")

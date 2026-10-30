@@ -9,7 +9,7 @@ export const APP_ROUTES = {
   contact: "/contact",
   merchantSignIn:
     import.meta.env.VITE_DRPAY_MERCHANT_SIGNIN_URL ||
-    "https://merchant.denpay.cc",
+    "https://merchant.denpay.cc/login",
   androidDownload: "/drpay.apk",
   capabilities: "#capabilities",
   workflow: "#workflow",
@@ -23,6 +23,19 @@ export const LEGAL_ROUTE_ALIASES: Record<"privacy" | "terms" | "contact", readon
     contact: [APP_ROUTES.contact, "/contact-us"],
   } as const
 
-export function shouldShowMarketingHome(pathname: string) {
-  return pathname.replace(/\/+$/, "") === APP_ROUTES.marketing
+export function shouldShowMarketingHome(
+  pathname: string,
+  hostname: string,
+  search = "",
+) {
+  const normalizedPath = pathname.replace(/\/+$/, "") || "/"
+  if (normalizedPath === APP_ROUTES.marketing) return true
+  if (
+    normalizedPath !== "/" ||
+    hostname.toLowerCase() !== "merchant.denpay.cc"
+  ) {
+    return false
+  }
+  const query = new URLSearchParams(search)
+  return !query.has("checkout") && query.get("signin") !== "1"
 }

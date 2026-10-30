@@ -20,9 +20,9 @@ The Railway production service serves the API and Vite application together. Its
 
 On Render, production hostnames are served by `drpay-web` and sandbox hostnames by `drpay-sandbox-web`. During the Railway production cutover, `merchant.denpay.cc` and `pay.live.denpay.cc` are attached to the combined `drpay-merchant` service:
 
-- `https://merchant.denpay.cc` opens merchant sign-in and uses the production API at `https://drpay-merchant-production.up.railway.app`.
+- `https://merchant.denpay.cc/` opens the marketing homepage; `https://merchant.denpay.cc/login` opens merchant sign-in and uses the production API at `https://drpay-merchant-production.up.railway.app`.
 - `https://pay.live.denpay.cc/checkout/<code>` serves live self-hosted checkouts and uses the production API/database at `https://drpay-merchant-production.up.railway.app`.
-- `https://merchant.sandbox.denpay.cc` opens sandbox merchant sign-in and uses the sandbox API at `https://api.sandbox.denpay.cc`.
+- `https://merchant.sandbox.denpay.cc` opens sandbox merchant sign-in at `/login` and uses the sandbox API at `https://api.sandbox.denpay.cc`.
 - `https://pay.sandbox.denpay.cc/checkout/<code>` serves sandbox self-hosted checkouts and uses the sandbox API/database at `https://api.sandbox.denpay.cc`.
 
 After the Blueprint is deployed, add `merchant.denpay.cc` and `pay.live.denpay.cc` under `drpay-web` **Settings → Custom Domains**. Add `merchant.sandbox.denpay.cc` and `pay.sandbox.denpay.cc` under `drpay-sandbox-web`. Create the CNAME records using the targets Render displays, verify each domain, and wait for its TLS certificate to become active. Add `api.live.denpay.cc` to `drpay-live-api` and `api.sandbox.denpay.cc` to `drpay-api` as their respective custom domains and configure their matching DNS CNAME records. Do not point website hostnames at the API services.

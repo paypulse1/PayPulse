@@ -149,7 +149,7 @@ services:
       - key: VITE_DRPAY_BACKEND_URL
         value: https://api.live.denpay.cc
       - key: VITE_DRPAY_MERCHANT_SIGNIN_URL
-        value: https://merchant.denpay.cc
+        value: https://merchant.denpay.cc/login
       - key: VITE_DRPAY_LIVE_BACKEND_URL
         value: https://api.live.denpay.cc
       - key: VITE_DRPAY_SANDBOX_BACKEND_URL
@@ -160,6 +160,9 @@ services:
         destination: /index.html
       - type: rewrite
         source: /app
+        destination: /index.html
+      - type: rewrite
+        source: /login
         destination: /index.html
       - type: rewrite
         source: /app/*
@@ -200,7 +203,7 @@ services:
       - key: VITE_DRPAY_BACKEND_URL
         value: https://api.sandbox.denpay.cc
       - key: VITE_DRPAY_MERCHANT_SIGNIN_URL
-        value: https://merchant.sandbox.denpay.cc
+        value: https://merchant.sandbox.denpay.cc/login
       - key: VITE_DRPAY_LIVE_BACKEND_URL
         value: https://api.live.denpay.cc
       - key: VITE_DRPAY_SANDBOX_BACKEND_URL
@@ -211,6 +214,9 @@ services:
         destination: /index.html
       - type: rewrite
         source: /app
+        destination: /index.html
+      - type: rewrite
+        source: /login
         destination: /index.html
       - type: rewrite
         source: /app/*
