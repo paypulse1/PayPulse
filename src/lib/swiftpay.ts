@@ -205,6 +205,7 @@ export type AdminMerchantAccount = {
   usdtAddress: string | null
   createdAt: string
   updatedAt: string
+  invitationAcceptedAt?: string | null
 }
 
 export type MerchantUsdtWallet = {

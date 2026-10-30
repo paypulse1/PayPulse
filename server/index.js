@@ -1632,10 +1632,13 @@ async function initializeDatabase() {
       business_address TEXT NOT NULL DEFAULT '',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      integration_email_sent_at TIMESTAMPTZ
+      integration_email_sent_at TIMESTAMPTZ,
+      invitation_accepted_at TIMESTAMPTZ
     );
     ALTER TABLE merchant_accounts
       ADD COLUMN IF NOT EXISTS integration_email_sent_at TIMESTAMPTZ;
+    ALTER TABLE merchant_accounts
+      ADD COLUMN IF NOT EXISTS invitation_accepted_at TIMESTAMPTZ;
     CREATE TABLE IF NOT EXISTS merchant_usdt_wallets (
       merchant_email TEXT PRIMARY KEY REFERENCES merchant_accounts(email) ON DELETE CASCADE ON UPDATE CASCADE,
       address TEXT NOT NULL UNIQUE,
@@ -1694,6 +1697,16 @@ async function initializeDatabase() {
       last_used_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (email, device_token_hash)
     );
+    UPDATE merchant_accounts merchant
+    SET invitation_accepted_at = (
+      SELECT MIN(device.created_at)
+      FROM merchant_devices device
+      WHERE device.email = merchant.email
+    )
+    WHERE merchant.invitation_accepted_at IS NULL
+      AND EXISTS (
+        SELECT 1 FROM merchant_devices device WHERE device.email = merchant.email
+      );
     CREATE TABLE IF NOT EXISTS merchant_biometric_credentials (
       email TEXT NOT NULL,
       device_token_hash TEXT NOT NULL,
@@ -2992,6 +3005,12 @@ app.post("/v1/auth/device/otp/verify", loginLimiter, async (req, res) => {
        VALUES ($1, $2) ON CONFLICT (email, device_token_hash) DO UPDATE SET last_used_at = NOW()`,
       [email, deviceTokenHash(deviceToken)],
     )
+    await client.query(
+      `UPDATE merchant_accounts
+       SET invitation_accepted_at = COALESCE(invitation_accepted_at, NOW())
+       WHERE email = $1`,
+      [email],
+    )
     await client.query("COMMIT")
     return res
       .set("Cache-Control", "no-store")
@@ -4110,7 +4129,8 @@ app.get("/v1/admin/merchants", async (_req, res) => {
        COALESCE(payout.account_name, '') AS "accountName",
        COALESCE(payout.account_number, '') AS "accountNumber",
        crypto.address AS "usdtAddress",
-       merchant.created_at AS "createdAt", merchant.updated_at AS "updatedAt"
+       merchant.created_at AS "createdAt", merchant.updated_at AS "updatedAt",
+       merchant.invitation_accepted_at AS "invitationAcceptedAt"
      FROM merchant_accounts merchant
      LEFT JOIN merchant_payout_accounts payout ON payout.merchant_email = merchant.email
      LEFT JOIN merchant_usdt_wallets crypto ON crypto.merchant_email = merchant.email
@@ -4456,7 +4476,8 @@ app.post("/v1/admin/merchants", async (req, res) => {
          phone_number AS "phoneNumber", business_address AS "businessAddress",
          '' AS "bankName", '' AS "accountName", '' AS "accountNumber",
          NULL AS "usdtAddress",
-         created_at AS "createdAt", updated_at AS "updatedAt"`,
+         created_at AS "createdAt", updated_at AS "updatedAt",
+         NULL AS "invitationAcceptedAt"`,
       [email, businessName, contactPerson, businessAddress, phoneNumber],
     )
     merchant = result.rows[0]
@@ -4593,7 +4614,8 @@ app.post("/v1/admin/merchants/:email/invitation", async (req, res) => {
   const result = await pool.query(
     `SELECT email, business_name AS "businessName",
        contact_person AS "contactPerson", phone_number AS "phoneNumber",
-       business_address AS "businessAddress", active
+       business_address AS "businessAddress", active,
+       invitation_accepted_at AS "invitationAcceptedAt"
      FROM merchant_accounts WHERE email = $1`,
     [email],
   )
@@ -4604,6 +4626,11 @@ app.post("/v1/admin/merchants/:email/invitation", async (req, res) => {
   if (!merchant.active) {
     return res.status(409).json({
       error: "Enable this merchant account before sending an invitation.",
+    })
+  }
+  if (merchant.invitationAcceptedAt) {
+    return res.status(409).json({
+      error: "This merchant has already accepted the invitation by signing in.",
     })
   }
   if (
@@ -4848,7 +4875,8 @@ app.patch("/v1/admin/merchants/:email", async (req, res) => {
          WHERE email = $1
          RETURNING email, active, business_name AS "businessName", contact_person AS "contactPerson",
            phone_number AS "phoneNumber", business_address AS "businessAddress",
-           created_at AS "createdAt", updated_at AS "updatedAt"`,
+           created_at AS "createdAt", updated_at AS "updatedAt",
+           invitation_accepted_at AS "invitationAcceptedAt"`,
         [
           email,
           nextEmail,

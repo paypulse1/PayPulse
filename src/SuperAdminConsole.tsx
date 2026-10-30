@@ -2321,6 +2321,13 @@ export function SuperAdminConsole({
                             Updated{" "}
                             {new Date(account.updatedAt).toLocaleDateString()}
                           </small>
+                          <small>
+                            {account.invitationAcceptedAt
+                              ? `Invitation accepted ${new Date(
+                                  account.invitationAcceptedAt,
+                                ).toLocaleDateString()}`
+                              : "Invitation not yet accepted"}
+                          </small>
                         </div>
                         <span
                           className={`admin-status-pill ${
@@ -2354,12 +2361,15 @@ export function SuperAdminConsole({
                           onClick={() => void resendMerchantInvitation(account)}
                           disabled={
                             !account.active ||
+                            Boolean(account.invitationAcceptedAt) ||
                             sendingInvitationEmail === account.email
                           }
                         >
                           {sendingInvitationEmail === account.email
                             ? "Sending…"
-                            : "Resend invitation"}
+                            : account.invitationAcceptedAt
+                              ? "Invitation accepted"
+                              : "Resend invitation"}
                         </button>
                         <button
                           type="button"
