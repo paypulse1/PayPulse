@@ -4479,34 +4479,34 @@ app.post("/v1/admin/merchants", async (req, res) => {
   } finally {
     client.release()
   }
+  let agreementId
   try {
-    const agreementId = await sendMerchantInvitationEmail(merchant)
-    const auditClient = await pool.connect()
-    try {
-      await recordAdminAuditEvent(auditClient, {
-        eventKey: `merchant-invitation-sent:${email}:${agreementId}`,
-        category: "Merchant account",
-        action: "Merchant invitation emailed",
-        target: email,
-        actor: req.adminEmail,
-        summary: `Merchant Services Agreement ${agreementId} was generated and emailed to ${email}.`,
-      })
-    } finally {
-      auditClient.release()
-    }
-    return res.status(201).json(merchant)
+    agreementId = await sendMerchantInvitationEmail(merchant)
   } catch (error) {
-    if (
-      error.message !== "Merchant invitation email could not be sent." &&
-      error.message !== "Merchant invitation email is not configured."
-    ) {
-      throw error
-    }
+    console.error("Merchant invitation pipeline failed", {
+      name: error.name || "unexpected error",
+      message: error.message || "Invitation preparation failed.",
+      merchantEmail: email,
+    })
     return res.status(503).json({
       error:
-        "Merchant account was created, but the invitation email could not be sent. Use Resend invitation to retry.",
+        "Merchant account was created, but its invitation could not be prepared or sent. Use Resend invitation to retry.",
     })
   }
+  const auditClient = await pool.connect()
+  try {
+    await recordAdminAuditEvent(auditClient, {
+      eventKey: `merchant-invitation-sent:${email}:${agreementId}`,
+      category: "Merchant account",
+      action: "Merchant invitation emailed",
+      target: email,
+      actor: req.adminEmail,
+      summary: `Merchant Services Agreement ${agreementId} was generated and emailed to ${email}.`,
+    })
+  } finally {
+    auditClient.release()
+  }
+  return res.status(201).json(merchant)
 })
 
 app.post("/v1/admin/merchants/:email/integration-guide", async (req, res) => {
@@ -4616,35 +4616,36 @@ app.post("/v1/admin/merchants/:email/invitation", async (req, res) => {
         "Complete the merchant business name, authorized contact, and registered address before sending an invitation.",
     })
   }
+  let agreementId
   try {
-    const agreementId = await sendMerchantInvitationEmail(merchant, {
+    agreementId = await sendMerchantInvitationEmail(merchant, {
       reuseExistingAgreement: true,
     })
-    const client = await pool.connect()
-    try {
-      await recordAdminAuditEvent(client, {
-        eventKey: `merchant-invitation-sent:${email}:${agreementId}`,
-        category: "Merchant account",
-        action: "Merchant invitation emailed",
-        target: email,
-        actor: req.adminEmail,
-        summary: `Merchant Services Agreement ${agreementId} was generated and emailed to ${email}.`,
-      })
-    } finally {
-      client.release()
-    }
-    return res.json({ email, invitationEmailStatus: "sent" })
   } catch (error) {
-    if (
-      error.message !== "Merchant invitation email could not be sent." &&
-      error.message !== "Merchant invitation email is not configured."
-    ) {
-      throw error
-    }
+    console.error("Merchant invitation retry pipeline failed", {
+      name: error.name || "unexpected error",
+      message: error.message || "Invitation preparation failed.",
+      merchantEmail: email,
+    })
     return res.status(503).json({
-      error: "Merchant invitation email could not be sent. Try again later.",
+      error:
+        "The invitation could not be prepared or sent. Check the email configuration and try again.",
     })
   }
+  const client = await pool.connect()
+  try {
+    await recordAdminAuditEvent(client, {
+      eventKey: `merchant-invitation-sent:${email}:${agreementId}`,
+      category: "Merchant account",
+      action: "Merchant invitation emailed",
+      target: email,
+      actor: req.adminEmail,
+      summary: `Merchant Services Agreement ${agreementId} was generated and emailed to ${email}.`,
+    })
+  } finally {
+    client.release()
+  }
+  return res.json({ email, invitationEmailStatus: "sent" })
 })
 
 app.put("/v1/admin/merchants/:email/usdt-wallet", async (req, res) => {
