@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Store,
   Users,
+  UserPlus,
   WalletCards,
 } from "lucide-react"
 import {
@@ -942,7 +943,7 @@ export function SuperAdminConsole({
       <header className="admin-header">
         <Brand />
         <div>
-          <span>DRPAY TEAM</span>
+          <span>SUPER ADMIN</span>
           <strong>{session.email}</strong>
         </div>
         <Button
@@ -955,7 +956,7 @@ export function SuperAdminConsole({
       </header>
       <div className="admin-content">
         <div className="page-title">
-          <span className="eyebrow">TEAM WORKSPACE</span>
+          <span className="eyebrow">SUPER ADMINISTRATION</span>
           <div className="admin-page-heading">
             <div>
               <h1>
@@ -994,6 +995,18 @@ export function SuperAdminConsole({
               </p>
             </div>
             <div className="admin-header-actions">
+              {activePage !== "merchants" && (
+                <Button
+                  icon={<UserPlus size={15} />}
+                  onClick={() => {
+                    setActivePage("merchants")
+                    setError("")
+                    setNotice("")
+                  }}
+                >
+                  Invite merchant
+                </Button>
+              )}
               <Button
                 variant="secondary"
                 icon={<Download size={15} />}
@@ -1013,7 +1026,10 @@ export function SuperAdminConsole({
             </div>
           </div>
         </div>
-        <nav className="admin-nav" aria-label="Team workspace pages">
+        <nav
+          className="admin-nav"
+          aria-label="Super admin dashboard navigation"
+        >
           {([
             ["overview", "Overview", Home],
             [
@@ -2132,6 +2148,89 @@ export function SuperAdminConsole({
                     </p>
                   </div>
                 </div>
+                <form className="admin-invite-form" onSubmit={addMerchant}>
+                  <div className="admin-card-heading">
+                    <span className="setting-icon">
+                      <Send size={19} />
+                    </span>
+                    <div>
+                      <h2>Invite a merchant</h2>
+                      <p>
+                        A personalized Merchant Services Agreement PDF with the
+                        service fees and activation terms will be attached to
+                        the invitation email.
+                      </p>
+                    </div>
+                  </div>
+                  <label>
+                    <span>Merchant email</span>
+                    <input
+                      type="email"
+                      value={newEmail}
+                      onChange={(event) => setNewEmail(event.target.value)}
+                      required
+                      autoComplete="off"
+                      maxLength={254}
+                    />
+                  </label>
+                  <label>
+                    <span>Legal business name</span>
+                    <input
+                      value={newBusinessName}
+                      onChange={(event) =>
+                        setNewBusinessName(event.target.value)
+                      }
+                      required
+                      maxLength={200}
+                    />
+                  </label>
+                  <label>
+                    <span>Authorized contact person</span>
+                    <input
+                      value={newContactPerson}
+                      onChange={(event) =>
+                        setNewContactPerson(event.target.value)
+                      }
+                      required
+                      maxLength={120}
+                    />
+                  </label>
+                  <label>
+                    <span>Registered business address</span>
+                    <textarea
+                      value={newBusinessAddress}
+                      onChange={(event) =>
+                        setNewBusinessAddress(event.target.value)
+                      }
+                      required
+                      maxLength={500}
+                      rows={3}
+                    />
+                  </label>
+                  <label>
+                    <span>Contact phone</span>
+                    <input
+                      type="tel"
+                      value={newPhoneNumber}
+                      onChange={(event) =>
+                        setNewPhoneNumber(event.target.value)
+                      }
+                      maxLength={40}
+                    />
+                  </label>
+                  <Button
+                    type="submit"
+                    disabled={
+                      savingMerchant ||
+                      !newEmail ||
+                      !newBusinessName ||
+                      !newContactPerson ||
+                      !newBusinessAddress
+                    }
+                  >
+                    {savingMerchant ? "Sending invitation…" : "Invite merchant"}
+                  </Button>
+                </form>
                 <div className="admin-merchant-tools">
                   <label className="admin-search">
                     <Search size={16} />
@@ -2412,89 +2511,6 @@ export function SuperAdminConsole({
                     </div>
                   </form>
                 )}
-                <form onSubmit={addMerchant}>
-                  <div className="admin-card-heading">
-                    <span className="setting-icon">
-                      <Send size={19} />
-                    </span>
-                    <div>
-                      <h2>Invite a merchant</h2>
-                      <p>
-                        A personalized Merchant Services Agreement PDF with the
-                        service fees and activation terms will be attached to
-                        the invitation email.
-                      </p>
-                    </div>
-                  </div>
-                  <label>
-                    <span>Merchant email</span>
-                    <input
-                      type="email"
-                      value={newEmail}
-                      onChange={(event) => setNewEmail(event.target.value)}
-                      required
-                      autoComplete="off"
-                      maxLength={254}
-                    />
-                  </label>
-                  <label>
-                    <span>Legal business name</span>
-                    <input
-                      value={newBusinessName}
-                      onChange={(event) =>
-                        setNewBusinessName(event.target.value)
-                      }
-                      required
-                      maxLength={200}
-                    />
-                  </label>
-                  <label>
-                    <span>Authorized contact person</span>
-                    <input
-                      value={newContactPerson}
-                      onChange={(event) =>
-                        setNewContactPerson(event.target.value)
-                      }
-                      required
-                      maxLength={120}
-                    />
-                  </label>
-                  <label>
-                    <span>Registered business address</span>
-                    <textarea
-                      value={newBusinessAddress}
-                      onChange={(event) =>
-                        setNewBusinessAddress(event.target.value)
-                      }
-                      required
-                      maxLength={500}
-                      rows={3}
-                    />
-                  </label>
-                  <label>
-                    <span>Contact phone</span>
-                    <input
-                      type="tel"
-                      value={newPhoneNumber}
-                      onChange={(event) =>
-                        setNewPhoneNumber(event.target.value)
-                      }
-                      maxLength={40}
-                    />
-                  </label>
-                  <Button
-                    type="submit"
-                    disabled={
-                      savingMerchant ||
-                      !newEmail ||
-                      !newBusinessName ||
-                      !newContactPerson ||
-                      !newBusinessAddress
-                    }
-                  >
-                    {savingMerchant ? "Sending invitation…" : "Invite merchant"}
-                  </Button>
-                </form>
               </section>
             )}
           </>
