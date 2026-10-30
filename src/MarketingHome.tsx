@@ -11,8 +11,7 @@ import {
 import "./marketing-home.css"
 import { APP_ROUTES } from "./lib/routes"
 
-const APK_DOWNLOAD_URL =
-  "https://github.com/blackhorsecn/drpay-merchant/releases/latest/download/drpay.apk"
+const APK_DOWNLOAD_URL = APP_ROUTES.androidDownload
 
 const paymentChannels = [
   {

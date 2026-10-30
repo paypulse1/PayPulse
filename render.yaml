@@ -149,11 +149,13 @@ services:
     name: drpay-web
     branch: Production
     runtime: static
-    buildCommand: corepack enable && corepack prepare pnpm@10.34.3 --activate && pnpm install --frozen-lockfile && pnpm typecheck && pnpm build
+    buildCommand: node scripts/download-latest-apk.mjs && corepack enable && corepack prepare pnpm@10.34.3 --activate && pnpm install --frozen-lockfile && pnpm typecheck && pnpm build
     staticPublishPath: dist
     envVars:
       - key: NODE_VERSION
         value: 22
+      - key: DRPAY_GITHUB_RELEASE_TOKEN
+        sync: false
       - key: VITE_DRPAY_BACKEND_URL
         value: https://api.live.denpay.cc
       - key: VITE_DRPAY_MERCHANT_SIGNIN_URL
