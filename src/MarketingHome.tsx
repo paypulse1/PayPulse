@@ -34,10 +34,13 @@ export default function MarketingHome() {
           <div className="drpay-proof"><div className="drpay-avatars"><span>AM</span><span>JD</span><span>LK</span><span>+</span></div><span>Trusted by teams that move fast</span></div>
         </div>
         <div className="drpay-hero-art" aria-label="DRPay payment dashboard preview">
-          <div className="drpay-glow" />
-          <div className="drpay-card drpay-card-main"><div className="drpay-card-top"><span className="drpay-mini-label">TOTAL BALANCE</span><span className="drpay-more">•••</span></div><strong>$48,280<span>.00</span></strong><div className="drpay-chart"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div><div className="drpay-card-bottom"><span>+12.8% this month</span><span>•••• 2084</span></div></div>
-          <div className="drpay-card drpay-card-float"><span className="drpay-success">✓</span><div><b>Payment received</b><small>Alex Morgan · just now</small></div><strong>+$1,240</strong></div>
-          <div className="drpay-orbit drpay-orbit-one" /><div className="drpay-orbit drpay-orbit-two" />
+          <div className="drpay-photo-stack">
+            <img className="drpay-photo drpay-photo-main" src="/marketing/payment-acceptance.jpg" alt="Merchant using DRPay to accept payments" />
+            <img className="drpay-photo drpay-photo-top" src="/marketing/crypto-transaction.jpg" alt="Digital transaction dashboard" />
+            <img className="drpay-photo drpay-photo-bottom" src="/marketing/currency-exchange.jpg" alt="Currency exchange activity" />
+          </div>
+          <div className="drpay-floating-badge drpay-floating-badge-primary">Live payouts</div>
+          <div className="drpay-floating-badge drpay-floating-badge-secondary">+₱48,280</div>
         </div>
       </section>
 

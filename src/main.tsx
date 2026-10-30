@@ -5,7 +5,8 @@ import MarketingHome from './MarketingHome';
 import './index.css';
 
 const isHomepage = window.location.pathname === '/' || window.location.pathname === '';
-const EntryScreen = isHomepage ? MarketingHome : App;
+const hasCheckoutQuery = new URLSearchParams(window.location.search).has('checkout');
+const EntryScreen = isHomepage && !hasCheckoutQuery ? MarketingHome : App;
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
