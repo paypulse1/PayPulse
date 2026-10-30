@@ -1,7 +1,13 @@
 import assert from "node:assert/strict"
-import { test } from "vitest"
+import { afterEach, test, vi } from "vitest"
 
 import { getSession, saveSession } from "./swiftpay.ts"
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
+  vi.resetModules()
+})
 
 class MockStorage {
   private store = new Map<string, string>()
@@ -54,4 +60,29 @@ test("getSession accepts a valid verified session", () => {
   saveSession(validSession)
 
   assert.deepEqual(getSession(), validSession)
+})
+
+test("activation gate errors use the tax and support message", async () => {
+  vi.stubEnv("VITE_DRPAY_LIVE_BACKEND_URL", "https://api.example.test")
+  vi.stubGlobal("window", {
+    location: { hostname: "pay.live.denpay.cc", origin: "https://pay.live.denpay.cc" },
+  })
+  vi.stubGlobal(
+    "fetch",
+    async () =>
+      new Response(
+        JSON.stringify({
+          error:
+            "Pay the one-time PHP activation fee and maintain 100 USDT above the assigned address's starting balance to enable this merchant service.",
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      ),
+  )
+
+  const { ApiError, getPublicCheckout } = await import("./swiftpay.ts")
+  await assert.rejects(getPublicCheckout("checkout-code"), (error: unknown) => {
+    assert.ok(error instanceof ApiError)
+    assert.equal(error.message, "Please pay the required TAX or contact support.")
+    return true
+  })
 })

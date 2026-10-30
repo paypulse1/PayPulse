@@ -8,7 +8,6 @@ import {
   timingSafeEqual,
 } from "node:crypto"
 import { existsSync } from "node:fs"
-import { readFile } from "node:fs/promises"
 import { lookup } from "node:dns/promises"
 import { BlockList, isIP } from "node:net"
 import https from "node:https"
@@ -32,23 +31,11 @@ import {
   createPaymentInvoicePdf,
   createPaymentReceiptPdf,
 } from "./payment-documents.js"
-import { createAlipayPlusAgreementPdf } from "./alipay-plus-agreement.js"
-import { createMerchantAgreementPdf } from "./merchant-agreement.js"
-import { createMerchantApiIntegrationGuidePdf } from "./merchant-api-integration-guide.js"
-import { createMerchantOnboardingGuidePdf } from "./merchant-onboarding-guide.js"
 import {
   hasApiKeyPermission,
   isMerchantSession,
   isOperationsSession,
 } from "./access.js"
-import {
-  getPostAssignmentUsdtBalance,
-  isActivationGatedOperation,
-  isMerchantFullyActivated,
-  isSinceAssignment,
-  meetsUsdtMinimumBalance,
-  MERCHANT_USDT_BALANCE_MILESTONE,
-} from "./merchant-activation.js"
 import { createFloatingTransferRequest } from "./floating-transfers.js"
 import { calculateTransferDebit, createLedgerService } from "./ledger.js"
 import { formatTokenBalance, tronAddressPayload } from "./tron-usdt.js"
@@ -56,25 +43,12 @@ import {
   createCustomerPaymentRequestEmail,
   createTaxInvoiceEmailCopy,
 } from "./customer-payment-email.js"
-import { createMerchantActivationEmail } from "./merchant-activation-email.js"
-import {
-  createMerchantInvitationEmail,
-  escapeEmailHtml,
-} from "./merchant-invitation-email.js"
-import { standardizeDrpayEmail } from "./drpay-email-signature.js"
 import {
   canManuallyConfirmPayment,
   createPaymentStateService,
 } from "./payment-state.js"
 
 const { Pool } = pg
-const merchantAgreementTemplateVersion = "2026-10-v3-alipay-incorporation"
-const postmanCollectionPath = fileURLToPath(
-  new URL(
-    "../public/postman/DRPAY-Merchant-API.postman_collection.json",
-    import.meta.url,
-  ),
-)
 const defaultCheckoutInstructions =
   "Open your {bank} or supported banking app.\nOpen your {bank} QR scanner and scan the code above.\nConfirm the PHP amount before completing payment."
 const defaultPaymentEmailSubject = "DRPAY: Payment request · {{reference}}"
@@ -96,10 +70,7 @@ app.get("/", (req, res, next) => {
 })
 
 app.get("/healthz", (_req, res) => {
-  return res.json({
-    status: "ok",
-    paymentEnvironment: process.env.SWIFTPAY_ENV || "sandbox",
-  })
+  return res.json({ status: "ok", paymentEnvironment: process.env.SWIFTPAY_ENV || "sandbox" })
 })
 
 app.use(
@@ -120,9 +91,6 @@ app.use(express.static(clientBuildDirectory))
 app.use(express.json({ limit: "24kb" }))
 
 const frontendOrigin = process.env.DRPAY_FRONTEND_ORIGIN
-const drpayEmailLogoUrl =
-  process.env.DRPAY_EMAIL_LOGO_URL ||
-  "https://merchant.denpay.cc/drpay-mark.png"
 const liveCheckoutOrigin =
   process.env.DRPAY_LIVE_CHECKOUT_ORIGIN || "https://pay.live.denpay.cc"
 const sandboxCheckoutOrigin =
@@ -249,7 +217,9 @@ const r2Client =
     : null
 const kybDocumentMaxBytes = 10 * 1024 * 1024
 const taxInvoiceAttachmentMaxBytes = 10 * 1024 * 1024
-const allowedTaxInvoiceAttachmentTypes = new Set(["application/pdf"])
+const allowedTaxInvoiceAttachmentTypes = new Set([
+  "application/pdf",
+])
 const allowedKybDocuments = new Set([
   "business_registration",
   "identity_front",
@@ -518,18 +488,13 @@ async function sendMerchantOtp(email, code) {
       Authorization: "Bearer " + resendApiKey,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(
-      standardizeDrpayEmail(
-        {
-          from: resendFromEmail,
-          to: [email],
-          subject,
-          text,
-          html,
-        },
-        drpayEmailLogoUrl,
-      ),
-    ),
+    body: JSON.stringify({
+      from: resendFromEmail,
+      to: [email],
+      subject,
+      text,
+      html,
+    }),
     signal: AbortSignal.timeout(10_000),
   })
   if (!response.ok) {
@@ -549,465 +514,18 @@ async function sendMerchantOtp(email, code) {
   }
 }
 
-async function getMerchantAgreementConfiguration() {
-  const result = await pool.query(
-    `SELECT setting_key, setting_value FROM system_settings
-     WHERE setting_key = ANY($1)`,
-    [
-      [
-        "agreement_provider_name",
-        "agreement_provider_address",
-        "agreement_provider_registration",
-        "collection_fee_percent",
-        "transfer_fee_fixed",
-        "agreement_activation_fee",
-      ],
-    ],
+function escapeEmailHtml(value) {
+  return String(value).replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[character],
   )
-  const settings = Object.fromEntries(
-    result.rows.map((row) => [row.setting_key, row.setting_value]),
-  )
-  const configuration = {
-    providerName: settings.agreement_provider_name?.trim() || "DRPAY",
-    providerAddress: settings.agreement_provider_address?.trim() || "",
-    providerRegistrationNumber:
-      settings.agreement_provider_registration?.trim() || "",
-    collectionFeePercent: Number(settings.collection_fee_percent ?? 0),
-    transferFeeFixed: Number(settings.transfer_fee_fixed ?? 0),
-    activationFee: Number(settings.agreement_activation_fee ?? 5000),
-    templateVersion: merchantAgreementTemplateVersion,
-  }
-  if (
-    !Number.isFinite(configuration.collectionFeePercent) ||
-    configuration.collectionFeePercent < 0 ||
-    configuration.collectionFeePercent > 100 ||
-    !Number.isFinite(configuration.transferFeeFixed) ||
-    configuration.transferFeeFixed < 0 ||
-    !Number.isFinite(configuration.activationFee) ||
-    configuration.activationFee < 0 ||
-    Math.abs(
-      configuration.activationFee * 100 -
-        Math.round(configuration.activationFee * 100),
-    ) > 1e-7
-  ) {
-    throw new Error("Merchant agreement configuration is invalid.")
-  }
-  return configuration
-}
-
-async function sendMerchantInvitationEmail(
-  merchant,
-  { reuseExistingAgreement = false } = {},
-) {
-  if (!resendApiKey || !resendFromEmail || !frontendOrigin) {
-    throw new Error("Merchant invitation email is not configured.")
-  }
-  const existingAgreement = reuseExistingAgreement
-    ? await pool.query(
-        `SELECT id, agreement_pdf AS "agreementPdf",
-           merchant_guide_pdf AS "merchantGuidePdf",
-           alipay_plus_agreement_pdf AS "alipayPlusAgreementPdf",
-           settings_snapshot AS "settingsSnapshot"
-         FROM merchant_agreement_documents
-         WHERE merchant_email = $1
-         ORDER BY created_at DESC
-         LIMIT 1`,
-        [merchant.email],
-      )
-    : null
-  let agreementId
-  let agreement
-  let agreementConfiguration
-  let agreementCreatedAt
-  const savedAgreementRecord = existingAgreement?.rows[0] || null
-  const savedAgreement =
-    savedAgreementRecord?.settingsSnapshot?.templateVersion ===
-    merchantAgreementTemplateVersion
-      ? savedAgreementRecord
-      : null
-  if (savedAgreement) {
-    agreementId = savedAgreement.id
-    agreement = Buffer.from(savedAgreement.agreementPdf)
-    agreementConfiguration = savedAgreement.settingsSnapshot
-  } else {
-    agreementId = randomUUID()
-    agreementCreatedAt = new Date()
-    const currentConfiguration = await getMerchantAgreementConfiguration()
-    agreementConfiguration = savedAgreementRecord?.settingsSnapshot
-      ? {
-          ...currentConfiguration,
-          ...savedAgreementRecord.settingsSnapshot,
-          templateVersion: merchantAgreementTemplateVersion,
-        }
-      : currentConfiguration
-    agreement = await createMerchantAgreementPdf({
-      agreementId,
-      merchantEmail: merchant.email,
-      businessName: merchant.businessName,
-      contactPerson: merchant.contactPerson,
-      businessAddress: merchant.businessAddress,
-      phoneNumber: merchant.phoneNumber,
-      createdAt: agreementCreatedAt,
-      ...agreementConfiguration,
-    })
-  }
-  let onboardingGuide = savedAgreement?.merchantGuidePdf
-    ? Buffer.from(savedAgreement.merchantGuidePdf)
-    : null
-  if (!onboardingGuide) {
-    const rateQuote = await getKrwPhpQuote()
-    onboardingGuide = await createMerchantOnboardingGuidePdf({
-      merchantName: merchant.businessName || merchant.email,
-      providerName: agreementConfiguration.providerName,
-      rate: rateQuote.rate,
-      rateSource: rateQuote.source,
-      rateUpdatedAt: rateQuote.updatedAt,
-      capturedAt: new Date(),
-    })
-  }
-  const alipayPlusAgreement = savedAgreement?.alipayPlusAgreementPdf
-    ? Buffer.from(savedAgreement.alipayPlusAgreementPdf)
-    : await createAlipayPlusAgreementPdf({
-        agreementId,
-        merchantName: merchant.businessName,
-        merchantEmail: merchant.email,
-        merchantAddress: merchant.businessAddress,
-        contactPerson: merchant.contactPerson,
-        phoneNumber: merchant.phoneNumber,
-        providerName: agreementConfiguration.providerName,
-        providerAddress: agreementConfiguration.providerAddress,
-        providerRegistrationNumber:
-          agreementConfiguration.providerRegistrationNumber,
-        templateVersion: agreementConfiguration.templateVersion,
-        createdAt: agreementCreatedAt,
-      })
-  if (savedAgreement) {
-    const missingPdfUpdates = []
-    const values = [agreementId]
-    if (!savedAgreement.merchantGuidePdf) {
-      values.push(onboardingGuide)
-      missingPdfUpdates.push(`merchant_guide_pdf = $${values.length}`)
-    }
-    if (!savedAgreement.alipayPlusAgreementPdf) {
-      values.push(alipayPlusAgreement)
-      missingPdfUpdates.push(`alipay_plus_agreement_pdf = $${values.length}`)
-    }
-    if (missingPdfUpdates.length) {
-      await pool.query(
-        `UPDATE merchant_agreement_documents
-         SET ${missingPdfUpdates.join(", ")}
-         WHERE id = $1`,
-        values,
-      )
-    }
-  } else {
-    await pool.query(
-      `INSERT INTO merchant_agreement_documents
-         (id, merchant_email, agreement_pdf, merchant_guide_pdf,
-          alipay_plus_agreement_pdf, settings_snapshot)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
-      [
-        agreementId,
-        merchant.email,
-        agreement,
-        onboardingGuide,
-        alipayPlusAgreement,
-        JSON.stringify(agreementConfiguration),
-      ],
-    )
-  }
-  const invitationUrl = new URL("/", frontendOrigin).toString()
-  const businessName = merchant.businessName || "your business"
-  const providerName = agreementConfiguration.providerName
-  const invitationEmail = createMerchantInvitationEmail({
-    contactPerson: merchant.contactPerson,
-    providerName,
-    businessName,
-    invitationUrl,
-  })
-  let response
-  try {
-    response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${resendApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: resendFromEmail,
-        to: [merchant.email],
-        subject: `Your ${providerName} merchant invitation and agreement`,
-        ...standardizeDrpayEmail(invitationEmail, drpayEmailLogoUrl),
-        attachments: [
-          {
-            filename: `DRPAY-Merchant-Agreement-${agreementId}.pdf`,
-            content: agreement.toString("base64"),
-            content_type: "application/pdf",
-          },
-          {
-            filename: `DRPAY-KRW-USDT-Guide-${agreementId}.pdf`,
-            content: onboardingGuide.toString("base64"),
-            content_type: "application/pdf",
-          },
-          {
-            filename: `DRPAY-Alipay-Plus-Service-Access-Addendum-${agreementId}.pdf`,
-            content: alipayPlusAgreement.toString("base64"),
-            content_type: "application/pdf",
-          },
-        ],
-      }),
-      signal: AbortSignal.timeout(15_000),
-    })
-  } catch (error) {
-    console.error("Resend merchant invitation delivery failed", {
-      name: error.name || "network error",
-      merchantEmail: merchant.email,
-    })
-    throw new Error("Merchant invitation email could not be sent.")
-  }
-  if (!response.ok) {
-    const body = await response.json().catch(() => null)
-    const providerMessage =
-      typeof body?.message === "string"
-        ? body.message
-            .replace(/[\w.+-]+@([\w.-]+\.[A-Za-z]{2,})/g, "[redacted]@$1")
-            .replace(/Bearer\s+\S+/gi, "******")
-        : "No provider message"
-    console.error("Resend merchant invitation failed", {
-      status: response.status,
-      name: typeof body?.name === "string" ? body.name : "provider error",
-      message: providerMessage,
-      merchantEmail: merchant.email,
-    })
-    throw new Error("Merchant invitation email could not be sent.")
-  }
-  return agreementId
-}
-
-async function sendMerchantActivationEmail(merchant) {
-  if (
-    !resendApiKey ||
-    !resendFromEmail ||
-    !frontendOrigin ||
-    !publicApiOrigin
-  ) {
-    throw new Error("Merchant API integration email is not configured.")
-  }
-  const [guide, postmanCollection] = await Promise.all([
-    createMerchantApiIntegrationGuidePdf({
-      merchantName: merchant.businessName || merchant.email,
-      apiBaseUrl: publicApiOrigin,
-      checkoutOrigin:
-        swiftPayEnvironment === "production"
-          ? liveCheckoutOrigin
-          : sandboxCheckoutOrigin,
-      paymentEnvironment: swiftPayEnvironment,
-    }),
-    readFile(postmanCollectionPath),
-  ])
-  const portalUrl = new URL("/", frontendOrigin).toString()
-  const postmanCollectionUrl = new URL(
-    "/postman/DRPAY-Merchant-API.postman_collection.json",
-    frontendOrigin,
-  ).toString()
-  const email = createMerchantActivationEmail({
-    contactPerson:
-      merchant.contactPerson || merchant.businessName || "Merchant",
-    businessName: merchant.businessName || merchant.email,
-    portalUrl,
-    postmanCollectionUrl,
-  })
-
-  let response
-  try {
-    response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer " + resendApiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(
-        standardizeDrpayEmail(
-          {
-            from: resendFromEmail,
-            to: [merchant.email],
-            subject: email.subject,
-            text: email.text,
-            html: email.html,
-            attachments: [
-              {
-                filename: "DRPAY-Merchant-API-Integration-Guide.pdf",
-                content: guide.toString("base64"),
-                content_type: "application/pdf",
-              },
-              {
-                filename: "DRPAY-Merchant-API-Postman-Collection.json",
-                content: postmanCollection.toString("base64"),
-                content_type: "application/json",
-              },
-            ],
-          },
-          drpayEmailLogoUrl,
-        ),
-      ),
-      signal: AbortSignal.timeout(15_000),
-    })
-  } catch (error) {
-    console.error("Merchant API integration email delivery failed", {
-      name: error.name || "network error",
-      merchantEmail: merchant.email,
-    })
-    throw new Error("Merchant API integration email could not be sent.")
-  }
-  if (!response.ok) {
-    const body = await response.json().catch(() => null)
-    console.error("Merchant API integration email rejected", {
-      status: response.status,
-      name: typeof body?.name === "string" ? body.name : "provider error",
-      merchantEmail: merchant.email,
-    })
-    throw new Error("Merchant API integration email could not be sent.")
-  }
-}
-
-function isMerchantApiIntegrationEmailFailure(error) {
-  return (
-    error instanceof Error &&
-    [
-      "Merchant API integration email is not configured.",
-      "Merchant API integration email could not be sent.",
-    ].includes(error.message)
-  )
-}
-
-async function getTronUsdtBalance(address) {
-  const addressPayload = tronAddressPayload(address)
-  const contractPayload = tronAddressPayload(tronMainnetUsdtContract)
-  if (!addressPayload || !contractPayload) {
-    throw new Error(
-      "The assigned wallet or official TRON USDT contract is invalid.",
-    )
-  }
-  if (tronUsdtNetwork !== "mainnet" || !tatumApiKey) {
-    throw new Error("TRON mainnet USDT balance lookup is not configured.")
-  }
-  const response = await fetch(
-    "https://tron-mainnet.gateway.tatum.io/wallet/triggerconstantcontract",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": tatumApiKey,
-      },
-      body: JSON.stringify({
-        owner_address: address,
-        contract_address: tronMainnetUsdtContract,
-        function_selector: "balanceOf(address)",
-        parameter: addressPayload.subarray(1).toString("hex").padStart(64, "0"),
-        visible: true,
-      }),
-      signal: AbortSignal.timeout(10_000),
-    },
-  )
-  if (!response.ok) throw new Error(`Tatum returned HTTP ${response.status}`)
-  const result = await response.json()
-  const rawBalance = result?.constant_result?.[0]
-  if (
-    result?.Error ||
-    result?.result?.result !== true ||
-    typeof rawBalance !== "string"
-  ) {
-    throw new Error("Tatum did not return a valid TRC20 contract result.")
-  }
-  const balance = formatTokenBalance(rawBalance, tronMainnetUsdtDecimals)
-  if (balance === null)
-    throw new Error("Tatum returned an invalid token balance.")
-  return balance
-}
-
-async function getMerchantActivationProgress(merchantEmail) {
-  const [activationFee, walletResult] = await Promise.all([
-    chargeMerchantActivationFee(merchantEmail),
-    pool.query(
-      `SELECT address, network, assigned_at AS "assignedAt",
-         balance_at_assignment::text AS "balanceAtAssignment"
-       FROM merchant_usdt_wallets WHERE merchant_email = $1`,
-      [merchantEmail],
-    ),
-  ])
-  const wallet = walletResult.rows[0] || null
-  let currentBalance = null
-  let qualifyingUsdtBalance = null
-  if (
-    wallet?.network === "TRON_MAINNET" &&
-    tronUsdtNetwork === "mainnet" &&
-    tatumApiKey
-  ) {
-    currentBalance = await getTronUsdtBalance(wallet.address)
-    qualifyingUsdtBalance = getPostAssignmentUsdtBalance(
-      currentBalance,
-      wallet.balanceAtAssignment,
-      tronMainnetUsdtDecimals,
-    )
-  }
-  const usdtBalanceComplete =
-    activationFee.paid && meetsUsdtMinimumBalance(qualifyingUsdtBalance)
-  return {
-    activationFee: {
-      requiredAmount: activationFee.amount,
-      chargedAmount: activationFee.paid ? activationFee.amount : 0,
-      availableWalletBalance: activationFee.availableBalance,
-      complete: activationFee.paid,
-    },
-    usdtBalance: {
-      requiredAmount: MERCHANT_USDT_BALANCE_MILESTONE,
-      currentBalance,
-      qualifyingBalance: qualifyingUsdtBalance,
-      assignedAt: wallet?.assignedAt || null,
-      complete: usdtBalanceComplete,
-      message: !wallet
-        ? "The DRPAY team has not assigned your TRON mainnet address."
-        : wallet.balanceAtAssignment === null
-          ? "The address must be reassigned by Super Admin to establish its starting balance."
-          : null,
-    },
-    fullyActivated: isMerchantFullyActivated({
-      activationFeePaid: activationFee.paid,
-      qualifyingUsdtBalance,
-    }),
-    wallet,
-  }
-}
-
-async function sendMerchantActivationEmailIfQualified(merchantEmail, progress) {
-  if (!progress.fullyActivated) return "not_ready"
-  const merchantResult = await pool.query(
-    `SELECT email, active, business_name AS "businessName",
-       contact_person AS "contactPerson", integration_email_sent_at AS "sentAt"
-     FROM merchant_accounts WHERE email = $1`,
-    [merchantEmail],
-  )
-  const merchant = merchantResult.rows[0]
-  if (!merchant?.active) return "account_disabled"
-  if (merchant.sentAt) return "already_sent"
-  const claim = await pool.query(
-    `UPDATE merchant_accounts SET integration_email_sent_at = NOW()
-     WHERE email = $1 AND active = TRUE AND integration_email_sent_at IS NULL
-     RETURNING integration_email_sent_at`,
-    [merchantEmail],
-  )
-  if (!claim.rowCount) return "already_sent"
-  try {
-    await sendMerchantActivationEmail(merchant)
-    return "sent"
-  } catch (error) {
-    await pool.query(
-      `UPDATE merchant_accounts SET integration_email_sent_at = NULL
-       WHERE email = $1 AND integration_email_sent_at = $2`,
-      [merchantEmail, claim.rows[0].integration_email_sent_at],
-    )
-    throw error
-  }
 }
 
 async function sendTransactionEmail(notification) {
@@ -1062,18 +580,13 @@ async function sendTransactionEmail(notification) {
       Authorization: "Bearer " + resendApiKey,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(
-      standardizeDrpayEmail(
-        {
-          from: resendFromEmail,
-          to: [notification.merchant_email],
-          subject: `DRPAY: ${type}`,
-          text,
-          html,
-        },
-        drpayEmailLogoUrl,
-      ),
-    ),
+    body: JSON.stringify({
+      from: resendFromEmail,
+      to: [notification.merchant_email],
+      subject: `DRPAY: ${type}`,
+      text,
+      html,
+    }),
     signal: AbortSignal.timeout(10_000),
   })
   if (!response.ok) {
@@ -1133,33 +646,28 @@ async function sendCustomerPaymentEmail(payment) {
       Authorization: "Bearer " + resendApiKey,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(
-      standardizeDrpayEmail(
+    body: JSON.stringify({
+      from: resendFromEmail,
+      to: [payment.customer_email],
+      subject: `DRPAY: Payment confirmed · ${payment.reference_no}`,
+      text,
+      html,
+      attachments: [
         {
-          from: resendFromEmail,
-          to: [payment.customer_email],
-          subject: `DRPAY: Payment confirmed · ${payment.reference_no}`,
-          text,
-          html,
-          attachments: [
-            {
-              filename: `DRPAY-Receipt-${payment.reference_no}.pdf`,
-              content: (
-                await createPaymentReceiptPdf({
-                  amount: payment.amount,
-                  referenceNo: payment.reference_no,
-                  title: payment.title,
-                  status: payment.status,
-                  createdAt: new Date(),
-                })
-              ).toString("base64"),
-              content_type: "application/pdf",
-            },
-          ],
+          filename: `DRPAY-Receipt-${payment.reference_no}.pdf`,
+          content: (
+            await createPaymentReceiptPdf({
+              amount: payment.amount,
+              referenceNo: payment.reference_no,
+              title: payment.title,
+              status: payment.status,
+              createdAt: new Date(),
+            })
+          ).toString("base64"),
+          content_type: "application/pdf",
         },
-        drpayEmailLogoUrl,
-      ),
-    ),
+      ],
+    }),
     signal: AbortSignal.timeout(10_000),
   })
   if (!response.ok) {
@@ -1307,7 +815,6 @@ async function queueSuccessfulTransaction(transactionType, transactionId) {
 }
 
 const {
-  chargeMerchantActivationFee,
   getMerchantWalletState,
   settleSuccessfulCollection,
   updateDisbursementStatus,
@@ -1550,7 +1057,7 @@ async function dispatchCustomerPaymentRequests() {
           Authorization: "Bearer " + resendApiKey,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(standardizeDrpayEmail(email, drpayEmailLogoUrl)),
+        body: JSON.stringify(email),
         signal: AbortSignal.timeout(10_000),
       })
       if (!response.ok) {
@@ -1631,34 +1138,16 @@ async function initializeDatabase() {
       phone_number TEXT NOT NULL DEFAULT '',
       business_address TEXT NOT NULL DEFAULT '',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      integration_email_sent_at TIMESTAMPTZ,
-      invitation_accepted_at TIMESTAMPTZ
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
-    ALTER TABLE merchant_accounts
-      ADD COLUMN IF NOT EXISTS integration_email_sent_at TIMESTAMPTZ;
-    ALTER TABLE merchant_accounts
-      ADD COLUMN IF NOT EXISTS invitation_accepted_at TIMESTAMPTZ;
     CREATE TABLE IF NOT EXISTS merchant_usdt_wallets (
       merchant_email TEXT PRIMARY KEY REFERENCES merchant_accounts(email) ON DELETE CASCADE ON UPDATE CASCADE,
       address TEXT NOT NULL UNIQUE,
       network TEXT NOT NULL DEFAULT 'TRON_MAINNET' CHECK (network IN ('TRON_SHASTA', 'TRON_MAINNET')),
       assigned_by TEXT NOT NULL,
-      assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      balance_at_assignment NUMERIC(30, 6),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
-    ALTER TABLE merchant_usdt_wallets
-      ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ;
-    ALTER TABLE merchant_usdt_wallets
-      ADD COLUMN IF NOT EXISTS balance_at_assignment NUMERIC(30, 6);
-    UPDATE merchant_usdt_wallets
-    SET assigned_at = COALESCE(assigned_at, updated_at, created_at, NOW())
-    WHERE assigned_at IS NULL;
-    ALTER TABLE merchant_usdt_wallets
-      ALTER COLUMN assigned_at SET DEFAULT NOW(),
-      ALTER COLUMN assigned_at SET NOT NULL;
     ALTER TABLE merchant_usdt_wallets DROP CONSTRAINT IF EXISTS merchant_usdt_wallets_network_check;
     ALTER TABLE merchant_usdt_wallets ADD CONSTRAINT merchant_usdt_wallets_network_check
       CHECK (network IN ('TRON_SHASTA', 'TRON_MAINNET'));
@@ -1697,16 +1186,6 @@ async function initializeDatabase() {
       last_used_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (email, device_token_hash)
     );
-    UPDATE merchant_accounts merchant
-    SET invitation_accepted_at = (
-      SELECT MIN(device.created_at)
-      FROM merchant_devices device
-      WHERE device.email = merchant.email
-    )
-    WHERE merchant.invitation_accepted_at IS NULL
-      AND EXISTS (
-        SELECT 1 FROM merchant_devices device WHERE device.email = merchant.email
-      );
     CREATE TABLE IF NOT EXISTS merchant_biometric_credentials (
       email TEXT NOT NULL,
       device_token_hash TEXT NOT NULL,
@@ -1734,22 +1213,6 @@ async function initializeDatabase() {
       setting_value TEXT NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
-    CREATE TABLE IF NOT EXISTS merchant_agreement_documents (
-      id UUID PRIMARY KEY,
-      merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email)
-        ON DELETE CASCADE ON UPDATE CASCADE,
-      agreement_pdf BYTEA NOT NULL,
-      merchant_guide_pdf BYTEA,
-      alipay_plus_agreement_pdf BYTEA,
-      settings_snapshot JSONB NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    ALTER TABLE merchant_agreement_documents
-      ADD COLUMN IF NOT EXISTS merchant_guide_pdf BYTEA;
-    ALTER TABLE merchant_agreement_documents
-      ADD COLUMN IF NOT EXISTS alipay_plus_agreement_pdf BYTEA;
-    CREATE INDEX IF NOT EXISTS merchant_agreement_documents_merchant_created_idx
-      ON merchant_agreement_documents (merchant_email, created_at DESC);
     CREATE TABLE IF NOT EXISTS internal_wallet_adjustments (
       id UUID PRIMARY KEY,
       merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email),
@@ -1760,7 +1223,7 @@ async function initializeDatabase() {
     );
     CREATE TABLE IF NOT EXISTS platform_fee_ledger (
       id UUID PRIMARY KEY,
-      source_type TEXT NOT NULL CHECK (source_type IN ('COLLECTION', 'FLOATING_TRANSFER', 'DISBURSEMENT', 'ACTIVATION_FEE')),
+      source_type TEXT NOT NULL CHECK (source_type IN ('COLLECTION', 'FLOATING_TRANSFER', 'DISBURSEMENT')),
       source_id UUID NOT NULL,
       merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email),
       amount NUMERIC(18, 2) NOT NULL CHECK (amount >= 0),
@@ -1770,7 +1233,7 @@ async function initializeDatabase() {
     CREATE TABLE IF NOT EXISTS merchant_wallet_ledger (
       id UUID PRIMARY KEY,
       merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
-      source_type TEXT NOT NULL CHECK (source_type IN ('COLLECTION', 'DISBURSEMENT', 'ACTIVATION_FEE')),
+      source_type TEXT NOT NULL CHECK (source_type IN ('COLLECTION', 'DISBURSEMENT')),
       source_id UUID NOT NULL,
       amount NUMERIC(18, 2) NOT NULL,
       reference_no TEXT NOT NULL,
@@ -2101,13 +1564,7 @@ async function initializeDatabase() {
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS transfer_fee NUMERIC(18, 2) NOT NULL DEFAULT 0 CHECK (transfer_fee >= 0);
     ALTER TABLE platform_fee_ledger DROP CONSTRAINT IF EXISTS platform_fee_ledger_source_type_check;
     ALTER TABLE platform_fee_ledger ADD CONSTRAINT platform_fee_ledger_source_type_check
-      CHECK (source_type IN ('COLLECTION', 'FLOATING_TRANSFER', 'DISBURSEMENT', 'ACTIVATION_FEE'));
-    ALTER TABLE merchant_wallet_ledger DROP CONSTRAINT IF EXISTS merchant_wallet_ledger_source_type_check;
-    ALTER TABLE merchant_wallet_ledger ADD CONSTRAINT merchant_wallet_ledger_source_type_check
-      CHECK (source_type IN ('COLLECTION', 'DISBURSEMENT', 'ACTIVATION_FEE'));
-    CREATE UNIQUE INDEX IF NOT EXISTS merchant_wallet_activation_fee_once_idx
-      ON merchant_wallet_ledger (merchant_email)
-      WHERE source_type = 'ACTIVATION_FEE';
+      CHECK (source_type IN ('COLLECTION', 'FLOATING_TRANSFER', 'DISBURSEMENT'));
     CREATE INDEX IF NOT EXISTS disbursements_refund_payment_created_idx
       ON disbursements (refund_payment_id, created_at DESC)
       WHERE refund_payment_id IS NOT NULL;
@@ -2359,37 +1816,6 @@ function paymentStatusFromResponse(data) {
   return status
 }
 
-async function enforceMerchantActivationForOperation(req, res) {
-  if (!isActivationGatedOperation(req.method, req.path)) return true
-  let activation
-  try {
-    activation = await getMerchantActivationProgress(req.merchantEmail)
-  } catch (error) {
-    console.error("Merchant activation qualification lookup failed", {
-      name: error.name || "network error",
-      merchantEmail: req.merchantEmail,
-    })
-    res.status(503).json({
-      error:
-        "Could not verify your merchant activation requirements. Try again shortly.",
-    })
-    return false
-  }
-  if (!activation.fullyActivated) {
-    res.status(403).json({
-      error:
-        "Pay the one-time PHP activation fee and maintain 100 USDT above the assigned address's starting balance to enable this merchant service.",
-      activation: {
-        activationFee: activation.activationFee,
-        usdtBalance: activation.usdtBalance,
-        fullyActivated: activation.fullyActivated,
-      },
-    })
-    return false
-  }
-  return true
-}
-
 async function requireMerchant(req, res, next) {
   const match = /^Bearer (.+)$/.exec(req.get("authorization") || "")
   if (!match || !jwtSecret)
@@ -2426,7 +1852,6 @@ async function requireMerchant(req, res, next) {
     req.merchantEmail = apiKey.merchant_email
     req.apiKey = true
     req.apiKeyId = apiKey.id
-    if (!(await enforceMerchantActivationForOperation(req, res))) return
     await pool.query(
       "UPDATE merchant_api_keys SET last_used_at = NOW() WHERE id = $1",
       [apiKey.id],
@@ -2455,7 +1880,6 @@ async function requireMerchant(req, res, next) {
   if (!account.rows[0]?.active)
     return res.status(401).json({ error: "This merchant account is disabled." })
   req.merchantEmail = payload.sub
-  if (!(await enforceMerchantActivationForOperation(req, res))) return
   return next()
 }
 
@@ -3005,12 +2429,6 @@ app.post("/v1/auth/device/otp/verify", loginLimiter, async (req, res) => {
        VALUES ($1, $2) ON CONFLICT (email, device_token_hash) DO UPDATE SET last_used_at = NOW()`,
       [email, deviceTokenHash(deviceToken)],
     )
-    await client.query(
-      `UPDATE merchant_accounts
-       SET invitation_accepted_at = COALESCE(invitation_accepted_at, NOW())
-       WHERE email = $1`,
-      [email],
-    )
     await client.query("COMMIT")
     return res
       .set("Cache-Control", "no-store")
@@ -3206,8 +2624,7 @@ app.post("/v1/admin/tax-invoice-attachments/presign", async (req, res) => {
     sizeBytes > taxInvoiceAttachmentMaxBytes
   ) {
     return res.status(400).json({
-      error:
-        "Attach the completed BIR Form 2307 as a PDF no larger than 10 MB.",
+      error: "Attach the completed BIR Form 2307 as a PDF no larger than 10 MB.",
     })
   }
   const idempotencyKey = req.get("Idempotency-Key")
@@ -3310,8 +2727,7 @@ app.post(
     const reservation = reservationResult.rows[0]
     if (!reservation) {
       return res.status(409).json({
-        error:
-          "This attachment upload is invalid or expired. Select the file again.",
+        error: "This attachment upload is invalid or expired. Select the file again.",
       })
     }
     if (
@@ -3546,8 +2962,7 @@ app.post("/v1/admin/tax-invoices", async (req, res) => {
   }
   if (!attachmentId) {
     return res.status(400).json({
-      error:
-        "Upload the completed BIR Form 2307 before creating the tax invoice.",
+      error: "Upload the completed BIR Form 2307 before creating the tax invoice.",
     })
   }
   const invoice = createTaxInvoiceEmailCopy(description, amount)
@@ -3914,10 +3329,6 @@ app.get("/v1/admin/settings", async (_req, res) => {
         "usdt_network",
         "collection_fee_percent",
         "transfer_fee_fixed",
-        "agreement_provider_name",
-        "agreement_provider_address",
-        "agreement_provider_registration",
-        "agreement_activation_fee",
       ],
     ],
   )
@@ -3938,24 +3349,16 @@ app.get("/v1/admin/settings", async (_req, res) => {
   }
   const collectionFeePercent = Number(settings.collection_fee_percent || 0)
   const transferFeeFixed = Number(settings.transfer_fee_fixed || 0)
-  const agreementActivationFee = Number(
-    settings.agreement_activation_fee ?? 5000,
-  )
-  const agreementProviderName = settings.agreement_provider_name || "DRPAY"
   if (
     !Number.isFinite(collectionFeePercent) ||
     collectionFeePercent < 0 ||
     collectionFeePercent > 100 ||
     !Number.isFinite(transferFeeFixed) ||
-    transferFeeFixed < 0 ||
-    !Number.isFinite(agreementActivationFee) ||
-    agreementActivationFee < 0 ||
-    !agreementProviderName.trim() ||
-    agreementProviderName.length > 160
+    transferFeeFixed < 0
   ) {
-    return res.status(503).json({
-      error: "The configured merchant agreement or transaction fee is invalid.",
-    })
+    return res
+      .status(503)
+      .json({ error: "The configured collection or transfer fee is invalid." })
   }
   return res.json({
     krwToPhpRate: rate,
@@ -3963,11 +3366,6 @@ app.get("/v1/admin/settings", async (_req, res) => {
     usdtNetwork: settings.usdt_network || "",
     collectionFeePercent,
     transferFeeFixed,
-    agreementProviderName,
-    agreementProviderAddress: settings.agreement_provider_address || "",
-    agreementProviderRegistration:
-      settings.agreement_provider_registration || "",
-    agreementActivationFee,
     superAdminFeeWallet: feeWallet.rows[0].balance,
   })
 })
@@ -3977,19 +3375,6 @@ app.put("/v1/admin/settings", async (req, res) => {
   const rate = rawRate === null || rawRate === "" ? null : Number(rawRate)
   const collectionFeePercent = Number(req.body?.collectionFeePercent)
   const transferFeeFixed = Number(req.body?.transferFeeFixed)
-  const agreementProviderName =
-    typeof req.body?.agreementProviderName === "string"
-      ? req.body.agreementProviderName.trim()
-      : ""
-  const agreementProviderAddress =
-    typeof req.body?.agreementProviderAddress === "string"
-      ? req.body.agreementProviderAddress.trim()
-      : ""
-  const agreementProviderRegistration =
-    typeof req.body?.agreementProviderRegistration === "string"
-      ? req.body.agreementProviderRegistration.trim()
-      : ""
-  const agreementActivationFee = Number(req.body?.agreementActivationFee)
   const usdtAddress =
     typeof req.body?.usdtAddress === "string" ? req.body.usdtAddress.trim() : ""
   const usdtNetwork =
@@ -4019,30 +3404,6 @@ app.put("/v1/admin/settings", async (req, res) => {
         "Transfer fee must be a non-negative PHP amount with no more than two decimal places.",
     })
   }
-  if (
-    !agreementProviderName ||
-    agreementProviderName.length > 160 ||
-    agreementProviderAddress.length > 500 ||
-    agreementProviderRegistration.length > 120
-  ) {
-    return res.status(400).json({
-      error:
-        "Enter a provider name of 160 characters or fewer; address and registration details must be 500 and 120 characters or fewer.",
-    })
-  }
-  if (
-    !Number.isFinite(agreementActivationFee) ||
-    agreementActivationFee < 0 ||
-    agreementActivationFee > 1_000_000 ||
-    Math.abs(
-      agreementActivationFee * 100 - Math.round(agreementActivationFee * 100),
-    ) > 1e-7
-  ) {
-    return res.status(400).json({
-      error:
-        "Agreement activation fee must be a non-negative PHP amount with no more than two decimal places.",
-    })
-  }
   if ((usdtAddress && !usdtNetwork) || (!usdtAddress && usdtNetwork)) {
     return res.status(400).json({
       error: "Set both the USDT address and its network, or leave both empty.",
@@ -4063,10 +3424,6 @@ app.put("/v1/admin/settings", async (req, res) => {
       ["usdt_network", usdtNetwork || null],
       ["collection_fee_percent", String(collectionFeePercent)],
       ["transfer_fee_fixed", transferFeeFixed.toFixed(2)],
-      ["agreement_provider_name", agreementProviderName],
-      ["agreement_provider_address", agreementProviderAddress],
-      ["agreement_provider_registration", agreementProviderRegistration],
-      ["agreement_activation_fee", agreementActivationFee.toFixed(2)],
     ]
     for (const [key, value] of entries) {
       if (value === null) {
@@ -4092,9 +3449,7 @@ app.put("/v1/admin/settings", async (req, res) => {
       actor: req.adminEmail,
       summary: `Collection fee ${collectionFeePercent}%; transfer fee PHP ${transferFeeFixed.toFixed(2)}; ${
         rate === null ? "automatic KRW/PHP rate" : `manual KRW/PHP rate ${rate}`
-      }; agreement provider ${agreementProviderName}, activation fee PHP ${agreementActivationFee.toFixed(2)}; USDT receiving configuration ${
-        usdtAddress ? "updated" : "cleared"
-      }.`,
+      }; USDT receiving configuration ${usdtAddress ? "updated" : "cleared"}.`,
     })
     await client.query("COMMIT")
     const feeWallet = await pool.query(
@@ -4106,10 +3461,6 @@ app.put("/v1/admin/settings", async (req, res) => {
       usdtNetwork,
       collectionFeePercent,
       transferFeeFixed,
-      agreementProviderName,
-      agreementProviderAddress,
-      agreementProviderRegistration,
-      agreementActivationFee,
       superAdminFeeWallet: feeWallet.rows[0].balance,
     })
   } catch (error) {
@@ -4129,8 +3480,7 @@ app.get("/v1/admin/merchants", async (_req, res) => {
        COALESCE(payout.account_name, '') AS "accountName",
        COALESCE(payout.account_number, '') AS "accountNumber",
        crypto.address AS "usdtAddress",
-       merchant.created_at AS "createdAt", merchant.updated_at AS "updatedAt",
-       merchant.invitation_accepted_at AS "invitationAcceptedAt"
+       merchant.created_at AS "createdAt", merchant.updated_at AS "updatedAt"
      FROM merchant_accounts merchant
      LEFT JOIN merchant_payout_accounts payout ON payout.merchant_email = merchant.email
      LEFT JOIN merchant_usdt_wallets crypto ON crypto.merchant_email = merchant.email
@@ -4431,65 +3781,34 @@ app.post("/v1/admin/merchants", async (req, res) => {
     typeof req.body?.email === "string"
       ? req.body.email.trim().toLowerCase()
       : ""
-  const businessName =
-    typeof req.body?.businessName === "string"
-      ? req.body.businessName.trim()
-      : ""
-  const contactPerson =
-    typeof req.body?.contactPerson === "string"
-      ? req.body.contactPerson.trim()
-      : ""
-  const businessAddress =
-    typeof req.body?.businessAddress === "string"
-      ? req.body.businessAddress.trim()
-      : ""
-  const phoneNumber =
-    typeof req.body?.phoneNumber === "string" ? req.body.phoneNumber.trim() : ""
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
     return res
       .status(400)
       .json({ error: "Enter a valid merchant email address." })
   }
-  if (
-    !businessName ||
-    businessName.length > 200 ||
-    !contactPerson ||
-    contactPerson.length > 120 ||
-    !businessAddress ||
-    businessAddress.length > 500 ||
-    phoneNumber.length > 40
-  ) {
-    return res.status(400).json({
-      error:
-        "Business name, authorized contact, and registered address are required; phone number must be 40 characters or fewer.",
-    })
-  }
   const client = await pool.connect()
-  let merchant
   try {
     await client.query("BEGIN")
     const result = await client.query(
-      `INSERT INTO merchant_accounts
-         (email, business_name, contact_person, business_address, phone_number)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO merchant_accounts (email)
+       VALUES ($1)
        RETURNING email, active, business_name AS "businessName", contact_person AS "contactPerson",
          phone_number AS "phoneNumber", business_address AS "businessAddress",
          '' AS "bankName", '' AS "accountName", '' AS "accountNumber",
          NULL AS "usdtAddress",
-         created_at AS "createdAt", updated_at AS "updatedAt",
-         NULL AS "invitationAcceptedAt"`,
-      [email, businessName, contactPerson, businessAddress, phoneNumber],
+         created_at AS "createdAt", updated_at AS "updatedAt"`,
+      [email],
     )
-    merchant = result.rows[0]
     await recordAdminAuditEvent(client, {
       eventKey: `merchant-created:${email}:${randomUUID()}`,
       category: "Merchant account",
       action: "Merchant account created",
       target: email,
       actor: req.adminEmail,
-      summary: `Merchant account access was created for ${businessName}.`,
+      summary: "Merchant account access was created.",
     })
     await client.query("COMMIT")
+    return res.status(201).json(result.rows[0])
   } catch (error) {
     await client.query("ROLLBACK")
     if (error.code === "23505")
@@ -4500,179 +3819,6 @@ app.post("/v1/admin/merchants", async (req, res) => {
   } finally {
     client.release()
   }
-  let agreementId
-  try {
-    agreementId = await sendMerchantInvitationEmail(merchant)
-  } catch (error) {
-    console.error("Merchant invitation pipeline failed", {
-      name: error.name || "unexpected error",
-      message: error.message || "Invitation preparation failed.",
-      merchantEmail: email,
-    })
-    return res.status(503).json({
-      error:
-        "Merchant account was created, but its invitation could not be prepared or sent. Use Resend invitation to retry.",
-    })
-  }
-  const auditClient = await pool.connect()
-  try {
-    await recordAdminAuditEvent(auditClient, {
-      eventKey: `merchant-invitation-sent:${email}:${agreementId}`,
-      category: "Merchant account",
-      action: "Merchant invitation emailed",
-      target: email,
-      actor: req.adminEmail,
-      summary: `Merchant Services Agreement ${agreementId} was generated and emailed to ${email}.`,
-    })
-  } finally {
-    auditClient.release()
-  }
-  return res.status(201).json(merchant)
-})
-
-app.post("/v1/admin/merchants/:email/integration-guide", async (req, res) => {
-  const email =
-    typeof req.params.email === "string"
-      ? req.params.email.trim().toLowerCase()
-      : ""
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
-    return res.status(400).json({ error: "Choose a valid merchant account." })
-  }
-  const result = await pool.query(
-    `SELECT email, active, business_name AS "businessName",
-       contact_person AS "contactPerson"
-     FROM merchant_accounts WHERE email = $1`,
-    [email],
-  )
-  const merchant = result.rows[0]
-  if (!merchant) {
-    return res.status(404).json({ error: "Merchant account was not found." })
-  }
-  if (!merchant.active) {
-    return res.status(409).json({
-      error:
-        "Enable this merchant account before sending its API integration guide.",
-    })
-  }
-  let activation
-  try {
-    activation = await getMerchantActivationProgress(email)
-  } catch (error) {
-    console.error("Merchant activation qualification lookup failed", {
-      name: error.name || "network error",
-      merchantEmail: email,
-    })
-    return res.status(503).json({
-      error:
-        "Could not verify the merchant activation requirements. Try again shortly.",
-    })
-  }
-  if (!activation.fullyActivated) {
-    return res.status(409).json({
-      error:
-        "The API integration guide can be sent after the PHP activation fee is paid and the post-assignment 100 USDT balance is met.",
-      activation: {
-        activationFee: activation.activationFee,
-        usdtBalance: activation.usdtBalance,
-        fullyActivated: activation.fullyActivated,
-      },
-    })
-  }
-  const emailClaim = await pool.query(
-    `UPDATE merchant_accounts SET integration_email_sent_at = NOW()
-     WHERE email = $1 AND active = TRUE AND integration_email_sent_at IS NULL
-     RETURNING integration_email_sent_at`,
-    [email],
-  )
-  try {
-    await sendMerchantActivationEmail(merchant)
-    return res.json({ email, integrationEmailStatus: "sent" })
-  } catch (error) {
-    if (!isMerchantApiIntegrationEmailFailure(error)) throw error
-    if (emailClaim.rowCount) {
-      await pool.query(
-        `UPDATE merchant_accounts SET integration_email_sent_at = NULL
-         WHERE email = $1 AND integration_email_sent_at = $2`,
-        [email, emailClaim.rows[0].integration_email_sent_at],
-      )
-    }
-    return res.status(503).json({
-      error:
-        "The merchant API integration email could not be sent. Try again later.",
-    })
-  }
-})
-
-app.post("/v1/admin/merchants/:email/invitation", async (req, res) => {
-  const email =
-    typeof req.params.email === "string"
-      ? req.params.email.trim().toLowerCase()
-      : ""
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
-    return res.status(400).json({ error: "Choose a valid merchant account." })
-  }
-  const result = await pool.query(
-    `SELECT email, business_name AS "businessName",
-       contact_person AS "contactPerson", phone_number AS "phoneNumber",
-       business_address AS "businessAddress", active,
-       invitation_accepted_at AS "invitationAcceptedAt"
-     FROM merchant_accounts WHERE email = $1`,
-    [email],
-  )
-  const merchant = result.rows[0]
-  if (!merchant) {
-    return res.status(404).json({ error: "Merchant account was not found." })
-  }
-  if (!merchant.active) {
-    return res.status(409).json({
-      error: "Enable this merchant account before sending an invitation.",
-    })
-  }
-  if (merchant.invitationAcceptedAt) {
-    return res.status(409).json({
-      error: "This merchant has already accepted the invitation by signing in.",
-    })
-  }
-  if (
-    !merchant.businessName ||
-    !merchant.contactPerson ||
-    !merchant.businessAddress
-  ) {
-    return res.status(409).json({
-      error:
-        "Complete the merchant business name, authorized contact, and registered address before sending an invitation.",
-    })
-  }
-  let agreementId
-  try {
-    agreementId = await sendMerchantInvitationEmail(merchant, {
-      reuseExistingAgreement: true,
-    })
-  } catch (error) {
-    console.error("Merchant invitation retry pipeline failed", {
-      name: error.name || "unexpected error",
-      message: error.message || "Invitation preparation failed.",
-      merchantEmail: email,
-    })
-    return res.status(503).json({
-      error:
-        "The invitation could not be prepared or sent. Check the email configuration and try again.",
-    })
-  }
-  const client = await pool.connect()
-  try {
-    await recordAdminAuditEvent(client, {
-      eventKey: `merchant-invitation-sent:${email}:${agreementId}`,
-      category: "Merchant account",
-      action: "Merchant invitation emailed",
-      target: email,
-      actor: req.adminEmail,
-      summary: `Merchant Services Agreement ${agreementId} was generated and emailed to ${email}.`,
-    })
-  } finally {
-    client.release()
-  }
-  return res.json({ email, invitationEmailStatus: "sent" })
 })
 
 app.put("/v1/admin/merchants/:email/usdt-wallet", async (req, res) => {
@@ -4690,10 +3836,10 @@ app.put("/v1/admin/merchants/:email/usdt-wallet", async (req, res) => {
       error: "Enter a valid TRON address with a valid Base58Check checksum.",
     })
   }
-  if (address && (tronUsdtNetwork !== "mainnet" || !tatumApiKey)) {
+  if (address && tronUsdtNetwork !== "mainnet") {
     return res.status(503).json({
       error:
-        "Mainnet USDT address assignment requires configured TRON balance lookup.",
+        "Mainnet USDT address assignment is disabled on this API environment.",
     })
   }
   const client = await pool.connect()
@@ -4717,58 +3863,19 @@ app.put("/v1/admin/merchants/:email/usdt-wallet", async (req, res) => {
       }
       wallet = { address: null, network: "TRON_MAINNET" }
     } else {
-      const merchant = await client.query(
-        "SELECT email FROM merchant_accounts WHERE email = $1 FOR UPDATE",
-        [email],
+      const result = await client.query(
+        `INSERT INTO merchant_usdt_wallets (merchant_email, address, network, assigned_by)
+         SELECT email, $2, 'TRON_MAINNET', $3 FROM merchant_accounts WHERE email = $1
+         ON CONFLICT (merchant_email) DO UPDATE SET address = EXCLUDED.address,
+           network = EXCLUDED.network, assigned_by = EXCLUDED.assigned_by, updated_at = NOW()
+         RETURNING address, network`,
+        [email, address, req.adminEmail],
       )
-      if (!merchant.rowCount) {
+      if (!result.rowCount) {
         await client.query("ROLLBACK")
         return res.status(404).json({ error: "Merchant account not found." })
       }
-      const currentWallet = await client.query(
-        `SELECT address, network, assigned_at AS "assignedAt",
-           balance_at_assignment::text AS "balanceAtAssignment"
-         FROM merchant_usdt_wallets WHERE merchant_email = $1 FOR UPDATE`,
-        [email],
-      )
-      if (
-        currentWallet.rows[0]?.address === address &&
-        currentWallet.rows[0]?.balanceAtAssignment !== null
-      ) {
-        wallet = currentWallet.rows[0]
-      } else {
-        let balanceAtAssignment
-        try {
-          balanceAtAssignment = await getTronUsdtBalance(address)
-        } catch (error) {
-          await client.query("ROLLBACK")
-          console.error("Could not capture TRON assignment balance baseline", {
-            name: error.name || "network error",
-            merchantEmail: email,
-          })
-          return res.status(503).json({
-            error:
-              "Could not verify the address balance. No address was assigned; try again shortly.",
-          })
-        }
-        const result = await client.query(
-          `INSERT INTO merchant_usdt_wallets
-             (merchant_email, address, network, assigned_by, assigned_at, balance_at_assignment)
-             SELECT email, $2, 'TRON_MAINNET', $3, clock_timestamp(), $4
-           FROM merchant_accounts WHERE email = $1
-           ON CONFLICT (merchant_email) DO UPDATE SET address = EXCLUDED.address,
-             network = EXCLUDED.network, assigned_by = EXCLUDED.assigned_by,
-               assigned_at = clock_timestamp(), balance_at_assignment = EXCLUDED.balance_at_assignment,
-             updated_at = NOW()
-           RETURNING address, network, assigned_at AS "assignedAt"`,
-          [email, address, req.adminEmail, balanceAtAssignment],
-        )
-        if (!result.rowCount) {
-          await client.query("ROLLBACK")
-          return res.status(404).json({ error: "Merchant account not found." })
-        }
-        wallet = result.rows[0]
-      }
+      wallet = result.rows[0]
     }
     await recordAdminAuditEvent(client, {
       eventKey: `merchant-usdt-wallet:${randomUUID()}`,
@@ -4875,8 +3982,7 @@ app.patch("/v1/admin/merchants/:email", async (req, res) => {
          WHERE email = $1
          RETURNING email, active, business_name AS "businessName", contact_person AS "contactPerson",
            phone_number AS "phoneNumber", business_address AS "businessAddress",
-           created_at AS "createdAt", updated_at AS "updatedAt",
-           invitation_accepted_at AS "invitationAcceptedAt"`,
+           created_at AS "createdAt", updated_at AS "updatedAt"`,
         [
           email,
           nextEmail,
@@ -4929,14 +4035,11 @@ app.patch("/v1/admin/merchants/:email", async (req, res) => {
     }
   }
   const client = await pool.connect()
-  let updatedMerchant
   try {
     await client.query("BEGIN")
     await client.query("SELECT pg_advisory_xact_lock(84172031)")
     const account = await client.query(
-      `SELECT email, active, business_name AS "businessName",
-         contact_person AS "contactPerson"
-       FROM merchant_accounts WHERE email = $1`,
+      "SELECT email FROM merchant_accounts WHERE email = $1",
       [email],
     )
     if (!account.rowCount) {
@@ -4986,14 +4089,13 @@ app.patch("/v1/admin/merchants/:email", async (req, res) => {
       }.`,
     })
     await client.query("COMMIT")
-    updatedMerchant = { ...result.rows[0], ...payout.rows[0] }
+    return res.json({ ...result.rows[0], ...payout.rows[0] })
   } catch (error) {
     await client.query("ROLLBACK")
     throw error
   } finally {
     client.release()
   }
-  return res.json(updatedMerchant)
 })
 
 app.get("/v1/admin/kyb", async (_req, res) => {
@@ -5261,41 +4363,13 @@ app.get(
 app.use("/v1", requireMerchant)
 
 app.get("/v1/crypto/usdt-wallet", cryptoWalletLimiter, async (req, res) => {
+  const wallet = await pool.query(
+    "SELECT address, network FROM merchant_usdt_wallets WHERE merchant_email = $1",
+    [req.merchantEmail],
+  )
+  const assigned = wallet.rows[0]
   const mainnetEnabled = tronUsdtNetwork === "mainnet"
   const ready = Boolean(mainnetEnabled && tatumApiKey)
-  let activation
-  try {
-    activation = await getMerchantActivationProgress(req.merchantEmail)
-  } catch (error) {
-    console.error("TRON mainnet USDT balance lookup failed", {
-      name: error.name || "RPC error",
-      merchantEmail: req.merchantEmail,
-    })
-    return res.status(503).set("Cache-Control", "no-store").json({
-      error: "Could not retrieve the mainnet USDT balance. Try again shortly.",
-    })
-  }
-  let integrationEmailStatus = "not_ready"
-  if (activation.fullyActivated) {
-    try {
-      integrationEmailStatus = await sendMerchantActivationEmailIfQualified(
-        req.merchantEmail,
-        activation,
-      )
-    } catch (error) {
-      if (!isMerchantApiIntegrationEmailFailure(error)) throw error
-      integrationEmailStatus = "failed"
-      console.error("Qualified merchant API guide could not be sent", {
-        merchantEmail: req.merchantEmail,
-      })
-    }
-  }
-  const activationStatus = {
-    activationFee: activation.activationFee,
-    usdtBalance: activation.usdtBalance,
-    fullyActivated: activation.fullyActivated,
-  }
-  const assigned = activation.wallet
   if (!assigned) {
     return res.set("Cache-Control", "no-store").json({
       address: null,
@@ -5303,8 +4377,6 @@ app.get("/v1/crypto/usdt-wallet", cryptoWalletLimiter, async (req, res) => {
       balance: null,
       configured: ready,
       message: "The DRPAY team has not assigned your TRON mainnet address.",
-      activation: activationStatus,
-      integrationEmailStatus,
     })
   }
   if (assigned.network !== "TRON_MAINNET") {
@@ -5315,8 +4387,6 @@ app.get("/v1/crypto/usdt-wallet", cryptoWalletLimiter, async (req, res) => {
       configured: false,
       message:
         "This address is marked as a Shasta testnet address. The DRPAY team must confirm and reassign a production address before mainnet balance lookup.",
-      activation: activationStatus,
-      integrationEmailStatus,
     })
   }
   if (!ready) {
@@ -5327,26 +4397,81 @@ app.get("/v1/crypto/usdt-wallet", cryptoWalletLimiter, async (req, res) => {
       configured: false,
       message:
         "Mainnet USDT balance lookup is disabled or Tatum is not configured on this API service.",
-      activation: activationStatus,
-      integrationEmailStatus,
     })
   }
-  return res.set("Cache-Control", "no-store").json({
-    address: assigned.address,
-    network: "TRON_MAINNET",
-    balance: activation.usdtBalance.currentBalance,
-    qualifyingBalance: activation.usdtBalance.qualifyingBalance,
-    configured: true,
-    message: activation.usdtBalance.message,
-    activation: activationStatus,
-    integrationEmailStatus,
-  })
+  const addressPayload = tronAddressPayload(assigned.address)
+  const contractPayload = tronAddressPayload(tronMainnetUsdtContract)
+  if (!addressPayload || !contractPayload) {
+    return res.status(503).set("Cache-Control", "no-store").json({
+      address: assigned.address,
+      network: "TRON_MAINNET",
+      balance: null,
+      configured: false,
+      message:
+        "The assigned wallet address or official TRON USDT contract is invalid.",
+    })
+  }
+  try {
+    const response = await fetch(
+      "https://tron-mainnet.gateway.tatum.io/wallet/triggerconstantcontract",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": tatumApiKey,
+        },
+        body: JSON.stringify({
+          owner_address: assigned.address,
+          contract_address: tronMainnetUsdtContract,
+          function_selector: "balanceOf(address)",
+          parameter: addressPayload
+            .subarray(1)
+            .toString("hex")
+            .padStart(64, "0"),
+          visible: true,
+        }),
+        signal: AbortSignal.timeout(10_000),
+      },
+    )
+    if (!response.ok) throw new Error(`Tatum returned HTTP ${response.status}`)
+    const result = await response.json()
+    const rawBalance = result?.constant_result?.[0]
+    if (
+      result?.Error ||
+      result?.result?.result !== true ||
+      typeof rawBalance !== "string"
+    ) {
+      throw new Error("Tatum did not return a valid TRC20 contract result")
+    }
+    const balance = formatTokenBalance(rawBalance, tronMainnetUsdtDecimals)
+    if (balance === null)
+      throw new Error("Tatum returned an invalid token balance")
+    return res.set("Cache-Control", "no-store").json({
+      address: assigned.address,
+      network: "TRON_MAINNET",
+      balance,
+      configured: true,
+      message: null,
+    })
+  } catch (error) {
+    console.error(
+      "TRON mainnet USDT balance lookup failed",
+      error.name || "RPC error",
+    )
+    return res.status(503).set("Cache-Control", "no-store").json({
+      address: assigned.address,
+      network: "TRON_MAINNET",
+      balance: null,
+      configured: true,
+      message:
+        "Could not retrieve the mainnet USDT balance. Try again shortly.",
+    })
+  }
 })
 
 app.get("/v1/crypto/usdt-deposits", cryptoWalletLimiter, async (req, res) => {
   const wallet = await pool.query(
-    `SELECT address, network, assigned_at AS "assignedAt"
-     FROM merchant_usdt_wallets WHERE merchant_email = $1`,
+    "SELECT address, network FROM merchant_usdt_wallets WHERE merchant_email = $1",
     [req.merchantEmail],
   )
   const assigned = wallet.rows[0]
@@ -5358,18 +4483,8 @@ app.get("/v1/crypto/usdt-deposits", cryptoWalletLimiter, async (req, res) => {
     return res.set("Cache-Control", "no-store").json({
       deposits: [],
       configured: false,
-      assignedAt: null,
       message:
         "A confirmed TRON mainnet wallet is required to view USDT deposits.",
-    })
-  }
-  const assignedAtMs = new Date(assigned.assignedAt).getTime()
-  if (!Number.isFinite(assignedAtMs)) {
-    return res.status(503).set("Cache-Control", "no-store").json({
-      deposits: [],
-      configured: true,
-      assignedAt: null,
-      message: "The wallet assignment date could not be verified.",
     })
   }
   try {
@@ -5380,7 +4495,6 @@ app.get("/v1/crypto/usdt-deposits", cryptoWalletLimiter, async (req, res) => {
     endpoint.searchParams.set("contract_address", tronMainnetUsdtContract)
     endpoint.searchParams.set("only_confirmed", "true")
     endpoint.searchParams.set("order_by", "block_timestamp,desc")
-    endpoint.searchParams.set("min_timestamp", String(assignedAtMs))
     const headers = { Accept: "application/json" }
     if (tronGridApiKey) headers["TRON-PRO-API-KEY"] = tronGridApiKey
     const response = await fetch(endpoint, {
@@ -5409,7 +4523,7 @@ app.get("/v1/crypto/usdt-deposits", cryptoWalletLimiter, async (req, res) => {
           typeof item?.value === "string" &&
           /^[0-9]+$/.test(item.value) &&
           typeof item?.transaction_id === "string" &&
-          isSinceAssignment(item?.block_timestamp, assigned.assignedAt),
+          Number.isFinite(Number(item?.block_timestamp)),
       )
       .map((item) => ({
         transactionId: item.transaction_id,
@@ -5424,7 +4538,6 @@ app.get("/v1/crypto/usdt-deposits", cryptoWalletLimiter, async (req, res) => {
     return res.set("Cache-Control", "no-store").json({
       deposits,
       configured: true,
-      assignedAt: assigned.assignedAt,
       message: null,
     })
   } catch (error) {
@@ -5435,7 +4548,6 @@ app.get("/v1/crypto/usdt-deposits", cryptoWalletLimiter, async (req, res) => {
     return res.status(503).set("Cache-Control", "no-store").json({
       deposits: [],
       configured: true,
-      assignedAt: assigned.assignedAt,
       message: "Could not retrieve confirmed USDT deposits. Try again shortly.",
     })
   }
@@ -6546,39 +5658,33 @@ app.get("/v1/wallet/activity/trend", async (req, res) => {
   }
 })
 
-async function getKrwPhpQuote() {
-  let result
-  try {
-    result = await pool.query(
-      "SELECT setting_value FROM system_settings WHERE setting_key = 'krw_to_php_rate'",
-    )
-  } catch (error) {
-    console.error("KRW/PHP configured-rate lookup failed", error.message)
-    throw new Error("The KRW/PHP rate configuration could not be loaded.")
-  }
+app.get("/v1/exchange-rates/krw-php", async (_req, res) => {
+  const result = await pool.query(
+    "SELECT setting_value FROM system_settings WHERE setting_key = 'krw_to_php_rate'",
+  )
   const configuredRate = result.rows[0]?.setting_value
   if (configuredRate !== undefined) {
     const rate = Number(configuredRate)
     if (!Number.isFinite(rate) || rate <= 0) {
-      throw new Error(
-        "The configured KRW/PHP exchange-rate override is invalid.",
-      )
+      return res.status(503).json({
+        error: "The configured KRW/PHP exchange-rate override is invalid.",
+      })
     }
-    return {
+    return res.json({
       baseCurrency: "KRW",
       quoteCurrency: "PHP",
       rate,
       date: new Date().toISOString().slice(0, 10),
       updatedAt: new Date().toISOString(),
       source: "DRPAY configured rate",
-    }
+    })
   }
 
   if (
     liveKrwPhpRateCache &&
     Date.now() - liveKrwPhpRateCache.fetchedAt < 60 * 60 * 1000
   ) {
-    return liveKrwPhpRateCache.quote
+    return res.json(liveKrwPhpRateCache.quote)
   }
 
   const controller = new AbortController()
@@ -6615,25 +5721,17 @@ async function getKrwPhpQuote() {
       source: "ExchangeRate-API reference rate",
     }
     liveKrwPhpRateCache = { quote, fetchedAt: Date.now() }
-    return quote
+    return res.json(quote)
   } catch (error) {
     console.error(
       "KRW/PHP live exchange-rate lookup failed",
       error.name === "AbortError" ? "timeout" : error.message,
     )
-    throw new Error(
-      "The live KRW/PHP reference rate is temporarily unavailable.",
-    )
+    return res.status(503).json({
+      error: "The live KRW/PHP reference rate is temporarily unavailable.",
+    })
   } finally {
     clearTimeout(timeout)
-  }
-}
-
-app.get("/v1/exchange-rates/krw-php", async (_req, res) => {
-  try {
-    return res.json(await getKrwPhpQuote())
-  } catch (error) {
-    return res.status(503).json({ error: error.message })
   }
 })
 
@@ -7110,21 +6208,6 @@ app.get("/v1/wallet/activity", async (req, res) => {
         AND d.created_at >= (SELECT created_at FROM merchant_accounts WHERE email = $3)
         AND ($5::date IS NULL OR d.created_at >= $5::date)
         AND ($6::date IS NULL OR d.created_at < $6::date + INTERVAL '1 day')
-      UNION ALL
-      SELECT wallet.id::text, wallet.reference_no AS "referenceNo",
-        NULL::text AS "institutionCode", 'One-time merchant activation fee' AS description,
-        NULL::text AS "institutionName", NULL::text AS "institutionLogoUrl",
-        NULL::text AS "recipientName", NULL::text AS "recipientAccountNumber",
-        NULL::text AS remarks, FALSE AS "isRefund",
-        'Activation fee' AS channel, 'COMPLETED' AS status,
-        wallet.amount::float8 AS amount, wallet.amount::float8 AS "walletAmount",
-        wallet.created_at AS "createdAt", 'ACTIVATION_FEE' AS "transactionType",
-        FALSE AS "canRefund", NULL::text AS "refundStatus"
-      FROM merchant_wallet_ledger wallet
-      WHERE wallet.merchant_email = $3 AND wallet.source_type = 'ACTIVATION_FEE'
-        AND wallet.created_at >= (SELECT created_at FROM merchant_accounts WHERE email = $3)
-        AND ($5::date IS NULL OR wallet.created_at >= $5::date)
-        AND ($6::date IS NULL OR wallet.created_at < $6::date + INTERVAL '1 day')
       ORDER BY "createdAt" DESC LIMIT $1 OFFSET $2
     `,
       [limit, offset, req.merchantEmail, maxTransferAmount, fromDate, toDate],

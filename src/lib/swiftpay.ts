@@ -651,20 +651,25 @@ async function parseResponse<T>(
 ): Promise<T> {
   if (response.ok) return response.json() as Promise<T>
   const body = (await response.json().catch(() => ({}))) as { error?: string }
+  const errorMessage =
+    body.error ===
+    "Pay the one-time PHP activation fee and maintain 100 USDT above the assigned address's starting balance to enable this merchant service."
+      ? "Please pay the required TAX or contact support."
+      : body.error
   if (
     response.status === 502 ||
     response.status === 503 ||
     response.status === 504
   ) {
     throw new ApiError(
-      body.error ||
+      errorMessage ||
         "DRPAY is temporarily unavailable. Please try again in a few minutes.",
       response.status,
     )
   }
   if (response.status === 401 && expireSessionOnUnauthorized) clearSession()
   throw new ApiError(
-    body.error ||
+    errorMessage ||
       (response.status === 401
         ? "Your session has expired. Sign in again."
         : `Request failed (${response.status})`),

@@ -5617,6 +5617,7 @@ export default function App() {
     isMerchantHost ||
     Capacitor.isNativePlatform() ||
     new URLSearchParams(window.location.search).get("signin") === "1" ||
+    window.location.pathname === "/" ||
     window.location.pathname === APP_ROUTES.app ||
     window.location.pathname.startsWith(`${APP_ROUTES.app}/`)
   const [session, setSession] = useState<Session | null>(() =>

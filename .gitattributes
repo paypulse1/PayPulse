@@ -147,5 +147,4 @@
 
 # Static web assets must be included in source clones without Git LFS hydration.
 public/**              -filter -diff -merge
-public/postman/*.json  -filter diff merge
 public/drpay.apk       filter=lfs diff=lfs merge=lfs -text

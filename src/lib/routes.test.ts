@@ -7,10 +7,6 @@ test("super-admin route uses the bossd path", () => {
   assert.equal(APP_ROUTES.admin, "/bossd")
 })
 
-test("home navigation stays on the current hostname", () => {
-  assert.equal(APP_ROUTES.home, "/")
-})
-
 test("marketing Android download serves the public APK asset", () => {
   assert.equal(APP_ROUTES.androidDownload, "/drpay.apk")
 })
@@ -23,17 +19,11 @@ test("legal routes resolve canonical paths and legacy aliases", () => {
   assert.equal(getLegalPage("/unknown"), null)
 })
 
-test("marketing homepage is limited to the public root route", () => {
-  assert.equal(shouldShowMarketingHome("/", "", "denpay.cc"), true)
-  assert.equal(
-    shouldShowMarketingHome("/", "?checkout=abc", "pay.live.denpay.cc"),
-    false,
-  )
-  assert.equal(shouldShowMarketingHome("/", "?signin=1", "denpay.cc"), false)
-  assert.equal(shouldShowMarketingHome("/", "", "merchant.denpay.cc"), false)
-  assert.equal(
-    shouldShowMarketingHome("/", "", "merchant.sandbox.denpay.cc"),
-    false,
-  )
-  assert.equal(shouldShowMarketingHome("/app", "", "denpay.cc"), false)
+test("marketing homepage is available only through its explicit route", () => {
+  assert.equal(shouldShowMarketingHome("/"), false)
+  assert.equal(shouldShowMarketingHome("/?checkout=abc"), false)
+  assert.equal(shouldShowMarketingHome("/?signin=1"), false)
+  assert.equal(shouldShowMarketingHome("/app"), false)
+  assert.equal(shouldShowMarketingHome(APP_ROUTES.marketing), true)
+  assert.equal(shouldShowMarketingHome(`${APP_ROUTES.marketing}/`), true)
 })
