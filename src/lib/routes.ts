@@ -1,5 +1,5 @@
 export const APP_ROUTES = {
-  home: "https://denpay.cc",
+  home: "/",
   app: "/app",
   admin: "/bossd",
   checkout: "/checkout",
