@@ -44,6 +44,36 @@
   background: #e4c478;
 }
 
+.drpay-hero-art {
+  height: auto;
+  min-height: 0;
+  display: block;
+}
+
+.drpay-live-payout-frame {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: var(--surface);
+  box-shadow: 0 24px 60px rgb(11 31 58 / 14%);
+}
+
+.drpay-live-payout-frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 14px;
+}
+
+.drpay-live-payout-frame figcaption {
+  padding: 12px 8px 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
 .drpay-payments {
   position: relative;
   z-index: 1;

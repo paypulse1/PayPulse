@@ -53,14 +53,14 @@ export default function MarketingHome() {
           <div className="drpay-hero-actions"><a className="drpay-button" href={APK_DOWNLOAD_URL}>Download the Android app <span>↗</span></a><a className="drpay-text-link" href="#how">See how it works <span>↓</span></a></div>
           <div className="drpay-proof"><div className="drpay-avatars"><span>AM</span><span>JD</span><span>LK</span><span>+</span></div><span>Trusted by teams that move fast</span></div>
         </div>
-        <div className="drpay-hero-art" aria-label="DRPay payment dashboard preview">
-          <div className="drpay-photo-stack">
-            <img className="drpay-photo drpay-photo-main" src="/marketing/payment-acceptance.jpg" alt="Merchant using DRPay to accept payments" />
-            <img className="drpay-photo drpay-photo-top" src="/marketing/crypto-transaction.jpg" alt="Digital transaction dashboard" />
-            <img className="drpay-photo drpay-photo-bottom" src="/marketing/currency-exchange.jpg" alt="Currency exchange activity" />
-          </div>
-          <div className="drpay-floating-badge drpay-floating-badge-primary">Live payouts</div>
-          <div className="drpay-floating-badge drpay-floating-badge-secondary">+₱48,280</div>
+        <div className="drpay-hero-art">
+          <figure className="drpay-live-payout-frame">
+            <img
+              src="/marketing/drpay-live-payout.jpg"
+              alt="DRPAY confirmation showing an outgoing transfer completed; transaction details are omitted."
+            />
+            <figcaption>Live transaction confirmation in DRPAY</figcaption>
+          </figure>
         </div>
       </section>
 
