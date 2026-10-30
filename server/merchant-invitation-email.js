@@ -18,7 +18,7 @@ export function createMerchantInvitationEmail({
     paragraphs: [
       `${providerName} has invited ${businessName} to set up a merchant account.`,
       "Review and sign the attached Merchant Services Agreement. By signing, you agree to its strict confidentiality, non-disclosure, and data-protection obligations covering all non-public information connected with DRPAY, your account, customers, transactions, services, and this relationship.",
-      "The KRW and USDT guide is included for reference. Review and sign the separate Alipay+ International Payment Services Agreement.",
+      "The KRW and USDT guide is included for reference. Review and sign the attached Alipay+ Service Access and Incorporation Addendum, which is between DRPAY and your business. Any applicable Alipay+, acquirer, or wallet terms will be identified and provided for your review before the related payment service is enabled.",
       "Sign in using this email address and follow the email verification steps.",
     ],
     action: { label: "Open merchant portal", url: invitationUrl },
@@ -33,8 +33,9 @@ export function createMerchantInvitationEmail({
         description: "Reference guide for KRW collections and USDT transfers",
       },
       {
-        name: "Alipay+ International Payment Services Agreement",
-        description: "Separate provider agreement",
+        name: "Alipay+ Service Access and Incorporation Addendum",
+        description:
+          "DRPAY-merchant addendum; third-party service terms are disclosed separately before activation",
       },
     ],
     footerNotes: [

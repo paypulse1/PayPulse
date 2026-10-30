@@ -27,10 +27,13 @@ describe("merchant invitation email", () => {
     expect(email.text).toContain("KRW and USDT guide")
     expect(email.html).toContain("KRW and USDT guide")
     expect(email.text).toContain(
-      "Alipay+ International Payment Services Agreement",
+      "Alipay+ Service Access and Incorporation Addendum",
     )
     expect(email.html).toContain(
-      "Alipay+ International Payment Services Agreement",
+      "Alipay+ Service Access and Incorporation Addendum",
+    )
+    expect(email.text).toContain(
+      "before the related payment service is enabled",
     )
   })
 

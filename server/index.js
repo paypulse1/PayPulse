@@ -68,7 +68,7 @@ import {
 } from "./payment-state.js"
 
 const { Pool } = pg
-const merchantAgreementTemplateVersion = "2026-03-v2-confidentiality"
+const merchantAgreementTemplateVersion = "2026-10-v3-alipay-incorporation"
 const postmanCollectionPath = fileURLToPath(
   new URL(
     "../public/postman/DRPAY-Merchant-API.postman_collection.json",
@@ -750,7 +750,7 @@ async function sendMerchantInvitationEmail(
             content_type: "application/pdf",
           },
           {
-            filename: `Alipay-Plus-International-Payment-Agreement-${agreementId}.pdf`,
+            filename: `DRPAY-Alipay-Plus-Service-Access-Addendum-${agreementId}.pdf`,
             content: alipayPlusAgreement.toString("base64"),
             content_type: "application/pdf",
           },

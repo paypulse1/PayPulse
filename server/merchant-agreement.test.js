@@ -6,7 +6,7 @@ import { createMerchantAgreementPdf } from "./merchant-agreement.js"
 import { createMerchantOnboardingGuidePdf } from "./merchant-onboarding-guide.js"
 
 describe("merchant agreement generation", () => {
-  it("creates a formal Alipay+ agreement with the provider role and signature blocks", async () => {
+  it("creates a formal DRPAY-merchant addendum with identified-term incorporation safeguards", async () => {
     const pdfBytes = await createAlipayPlusAgreementPdf({
       agreementId: "alipay-test-123",
       merchantName: "Example Trading Co.",
@@ -36,22 +36,52 @@ describe("merchant agreement generation", () => {
 
     expect(pdfBytes.subarray(0, 5).toString()).toBe("%PDF-")
     expect(pdf.getTitle()).toBe(
-      "Alipay+ International Payment Services Agreement",
+      "Alipay+ Service Access and Incorporation Addendum",
     )
-    expect(pdf.getPageCount()).toBe(1)
-    expect(agreementText).toContain(
-      "ALIPAY+ INTERNATIONAL PAYMENT SERVICES AGREEMENT",
+    expect(pdf.getPageCount()).toBeGreaterThan(1)
+    const parsedPages = await Promise.all(
+      Array.from({ length: parsedPdf.numPages }, async (_, index) => {
+        const documentPage = await parsedPdf.getPage(index + 1)
+        const text = await documentPage.getTextContent()
+        return text.items
+          .map((item) => ("str" in item ? item.str : ""))
+          .join(" ")
+      }),
     )
-    expect(agreementText).toContain("Alipay+ is the designated provider")
-    expect(agreementText).toContain(
-      "international collection and outbound transfer",
+    const fullAgreementText = parsedPages.join(" ")
+    expect(fullAgreementText).toContain(
+      "SERVICE ACCESS & INCORPORATION ADDENDUM",
+    )
+    expect(fullAgreementText).toContain("DRPAY-MERCHANT CONTRACT")
+    expect(fullAgreementText).toContain(
+      "No third-party terms are incorporated merely by reference",
+    )
+    expect(fullAgreementText).toContain("Alipay+ transactions are enabled")
+    expect(fullAgreementText).toContain(
+      "official Alipay+ merchant page at https://www.alipayplus.com/merchant",
+    )
+    expect(fullAgreementText).toContain("not itself incorporated as a contract")
+    expect(fullAgreementText).toContain(
+      "SCHEDULE A - IDENTIFIED THIRD-PARTY SERVICE TERMS",
+    )
+    expect(fullAgreementText).toContain("Issuing legal entity:")
+    expect(fullAgreementText).toContain(
+      "Merchant acceptance of the completed Service Terms Schedule",
+    )
+    expect(fullAgreementText).toContain(
+      "Alipay+, Ant International, their affiliates",
+    )
+    expect(fullAgreementText).toContain(
+      "not parties to it and do not assume obligations",
+    )
+    expect(fullAgreementText).not.toContain(
+      "Alipay+ is the designated provider",
     )
     expect(agreementText).toContain("Example Trading Co.")
-    expect(agreementText).toContain("SEC-CS20260001")
-    expect(agreementText).toContain("123 Main Street, Manila")
-    expect(agreementText).toContain("2026-03-v2-confidentiality")
-    expect(agreementText).toContain("Authorized representative")
-    expect(agreementText).not.toContain("fee")
+    expect(fullAgreementText).toContain("SEC-CS20260001")
+    expect(fullAgreementText).toContain("123 Main Street, Manila")
+    expect(fullAgreementText).toContain("2026-03-v2-confidentiality")
+    expect(fullAgreementText).toContain("Authorized representative")
     expect(
       operators.fnArray.filter(
         (operator) => operator === pdfjs.OPS.constructPath,
