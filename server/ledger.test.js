@@ -69,6 +69,101 @@ describe("ledger calculations", () => {
 })
 
 describe("collection settlement", () => {
+  it("debits the activation fee once and credits the platform ledger", async () => {
+    const { client, calls } = createClient((sql) => {
+      if (sql.includes("FROM merchant_accounts")) {
+        return { rowCount: 1, rows: [{ email: "merchant@example.com" }] }
+      }
+      if (sql.includes("source_type = 'ACTIVATION_FEE'"))
+        return { rowCount: 0, rows: [] }
+      if (sql.includes("FROM system_settings"))
+        return { rows: [{ setting_value: "5000" }] }
+      if (sql.includes("WITH ledger AS"))
+        return { rows: [{ balance: "6500", reserved: "500" }] }
+      return { rows: [] }
+    })
+    const service = createLedgerService({
+      pool: { connect: vi.fn(async () => client) },
+    })
+
+    await expect(
+      service.chargeMerchantActivationFee("merchant@example.com"),
+    ).resolves.toEqual({
+      paid: true,
+      amount: 5000,
+      availableBalance: 6000,
+    })
+
+    const debit = calls.find(({ sql }) =>
+      sql.includes("INSERT INTO merchant_wallet_ledger"),
+    )
+    const credit = calls.find(({ sql }) =>
+      sql.includes("INSERT INTO platform_fee_ledger"),
+    )
+    expect(debit.parameters[3]).toBe("-5000.00")
+    expect(debit.parameters[4]).toBe("DRPAY-ACTIVATION")
+    expect(credit.parameters[3]).toBe("5000.00")
+    expect(debit.parameters[2]).toBe(credit.parameters[1])
+    expect(calls.map(({ sql }) => sql)).toContain("COMMIT")
+    expect(client.release).toHaveBeenCalledOnce()
+  })
+
+  it("does not charge the activation fee when available funds are insufficient", async () => {
+    const { client, calls } = createClient((sql) => {
+      if (sql.includes("FROM merchant_accounts"))
+        return { rowCount: 1, rows: [{ email: "merchant@example.com" }] }
+      if (sql.includes("source_type = 'ACTIVATION_FEE'"))
+        return { rowCount: 0, rows: [] }
+      if (sql.includes("FROM system_settings"))
+        return { rows: [{ setting_value: "5000" }] }
+      if (sql.includes("WITH ledger AS"))
+        return { rows: [{ balance: "5200", reserved: "300" }] }
+      return { rows: [] }
+    })
+    const service = createLedgerService({
+      pool: { connect: vi.fn(async () => client) },
+    })
+
+    await expect(
+      service.chargeMerchantActivationFee("merchant@example.com"),
+    ).resolves.toEqual({
+      paid: false,
+      amount: 5000,
+      availableBalance: 4900,
+    })
+    expect(
+      calls.some(({ sql }) => sql.includes("INSERT INTO merchant_wallet_ledger")),
+    ).toBe(false)
+    expect(calls.map(({ sql }) => sql)).toContain("COMMIT")
+  })
+
+  it("does not post a second activation fee for an already charged merchant", async () => {
+    const { client, calls } = createClient((sql) => {
+      if (sql.includes("FROM merchant_accounts"))
+        return { rowCount: 1, rows: [{ email: "merchant@example.com" }] }
+      if (sql.includes("source_type = 'ACTIVATION_FEE'"))
+        return { rowCount: 1, rows: [{ amount: "-5000.00" }] }
+      return { rows: [] }
+    })
+    const service = createLedgerService({
+      pool: { connect: vi.fn(async () => client) },
+    })
+
+    await expect(
+      service.chargeMerchantActivationFee("merchant@example.com"),
+    ).resolves.toEqual({
+      paid: true,
+      amount: 5000,
+      availableBalance: null,
+    })
+    expect(
+      calls.some(({ sql }) => sql.includes("INSERT INTO merchant_wallet_ledger")),
+    ).toBe(false)
+    expect(
+      calls.some(({ sql }) => sql.includes("INSERT INTO platform_fee_ledger")),
+    ).toBe(false)
+  })
+
   it("credits net funds and posts the platform fee atomically for manual confirmations", async () => {
     const { client, calls } = createClient((sql) => {
       if (sql.includes("FROM payment_links")) {

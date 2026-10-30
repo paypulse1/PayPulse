@@ -37,6 +37,7 @@ import {
   sendAdminMerchantInvitation,
   reviewAdminFloatingTransferRequest,
   reviewAdminKybApplication,
+  sendAdminMerchantIntegrationGuide,
   updateAdminMerchantAccount,
   updateAdminMerchantUsdtWallet,
   updateAdminSettings,
@@ -140,6 +141,7 @@ export function SuperAdminConsole({
   const [savingMerchant, setSavingMerchant] = useState(false)
   const [savingUsdtAddress, setSavingUsdtAddress] = useState("")
   const [sendingInvitationEmail, setSendingInvitationEmail] = useState("")
+  const [sendingIntegrationGuide, setSendingIntegrationGuide] = useState("")
   const [savingAdjustment, setSavingAdjustment] = useState(false)
   const [reviewingRequestId, setReviewingRequestId] = useState("")
   const [markingPaymentId, setMarkingPaymentId] = useState("")
@@ -541,7 +543,7 @@ export function SuperAdminConsole({
       setNewBusinessAddress("")
       setNewPhoneNumber("")
       setNotice(
-        "Merchant account created. The invitation email and agreement PDF were sent.",
+        "Merchant account created. The invitation was sent; the API guide and Postman collection were sent in a separate email.",
       )
       await loadConsole()
       await refreshAuditEvents()
@@ -575,6 +577,24 @@ export function SuperAdminConsole({
       )
     } finally {
       setSendingInvitationEmail("")
+    }
+  }
+
+  async function resendMerchantIntegrationGuide(account: AdminMerchantAccount) {
+    setSendingIntegrationGuide(account.email)
+    setError("")
+    setNotice("")
+    try {
+      await sendAdminMerchantIntegrationGuide(account.email)
+      setNotice(`API integration guide emailed to ${account.email}.`)
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not send the merchant API integration guide.",
+      )
+    } finally {
+      setSendingIntegrationGuide("")
     }
   }
 
@@ -629,7 +649,11 @@ export function SuperAdminConsole({
             : item,
         ),
       )
-      setNotice(`Merchant account ${account.active ? "disabled" : "enabled"}.`)
+      setNotice(
+        account.active
+          ? "Merchant account disabled."
+          : `Merchant account enabled and API integration guide emailed to ${account.email}.`,
+      )
       await refreshAuditEvents()
     } catch (requestError) {
       setError(
@@ -637,6 +661,12 @@ export function SuperAdminConsole({
           ? requestError.message
           : "Could not update merchant account.",
       )
+      if (
+        requestError instanceof Error &&
+        requestError.message.includes("account is active")
+      ) {
+        await loadConsole()
+      }
     }
   }
 
@@ -2331,6 +2361,21 @@ export function SuperAdminConsole({
                             ? "Sending…"
                             : "Resend invitation"}
                         </button>
+                        <button
+                          type="button"
+                          className="admin-text-action"
+                          onClick={() =>
+                            void resendMerchantIntegrationGuide(account)
+                          }
+                          disabled={
+                            !account.active ||
+                            sendingIntegrationGuide === account.email
+                          }
+                        >
+                          {sendingIntegrationGuide === account.email
+                            ? "Sending…"
+                            : "Resend API guide"}
+                        </button>
                       </div>
                       <form
                         className="admin-usdt-address-form"
@@ -2359,7 +2404,10 @@ export function SuperAdminConsole({
                           <small>
                             Confirm the address belongs to this merchant and is
                             for TRON mainnet. TRON address format alone cannot
-                            distinguish mainnet from testnet.
+                            distinguish mainnet from testnet. Assignment records
+                            its starting balance; changing the address resets
+                            the merchant&apos;s USDT qualification and
+                            deposit-history window.
                           </small>
                         </label>
                         <Button

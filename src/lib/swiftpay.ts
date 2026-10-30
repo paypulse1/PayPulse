@@ -156,9 +156,9 @@ export type PublicCheckout = {
   institutionLogoUrl?: string | null
   institutionDeepLink?: string | null
   checkoutInstructions?: string
-  brandColor?: string;
-  logoUrl?: string;
-};
+  brandColor?: string
+  logoUrl?: string
+}
 
 export type CurrencyQuote = {
   baseCurrency: "KRW"
@@ -211,8 +211,27 @@ export type MerchantUsdtWallet = {
   address: string | null
   network: "TRON_MAINNET" | "TRON_SHASTA"
   balance: string | null
+  qualifyingBalance?: string | null
   configured: boolean
   message: string | null
+  activation?: {
+    activationFee: {
+      requiredAmount: number
+      chargedAmount: number
+      availableWalletBalance: number | null
+      complete: boolean
+    }
+    usdtBalance: {
+      requiredAmount: number
+      currentBalance: string | null
+      qualifyingBalance: string | null
+      assignedAt: string | null
+      complete: boolean
+      message: string | null
+    }
+    fullyActivated: boolean
+  }
+  integrationEmailStatus?: string
 }
 
 export type MerchantUsdtDeposit = {
@@ -226,6 +245,7 @@ export type MerchantUsdtDeposit = {
 export type MerchantUsdtDepositHistory = {
   deposits: MerchantUsdtDeposit[]
   configured: boolean
+  assignedAt?: string | null
   message: string | null
 }
 
@@ -630,7 +650,11 @@ async function parseResponse<T>(
 ): Promise<T> {
   if (response.ok) return response.json() as Promise<T>
   const body = (await response.json().catch(() => ({}))) as { error?: string }
-  if (response.status === 502 || response.status === 503 || response.status === 504) {
+  if (
+    response.status === 502 ||
+    response.status === 503 ||
+    response.status === 504
+  ) {
     throw new ApiError(
       body.error ||
         "DRPAY is temporarily unavailable. Please try again in a few minutes.",
@@ -651,7 +675,8 @@ async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
   try {
     return await fetch(url, options)
   } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") throw error
+    if (error instanceof DOMException && error.name === "AbortError")
+      throw error
   }
 
   throw new ApiError(
@@ -1012,13 +1037,15 @@ function toTransaction(
       : item.description ||
         (isCredit ? "Payment link collection" : "Bank transfer"),
     email: isCredit ? "Money received" : "Money sent",
-    initials: type.includes("DISBURSEMENT")
-      ? "TX"
-      : type.includes("DEPOSIT")
-        ? "DP"
-        : item.channel === "QR Ph checkout"
-          ? "QR"
-          : "PL",
+    initials: type.includes("ACTIVATION_FEE")
+      ? "AF"
+      : type.includes("DISBURSEMENT")
+        ? "TX"
+        : type.includes("DEPOSIT")
+          ? "DP"
+          : item.channel === "QR Ph checkout"
+            ? "QR"
+            : "PL",
     color: ["lime", "blue", "peach", "violet", "mint"][
       index % 5
     ] as Transaction["color"],
@@ -1170,7 +1197,10 @@ export async function createAdminTaxInvoice(
   return backendRequest<PaymentLinkResult>("/v1/admin/tax-invoices", {
     method: "POST",
     headers: { "Idempotency-Key": idempotencyKey },
-    body: JSON.stringify({ ...input, ...(attachmentId ? { attachmentId } : {}) }),
+    body: JSON.stringify({
+      ...input,
+      ...(attachmentId ? { attachmentId } : {}),
+    }),
   })
 }
 
@@ -1336,6 +1366,15 @@ export async function sendAdminMerchantInvitation(
 ): Promise<{ email: string; invitationEmailStatus: "sent" }> {
   return backendRequest(
     `/v1/admin/merchants/${encodeURIComponent(email)}/invitation`,
+    { method: "POST" },
+  )
+}
+
+export async function sendAdminMerchantIntegrationGuide(
+  email: string,
+): Promise<{ email: string; integrationEmailStatus: "sent" }> {
+  return backendRequest(
+    `/v1/admin/merchants/${encodeURIComponent(email)}/integration-guide`,
     { method: "POST" },
   )
 }

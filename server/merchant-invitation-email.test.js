@@ -21,6 +21,17 @@ describe("merchant invitation email", () => {
 
     expect(email.text).toContain("Agreement")
     expect(email.html).toContain("Agreement")
+    expect(email.text).toContain("strict confidentiality, non-disclosure")
+    expect(email.html).toContain("STRICTLY CONFIDENTIAL")
+    expect(email.text).toContain("named recipient")
+    expect(email.text).toContain("KRW and USDT guide")
+    expect(email.html).toContain("KRW and USDT guide")
+    expect(email.text).toContain(
+      "Alipay+ International Payment Services Agreement",
+    )
+    expect(email.html).toContain(
+      "Alipay+ International Payment Services Agreement",
+    )
   })
 
   it("escapes untrusted values in the HTML body", () => {

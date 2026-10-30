@@ -56,6 +56,7 @@ export async function createMerchantAgreementPdf({
   collectionFeePercent = 0.5,
   transferFeeFixed = 15,
   activationFee = 5000,
+  templateVersion = "",
   createdAt = new Date(),
 }) {
   const document = await PDFDocument.create()
@@ -274,7 +275,7 @@ export async function createMerchantAgreementPdf({
 
   drawHeading("CONTRACTING PARTIES")
   drawParagraph(
-    `This Merchant Services Agreement ("Agreement") is entered into by ${providerName} ("${providerName}") and the merchant identified below ("Merchant"). Each party agrees to the terms in this Agreement when its authorized representative signs. The Agreement takes effect on the date of the last signature, subject to the activation condition in Section 3.`,
+    `This Merchant Services Agreement ("Agreement") is entered into by ${providerName} ("${providerName}") and the merchant identified below ("Merchant"). Each party agrees to the terms in this Agreement when its authorized representative signs. The Agreement takes effect on the date of the last signature. The services described here become available subject to the activation requirements in Section 3.`,
   )
   const partyColumnWidth = textWidth / 2 - 20
   const partyNameLines = [
@@ -453,9 +454,13 @@ export async function createMerchantAgreementPdf({
       "The Merchant must keep its business, contact, payout, and verification information accurate and current; protect its passwords, MPIN, verification codes, devices, and API credentials; and promptly report suspected unauthorized access. The Merchant is responsible for its goods and services, customer disclosures, fulfillment, customer support, refunds, and all activity initiated through its account. The Merchant must not use the services for unlawful activity or a business or transaction prohibited by applicable law or payment-network rules.",
     ],
     [
-      "4. Activation and fees",
-      `A one-time account activation fee of PHP ${Number(activationFee).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} is payable from the Merchant's own ${providerName} wallet. ${providerName} will activate interbank transfers and the other merchant services after the full activation fee has been collected and recorded in that wallet. Until then, those services remain inactive.`,
-      `The fees below apply to the Merchant's use of the services. No interbank transfer fee of PHP ${Number(transferFeeFixed).toFixed(2)} is charged for a transfer that does not complete successfully. Fees are stated in Philippine pesos and may be deducted from the relevant merchant wallet or settlement proceeds.`,
+      "3. Service activation requirements",
+      `The one-time account activation fee shown in the confidential fee schedule is debited from the Merchant's available ${providerName} wallet balance and credited to the Super Admin fee wallet. If the available balance is insufficient, the fee will be debited when sufficient settled funds are available. Account sign-in and payment collections may remain available while this fee is pending.`,
+      `Transfers, API integrations, and webhook configuration become available after the activation fee has been paid and the Merchant maintains at least 100 USDT above the balance recorded when the assigned TRON mainnet address was assigned. Funds already at that address do not count toward the requirement. Reassigning the address establishes a new starting balance and transaction-history period. The API integration email is sent after both requirements are met.`,
+    ],
+    [
+      "4. Fees",
+      `The fee schedule below states the commercial fees for the services in Philippine pesos. No interbank transfer fee of PHP ${Number(transferFeeFixed).toFixed(2)} is charged for a transfer that does not complete successfully. Transaction fees may be deducted from the relevant merchant wallet or settlement proceeds.`,
     ],
     [
       "5. Payment processing and settlement",
@@ -466,37 +471,45 @@ export async function createMerchantAgreementPdf({
       "A payment may be reversed, refunded, disputed, or adjusted under applicable law, payment-network rules, or the relevant provider's requirements. The Merchant is responsible for valid refunds and losses attributable to its goods, services, instructions, or breach of this Agreement. DRPAY may delay settlement or restrict funds only to the extent reasonably necessary to investigate a disputed or suspicious transaction, comply with law or a provider requirement, prevent loss, or resolve an amount owed under this Agreement. DRPAY will release any remaining restricted funds when the reason for the restriction has ended, subject to applicable law and provider rules.",
     ],
     [
-      "7. Compliance and information",
+      "7. STRICT CONFIDENTIALITY, NON-DISCLOSURE, AND DATA PROTECTION",
+      "All information disclosed, provided, accessed, observed, or generated in connection with this Agreement or the services is deemed Confidential Information, whether or not it is marked confidential and regardless of its format or means of communication, subject only to the limited exclusions in this Section. This includes the Agreement and its fee schedule; all commercial, financial, operational, technical, security, product, customer, transaction, account, identity-verification, personal, and business information; credentials, keys, records, data, correspondence, and the existence and terms of the parties' relationship.",
+      "The Merchant must hold all Confidential Information in strict confidence, use it solely as necessary to receive the services and perform this Agreement, and must not publish, disclose, transfer, copy, exploit, or make it available to any other person except with DRPAY's prior written consent or as expressly permitted by this Section. Access may be given only to the Merchant's personnel and professional advisers who strictly need it for that purpose and are bound by enforceable confidentiality duties at least as protective as these terms. The Merchant is responsible for their acts and omissions and must apply safeguards no less protective than those used for its own most sensitive information, and never less than reasonable safeguards.",
+      "The Merchant must promptly notify DRPAY upon discovering any actual or suspected loss, unauthorized access, use, disclosure, or compromise of Confidential Information; take immediate steps to contain and mitigate it; preserve relevant evidence; and cooperate with DRPAY's investigation and legally required response. The Merchant must not make any public statement or use DRPAY's name, marks, or relationship for publicity without DRPAY's prior written consent.",
+      "Confidential Information excludes only information the Merchant can demonstrate through contemporaneous written records was lawfully known without restriction before disclosure, becomes public through no breach of this Agreement, is independently developed without use of Confidential Information, or is lawfully received from a third party without a confidentiality duty. If disclosure is required by law or binding order, the Merchant must, to the extent legally permitted, give DRPAY advance written notice, disclose only the minimum legally required, and reasonably assist DRPAY in seeking protective treatment. The Merchant must, upon request or termination, promptly return or securely destroy Confidential Information and certify destruction, except for copies required by law or retained in routine backups that remain protected and inaccessible for ordinary use.",
+      "Each party must comply with applicable privacy and data-protection laws when handling personal data. The Merchant must access and use personal data only for authorized service purposes, limit access to personnel with a legitimate need, implement appropriate technical and organizational safeguards, and promptly notify DRPAY of any actual or suspected personal-data breach involving the services. Confidentiality obligations continue after termination for as long as the information remains non-public, and for personal data for as long as it is protected by applicable law. Nothing in this Section prevents a disclosure required by law or a disclosure to financial institutions and service providers reasonably necessary to provide the services, prevent fraud, or meet legal obligations, provided the disclosure is limited to what is necessary and subject to appropriate confidentiality and data-protection safeguards where available.",
+      "The Merchant acknowledges that unauthorized use or disclosure may cause irreparable harm for which monetary damages may be inadequate. Subject to applicable law, DRPAY may seek injunctive or other equitable relief in addition to any other available remedies. No exception or permitted disclosure waives the confidential status of information not lawfully made public.",
+    ],
+    [
+      "8. Compliance and information",
       "Each party will comply with laws and regulations applicable to it and to the services and transactions under this Agreement, including applicable requirements of the Philippines and the Republic of Korea. The Merchant authorizes DRPAY to use and share its account and transaction information as reasonably necessary to provide the services, verify the Merchant, prevent fraud, meet legal or regulatory obligations, and work with financial institutions and payment providers, subject to applicable data-protection law and DRPAY's privacy notice.",
     ],
     [
-      "8. Security, availability, and suspension",
+      "9. Security, availability, and suspension",
       "The Merchant must use reasonable security measures to protect its account and promptly notify DRPAY of suspected compromise. DRPAY will use reasonable operational measures to provide the services but does not guarantee uninterrupted or error-free availability. DRPAY may suspend or limit access where reasonably necessary to address a security threat, suspected fraud or unlawful activity, a material breach, a legal or provider requirement, or a risk to users or the payment system. Where legally and practically permitted, DRPAY will notify the Merchant of the reason and the steps required to restore access.",
     ],
     [
-      "9. Term and termination",
+      "10. Term and termination",
       "This Agreement continues until terminated. Either party may terminate it by giving the other party 30 days' written notice. DRPAY may terminate or suspend access immediately where required by law or a provider, or where a material breach, fraud, or security risk requires immediate action. Termination does not cancel fees, refunds, disputes, or other obligations incurred before termination. The parties will cooperate in completing or resolving pending transactions, subject to applicable law and provider rules.",
     ],
     [
-      "10. Liability and indemnity",
+      "11. Liability and indemnity",
       "Each party remains responsible for its own acts and omissions. To the extent permitted by applicable law, neither party is liable to the other for indirect or consequential loss that was not reasonably foreseeable when this Agreement was made. Nothing in this Agreement excludes liability that cannot lawfully be excluded. The Merchant will indemnify DRPAY for third-party claims and reasonable direct costs to the extent caused by the Merchant's unlawful activity, its products or services, its breach of this Agreement, or its instructions, except to the extent caused by DRPAY's own breach or misconduct.",
     ],
     [
-      "11. Notices, changes, and entire agreement",
+      "12. Notices, changes, and entire agreement",
       "Notices to the Merchant may be sent to the email address on its account; the Merchant must keep that address current. The Merchant may contact DRPAY at support@denpay.cc. This Agreement and the applicable privacy notice state the agreement between the parties concerning the merchant services and replace prior discussions on that subject. A change to this Agreement is effective only when provided in writing and accepted by both parties, except that DRPAY may make an operational change required by law or a payment provider and will notify the Merchant where required.",
     ],
     [
-      "12. Applicable law and disputes",
+      "13. Applicable law and disputes",
       "The parties will comply with applicable laws and regulations of the Philippines and the Republic of Korea in connection with this Agreement and the services. The parties will first attempt in good faith to resolve a dispute through written notice and discussion. If they cannot resolve it, either party may bring the dispute before a court with jurisdiction under applicable law. Nothing in this clause limits mandatory rights or protections under applicable law.",
     ],
   ]
 
   for (const [heading, ...paragraphs] of terms) {
     drawHeading(heading)
-    if (heading === "4. Activation and fees") {
+    if (heading === "4. Fees") {
       drawParagraph(paragraphs[0])
       drawFeeSchedule()
-      drawParagraph(paragraphs[1])
     } else {
       for (const text of paragraphs) drawParagraph(text)
     }
@@ -583,7 +596,9 @@ export async function createMerchantAgreementPdf({
       color: line,
     })
     currentPage.drawText(
-      `DRPAY Merchant Services Agreement  |  ${agreementId}  |  Page ${index + 1} of ${pages.length}`,
+      `DRPAY Merchant Services Agreement  |  ${agreementId}  |  ${
+        templateVersion ? `v${templateVersion}  |  ` : ""
+      }Page ${index + 1} of ${pages.length}`,
       { x: left, y: 34, size: 7, font: regular, color: muted },
     )
     currentPage.drawText("CONFIDENTIAL", {

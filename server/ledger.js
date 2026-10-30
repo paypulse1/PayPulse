@@ -101,6 +101,113 @@ export function createLedgerService({
     return result.rows[0]
   }
 
+  async function chargeMerchantActivationFee(
+    merchantEmail,
+    transactionClient = null,
+  ) {
+    const ownsClient = !transactionClient
+    const client = transactionClient || (await pool.connect())
+    try {
+      if (ownsClient) await client.query("BEGIN")
+      const account = await client.query(
+        "SELECT email FROM merchant_accounts WHERE email = $1 FOR UPDATE",
+        [merchantEmail],
+      )
+      if (!account.rowCount) {
+        if (ownsClient) await client.query("COMMIT")
+        return { paid: false, amount: 0, availableBalance: 0 }
+      }
+      const existingFee = await client.query(
+        `SELECT amount FROM merchant_wallet_ledger
+         WHERE merchant_email = $1 AND source_type = 'ACTIVATION_FEE'
+         LIMIT 1`,
+        [merchantEmail],
+      )
+      if (existingFee.rowCount) {
+        if (ownsClient) await client.query("COMMIT")
+        return {
+          paid: true,
+          amount: Math.abs(Number(existingFee.rows[0].amount)),
+          availableBalance: null,
+        }
+      }
+      const feeSetting = await client.query(
+        "SELECT setting_value FROM system_settings WHERE setting_key = 'agreement_activation_fee'",
+      )
+      const activationFee = Number(feeSetting.rows[0]?.setting_value ?? 5000)
+      if (
+        !Number.isFinite(activationFee) ||
+        activationFee < 0 ||
+        Math.abs(activationFee * 100 - Math.round(activationFee * 100)) >
+          1e-7
+      ) {
+        throw new Error("The configured merchant activation fee is invalid.")
+      }
+      const wallet = await client.query(
+        `WITH ledger AS (
+           SELECT COALESCE(SUM(amount), 0)::numeric AS balance
+           FROM merchant_wallet_ledger WHERE merchant_email = $1
+         ), reservations AS (
+           SELECT COALESCE(SUM(
+             CASE WHEN d.refund_payment_id IS NOT NULL
+               THEN GREATEST(COALESCE(p.amount, d.amount) - COALESCE(f.amount, 0), 0)
+               ELSE d.amount + d.transfer_fee
+             END
+           ), 0)::numeric AS reserved
+           FROM disbursements d
+           LEFT JOIN payment_links p ON p.id = d.refund_payment_id
+           LEFT JOIN platform_fee_ledger f
+             ON f.source_type = 'COLLECTION' AND f.source_id = p.id
+           WHERE d.merchant_email = $1
+             AND d.status NOT IN ('EXECUTED', 'SUCCESS', 'COMPLETED', 'REJECTED',
+               'ERROR', 'FAILED', 'CANCELED', 'CANCELLED', 'EXPIRED', 'REVERSED')
+         )
+         SELECT ledger.balance::numeric AS balance,
+           reservations.reserved::numeric AS reserved
+         FROM ledger CROSS JOIN reservations`,
+        [merchantEmail],
+      )
+      const availableBalance =
+        Math.round(
+          (Number(wallet.rows[0]?.balance || 0) -
+            Number(wallet.rows[0]?.reserved || 0)) *
+            100,
+        ) / 100
+      if (availableBalance + 0.000001 < activationFee) {
+        if (ownsClient) await client.query("COMMIT")
+        return { paid: false, amount: activationFee, availableBalance }
+      }
+      const sourceId = randomUUID()
+      await client.query(
+        `INSERT INTO merchant_wallet_ledger
+           (id, merchant_email, source_type, source_id, amount, reference_no)
+         VALUES ($1, $2, 'ACTIVATION_FEE', $3, $4, $5)
+         ON CONFLICT (source_type, source_id) DO NOTHING`,
+        [
+          randomUUID(),
+          merchantEmail,
+          sourceId,
+          (-activationFee).toFixed(2),
+          "DRPAY-ACTIVATION",
+        ],
+      )
+      await client.query(
+        `INSERT INTO platform_fee_ledger
+           (id, source_type, source_id, merchant_email, amount)
+         VALUES ($1, 'ACTIVATION_FEE', $2, $3, $4)
+         ON CONFLICT (source_type, source_id) DO NOTHING`,
+        [randomUUID(), sourceId, merchantEmail, activationFee.toFixed(2)],
+      )
+      if (ownsClient) await client.query("COMMIT")
+      return { paid: true, amount: activationFee, availableBalance }
+    } catch (error) {
+      if (ownsClient) await client.query("ROLLBACK")
+      throw error
+    } finally {
+      if (ownsClient) client.release()
+    }
+  }
+
   async function settleSuccessfulCollection(
     paymentId,
     transactionClient = null,
@@ -157,6 +264,7 @@ export function createLedgerService({
           row.reference_no,
         ],
       )
+      await chargeMerchantActivationFee(row.merchant_email, client)
       if (ownsClient) await client.query("COMMIT")
     } catch (error) {
       if (ownsClient) await client.query("ROLLBACK")
@@ -262,6 +370,7 @@ export function createLedgerService({
   }
 
   return {
+    chargeMerchantActivationFee,
     getMerchantWalletState,
     settleSuccessfulCollection,
     updateDisbursementStatus,

@@ -202,6 +202,16 @@ h1, h2, p { margin-top: 0; }
 .crypto-wallet-balance > span, .crypto-wallet-address > span { display: block; color: var(--muted); font-size: 7px; font-weight: 800; letter-spacing: .1em; }
 .crypto-wallet-balance > strong { display: block; margin-top: 5px; color: var(--ink); font-size: 21px; letter-spacing: -.04em; }
 .crypto-wallet-balance small { font-size: 10px; letter-spacing: 0; }
+.crypto-activation { margin: 10px 0; padding: 11px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-soft); }
+.crypto-activation > strong { display: block; font-size: 10px; }
+.crypto-activation > p { margin: 5px 0 8px; color: var(--muted); font-size: 8px; line-height: 1.5; }
+.crypto-activation-milestone { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; }
+.crypto-activation-milestone > span { width: 18px; height: 18px; display: grid; flex: 0 0 18px; place-items: center; border-radius: 50%; background: var(--success-soft); color: var(--success); font-size: 8px; font-weight: 800; }
+.crypto-activation-milestone > div { min-width: 0; }
+.crypto-activation-milestone strong, .crypto-activation-milestone small { display: block; }
+.crypto-activation-milestone strong { font-size: 8px; line-height: 1.45; }
+.crypto-activation-milestone small { margin-top: 3px; color: var(--muted); font-size: 7px; line-height: 1.45; overflow-wrap: anywhere; }
+.crypto-activation .crypto-activation-error { color: var(--danger); }
 .crypto-wallet-address { padding: 10px 11px; border: 1px dashed var(--line); border-radius: 10px; }
 .crypto-wallet-address strong, .crypto-wallet-address small { display: block; }
 .crypto-wallet-address strong { margin-top: 5px; font-size: 9px; }

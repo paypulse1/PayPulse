@@ -37,6 +37,7 @@ Set these secrets directly in Render when prompted:
 - `DRPAY_JWT_SECRET`: random signing secret with at least 32 characters.
 - `RESEND_API_KEY`: API key for sending first-device verification codes, customer payment requests, and payment confirmations through Resend.
 - `RESEND_FROM_EMAIL`: sender address on a domain verified with Resend.
+- `DRPAY_EMAIL_LOGO_URL` (optional): public HTTPS URL for the DRPAY logo shown in all outgoing email templates. Defaults to `https://merchant.denpay.cc/drpay-mark.png`.
 - `FCM_PROJECT_ID`, `FCM_SERVICE_ACCOUNT_EMAIL`, and `FCM_SERVICE_ACCOUNT_PRIVATE_KEY`: Firebase Cloud Messaging server credentials for Android transaction push alerts. Store the private key as a deployment secret; convert escaped `\n` sequences to newlines at runtime.
 - `SWIFTPAY_ACCESS_KEY` and `SWIFTPAY_SECRET_KEY`: credentials for the selected SwiftPay environment.
 - `TATUM_API_KEY`: server-only Tatum RPC credential. Configure only on `drpay-live-api`; never add it to any `VITE_*` variable.
@@ -116,9 +117,11 @@ Create a Cloudflare R2 bucket and an S3 API token scoped to that bucket. Set `R2
 
 Merchants can create and revoke up to 10 active API keys in Profile → Developer settings. Keys are shown once, stored in PostgreSQL only as SHA-256 hashes, and scoped to `read` (wallet, activity, institution lists, internal wallet, and owned payment-link status) and/or `payments:write` (hosted payment-link creation). Each write request must include a unique `Idempotency-Key`. API keys cannot submit disbursements or manage accounts, and are limited to 120 requests per minute per key. Send keys only from trusted servers using `Authorization: Bearer <API_KEY>` over HTTPS.
 
-Webhook settings accept public HTTPS endpoints and optional callback URLs. DRPAY emits `payment.succeeded`, `payment.failed`, `disbursement.succeeded`, and `disbursement.failed` events, signed in the `DRPAY-Signature: sha256=<hex>` header using HMAC-SHA256 over the exact raw JSON body. Each event includes a unique `id`; consumers should deduplicate using that id. Non-2xx/timeout deliveries retry with exponential backoff, up to eight attempts. Profile → Developer settings displays the latest 50 webhook deliveries, last attempt and error, and permits manually queueing an exhausted undelivered event. Saving webhook settings rotates the signing secret, which is returned only once. Requests are pinned to validated public IPv4 or IPv6 addresses and redirects/private destinations are not followed.
+Webhook settings accept public HTTPS endpoints and optional callback URLs. DRPAY emits `payment.succeeded`, `payment.failed`, `disbursement.succeeded`, and `disbursement.failed` events, signed in the `DRPAY-Signature: sha256=<hex>` header using HMAC-SHA256 over the exact raw JSON body. Each event includes a unique `id`; consumers should deduplicate using that id. Non-2xx/timeout deliveries retry with exponential backoff, up to eight attempts. Profile → Developer settings displays the latest 50 webhook deliveries, last attempt and error, and permits manually queueing an exhausted undelivered event. Saving webhook settings rotates the signing secret, which is returned only once. These management endpoints require a signed-in merchant session; merchant API keys cannot manage webhooks. Requests are pinned to validated public IPv4 or IPv6 addresses and redirects/private destinations are not followed.
 
-The full endpoint examples are available in [the Postman collection](./public/postman/DRPAY-Merchant-API.postman_collection.json) and in Profile → API documentation. The API base URL is the configured `VITE_DRPAY_BACKEND_URL`; for Postman, set `baseUrl` to that API origin and `apiKey` to a newly generated merchant key. Do not put production keys in exported collections or browser applications.
+Super Admin account enablement permits sign-in and collections but does not activate the other merchant services. Full service activation requires the one-time PHP activation fee to be debited from the merchant wallet and credited to Super Admin, followed by a minimum 100 USDT balance added above the starting balance recorded when Super Admin assigns the TRON address. Pre-existing funds do not count toward the milestone. If the assigned address changes, its baseline and deposit-history start date reset. Transfers, API-key creation, and webhook setup remain unavailable until both requirements are met; merchant sign-in and collections remain available. The separate API integration email, with the environment-specific PDF and Postman collection, is sent after full activation. It never contains an API key. Merchants create their own environment-specific keys in Profile → Developer settings; each key is shown once and must be stored server-side.
+
+The full endpoint examples are available in [the Postman collection](./public/postman/DRPAY-Merchant-API.postman_collection.json), in the activation-email PDF, and in Profile → API documentation. Set Postman's `baseUrl` to the API URL in the merchant's activation email/API guide, then set `apiKey` to a key generated by that merchant in the same environment. The app's API base is configured by `VITE_DRPAY_BACKEND_URL`. Do not put production keys in exported collections or browser applications.
 
 Supported merchant-key API routes:
 
@@ -126,15 +129,11 @@ Supported merchant-key API routes:
 | --- | --- | --- | --- |
 | `GET` | `/v1/wallet/balance` | `read` | This merchant's posted ledger balance, available balance after pending-transfer reservations, and payment environment |
 | `GET` | `/v1/wallet/activity?limit=50&offset=0` | `read` | This merchant's activity and per-transaction wallet ledger impact; `limit` is 1–100 |
-| `GET` | `/v1/crypto/usdt-deposits` | `read` | Latest 50 confirmed incoming transfers for the assigned TRON mainnet USDT wallet |
+| `GET` | `/v1/crypto/usdt-deposits` | `read` | Latest 50 confirmed incoming transfers since the assigned address's activation start date |
 | `GET` | `/v1/internal-wallet` | `read` | PHP ledger and available balance |
-| `GET` | `/v1/crypto/usdt-wallet` | `read` | Assigned TRON mainnet address and official TRC20 USD₮ balance via Tatum |
+| `GET` | `/v1/crypto/usdt-wallet` | `read` | Assigned TRON mainnet address, current/qualifying balance, activation milestones, and official TRC20 USD₮ balance via Tatum |
 | `GET` | `/v1/payment-institutions` | `read` | Supported collection institutions; includes `deepLink` when SwiftPay supplies a safe app link |
 | `GET` | `/v1/disbursement-institutions` | `read` | Supported transfer institutions |
-| `GET` | `/v1/notifications/preferences` | `read` | Merchant transaction-alert channel and event preferences |
-| `PUT` | `/v1/notifications/preferences` | `read` | Save email/push and successful payment/transfer alert preferences |
-| `GET` | `/v1/webhook/deliveries` | `read` | Latest 50 merchant-scoped webhook delivery outcomes |
-| `POST` | `/v1/webhook/deliveries/:id/retry` | `read` | Queue an exhausted, undelivered webhook event for another attempt |
 | `POST` | `/v1/payment-links` | `payments:write` | Create a hosted QR Ph checkout; requires `Idempotency-Key` |
 | `GET` | `/v1/payment-links/:code` | `read` | Refresh the status of an owned checkout |
 

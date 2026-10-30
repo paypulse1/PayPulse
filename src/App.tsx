@@ -335,13 +335,7 @@ function PaymentLinkActions({ url }: { url: string }) {
   )
 }
 
-function ApiCodeBlock({
-  title,
-  code,
-}: {
-  title: string
-  code: string
-}) {
+function ApiCodeBlock({ title, code }: { title: string; code: string }) {
   const [copyState, setCopyState] = useState("")
 
   async function copyCode() {
@@ -2744,9 +2738,7 @@ function ScannerSheet({
             >
               Pay merchant
             </Button>
-            {merchantQrAction && (
-              <p role="status">{merchantQrAction}</p>
-            )}
+            {merchantQrAction && <p role="status">{merchantQrAction}</p>}
             <Button
               variant="secondary"
               onClick={() => {
@@ -3878,6 +3870,72 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
               : `${wallet.balance} USDT`}
         </strong>
       </div>
+      {wallet?.activation && (
+        <section
+          className="crypto-activation"
+          aria-label="Merchant service activation requirements"
+        >
+          <strong>
+            {wallet.activation.fullyActivated
+              ? "Merchant services activated"
+              : "Complete service activation"}
+          </strong>
+          <p>
+            Sign-in and collections remain available. The PHP activation fee
+            is debited from your merchant wallet and credited to Super Admin.
+            Transfers and API integrations unlock after the fee is paid and the
+            USDT balance requirement is met.
+          </p>
+          <div className="crypto-activation-milestone">
+            <span>{wallet.activation.activationFee.complete ? "✓" : "1"}</span>
+            <div>
+              <strong>One-time PHP activation fee</strong>
+              <small>
+                {wallet.activation.activationFee.complete
+                  ? `PHP ${wallet.activation.activationFee.chargedAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} debited and credited to Super Admin`
+                  : `PHP ${wallet.activation.activationFee.requiredAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} will be debited when available`}
+              </small>
+              {!wallet.activation.activationFee.complete &&
+                wallet.activation.activationFee.availableWalletBalance !==
+                  null && (
+                  <small>
+                    Available merchant wallet balance: PHP{" "}
+                    {wallet.activation.activationFee.availableWalletBalance.toLocaleString(
+                      "en-PH",
+                      { minimumFractionDigits: 2, maximumFractionDigits: 2 },
+                    )}
+                  </small>
+                )}
+            </div>
+          </div>
+          <div className="crypto-activation-milestone">
+            <span>{wallet.activation.usdtBalance.complete ? "✓" : "2"}</span>
+            <div>
+              <strong>
+                Maintain at least 100 USDT after address assignment
+              </strong>
+              <small>
+                Qualifying balance:{" "}
+                {wallet.activation.usdtBalance.qualifyingBalance === null
+                  ? "Unavailable"
+                  : `${wallet.activation.usdtBalance.qualifyingBalance} USDT`}
+                {wallet.activation.usdtBalance.assignedAt
+                  ? ` · assigned ${new Date(wallet.activation.usdtBalance.assignedAt).toLocaleDateString()}`
+                  : ""}
+              </small>
+              {wallet.activation.usdtBalance.message && (
+                <small>{wallet.activation.usdtBalance.message}</small>
+              )}
+            </div>
+          </div>
+          {wallet.integrationEmailStatus === "failed" && (
+            <p className="crypto-activation-error" role="status">
+              Requirements are complete, but the API integration email could not
+              be sent. Ask Super Admin to resend the guide.
+            </p>
+          )}
+        </section>
+      )}
       <div className="crypto-wallet-address">
         <span>DRPAY-ASSIGNED ADDRESS · {addressNetworkLabel}</span>
         <strong className="crypto-wallet-address-value">
@@ -3952,7 +4010,7 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
         ) : (
           <p className="crypto-wallet-feedback" role="status">
             {depositMessage ||
-              "No confirmed USDT deposits found in the latest 50 TRC20 transfers."}
+              "No confirmed USDT deposits found since this address was assigned."}
           </p>
         )}
       </section>
@@ -5076,6 +5134,15 @@ function ProfileInfoPage({
               customer pays on a DRPAY-hosted checkout page; your server
               receives the link and returns it to your customer.
             </p>
+            <p>
+              Account enablement keeps sign-in and collections available.
+              The one-time PHP activation fee is debited from your available
+              merchant wallet balance and credited to Super Admin. Transfers
+              and API integrations unlock after the fee is paid and you add at
+              least 100 USDT above the balance recorded when Super Admin
+              assigns your TRON address. The API guide email is sent after both
+              requirements are confirmed.
+            </p>
           </div>
 
           <section className="api-docs-section">
@@ -5086,6 +5153,14 @@ function ProfileInfoPage({
               <code>payments:write</code> to create collections; choose both
               scopes to use the complete integration. Keys are
               environment-specific.
+            </p>
+            <p>
+              After both activation milestones are complete, DRPAY emails the
+              API guide and payload PDF separately from your invitation. Then
+              generate your own key here; it is shown once and is never
+              included in an email. Set the Postman collection's{" "}
+              <code>apiKey</code> to that key and its <code>baseUrl</code> to
+              the API URL shown below.
             </p>
             <div className="api-docs-base">
               <span>API base URL for this session</span>
@@ -5353,6 +5428,16 @@ export async function createInvoiceCheckout({ amount, invoiceId, customerEmail }
                 <b>GET</b>
                 <code>/v1/internal-wallet</code>
                 <span>read · separate DRPAY-funded floating wallet</span>
+              </div>
+              <div>
+                <b>GET</b>
+                <code>/v1/crypto/usdt-wallet</code>
+                <span>read · assigned wallet, qualifying balance, and activation milestones</span>
+              </div>
+              <div>
+                <b>GET</b>
+                <code>/v1/crypto/usdt-deposits</code>
+                <span>read · confirmed deposits since address assignment</span>
               </div>
             </div>
             <p>

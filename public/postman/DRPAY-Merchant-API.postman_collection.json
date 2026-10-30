@@ -2,103 +2,209 @@
   "info": {
     "_postman_id": "a7b6d83d-d44c-4fe2-bd81-09f0a95f05e8",
     "name": "DRPAY Merchant API",
-    "description": "Merchant-scoped DRPAY API. Create keys in Profile > Developer settings. Keys are shown once and should be stored only in a trusted server environment. Never use a live key in browser code.",
+    "description": "Use a key created by the signed-in merchant in Profile > Developer settings. Keys are environment-specific, shown once, and must be kept server-side. Set baseUrl to the API URL in the activation email or merchant API guide. Only endpoints authorized for merchant-generated API keys are included.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "https://api.example.com" },
-    { "key": "apiKey", "value": "drp_sandbox_replace_me" },
-    { "key": "checkoutCode", "value": "replace_with_checkout_code" },
-    { "key": "idempotencyKey", "value": "{{$guid}}" }
+    {
+      "key": "baseUrl",
+      "value": "https://api.example.com",
+      "type": "string"
+    },
+    {
+      "key": "apiKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "checkoutCode",
+      "value": "replace_with_checkout_code",
+      "type": "string"
+    }
   ],
   "auth": {
     "type": "bearer",
-    "bearer": [{ "key": "token", "value": "{{apiKey}}", "type": "string" }]
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{apiKey}}",
+        "type": "string"
+      }
+    ]
   },
   "item": [
     {
       "name": "Wallet",
+      "description": "Requires a merchant-generated key with the read scope.",
       "item": [
         {
           "name": "Get balance",
           "request": {
             "method": "GET",
-            "header": [{ "key": "Accept", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/v1/wallet/balance",
-            "description": "Read this merchant's posted PHP ledger balance, available balance after pending-transfer reservations, merchant-scoped unsettled-funds progress, and payment environment. The provider-wide pooled balance is never returned."
+            "description": "Returns this merchant's posted PHP balance, available balance after pending-transfer reservations, reserved balance, wallet mode, environment, and cumulative KRW collection amount."
           }
         },
         {
           "name": "Get wallet activity",
           "request": {
             "method": "GET",
-            "header": [{ "key": "Accept", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/v1/wallet/activity?limit=50&offset=0",
-              "host": ["{{baseUrl}}"],
-              "path": ["v1", "wallet", "activity"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "wallet",
+                "activity"
+              ],
               "query": [
-                { "key": "limit", "value": "50" },
-                { "key": "offset", "value": "0" }
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
               ]
             },
-            "description": "Read this merchant's transactions. Completed rows include walletAmount, the signed net impact on this merchant's ledger after collection fees or refund accounting. limit is capped at 100."
+            "description": "Returns merchant-scoped payments and disbursements. limit is capped at 100; offset is zero-based. Optional from/to query parameters use YYYY-MM-DD."
           }
         },
         {
           "name": "Get internal wallet",
           "request": {
             "method": "GET",
-            "header": [{ "key": "Accept", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/v1/internal-wallet",
-            "description": "Read the merchant's PHP ledger balance and available balance."
+            "description": "Returns this merchant's PHP ledger and available balance."
+          }
+        },
+        {
+          "name": "Get USDT wallet",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/v1/crypto/usdt-wallet",
+            "description": "Returns the assigned TRON USDT wallet details and balance, when configured."
+          }
+        },
+        {
+          "name": "List USDT deposits",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/v1/crypto/usdt-deposits",
+            "description": "Lists up to 50 confirmed incoming transfers for this merchant's assigned TRON USDT wallet."
           }
         }
       ]
     },
     {
-      "name": "Payments",
+      "name": "Payment links",
+      "description": "Create links with payments:write. Read status with read. Every payment-link request is restricted to the authenticated merchant.",
       "item": [
         {
           "name": "Create payment link",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Idempotency-Key", "value": "{{idempotencyKey}}" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}",
+                "description": "A unique value per intended payment; reuse only for retries of that same payment."
+              }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"amount\": 125.50,\n  \"currency\": \"PHP\",\n  \"description\": \"Order 10042\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "raw": "{\n  \"amount\": 125.50,\n  \"currency\": \"PHP\",\n  \"description\": \"Invoice 1048\",\n  \"customerEmail\": \"customer@example.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": "{{baseUrl}}/v1/payment-links",
-            "description": "Create a QR Ph hosted checkout. Requires payments:write scope and a unique Idempotency-Key for each payment request. On ambiguous gateway outcomes, reconcile before retrying."
+            "description": "Requires payments:write. amount must be positive PHP with up to two decimals; description is required and up to 100 characters; customerEmail is optional. The Idempotency-Key must be 16-100 characters and use letters, digits, ., _, :, or -."
           }
         },
         {
           "name": "Get payment status",
           "request": {
             "method": "GET",
-            "header": [{ "key": "Accept", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/v1/payment-links/{{checkoutCode}}",
-            "description": "Get a checkout status owned by the authenticated merchant. Requires read scope."
+            "description": "Requires read. Retrieves only a payment link owned by the authenticated merchant. Treat EXECUTED as confirmed payment; link creation alone does not mean paid."
           }
         },
         {
           "name": "List payment institutions",
           "request": {
             "method": "GET",
-            "header": [{ "key": "Accept", "value": "application/json" }],
-            "url": "{{baseUrl}}/v1/payment-institutions"
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/v1/payment-institutions",
+            "description": "Requires read. Returns enabled collection institutions and safe deep links when provided."
           }
         },
         {
           "name": "List disbursement institutions",
           "request": {
             "method": "GET",
-            "header": [{ "key": "Accept", "value": "application/json" }],
-            "url": "{{baseUrl}}/v1/disbursement-institutions"
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/v1/disbursement-institutions",
+            "description": "Requires read. Optionally add channel=INSTAPAY or channel=PESONET."
           }
         }
       ]
