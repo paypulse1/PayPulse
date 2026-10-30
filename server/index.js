@@ -31,6 +31,7 @@ import {
   createPaymentInvoicePdf,
   createPaymentReceiptPdf,
 } from "./payment-documents.js"
+import { createMerchantAgreementPdf } from "./merchant-agreement.js"
 import {
   hasApiKeyPermission,
   isMerchantSession,
@@ -526,6 +527,175 @@ function escapeEmailHtml(value) {
         "'": "&#39;",
       })[character],
   )
+}
+
+async function getMerchantAgreementConfiguration() {
+  const result = await pool.query(
+    `SELECT setting_key, setting_value FROM system_settings
+     WHERE setting_key = ANY($1)`,
+    [[
+      "agreement_provider_name",
+      "agreement_provider_address",
+      "agreement_provider_registration",
+      "collection_fee_percent",
+      "transfer_fee_fixed",
+      "agreement_activation_fee",
+    ]],
+  )
+  const settings = Object.fromEntries(
+    result.rows.map((row) => [row.setting_key, row.setting_value]),
+  )
+  const configuration = {
+    providerName: settings.agreement_provider_name?.trim() || "DRPAY",
+    providerAddress: settings.agreement_provider_address?.trim() || "",
+    providerRegistrationNumber:
+      settings.agreement_provider_registration?.trim() || "",
+    collectionFeePercent: Number(settings.collection_fee_percent ?? 0),
+    transferFeeFixed: Number(settings.transfer_fee_fixed ?? 0),
+    activationFee: Number(settings.agreement_activation_fee ?? 5000),
+  }
+  if (
+    !Number.isFinite(configuration.collectionFeePercent) ||
+    configuration.collectionFeePercent < 0 ||
+    configuration.collectionFeePercent > 100 ||
+    !Number.isFinite(configuration.transferFeeFixed) ||
+    configuration.transferFeeFixed < 0 ||
+    !Number.isFinite(configuration.activationFee) ||
+    configuration.activationFee < 0
+  ) {
+    throw new Error("Merchant agreement configuration is invalid.")
+  }
+  return configuration
+}
+
+async function sendMerchantInvitationEmail(
+  merchant,
+  { reuseExistingAgreement = false } = {},
+) {
+  if (!resendApiKey || !resendFromEmail || !frontendOrigin) {
+    throw new Error("Merchant invitation email is not configured.")
+  }
+  const existingAgreement = reuseExistingAgreement
+    ? await pool.query(
+        `SELECT id, agreement_pdf AS "agreementPdf",
+           settings_snapshot AS "settingsSnapshot"
+         FROM merchant_agreement_documents
+         WHERE merchant_email = $1
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [merchant.email],
+      )
+    : null
+  let agreementId
+  let agreement
+  let agreementConfiguration
+  if (existingAgreement?.rows[0]) {
+    const saved = existingAgreement.rows[0]
+    agreementId = saved.id
+    agreement = Buffer.from(saved.agreementPdf)
+    agreementConfiguration = saved.settingsSnapshot
+  } else {
+    agreementId = randomUUID()
+    agreementConfiguration = await getMerchantAgreementConfiguration()
+    agreement = await createMerchantAgreementPdf({
+      agreementId,
+      merchantEmail: merchant.email,
+      businessName: merchant.businessName,
+      contactPerson: merchant.contactPerson,
+      businessAddress: merchant.businessAddress,
+      phoneNumber: merchant.phoneNumber,
+      ...agreementConfiguration,
+    })
+    await pool.query(
+      `INSERT INTO merchant_agreement_documents
+         (id, merchant_email, agreement_pdf, settings_snapshot)
+       VALUES ($1, $2, $3, $4::jsonb)`,
+      [
+        agreementId,
+        merchant.email,
+        agreement,
+        JSON.stringify(agreementConfiguration),
+      ],
+    )
+  }
+  const invitationUrl = new URL("/", frontendOrigin).toString()
+  const businessName = merchant.businessName || "your business"
+  const collectionFee = `${agreementConfiguration.collectionFeePercent}%`
+  const transferFee = `PHP ${Number(agreementConfiguration.transferFeeFixed).toFixed(2)}`
+  const activationFee = `PHP ${Number(agreementConfiguration.activationFee).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const providerName = agreementConfiguration.providerName
+  let response
+  try {
+    response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${resendApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: resendFromEmail,
+        to: [merchant.email],
+        subject: `Your ${providerName} merchant invitation and agreement`,
+        text: [
+          `Hello ${merchant.contactPerson},`,
+          "",
+          `${providerName} has invited ${businessName} to set up a merchant account.`,
+          "Your personalized Merchant Services Agreement is attached for signature.",
+          `The agreement includes a ${collectionFee} successful-collection fee, a ${transferFee} successful interbank-transfer fee, and a one-time ${activationFee} activation fee. Interbank transfers and other merchant services activate after the activation fee has been collected in your ${providerName} wallet.`,
+          "",
+          `To begin, visit the DRPAY merchant portal: ${invitationUrl}`,
+          "Sign in using this email address and follow the email verification steps.",
+          "",
+          "Please do not reply with passwords, MPINs, or one-time verification codes.",
+          "",
+          providerName,
+        ].join("\n"),
+        html: `
+        <div style="font-family:Arial,Helvetica,sans-serif;color:#17231d;line-height:1.6">
+          <h1 style="color:#163c2a">Your ${escapeEmailHtml(providerName)} merchant invitation</h1>
+          <p>Hello ${escapeEmailHtml(merchant.contactPerson)},</p>
+          <p>${escapeEmailHtml(providerName)} has invited <strong>${escapeEmailHtml(businessName)}</strong> to set up a merchant account.</p>
+          <p>Your personalized Merchant Services Agreement is attached for signature.</p>
+          <p>The agreement includes a ${escapeEmailHtml(collectionFee)} successful-collection fee, a ${escapeEmailHtml(transferFee)} successful interbank-transfer fee, and a one-time ${escapeEmailHtml(activationFee)} activation fee. Interbank transfers and other merchant services activate after the activation fee has been collected in your ${escapeEmailHtml(providerName)} wallet.</p>
+          <p><a href="${escapeEmailHtml(invitationUrl)}" style="display:inline-block;padding:12px 18px;background:#163c2a;color:#fff;text-decoration:none;border-radius:6px">Open merchant portal</a></p>
+          <p>Sign in using this email address and follow the email verification steps.</p>
+          <p style="color:#58665e;font-size:12px">Never send passwords, MPINs, or one-time verification codes by email.</p>
+        </div>
+      `,
+        attachments: [
+          {
+            filename: `DRPAY-Merchant-Agreement-${agreementId}.pdf`,
+            content: agreement.toString("base64"),
+            content_type: "application/pdf",
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(15_000),
+    })
+  } catch (error) {
+    console.error("Resend merchant invitation delivery failed", {
+      name: error.name || "network error",
+      merchantEmail: merchant.email,
+    })
+    throw new Error("Merchant invitation email could not be sent.")
+  }
+  if (!response.ok) {
+    const body = await response.json().catch(() => null)
+    const providerMessage =
+      typeof body?.message === "string"
+        ? body.message
+            .replace(/[\w.+-]+@([\w.-]+\.[A-Za-z]{2,})/g, "[redacted]@$1")
+            .replace(/Bearer\s+\S+/gi, "******")
+        : "No provider message"
+    console.error("Resend merchant invitation failed", {
+      status: response.status,
+      name: typeof body?.name === "string" ? body.name : "provider error",
+      message: providerMessage,
+      merchantEmail: merchant.email,
+    })
+    throw new Error("Merchant invitation email could not be sent.")
+  }
+  return agreementId
 }
 
 async function sendTransactionEmail(notification) {
@@ -1213,6 +1383,16 @@ async function initializeDatabase() {
       setting_value TEXT NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS merchant_agreement_documents (
+      id UUID PRIMARY KEY,
+      merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+      agreement_pdf BYTEA NOT NULL,
+      settings_snapshot JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS merchant_agreement_documents_merchant_created_idx
+      ON merchant_agreement_documents (merchant_email, created_at DESC);
     CREATE TABLE IF NOT EXISTS internal_wallet_adjustments (
       id UUID PRIMARY KEY,
       merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email),
@@ -3329,6 +3509,10 @@ app.get("/v1/admin/settings", async (_req, res) => {
         "usdt_network",
         "collection_fee_percent",
         "transfer_fee_fixed",
+        "agreement_provider_name",
+        "agreement_provider_address",
+        "agreement_provider_registration",
+        "agreement_activation_fee",
       ],
     ],
   )
@@ -3349,16 +3533,24 @@ app.get("/v1/admin/settings", async (_req, res) => {
   }
   const collectionFeePercent = Number(settings.collection_fee_percent || 0)
   const transferFeeFixed = Number(settings.transfer_fee_fixed || 0)
+  const agreementActivationFee = Number(
+    settings.agreement_activation_fee ?? 5000,
+  )
+  const agreementProviderName = settings.agreement_provider_name || "DRPAY"
   if (
     !Number.isFinite(collectionFeePercent) ||
     collectionFeePercent < 0 ||
     collectionFeePercent > 100 ||
     !Number.isFinite(transferFeeFixed) ||
-    transferFeeFixed < 0
+    transferFeeFixed < 0 ||
+    !Number.isFinite(agreementActivationFee) ||
+    agreementActivationFee < 0 ||
+    !agreementProviderName.trim() ||
+    agreementProviderName.length > 160
   ) {
     return res
       .status(503)
-      .json({ error: "The configured collection or transfer fee is invalid." })
+      .json({ error: "The configured merchant agreement or transaction fee is invalid." })
   }
   return res.json({
     krwToPhpRate: rate,
@@ -3366,6 +3558,11 @@ app.get("/v1/admin/settings", async (_req, res) => {
     usdtNetwork: settings.usdt_network || "",
     collectionFeePercent,
     transferFeeFixed,
+    agreementProviderName,
+    agreementProviderAddress: settings.agreement_provider_address || "",
+    agreementProviderRegistration:
+      settings.agreement_provider_registration || "",
+    agreementActivationFee,
     superAdminFeeWallet: feeWallet.rows[0].balance,
   })
 })
@@ -3375,6 +3572,19 @@ app.put("/v1/admin/settings", async (req, res) => {
   const rate = rawRate === null || rawRate === "" ? null : Number(rawRate)
   const collectionFeePercent = Number(req.body?.collectionFeePercent)
   const transferFeeFixed = Number(req.body?.transferFeeFixed)
+  const agreementProviderName =
+    typeof req.body?.agreementProviderName === "string"
+      ? req.body.agreementProviderName.trim()
+      : ""
+  const agreementProviderAddress =
+    typeof req.body?.agreementProviderAddress === "string"
+      ? req.body.agreementProviderAddress.trim()
+      : ""
+  const agreementProviderRegistration =
+    typeof req.body?.agreementProviderRegistration === "string"
+      ? req.body.agreementProviderRegistration.trim()
+      : ""
+  const agreementActivationFee = Number(req.body?.agreementActivationFee)
   const usdtAddress =
     typeof req.body?.usdtAddress === "string" ? req.body.usdtAddress.trim() : ""
   const usdtNetwork =
@@ -3404,6 +3614,29 @@ app.put("/v1/admin/settings", async (req, res) => {
         "Transfer fee must be a non-negative PHP amount with no more than two decimal places.",
     })
   }
+  if (
+    !agreementProviderName ||
+    agreementProviderName.length > 160 ||
+    agreementProviderAddress.length > 500 ||
+    agreementProviderRegistration.length > 120
+  ) {
+    return res.status(400).json({
+      error:
+        "Enter a provider name of 160 characters or fewer; address and registration details must be 500 and 120 characters or fewer.",
+    })
+  }
+  if (
+    !Number.isFinite(agreementActivationFee) ||
+    agreementActivationFee < 0 ||
+    agreementActivationFee > 1_000_000 ||
+    Math.abs(agreementActivationFee * 100 - Math.round(agreementActivationFee * 100)) >
+      1e-7
+  ) {
+    return res.status(400).json({
+      error:
+        "Agreement activation fee must be a non-negative PHP amount with no more than two decimal places.",
+    })
+  }
   if ((usdtAddress && !usdtNetwork) || (!usdtAddress && usdtNetwork)) {
     return res.status(400).json({
       error: "Set both the USDT address and its network, or leave both empty.",
@@ -3424,6 +3657,10 @@ app.put("/v1/admin/settings", async (req, res) => {
       ["usdt_network", usdtNetwork || null],
       ["collection_fee_percent", String(collectionFeePercent)],
       ["transfer_fee_fixed", transferFeeFixed.toFixed(2)],
+      ["agreement_provider_name", agreementProviderName],
+      ["agreement_provider_address", agreementProviderAddress],
+      ["agreement_provider_registration", agreementProviderRegistration],
+      ["agreement_activation_fee", agreementActivationFee.toFixed(2)],
     ]
     for (const [key, value] of entries) {
       if (value === null) {
@@ -3449,7 +3686,7 @@ app.put("/v1/admin/settings", async (req, res) => {
       actor: req.adminEmail,
       summary: `Collection fee ${collectionFeePercent}%; transfer fee PHP ${transferFeeFixed.toFixed(2)}; ${
         rate === null ? "automatic KRW/PHP rate" : `manual KRW/PHP rate ${rate}`
-      }; USDT receiving configuration ${usdtAddress ? "updated" : "cleared"}.`,
+      }; agreement provider ${agreementProviderName}, activation fee PHP ${agreementActivationFee.toFixed(2)}; USDT receiving configuration ${usdtAddress ? "updated" : "cleared"}.`,
     })
     await client.query("COMMIT")
     const feeWallet = await pool.query(
@@ -3461,6 +3698,10 @@ app.put("/v1/admin/settings", async (req, res) => {
       usdtNetwork,
       collectionFeePercent,
       transferFeeFixed,
+      agreementProviderName,
+      agreementProviderAddress,
+      agreementProviderRegistration,
+      agreementActivationFee,
       superAdminFeeWallet: feeWallet.rows[0].balance,
     })
   } catch (error) {
@@ -3781,34 +4022,64 @@ app.post("/v1/admin/merchants", async (req, res) => {
     typeof req.body?.email === "string"
       ? req.body.email.trim().toLowerCase()
       : ""
+  const businessName =
+    typeof req.body?.businessName === "string"
+      ? req.body.businessName.trim()
+      : ""
+  const contactPerson =
+    typeof req.body?.contactPerson === "string"
+      ? req.body.contactPerson.trim()
+      : ""
+  const businessAddress =
+    typeof req.body?.businessAddress === "string"
+      ? req.body.businessAddress.trim()
+      : ""
+  const phoneNumber =
+    typeof req.body?.phoneNumber === "string" ? req.body.phoneNumber.trim() : ""
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
     return res
       .status(400)
       .json({ error: "Enter a valid merchant email address." })
   }
+  if (
+    !businessName ||
+    businessName.length > 200 ||
+    !contactPerson ||
+    contactPerson.length > 120 ||
+    !businessAddress ||
+    businessAddress.length > 500 ||
+    phoneNumber.length > 40
+  ) {
+    return res.status(400).json({
+      error:
+        "Business name, authorized contact, and registered address are required; phone number must be 40 characters or fewer.",
+    })
+  }
   const client = await pool.connect()
+  let merchant
   try {
     await client.query("BEGIN")
     const result = await client.query(
-      `INSERT INTO merchant_accounts (email)
-       VALUES ($1)
+      `INSERT INTO merchant_accounts
+         (email, business_name, contact_person, business_address, phone_number)
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING email, active, business_name AS "businessName", contact_person AS "contactPerson",
          phone_number AS "phoneNumber", business_address AS "businessAddress",
          '' AS "bankName", '' AS "accountName", '' AS "accountNumber",
          NULL AS "usdtAddress",
          created_at AS "createdAt", updated_at AS "updatedAt"`,
-      [email],
+      [email, businessName, contactPerson, businessAddress, phoneNumber],
     )
+    merchant = result.rows[0]
     await recordAdminAuditEvent(client, {
       eventKey: `merchant-created:${email}:${randomUUID()}`,
       category: "Merchant account",
       action: "Merchant account created",
       target: email,
       actor: req.adminEmail,
-      summary: "Merchant account access was created.",
+      summary: `Merchant account access was created for ${businessName}.`,
     })
     await client.query("COMMIT")
-    return res.status(201).json(result.rows[0])
   } catch (error) {
     await client.query("ROLLBACK")
     if (error.code === "23505")
@@ -3818,6 +4089,99 @@ app.post("/v1/admin/merchants", async (req, res) => {
     throw error
   } finally {
     client.release()
+  }
+  try {
+    const agreementId = await sendMerchantInvitationEmail(merchant)
+    const auditClient = await pool.connect()
+    try {
+      await recordAdminAuditEvent(auditClient, {
+        eventKey: `merchant-invitation-sent:${email}:${agreementId}`,
+        category: "Merchant account",
+        action: "Merchant invitation emailed",
+        target: email,
+        actor: req.adminEmail,
+        summary: `Merchant Services Agreement ${agreementId} was generated and emailed to ${email}.`,
+      })
+    } finally {
+      auditClient.release()
+    }
+    return res.status(201).json(merchant)
+  } catch (error) {
+    if (
+      error.message !== "Merchant invitation email could not be sent." &&
+      error.message !== "Merchant invitation email is not configured."
+    ) {
+      throw error
+    }
+    return res.status(503).json({
+      error:
+        "Merchant account was created, but the invitation email could not be sent. Use Resend invitation to retry.",
+    })
+  }
+})
+
+app.post("/v1/admin/merchants/:email/invitation", async (req, res) => {
+  const email =
+    typeof req.params.email === "string"
+      ? req.params.email.trim().toLowerCase()
+      : ""
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+    return res.status(400).json({ error: "Choose a valid merchant account." })
+  }
+  const result = await pool.query(
+    `SELECT email, business_name AS "businessName",
+       contact_person AS "contactPerson", phone_number AS "phoneNumber",
+       business_address AS "businessAddress", active
+     FROM merchant_accounts WHERE email = $1`,
+    [email],
+  )
+  const merchant = result.rows[0]
+  if (!merchant) {
+    return res.status(404).json({ error: "Merchant account was not found." })
+  }
+  if (!merchant.active) {
+    return res.status(409).json({
+      error: "Enable this merchant account before sending an invitation.",
+    })
+  }
+  if (
+    !merchant.businessName ||
+    !merchant.contactPerson ||
+    !merchant.businessAddress
+  ) {
+    return res.status(409).json({
+      error:
+        "Complete the merchant business name, authorized contact, and registered address before sending an invitation.",
+    })
+  }
+  try {
+    const agreementId = await sendMerchantInvitationEmail(merchant, {
+      reuseExistingAgreement: true,
+    })
+    const client = await pool.connect()
+    try {
+      await recordAdminAuditEvent(client, {
+        eventKey: `merchant-invitation-sent:${email}:${agreementId}`,
+        category: "Merchant account",
+        action: "Merchant invitation emailed",
+        target: email,
+        actor: req.adminEmail,
+        summary: `Merchant Services Agreement ${agreementId} was generated and emailed to ${email}.`,
+      })
+    } finally {
+      client.release()
+    }
+    return res.json({ email, invitationEmailStatus: "sent" })
+  } catch (error) {
+    if (
+      error.message !== "Merchant invitation email could not be sent." &&
+      error.message !== "Merchant invitation email is not configured."
+    ) {
+      throw error
+    }
+    return res.status(503).json({
+      error: "Merchant invitation email could not be sent. Try again later.",
+    })
   }
 })
 

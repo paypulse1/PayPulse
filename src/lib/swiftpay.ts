@@ -175,6 +175,10 @@ export type AdminSettings = {
   usdtNetwork: string
   collectionFeePercent: number
   transferFeeFixed: number
+  agreementProviderName: string
+  agreementProviderAddress: string
+  agreementProviderRegistration: string
+  agreementActivationFee: number
   superAdminFeeWallet: number
 }
 
@@ -625,13 +629,14 @@ async function parseResponse<T>(
   expireSessionOnUnauthorized = true,
 ): Promise<T> {
   if (response.ok) return response.json() as Promise<T>
+  const body = (await response.json().catch(() => ({}))) as { error?: string }
   if (response.status === 502 || response.status === 503 || response.status === 504) {
     throw new ApiError(
-      "DRPAY is temporarily unavailable. Please try again in a few minutes.",
+      body.error ||
+        "DRPAY is temporarily unavailable. Please try again in a few minutes.",
       response.status,
     )
   }
-  const body = (await response.json().catch(() => ({}))) as { error?: string }
   if (response.status === 401 && expireSessionOnUnauthorized) clearSession()
   throw new ApiError(
     body.error ||
@@ -1315,11 +1320,24 @@ export async function createMerchantFloatingTransferRequest(input: {
 
 export async function createAdminMerchantAccount(input: {
   email: string
+  businessName: string
+  contactPerson: string
+  businessAddress: string
+  phoneNumber: string
 }): Promise<AdminMerchantAccount> {
   return backendRequest<AdminMerchantAccount>("/v1/admin/merchants", {
     method: "POST",
     body: JSON.stringify(input),
   })
+}
+
+export async function sendAdminMerchantInvitation(
+  email: string,
+): Promise<{ email: string; invitationEmailStatus: "sent" }> {
+  return backendRequest(
+    `/v1/admin/merchants/${encodeURIComponent(email)}/invitation`,
+    { method: "POST" },
+  )
 }
 
 export async function updateAdminMerchantAccount(

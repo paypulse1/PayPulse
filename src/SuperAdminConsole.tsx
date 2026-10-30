@@ -33,6 +33,7 @@ import {
   getAdminKybApplications,
   createAdminTaxInvoice,
   markAdminPaymentLinkPaid,
+  sendAdminMerchantInvitation,
   reviewAdminFloatingTransferRequest,
   reviewAdminKybApplication,
   updateAdminMerchantAccount,
@@ -88,6 +89,10 @@ export function SuperAdminConsole({
     usdtNetwork: "",
     collectionFeePercent: 0,
     transferFeeFixed: 0,
+    agreementProviderName: "DRPAY",
+    agreementProviderAddress: "",
+    agreementProviderRegistration: "",
+    agreementActivationFee: 5000,
     superAdminFeeWallet: 0,
   })
   const [merchants, setMerchants] = useState<AdminMerchantAccount[]>([])
@@ -125,10 +130,15 @@ export function SuperAdminConsole({
   const [adjustmentAmount, setAdjustmentAmount] = useState("")
   const [adjustmentReason, setAdjustmentReason] = useState("")
   const [newEmail, setNewEmail] = useState("")
+  const [newBusinessName, setNewBusinessName] = useState("")
+  const [newContactPerson, setNewContactPerson] = useState("")
+  const [newBusinessAddress, setNewBusinessAddress] = useState("")
+  const [newPhoneNumber, setNewPhoneNumber] = useState("")
   const [loading, setLoading] = useState(true)
   const [savingSettings, setSavingSettings] = useState(false)
   const [savingMerchant, setSavingMerchant] = useState(false)
   const [savingUsdtAddress, setSavingUsdtAddress] = useState("")
+  const [sendingInvitationEmail, setSendingInvitationEmail] = useState("")
   const [savingAdjustment, setSavingAdjustment] = useState(false)
   const [reviewingRequestId, setReviewingRequestId] = useState("")
   const [markingPaymentId, setMarkingPaymentId] = useState("")
@@ -299,11 +309,12 @@ export function SuperAdminConsole({
           currency: "PHP",
           date: request.reviewedAt || request.requestedAt,
           actor: request.reviewedBy || "",
-          summary:
-            request.payoutReference
-              ? `Payout reference ${request.payoutReference}${request.payoutNote ? ` · ${request.payoutNote}` : ""}`
-              : request.failureReason ||
-                `Transfer fee PHP ${request.transferFee.toFixed(2)}`,
+          summary: request.payoutReference
+            ? `Payout reference ${request.payoutReference}${
+                request.payoutNote ? ` · ${request.payoutNote}` : ""
+              }`
+            : request.failureReason ||
+              `Transfer fee PHP ${request.transferFee.toFixed(2)}`,
         })),
       )
     }
@@ -516,19 +527,53 @@ export function SuperAdminConsole({
     setError("")
     setNotice("")
     try {
-      await createAdminMerchantAccount({ email: newEmail })
+      await createAdminMerchantAccount({
+        email: newEmail,
+        businessName: newBusinessName,
+        contactPerson: newContactPerson,
+        businessAddress: newBusinessAddress,
+        phoneNumber: newPhoneNumber,
+      })
       setNewEmail("")
-      setNotice("Merchant account created.")
+      setNewBusinessName("")
+      setNewContactPerson("")
+      setNewBusinessAddress("")
+      setNewPhoneNumber("")
+      setNotice(
+        "Merchant account created. The invitation email and agreement PDF were sent.",
+      )
       await loadConsole()
+      await refreshAuditEvents()
+    } catch (requestError) {
+      const message =
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not create merchant account."
+      if (message.includes("Merchant account was created")) {
+        await loadConsole()
+      }
+      setError(message)
+    } finally {
+      setSavingMerchant(false)
+    }
+  }
+
+  async function resendMerchantInvitation(account: AdminMerchantAccount) {
+    setSendingInvitationEmail(account.email)
+    setError("")
+    setNotice("")
+    try {
+      await sendAdminMerchantInvitation(account.email)
+      setNotice(`Invitation and agreement emailed to ${account.email}.`)
       await refreshAuditEvents()
     } catch (requestError) {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Could not create merchant account.",
+          : "Could not send the merchant invitation.",
       )
     } finally {
-      setSavingMerchant(false)
+      setSendingInvitationEmail("")
     }
   }
 
@@ -1560,7 +1605,8 @@ export function SuperAdminConsole({
                                 </label>
                                 <label>
                                   <span>
-                                    Reconciliation note (visible to merchant, optional)
+                                    Reconciliation note (visible to merchant,
+                                    optional)
                                   </span>
                                   <textarea
                                     value={payoutNote}
@@ -1874,13 +1920,90 @@ export function SuperAdminConsole({
                   <div>
                     <h2>Collection and fee configuration</h2>
                     <p>
-                      Collection fees reduce merchant net collections. The
-                      fixed transfer fee applies to successful bank transfers
-                      and floating-balance payout requests; refunds are exempt.
+                      Collection fees reduce merchant net collections. The fixed
+                      transfer fee applies to successful bank transfers and
+                      floating-balance payout requests; refunds are exempt.
                     </p>
                   </div>
                 </div>
                 <form onSubmit={saveSettings}>
+                  <div className="admin-card-heading">
+                    <span className="setting-icon">
+                      <ReceiptText size={19} />
+                    </span>
+                    <div>
+                      <h2>Merchant agreement configuration</h2>
+                      <p>
+                        These provider details and the activation fee are used
+                        in new merchant agreements. Collection and transfer fees
+                        below are shared with the live fee configuration.
+                        Resending an agreement reuses its original terms.
+                      </p>
+                    </div>
+                  </div>
+                  <label>
+                    <span>Agreement provider / contracting name</span>
+                    <input
+                      value={settings.agreementProviderName}
+                      onChange={(event) =>
+                        setSettings({
+                          ...settings,
+                          agreementProviderName: event.target.value,
+                        })
+                      }
+                      required
+                      maxLength={160}
+                    />
+                  </label>
+                  <label>
+                    <span>Provider registered address</span>
+                    <textarea
+                      value={settings.agreementProviderAddress}
+                      onChange={(event) =>
+                        setSettings({
+                          ...settings,
+                          agreementProviderAddress: event.target.value,
+                        })
+                      }
+                      maxLength={500}
+                      rows={2}
+                    />
+                  </label>
+                  <label>
+                    <span>Provider registration number</span>
+                    <input
+                      value={settings.agreementProviderRegistration}
+                      onChange={(event) =>
+                        setSettings({
+                          ...settings,
+                          agreementProviderRegistration: event.target.value,
+                        })
+                      }
+                      maxLength={120}
+                    />
+                  </label>
+                  <label>
+                    <span>One-time account activation fee (PHP)</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="1000000"
+                      step="0.01"
+                      value={settings.agreementActivationFee}
+                      onChange={(event) =>
+                        setSettings({
+                          ...settings,
+                          agreementActivationFee: event.target.value
+                            ? Number(event.target.value)
+                            : 0,
+                        })
+                      }
+                    />
+                    <small>
+                      The agreement states that merchant services activate after
+                      this amount is collected in the merchant wallet.
+                    </small>
+                  </label>
                   <label>
                     <span>Collection fee (%)</span>
                     <input
@@ -2004,8 +2127,8 @@ export function SuperAdminConsole({
                   <div>
                     <h2>Merchant accounts</h2>
                     <p>
-                      Create email-verified accounts or disable access.
-                      Disabling an account revokes its trusted devices.
+                      Invite merchants by email with a personalized agreement,
+                      or manage existing account access.
                     </p>
                   </div>
                 </div>
@@ -2075,6 +2198,19 @@ export function SuperAdminConsole({
                           onClick={() => void setMerchantActive(account)}
                         >
                           {account.active ? "Disable access" : "Enable access"}
+                        </button>
+                        <button
+                          type="button"
+                          className="admin-text-action"
+                          onClick={() => void resendMerchantInvitation(account)}
+                          disabled={
+                            !account.active ||
+                            sendingInvitationEmail === account.email
+                          }
+                        >
+                          {sendingInvitationEmail === account.email
+                            ? "Sending…"
+                            : "Resend invitation"}
                         </button>
                       </div>
                       <form
@@ -2277,18 +2413,86 @@ export function SuperAdminConsole({
                   </form>
                 )}
                 <form onSubmit={addMerchant}>
+                  <div className="admin-card-heading">
+                    <span className="setting-icon">
+                      <Send size={19} />
+                    </span>
+                    <div>
+                      <h2>Invite a merchant</h2>
+                      <p>
+                        A personalized Merchant Services Agreement PDF with the
+                        service fees and activation terms will be attached to
+                        the invitation email.
+                      </p>
+                    </div>
+                  </div>
                   <label>
-                    <span>New merchant email</span>
+                    <span>Merchant email</span>
                     <input
                       type="email"
                       value={newEmail}
                       onChange={(event) => setNewEmail(event.target.value)}
                       required
                       autoComplete="off"
+                      maxLength={254}
                     />
                   </label>
-                  <Button type="submit" disabled={savingMerchant || !newEmail}>
-                    {savingMerchant ? "Creating…" : "Create merchant account"}
+                  <label>
+                    <span>Legal business name</span>
+                    <input
+                      value={newBusinessName}
+                      onChange={(event) =>
+                        setNewBusinessName(event.target.value)
+                      }
+                      required
+                      maxLength={200}
+                    />
+                  </label>
+                  <label>
+                    <span>Authorized contact person</span>
+                    <input
+                      value={newContactPerson}
+                      onChange={(event) =>
+                        setNewContactPerson(event.target.value)
+                      }
+                      required
+                      maxLength={120}
+                    />
+                  </label>
+                  <label>
+                    <span>Registered business address</span>
+                    <textarea
+                      value={newBusinessAddress}
+                      onChange={(event) =>
+                        setNewBusinessAddress(event.target.value)
+                      }
+                      required
+                      maxLength={500}
+                      rows={3}
+                    />
+                  </label>
+                  <label>
+                    <span>Contact phone</span>
+                    <input
+                      type="tel"
+                      value={newPhoneNumber}
+                      onChange={(event) =>
+                        setNewPhoneNumber(event.target.value)
+                      }
+                      maxLength={40}
+                    />
+                  </label>
+                  <Button
+                    type="submit"
+                    disabled={
+                      savingMerchant ||
+                      !newEmail ||
+                      !newBusinessName ||
+                      !newContactPerson ||
+                      !newBusinessAddress
+                    }
+                  >
+                    {savingMerchant ? "Sending invitation…" : "Invite merchant"}
                   </Button>
                 </form>
               </section>
