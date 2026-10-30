@@ -38,7 +38,12 @@ import {
 } from "./access.js"
 import { createFloatingTransferRequest } from "./floating-transfers.js"
 import { calculateTransferDebit, createLedgerService } from "./ledger.js"
-import { formatTokenBalance, tronAddressPayload } from "./tron-usdt.js"
+import {
+  formatTokenBalance,
+  formatUsdtAmount,
+  parseUsdtAmount,
+  tronAddressPayload,
+} from "./tron-usdt.js"
 import {
   createCustomerPaymentRequestEmail,
   createTaxInvoiceEmailCopy,
@@ -188,6 +193,11 @@ const swiftPayEnvironment = process.env.SWIFTPAY_ENV || "sandbox"
 const tatumApiKey = process.env.TATUM_API_KEY
 const tronGridApiKey = process.env.TRONGRID_API_KEY
 const tronUsdtNetwork = process.env.TRON_USDT_NETWORK || "disabled"
+const tronUsdtWithdrawalsEnabled =
+  process.env.TRON_USDT_WITHDRAWALS_ENABLED === "true"
+const tronUsdtWithdrawalLimit = parseUsdtAmount(
+  process.env.TRON_USDT_WITHDRAWAL_LIMIT_USDT || "100",
+)
 const tronMainnetUsdtContract = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
 const tronMainnetUsdtDecimals = 6
 const checkoutOrigin =
@@ -388,6 +398,16 @@ function requiredEnvironment() {
     )
   if (!Number.isFinite(maxTransferAmount) || maxTransferAmount <= 0)
     missing.push("DRPAY_MAX_TRANSFER_PHP")
+  if (
+    tronUsdtWithdrawalsEnabled &&
+    (tronUsdtNetwork !== "mainnet" ||
+      tronUsdtWithdrawalLimit === null ||
+      tronUsdtWithdrawalLimit <= 0n)
+  ) {
+    missing.push(
+      "TRON_USDT_WITHDRAWAL_LIMIT_USDT (positive, up to 6 decimals, with TRON_USDT_NETWORK=mainnet)",
+    )
+  }
   if (!["sandbox", "production"].includes(swiftPayEnvironment))
     missing.push("SWIFTPAY_ENV (sandbox or production)")
   if (
@@ -427,6 +447,27 @@ function transferSecurityFingerprint(email, body, idempotencyKey) {
     fields.push(body.refundPaymentId)
   return createHmac("sha256", jwtSecretValue)
     .update(JSON.stringify(fields))
+    .digest("hex")
+}
+
+function cryptoWithdrawalFingerprint(
+  email,
+  fromAddress,
+  amount,
+  destination,
+  idempotencyKey,
+) {
+  return createHmac("sha256", jwtSecretValue)
+    .update(
+      JSON.stringify([
+        "tron-usdt-withdrawal",
+        email,
+        fromAddress,
+        amount,
+        destination,
+        idempotencyKey,
+      ]),
+    )
     .digest("hex")
 }
 
@@ -4362,6 +4403,196 @@ app.get(
 
 app.use("/v1", requireMerchant)
 
+function usdtWithdrawalLimitText() {
+  return formatUsdtAmount(tronUsdtWithdrawalLimit ?? -1n) || "0"
+}
+
+async function getAssignedMainnetUsdtAddress(email) {
+  const { rows } = await pool.query(
+    "SELECT address FROM merchant_usdt_wallets WHERE merchant_email = $1 AND network = 'TRON_MAINNET'",
+    [email],
+  )
+  return rows[0]?.address || null
+}
+
+function isUsdtWithdrawalEnabled() {
+  return (
+    tronUsdtWithdrawalsEnabled &&
+    tronUsdtNetwork === "mainnet" &&
+    tronUsdtWithdrawalLimit !== null &&
+    tronUsdtWithdrawalLimit > 0n
+  )
+}
+
+app.get(
+  "/v1/crypto/usdt-withdrawal-config",
+  cryptoWalletLimiter,
+  async (req, res) => {
+    const address = await getAssignedMainnetUsdtAddress(req.merchantEmail)
+    const enabled = isUsdtWithdrawalEnabled() && Boolean(address)
+    return res.set("Cache-Control", "no-store").json({
+      enabled,
+      limit: usdtWithdrawalLimitText(),
+      message: !isUsdtWithdrawalEnabled()
+        ? "USDT withdrawals are not enabled for this API environment."
+        : !address
+          ? "A TRON mainnet wallet must be assigned before withdrawing."
+          : null,
+    })
+  },
+)
+
+app.post(
+  "/v1/crypto/usdt-withdrawals/authorize",
+  pinAttemptLimiter,
+  async (req, res) => {
+    if (!isUsdtWithdrawalEnabled()) {
+      return res.status(503).json({
+        error: "USDT withdrawals are not enabled for this API environment.",
+      })
+    }
+    const pin = typeof req.body?.pin === "string" ? req.body.pin : ""
+    const amountText =
+      typeof req.body?.amount === "string" ? req.body.amount : ""
+    const destination =
+      typeof req.body?.destination === "string"
+        ? req.body.destination.trim()
+        : ""
+    const idempotencyKey =
+      typeof req.body?.idempotencyKey === "string"
+        ? req.body.idempotencyKey
+        : ""
+    const amount = parseUsdtAmount(amountText)
+    const fromAddress = await getAssignedMainnetUsdtAddress(req.merchantEmail)
+    if (!fromAddress) {
+      return res.status(403).json({
+        error: "A TRON mainnet wallet must be assigned before withdrawing.",
+      })
+    }
+    if (
+      !/^\d{4}$/.test(pin) ||
+      amount === null ||
+      amount <= 0n ||
+      amount > tronUsdtWithdrawalLimit ||
+      !tronAddressPayload(destination) ||
+      destination === fromAddress ||
+      !validIdempotencyKey(idempotencyKey)
+    ) {
+      return res.status(400).json({
+        error: `Enter a valid destination and amount up to ${usdtWithdrawalLimitText()} USDT, then confirm with your four-digit MPIN.`,
+      })
+    }
+    const pinResult = await verifyMerchantPin(req.merchantEmail, pin)
+    if (pinResult.status !== 200)
+      return res.status(pinResult.status).json({ error: pinResult.error })
+
+    const fingerprint = cryptoWithdrawalFingerprint(
+      req.merchantEmail,
+      fromAddress,
+      amount.toString(),
+      destination,
+      idempotencyKey,
+    )
+    const stepUpToken = await new SignJWT({
+      purpose: "crypto_withdrawal_step_up",
+      fingerprint,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject(req.merchantEmail)
+      .setJti(randomUUID())
+      .setIssuedAt()
+      .setExpirationTime("2m")
+      .sign(jwtSecret)
+    return res.set("Cache-Control", "no-store").json({ stepUpToken })
+  },
+)
+
+app.post(
+  "/v1/crypto/usdt-withdrawals/consume",
+  transferLimiter,
+  async (req, res) => {
+    if (!isUsdtWithdrawalEnabled()) {
+      return res.status(503).json({
+        error: "USDT withdrawals are not enabled for this API environment.",
+      })
+    }
+    const amountText =
+      typeof req.body?.amount === "string" ? req.body.amount : ""
+    const destination =
+      typeof req.body?.destination === "string"
+        ? req.body.destination.trim()
+        : ""
+    const idempotencyKey =
+      typeof req.body?.idempotencyKey === "string"
+        ? req.body.idempotencyKey
+        : ""
+    const stepUpToken =
+      typeof req.body?.stepUpToken === "string" ? req.body.stepUpToken : ""
+    const amount = parseUsdtAmount(amountText)
+    const fromAddress = await getAssignedMainnetUsdtAddress(req.merchantEmail)
+    if (!fromAddress) {
+      return res.status(403).json({
+        error: "A TRON mainnet wallet must be assigned before withdrawing.",
+      })
+    }
+    if (
+      amount === null ||
+      amount <= 0n ||
+      amount > tronUsdtWithdrawalLimit ||
+      !tronAddressPayload(destination) ||
+      destination === fromAddress ||
+      !validIdempotencyKey(idempotencyKey) ||
+      !stepUpToken
+    ) {
+      return res.status(400).json({
+        error: "The withdrawal authorization details are invalid.",
+      })
+    }
+    let payload
+    try {
+      ;({ payload } = await jwtVerify(stepUpToken, jwtSecret, {
+        algorithms: ["HS256"],
+      }))
+    } catch {
+      return res.status(403).json({
+        error: "Confirm this withdrawal with your MPIN again.",
+      })
+    }
+    const fingerprint = cryptoWithdrawalFingerprint(
+      req.merchantEmail,
+      fromAddress,
+      amount.toString(),
+      destination,
+      idempotencyKey,
+    )
+    if (
+      payload.sub !== req.merchantEmail ||
+      payload.purpose !== "crypto_withdrawal_step_up" ||
+      payload.fingerprint !== fingerprint ||
+      typeof payload.jti !== "string" ||
+      typeof payload.exp !== "number"
+    ) {
+      return res.status(403).json({
+        error:
+          "The MPIN authorization does not match this withdrawal. Verify again.",
+      })
+    }
+    const consumed = await pool.query(
+      `INSERT INTO used_step_up_tokens (jti, merchant_email, expires_at)
+       VALUES ($1, $2, TO_TIMESTAMP($3))
+       ON CONFLICT (jti) DO NOTHING
+       RETURNING jti`,
+      [payload.jti, req.merchantEmail, payload.exp],
+    )
+    if (!consumed.rowCount) {
+      return res.status(409).json({
+        error: "This withdrawal authorization has already been used.",
+      })
+    }
+    return res.set("Cache-Control", "no-store").json({ authorized: true })
+  },
+)
+
 app.get("/v1/crypto/usdt-wallet", cryptoWalletLimiter, async (req, res) => {
   const wallet = await pool.query(
     "SELECT address, network FROM merchant_usdt_wallets WHERE merchant_email = $1",
@@ -5530,6 +5761,40 @@ app.post("/v1/security/pin", async (req, res) => {
   return res.set("Cache-Control", "no-store").json({ pinConfigured: true })
 })
 
+async function verifyMerchantPin(email, pin) {
+  const { rows } = await pool.query(
+    "SELECT pin_salt, pin_hash FROM merchant_security WHERE email = $1",
+    [email],
+  )
+  const security = rows[0]
+  if (!security?.pin_hash)
+    return { status: 403, error: "Set up an MPIN before transferring." }
+  await pool.query(
+    "DELETE FROM merchant_pin_attempts WHERE created_at <= NOW() - INTERVAL '1 day'",
+  )
+  const attempts = await pool.query(
+    "SELECT COUNT(*)::int AS count FROM merchant_pin_attempts WHERE merchant_email = $1 AND created_at > NOW() - INTERVAL '15 minutes'",
+    [email],
+  )
+  if (attempts.rows[0].count >= 5)
+    return {
+      status: 429,
+      error: "Too many incorrect MPIN attempts. Try again in 15 minutes.",
+    }
+  if (!matchesPasswordHash(pin, security.pin_salt, security.pin_hash)) {
+    await pool.query(
+      "INSERT INTO merchant_pin_attempts (merchant_email) VALUES ($1)",
+      [email],
+    )
+    return { status: 403, error: "The MPIN is incorrect." }
+  }
+  await pool.query(
+    "DELETE FROM merchant_pin_attempts WHERE merchant_email = $1",
+    [email],
+  )
+  return { status: 200, error: "" }
+}
+
 app.post("/v1/security/transfer/pin", pinAttemptLimiter, async (req, res) => {
   const pin = typeof req.body?.pin === "string" ? req.body.pin : ""
   const idempotencyKey =
@@ -5539,39 +5804,9 @@ app.post("/v1/security/transfer/pin", pinAttemptLimiter, async (req, res) => {
       .status(400)
       .json({ error: "Enter your four-digit MPIN to authorize this transfer." })
   }
-  const { rows } = await pool.query(
-    "SELECT pin_salt, pin_hash FROM merchant_security WHERE email = $1",
-    [req.merchantEmail],
-  )
-  const security = rows[0]
-  if (!security?.pin_hash) {
-    return res
-      .status(403)
-      .json({ error: "Set up an MPIN before transferring." })
-  }
-  await pool.query(
-    "DELETE FROM merchant_pin_attempts WHERE created_at <= NOW() - INTERVAL '1 day'",
-  )
-  const attempts = await pool.query(
-    "SELECT COUNT(*)::int AS count FROM merchant_pin_attempts WHERE merchant_email = $1 AND created_at > NOW() - INTERVAL '15 minutes'",
-    [req.merchantEmail],
-  )
-  if (attempts.rows[0].count >= 5) {
-    return res.status(429).json({
-      error: "Too many incorrect MPIN attempts. Try again in 15 minutes.",
-    })
-  }
-  if (!matchesPasswordHash(pin, security.pin_salt, security.pin_hash)) {
-    await pool.query(
-      "INSERT INTO merchant_pin_attempts (merchant_email) VALUES ($1)",
-      [req.merchantEmail],
-    )
-    return res.status(403).json({ error: "The MPIN is incorrect." })
-  }
-  await pool.query(
-    "DELETE FROM merchant_pin_attempts WHERE merchant_email = $1",
-    [req.merchantEmail],
-  )
+  const pinResult = await verifyMerchantPin(req.merchantEmail, pin)
+  if (pinResult.status !== 200)
+    return res.status(pinResult.status).json({ error: pinResult.error })
   const fingerprint = transferSecurityFingerprint(
     req.merchantEmail,
     req.body,
@@ -7106,17 +7341,14 @@ async function start() {
         )
       })
     } catch (error) {
-      console.error(
-        "Database initialization failed; retrying",
-        {
-          code: error.code || null,
-          schema: error.schema || null,
-          table: error.table || null,
-          column: error.column || null,
-          constraint: error.constraint || null,
-          position: error.position || null,
-        },
-      )
+      console.error("Database initialization failed; retrying", {
+        code: error.code || null,
+        schema: error.schema || null,
+        table: error.table || null,
+        column: error.column || null,
+        constraint: error.constraint || null,
+        position: error.position || null,
+      })
       await new Promise((resolve) => setTimeout(resolve, 5000))
     }
   }

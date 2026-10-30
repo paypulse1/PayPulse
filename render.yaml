@@ -65,6 +65,10 @@ services:
         sync: false
       - key: TRON_USDT_NETWORK
         value: disabled
+      - key: TRON_USDT_WITHDRAWALS_ENABLED
+        value: "false"
+      - key: TRON_USDT_WITHDRAWAL_LIMIT_USDT
+        value: "100"
   - type: web
     name: drpay-live-api
     branch: Production
@@ -137,6 +141,10 @@ services:
         sync: false
       - key: TRON_USDT_NETWORK
         value: mainnet
+      - key: TRON_USDT_WITHDRAWALS_ENABLED
+        value: "true"
+      - key: TRON_USDT_WITHDRAWAL_LIMIT_USDT
+        value: "100"
   - type: web
     name: drpay-web
     branch: Production

@@ -250,6 +250,12 @@ export type MerchantUsdtDepositHistory = {
   message: string | null
 }
 
+export type MerchantUsdtWithdrawalConfig = {
+  enabled: boolean
+  limit: string
+  message: string | null
+}
+
 export type AdminInternalWalletSummary = {
   email: string
   active: boolean
@@ -1255,6 +1261,42 @@ export async function getMerchantUsdtWallet(): Promise<MerchantUsdtWallet> {
 
 export async function getMerchantUsdtDeposits(): Promise<MerchantUsdtDepositHistory> {
   return backendRequest<MerchantUsdtDepositHistory>("/v1/crypto/usdt-deposits")
+}
+
+export async function getMerchantUsdtWithdrawalConfig(): Promise<MerchantUsdtWithdrawalConfig> {
+  return backendRequest<MerchantUsdtWithdrawalConfig>(
+    "/v1/crypto/usdt-withdrawal-config",
+  )
+}
+
+export async function authorizeMerchantUsdtWithdrawal(input: {
+  amount: string
+  destination: string
+  idempotencyKey: string
+  pin: string
+}): Promise<{ stepUpToken: string }> {
+  return backendRequest<{ stepUpToken: string }>(
+    "/v1/crypto/usdt-withdrawals/authorize",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  )
+}
+
+export async function consumeMerchantUsdtWithdrawalAuthorization(input: {
+  amount: string
+  destination: string
+  idempotencyKey: string
+  stepUpToken: string
+}): Promise<{ authorized: true }> {
+  return backendRequest<{ authorized: true }>(
+    "/v1/crypto/usdt-withdrawals/consume",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  )
 }
 
 export async function getAdminInternalWallets(): Promise<AdminInternalWalletSummary[]> {

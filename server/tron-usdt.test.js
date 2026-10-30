@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { formatTokenBalance, tronAddressPayload } from "./tron-usdt.js"
+import {
+  formatTokenBalance,
+  formatUsdtAmount,
+  parseUsdtAmount,
+  tronAddressPayload,
+} from "./tron-usdt.js"
 
 describe("TRON USDT helpers", () => {
   it("decodes and checksum-validates a TRON address", () => {
@@ -17,5 +22,16 @@ describe("TRON USDT helpers", () => {
     expect(formatTokenBalance("f4240", 6)).toBe("1")
     expect(formatTokenBalance("0", 6)).toBe("0")
     expect(formatTokenBalance("0x10", 6)).toBeNull()
+  })
+
+  it("parses and formats USDT amounts at exact six-decimal precision", () => {
+    expect(parseUsdtAmount("0.000001")).toBe(1n)
+    expect(parseUsdtAmount("12.34005")).toBe(12_340_050n)
+    expect(parseUsdtAmount("100")).toBe(100_000_000n)
+    expect(formatUsdtAmount(12_340_050n)).toBe("12.34005")
+    expect(formatUsdtAmount(100_000_000n)).toBe("100")
+    expect(parseUsdtAmount("1.0000001")).toBeNull()
+    expect(parseUsdtAmount("1e2")).toBeNull()
+    expect(parseUsdtAmount("-1")).toBeNull()
   })
 })

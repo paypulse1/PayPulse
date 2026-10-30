@@ -80,6 +80,9 @@ const onboardingSteps = [
 export default function MarketingHome() {
   return (
     <main className="drpay-home" id="top">
+      <a className="drpay-skip-link" href="#drpay-content">
+        Skip to main content
+      </a>
       <header className="drpay-header">
         <nav className="drpay-nav" aria-label="Main navigation">
           <a className="drpay-brand" href="#top" aria-label="DRPAY home">
@@ -102,17 +105,27 @@ export default function MarketingHome() {
               Get the app <ArrowRight size={15} aria-hidden="true" />
             </a>
           </div>
-          <a
-            className="drpay-mobile-login"
-            href={APP_ROUTES.merchantSignIn}
-            aria-label="Log in to your DRPAY account"
-          >
-            <LogIn size={20} aria-hidden="true" />
-          </a>
+          <div className="drpay-mobile-actions">
+            <a className="drpay-mobile-app" href={APK_DOWNLOAD_URL}>
+              Get the app
+            </a>
+            <a
+              className="drpay-mobile-login"
+              href={APP_ROUTES.merchantSignIn}
+              aria-label="Log in to your DRPAY account"
+            >
+              <LogIn size={18} aria-hidden="true" />
+            </a>
+          </div>
         </nav>
       </header>
 
-      <section className="drpay-hero" aria-labelledby="drpay-hero-title">
+      <section
+        className="drpay-hero"
+        id="drpay-content"
+        tabIndex={-1}
+        aria-labelledby="drpay-hero-title"
+      >
         <div className="drpay-hero-copy">
           <p className="drpay-eyebrow">
             <span className="drpay-pulse" aria-hidden="true" />A merchant

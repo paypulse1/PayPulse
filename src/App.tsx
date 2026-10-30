@@ -13,6 +13,7 @@ import { App as CapacitorApp } from "@capacitor/app"
 import { Browser } from "@capacitor/browser"
 import { PushNotifications } from "@capacitor/push-notifications"
 import { Share } from "@capacitor/share"
+import QRCode from "qrcode"
 import {
   AlertCircle,
   ArrowDownLeft,
@@ -53,6 +54,7 @@ import {
 import {
   ApiError,
   clearSession,
+  authorizeMerchantUsdtWithdrawal,
   authorizeTransferWithPin,
   createPaymentLink,
   getCollectionRefundDetails,
@@ -74,6 +76,8 @@ import {
   getMerchantPayoutAccount,
   getMerchantUsdtWallet,
   getMerchantUsdtDeposits,
+  getMerchantUsdtWithdrawalConfig,
+  consumeMerchantUsdtWithdrawalAuthorization,
   getMerchantSecurityStatus,
   getPaymentLinkIdempotencyKey,
   getPaymentLinkStatus,
@@ -95,6 +99,7 @@ import {
   type MerchantNotificationPreferences,
   type MerchantUsdtWallet,
   type MerchantUsdtDeposit,
+  type MerchantUsdtWithdrawalConfig,
   type MerchantSecurityStatus,
   type CurrencyQuote,
   type Institution,
@@ -107,6 +112,12 @@ import {
 } from "./lib/swiftpay"
 import type { MerchantQrDetails, TransferQrDetails } from "./lib/transferQr"
 import { parseScannedQr } from "./lib/transferQr"
+import {
+  connectTronLink,
+  observeTronLinkChanges,
+  parseUsdtAmount,
+  sendUsdtWithTronLink,
+} from "./lib/tronLink"
 import TransferReceiptActions from "./TransferReceiptActions"
 import {
   createBiometricSecret,
@@ -3764,6 +3775,55 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
   const [depositLoading, setDepositLoading] = useState(true)
   const [depositRefreshing, setDepositRefreshing] = useState(false)
   const [copyMessage, setCopyMessage] = useState("")
+  const [depositQr, setDepositQr] = useState("")
+  const [depositQrError, setDepositQrError] = useState("")
+  const [withdrawalConfig, setWithdrawalConfig] =
+    useState<MerchantUsdtWithdrawalConfig | null>(null)
+  const [withdrawalConfigLoading, setWithdrawalConfigLoading] = useState(true)
+  const [withdrawalConfigError, setWithdrawalConfigError] = useState("")
+  const [connectedTronLinkAddress, setConnectedTronLinkAddress] = useState("")
+  const [withdrawalAmount, setWithdrawalAmount] = useState("")
+  const [withdrawalDestination, setWithdrawalDestination] = useState("")
+  const [withdrawalPin, setWithdrawalPin] = useState("")
+  const [withdrawalBusy, setWithdrawalBusy] = useState(false)
+  const [withdrawalError, setWithdrawalError] = useState("")
+  const [withdrawalTransactionId, setWithdrawalTransactionId] = useState("")
+
+  useEffect(() => {
+    let active = true
+    setDepositQr("")
+    setDepositQrError("")
+    if (!wallet?.address || wallet.network !== "TRON_MAINNET") {
+      return () => {
+        active = false
+      }
+    }
+
+    QRCode.toString(wallet.address, {
+      type: "svg",
+      errorCorrectionLevel: "M",
+      margin: 2,
+      color: { dark: "#10233f", light: "#ffffff" },
+    })
+      .then((svg) => {
+        if (active) {
+          setDepositQr(
+            `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+          )
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setDepositQrError(
+            "Could not create the deposit QR. Copy the address to your wallet instead.",
+          )
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [wallet?.address, wallet?.network])
 
   async function loadWallet(refresh = false) {
     if (refresh) setRefreshing(true)
@@ -3807,22 +3867,156 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
     }
   }
 
+  async function loadWithdrawalConfig() {
+    setWithdrawalConfigLoading(true)
+    setWithdrawalConfigError("")
+    try {
+      setWithdrawalConfig(await getMerchantUsdtWithdrawalConfig())
+    } catch (loadError) {
+      setWithdrawalConfig(null)
+      setWithdrawalConfigError(
+        getUsdtServiceErrorMessage(
+          loadError,
+          "Could not verify the USDT withdrawal setup.",
+        ),
+      )
+    } finally {
+      setWithdrawalConfigLoading(false)
+    }
+  }
+
   const initialLoadRef = useRef(true)
   useEffect(() => {
     const isRefresh = !initialLoadRef.current
     initialLoadRef.current = false
     void loadWallet(isRefresh)
     void loadDeposits(isRefresh)
+    void loadWithdrawalConfig()
   }, [refreshVersion])
+
+  useEffect(() => {
+    setConnectedTronLinkAddress("")
+    setWithdrawalTransactionId("")
+  }, [wallet?.address])
+
+  useEffect(() => {
+    if (!connectedTronLinkAddress) return
+    return observeTronLinkChanges(() => {
+      setConnectedTronLinkAddress("")
+      setWithdrawalError(
+        "Your TronLink account or network changed. Reconnect before withdrawing.",
+      )
+    })
+  }, [connectedTronLinkAddress])
 
   async function copyAddress() {
     if (!wallet?.address) return
     setCopyMessage("")
     try {
       await navigator.clipboard.writeText(wallet.address)
-      setCopyMessage("Mainnet address copied.")
+      setCopyMessage(
+        "Deposit address copied. Send TRC20 USDT on TRON mainnet to receive funds.",
+      )
     } catch {
       setCopyMessage("Could not copy the address. Select and copy it manually.")
+    }
+  }
+
+  async function connectWithdrawalWallet() {
+    if (!wallet?.address || !withdrawalConfig?.enabled) return
+    setWithdrawalBusy(true)
+    setWithdrawalError("")
+    setWithdrawalTransactionId("")
+    try {
+      const connection = await connectTronLink(wallet.address)
+      setConnectedTronLinkAddress(connection.address)
+    } catch (connectError) {
+      setConnectedTronLinkAddress("")
+      setWithdrawalError(
+        connectError instanceof Error
+          ? connectError.message
+          : "Could not connect to TronLink.",
+      )
+    } finally {
+      setWithdrawalBusy(false)
+    }
+  }
+
+  async function submitUsdtWithdrawal(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!wallet?.address || !withdrawalConfig?.enabled) return
+
+    const rawAmount = parseUsdtAmount(withdrawalAmount)
+    const limit = parseUsdtAmount(withdrawalConfig.limit)
+    const destination = withdrawalDestination.trim()
+    if (
+      rawAmount === null ||
+      rawAmount <= 0n ||
+      limit === null ||
+      rawAmount > limit
+    ) {
+      setWithdrawalError(
+        `Enter an amount greater than 0 and no more than ${withdrawalConfig.limit} USDT.`,
+      )
+      return
+    }
+    if (!/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(destination)) {
+      setWithdrawalError("Enter a valid TRON mainnet destination address.")
+      return
+    }
+    if (destination === wallet.address) {
+      setWithdrawalError(
+        "The destination must be different from your assigned wallet.",
+      )
+      return
+    }
+    if (!/^\d{4}$/.test(withdrawalPin)) {
+      setWithdrawalError(
+        "Enter your four-digit MPIN to authorize this withdrawal.",
+      )
+      return
+    }
+
+    setWithdrawalBusy(true)
+    setWithdrawalError("")
+    setWithdrawalTransactionId("")
+    try {
+      const firstConnection = await connectTronLink(wallet.address)
+      setConnectedTronLinkAddress(firstConnection.address)
+      const idempotencyKey = crypto.randomUUID()
+      const authorization = await authorizeMerchantUsdtWithdrawal({
+        amount: withdrawalAmount.trim(),
+        destination,
+        idempotencyKey,
+        pin: withdrawalPin,
+      })
+      const connection = await connectTronLink(wallet.address)
+      await consumeMerchantUsdtWithdrawalAuthorization({
+        amount: withdrawalAmount.trim(),
+        destination,
+        idempotencyKey,
+        stepUpToken: authorization.stepUpToken,
+      })
+      const transactionId = await sendUsdtWithTronLink(
+        connection.tronWeb,
+        connection.address,
+        destination,
+        rawAmount.toString(),
+      )
+      setWithdrawalPin("")
+      setWithdrawalAmount("")
+      setWithdrawalDestination("")
+      setWithdrawalTransactionId(transactionId)
+      void loadWallet(true)
+      void loadDeposits(true)
+    } catch (requestError) {
+      setWithdrawalError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not submit the USDT withdrawal.",
+      )
+    } finally {
+      setWithdrawalBusy(false)
     }
   }
 
@@ -3840,6 +4034,11 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
       : wallet.network === "TRON_SHASTA"
         ? "TRON SHASTA TESTNET"
         : "TRC20 MAINNET"
+  const canReceiveUsdt =
+    Boolean(wallet?.address) && wallet?.network === "TRON_MAINNET"
+  const canWithdrawUsdt = canReceiveUsdt && withdrawalConfig?.enabled === true
+  const tronLinkMatchesAssignedAddress =
+    Boolean(wallet?.address) && connectedTronLinkAddress === wallet?.address
 
   return (
     <section className="crypto-wallet" aria-labelledby="crypto-wallet-title">
@@ -3881,10 +4080,11 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
               : "Complete service activation"}
           </strong>
           <p>
-            Sign-in and collections remain available. The PHP activation fee
-            is debited from your merchant wallet and credited to Super Admin.
-            Transfers and API integrations unlock after the fee is paid and the
-            USDT balance requirement is met.
+            Sign-in and collections remain available. The PHP activation fee is
+            debited from your merchant wallet and credited to Super Admin.
+            Merchant payment transfers and API integrations unlock after the fee
+            is paid and the USDT balance requirement is met. These requirements
+            do not enable crypto trading or withdrawals.
           </p>
           <div className="crypto-activation-milestone">
             <span>{wallet.activation.activationFee.complete ? "✓" : "1"}</span>
@@ -3941,17 +4141,243 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
         <strong className="crypto-wallet-address-value">
           {wallet?.address || (loading ? "Loading…" : "Not assigned")}
         </strong>
-        {wallet?.address && (
+      </div>
+      <section
+        className="crypto-wallet-operations"
+        aria-labelledby="crypto-wallet-operations-title"
+      >
+        <header className="crypto-wallet-operations-header">
+          <div>
+            <span className="eyebrow">WALLET ACTIONS</span>
+            <h3 id="crypto-wallet-operations-title">Receive and manage USDT</h3>
+          </div>
+          <span className="crypto-wallet-receive-status">
+            {canReceiveUsdt ? "RECEIVING AVAILABLE" : "RECEIVING UNAVAILABLE"}
+          </span>
+        </header>
+        <div className="crypto-wallet-receive">
+          {canReceiveUsdt &&
+            (depositQr ? (
+              <div className="crypto-wallet-deposit-qr">
+                <img
+                  src={depositQr}
+                  alt="QR code containing the assigned TRON USDT deposit address"
+                />
+                <span>Scan with your wallet</span>
+              </div>
+            ) : (
+              <p
+                className="crypto-wallet-qr-status"
+                role={depositQrError ? "alert" : "status"}
+              >
+                {depositQrError || "Preparing deposit QR…"}
+              </p>
+            ))}
+          <div className="crypto-wallet-receive-copy">
+            <strong>Deposit USDT to this wallet</strong>
+            <p>
+              Send USDT from an external wallet using the TRON (TRC20) network.
+              Only send USDT on this network.
+            </p>
+          </div>
           <Button
-            variant="secondary"
-            className="crypto-wallet-copy"
-            icon={<Copy size={13} />}
+            disabled={!canReceiveUsdt}
+            icon={<Copy size={14} />}
             onClick={() => void copyAddress()}
           >
-            Copy address
+            Copy deposit address
           </Button>
-        )}
-      </div>
+          {!canReceiveUsdt && (
+            <small>
+              {!wallet?.address
+                ? "A wallet address must be assigned before you can receive USDT."
+                : "This is a testnet address. Ask the DRPAY team to assign a TRON mainnet address before sending real funds."}
+            </small>
+          )}
+        </div>
+        <section
+          className="crypto-withdrawal"
+          aria-labelledby="crypto-withdrawal-title"
+        >
+          <div className="crypto-wallet-unavailable-heading">
+            <div>
+              <span className="eyebrow">TRONLINK</span>
+              <h3 id="crypto-withdrawal-title">Withdraw USDT</h3>
+            </div>
+            <span
+              className={
+                canWithdrawUsdt
+                  ? "crypto-wallet-receive-status"
+                  : "crypto-wallet-withdrawal-status"
+              }
+            >
+              {canWithdrawUsdt ? "AVAILABLE" : "NOT READY"}
+            </span>
+          </div>
+          {withdrawalConfigLoading ? (
+            <p className="crypto-wallet-feedback" role="status">
+              Checking withdrawal availability…
+            </p>
+          ) : withdrawalConfigError ? (
+            <p
+              className="crypto-wallet-feedback crypto-wallet-error"
+              role="alert"
+            >
+              {withdrawalConfigError}
+            </p>
+          ) : !canWithdrawUsdt ? (
+            <p className="crypto-wallet-feedback" role="status">
+              {withdrawalConfig?.message ||
+                (!wallet?.address
+                  ? "Ask the DRPAY team to assign your TRON mainnet wallet."
+                  : "Withdrawals are not enabled for this wallet or API environment.")}
+            </p>
+          ) : (
+            <>
+              <p className="crypto-withdrawal-intro">
+                Open DRPAY in TronLink’s DApp browser or use the TronLink
+                extension. Select TRON Mainnet and the account matching this
+                assigned address. Keep TRX available for network fees. MPIN is
+                required; the maximum in-app withdrawal is{" "}
+                {withdrawalConfig.limit} USDT per transaction.{" "}
+                <a
+                  href="https://www.tronlink.org/"
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Get TronLink from its official website.
+                </a>
+              </p>
+              <Button
+                variant="secondary"
+                disabled={withdrawalBusy}
+                icon={<WalletCards size={14} />}
+                onClick={() => void connectWithdrawalWallet()}
+              >
+                {withdrawalBusy
+                  ? "Connecting…"
+                  : tronLinkMatchesAssignedAddress
+                    ? "Reconnect TronLink"
+                    : "Connect TronLink"}
+              </Button>
+              {tronLinkMatchesAssignedAddress ? (
+                <form
+                  className="crypto-withdrawal-form"
+                  onSubmit={(event) => void submitUsdtWithdrawal(event)}
+                >
+                  <p className="crypto-wallet-connected" role="status">
+                    Connected: {connectedTronLinkAddress}
+                  </p>
+                  <label>
+                    <span>Destination TRON address</span>
+                    <input
+                      autoComplete="off"
+                      maxLength={34}
+                      placeholder="T..."
+                      required
+                      value={withdrawalDestination}
+                      onChange={(event) =>
+                        setWithdrawalDestination(event.target.value)
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>Amount (USDT)</span>
+                    <input
+                      inputMode="decimal"
+                      max={withdrawalConfig.limit}
+                      min="0.000001"
+                      required
+                      step="0.000001"
+                      type="number"
+                      value={withdrawalAmount}
+                      onChange={(event) =>
+                        setWithdrawalAmount(event.target.value)
+                      }
+                    />
+                    <small>
+                      Maximum {withdrawalConfig.limit} USDT per transaction.
+                    </small>
+                  </label>
+                  <label>
+                    <span>Merchant MPIN</span>
+                    <input
+                      autoComplete="off"
+                      inputMode="numeric"
+                      maxLength={4}
+                      minLength={4}
+                      pattern="[0-9]{4}"
+                      required
+                      type="password"
+                      value={withdrawalPin}
+                      onChange={(event) =>
+                        setWithdrawalPin(
+                          event.target.value.replace(/\D/g, "").slice(0, 4),
+                        )
+                      }
+                    />
+                  </label>
+                  <Button
+                    type="submit"
+                    disabled={withdrawalBusy || !tronLinkMatchesAssignedAddress}
+                    icon={<Send size={14} />}
+                  >
+                    {withdrawalBusy
+                      ? "Waiting for TronLink…"
+                      : "Review withdrawal"}
+                  </Button>
+                  <small className="crypto-withdrawal-fee-note">
+                    TronLink will ask you to review and approve the transfer.
+                    Network fees are paid separately in TRX.
+                  </small>
+                </form>
+              ) : (
+                <p className="crypto-wallet-feedback" role="status">
+                  Connect the TronLink account that controls your assigned
+                  address to continue.
+                </p>
+              )}
+              {withdrawalConfig.limit && (
+                <p className="crypto-withdrawal-limit-note">
+                  The limit applies to DRPAY-authorized withdrawals only. A
+                  self-custody wallet can also send funds directly outside
+                  DRPAY.
+                </p>
+              )}
+            </>
+          )}
+          {withdrawalError && (
+            <p
+              className="crypto-wallet-feedback crypto-wallet-error"
+              role="alert"
+            >
+              {withdrawalError}
+            </p>
+          )}
+          {withdrawalTransactionId && (
+            <p className="crypto-wallet-feedback" role="status">
+              Withdrawal submitted.{" "}
+              <a
+                href={`https://tronscan.org/#/transaction/${encodeURIComponent(withdrawalTransactionId)}`}
+                rel="noreferrer"
+                target="_blank"
+              >
+                View transaction
+              </a>
+            </p>
+          )}
+        </section>
+        <div className="crypto-wallet-unavailable">
+          <div className="crypto-wallet-unavailable-heading">
+            <strong>Buy and sell USDT</strong>
+            <span>Not available</span>
+          </div>
+          <p>
+            TronLink can approve withdrawals from a wallet you control. DRPAY
+            does not provide an exchange for buying or selling USDT.
+          </p>
+        </div>
+      </section>
       <section
         className="crypto-deposit-history"
         aria-label="USDT deposit history"
@@ -4014,16 +4440,6 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
           </p>
         )}
       </section>
-      <div
-        className="crypto-wallet-actions"
-        aria-label="Unavailable crypto operations"
-      >
-        {["Buy USDT", "Sell USDT", "Deposit", "Withdraw"].map((label) => (
-          <Button key={label} variant="secondary" disabled>
-            {label}
-          </Button>
-        ))}
-      </div>
       {wallet?.network === "TRON_SHASTA" && (
         <p className="crypto-wallet-disclaimer">
           This address is marked as Shasta testnet and is not queried on
@@ -5135,13 +5551,13 @@ function ProfileInfoPage({
               receives the link and returns it to your customer.
             </p>
             <p>
-              Account enablement keeps sign-in and collections available.
-              The one-time PHP activation fee is debited from your available
-              merchant wallet balance and credited to Super Admin. Transfers
-              and API integrations unlock after the fee is paid and you add at
-              least 100 USDT above the balance recorded when Super Admin
-              assigns your TRON address. The API guide email is sent after both
-              requirements are confirmed.
+              Account enablement keeps sign-in and collections available. The
+              one-time PHP activation fee is debited from your available
+              merchant wallet balance and credited to Super Admin. Transfers and
+              API integrations unlock after the fee is paid and you add at least
+              100 USDT above the balance recorded when Super Admin assigns your
+              TRON address. The API guide email is sent after both requirements
+              are confirmed.
             </p>
           </div>
 
@@ -5157,10 +5573,9 @@ function ProfileInfoPage({
             <p>
               After both activation milestones are complete, DRPAY emails the
               API guide and payload PDF separately from your invitation. Then
-              generate your own key here; it is shown once and is never
-              included in an email. Set the Postman collection's{" "}
-              <code>apiKey</code> to that key and its <code>baseUrl</code> to
-              the API URL shown below.
+              generate your own key here; it is shown once and is never included
+              in an email. Set the Postman collection's <code>apiKey</code> to
+              that key and its <code>baseUrl</code> to the API URL shown below.
             </p>
             <div className="api-docs-base">
               <span>API base URL for this session</span>
@@ -5432,7 +5847,10 @@ export async function createInvoiceCheckout({ amount, invoiceId, customerEmail }
               <div>
                 <b>GET</b>
                 <code>/v1/crypto/usdt-wallet</code>
-                <span>read · assigned wallet, qualifying balance, and activation milestones</span>
+                <span>
+                  read · assigned wallet, qualifying balance, and activation
+                  milestones
+                </span>
               </div>
               <div>
                 <b>GET</b>

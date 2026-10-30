@@ -41,3 +41,23 @@ export function formatTokenBalance(rawHex, decimals) {
     .replace(/0+$/, "")
   return fraction ? `${whole}.${fraction}` : String(whole)
 }
+
+export function parseUsdtAmount(value) {
+  if (
+    typeof value !== "string" ||
+    !/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(value)
+  )
+    return null
+  const [whole, fraction = ""] = value.split(".")
+  return BigInt(whole) * 1_000_000n + BigInt(fraction.padEnd(6, "0"))
+}
+
+export function formatUsdtAmount(raw) {
+  if (typeof raw !== "bigint" || raw < 0n) return null
+  const whole = raw / 1_000_000n
+  const fraction = (raw % 1_000_000n)
+    .toString()
+    .padStart(6, "0")
+    .replace(/0+$/, "")
+  return fraction ? `${whole}.${fraction}` : String(whole)
+}
