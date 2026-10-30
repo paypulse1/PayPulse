@@ -7108,7 +7108,14 @@ async function start() {
     } catch (error) {
       console.error(
         "Database initialization failed; retrying",
-        error.status || error.code || error.message || "unexpected error",
+        {
+          code: error.code || null,
+          schema: error.schema || null,
+          table: error.table || null,
+          column: error.column || null,
+          constraint: error.constraint || null,
+          position: error.position || null,
+        },
       )
       await new Promise((resolve) => setTimeout(resolve, 5000))
     }
