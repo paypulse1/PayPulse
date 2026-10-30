@@ -7,6 +7,7 @@ import {
   scryptSync,
   timingSafeEqual,
 } from "node:crypto"
+import { existsSync } from "node:fs"
 import { lookup } from "node:dns/promises"
 import { BlockList, isIP } from "node:net"
 import https from "node:https"
@@ -56,11 +57,12 @@ const defaultPaymentEmailMessage =
 const defaultPaymentEmailColor = "#153e2c"
 const app = express()
 const clientBuildDirectory = fileURLToPath(new URL("../dist", import.meta.url))
+const clientIndexFile = join(clientBuildDirectory, "index.html")
 app.set("trust proxy", 1)
 
 app.get("/", (req, res, next) => {
-  if (typeof req.query.checkout === "string") {
-    return res.sendFile(join(clientBuildDirectory, "index.html"), (error) => {
+  if (existsSync(clientIndexFile)) {
+    return res.sendFile(clientIndexFile, (error) => {
       if (error) next(error)
     })
   }
@@ -7045,10 +7047,11 @@ app.use((req, res, next) => {
     req.method !== "GET" ||
     req.path === "/v1" ||
     req.path.startsWith("/v1/") ||
-    req.path === "/healthz"
+    req.path === "/healthz" ||
+    !existsSync(clientIndexFile)
   )
     return next()
-  return res.sendFile(join(clientBuildDirectory, "index.html"), (error) => {
+  return res.sendFile(clientIndexFile, (error) => {
     if (error) next(error)
   })
 })

@@ -1,5 +1,6 @@
 import React from 'react';
 import './marketing-home.css';
+import { APP_ROUTES } from './lib/routes';
 
 const APK_DOWNLOAD_URL = 'https://github.com/blackhorsecn/drpay-merchant/releases/latest/download/drpay.apk';
 
@@ -22,7 +23,7 @@ export default function MarketingHome() {
       <nav className="drpay-nav">
         <a className="drpay-brand" href="#top" aria-label="DRPay home"><span className="drpay-brand-mark">D</span><span>DRPay</span></a>
         <div className="drpay-nav-links"><a href="#why">Why DRPay</a><a href="#how">How it works</a><a href="#security">Security</a></div>
-        <div className="drpay-nav-actions"><a className="drpay-login" href="#login">Log in</a><a className="drpay-button drpay-button-small" href={APK_DOWNLOAD_URL}>Download APK <span>↗</span></a></div>
+        <div className="drpay-nav-actions"><a className="drpay-login" href={APP_ROUTES.merchantSignIn}>Log in</a><a className="drpay-button drpay-button-small" href={APK_DOWNLOAD_URL}>Download APK <span>↗</span></a></div>
       </nav>
 
       <section id="top" className="drpay-hero">
