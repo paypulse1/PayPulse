@@ -360,6 +360,8 @@ export async function createMerchantAgreementPdf({
   })
   y = partyPanelTop - partyPanelHeight - 18
 
+  drawHeading("CONFIDENTIAL FEE SCHEDULE")
+
   const feeSchedule = [
     [
       "Successful payment collection",
@@ -584,6 +586,13 @@ export async function createMerchantAgreementPdf({
       `DRPAY Merchant Services Agreement  |  ${agreementId}  |  Page ${index + 1} of ${pages.length}`,
       { x: left, y: 34, size: 7, font: regular, color: muted },
     )
+    currentPage.drawText("CONFIDENTIAL", {
+      x: right - sansBold.widthOfTextAtSize("CONFIDENTIAL", 7),
+      y: 34,
+      size: 7,
+      font: sansBold,
+      color: muted,
+    })
   })
 
   return Buffer.from(await document.save())

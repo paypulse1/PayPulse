@@ -45,6 +45,10 @@ import {
   createTaxInvoiceEmailCopy,
 } from "./customer-payment-email.js"
 import {
+  createMerchantInvitationEmail,
+  escapeEmailHtml,
+} from "./merchant-invitation-email.js"
+import {
   canManuallyConfirmPayment,
   createPaymentStateService,
 } from "./payment-state.js"
@@ -515,20 +519,6 @@ async function sendMerchantOtp(email, code) {
   }
 }
 
-function escapeEmailHtml(value) {
-  return String(value).replace(
-    /[&<>"']/g,
-    (character) =>
-      ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#39;",
-      })[character],
-  )
-}
-
 async function getMerchantAgreementConfiguration() {
   const result = await pool.query(
     `SELECT setting_key, setting_value FROM system_settings
@@ -620,10 +610,13 @@ async function sendMerchantInvitationEmail(
   }
   const invitationUrl = new URL("/", frontendOrigin).toString()
   const businessName = merchant.businessName || "your business"
-  const collectionFee = `${agreementConfiguration.collectionFeePercent}%`
-  const transferFee = `PHP ${Number(agreementConfiguration.transferFeeFixed).toFixed(2)}`
-  const activationFee = `PHP ${Number(agreementConfiguration.activationFee).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   const providerName = agreementConfiguration.providerName
+  const invitationEmail = createMerchantInvitationEmail({
+    contactPerson: merchant.contactPerson,
+    providerName,
+    businessName,
+    invitationUrl,
+  })
   let response
   try {
     response = await fetch("https://api.resend.com/emails", {
@@ -636,32 +629,7 @@ async function sendMerchantInvitationEmail(
         from: resendFromEmail,
         to: [merchant.email],
         subject: `Your ${providerName} merchant invitation and agreement`,
-        text: [
-          `Hello ${merchant.contactPerson},`,
-          "",
-          `${providerName} has invited ${businessName} to set up a merchant account.`,
-          "Your personalized Merchant Services Agreement is attached for signature.",
-          `The agreement includes a ${collectionFee} successful-collection fee, a ${transferFee} successful interbank-transfer fee, and a one-time ${activationFee} activation fee. Interbank transfers and other merchant services activate after the activation fee has been collected in your ${providerName} wallet.`,
-          "",
-          `To begin, visit the DRPAY merchant portal: ${invitationUrl}`,
-          "Sign in using this email address and follow the email verification steps.",
-          "",
-          "Please do not reply with passwords, MPINs, or one-time verification codes.",
-          "",
-          providerName,
-        ].join("\n"),
-        html: `
-        <div style="font-family:Arial,Helvetica,sans-serif;color:#17231d;line-height:1.6">
-          <h1 style="color:#163c2a">Your ${escapeEmailHtml(providerName)} merchant invitation</h1>
-          <p>Hello ${escapeEmailHtml(merchant.contactPerson)},</p>
-          <p>${escapeEmailHtml(providerName)} has invited <strong>${escapeEmailHtml(businessName)}</strong> to set up a merchant account.</p>
-          <p>Your personalized Merchant Services Agreement is attached for signature.</p>
-          <p>The agreement includes a ${escapeEmailHtml(collectionFee)} successful-collection fee, a ${escapeEmailHtml(transferFee)} successful interbank-transfer fee, and a one-time ${escapeEmailHtml(activationFee)} activation fee. Interbank transfers and other merchant services activate after the activation fee has been collected in your ${escapeEmailHtml(providerName)} wallet.</p>
-          <p><a href="${escapeEmailHtml(invitationUrl)}" style="display:inline-block;padding:12px 18px;background:#163c2a;color:#fff;text-decoration:none;border-radius:6px">Open merchant portal</a></p>
-          <p>Sign in using this email address and follow the email verification steps.</p>
-          <p style="color:#58665e;font-size:12px">Never send passwords, MPINs, or one-time verification codes by email.</p>
-        </div>
-      `,
+        ...invitationEmail,
         attachments: [
           {
             filename: `DRPAY-Merchant-Agreement-${agreementId}.pdf`,

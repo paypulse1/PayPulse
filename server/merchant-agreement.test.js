@@ -51,6 +51,8 @@ describe("merchant agreement generation", () => {
     )
     const agreementText = pageTexts.join(" ")
     expect(agreementText).toContain("AGREEMENT FOR SIGNATURE")
+    expect(agreementText).toContain("CONFIDENTIAL FEE SCHEDULE")
+    expect(agreementText).toContain("CONFIDENTIAL")
     expect(agreementText).toContain("Example Trading Co.")
     expect(agreementText).toContain("1.25%")
     expect(agreementText).toContain("PHP 20.00")
