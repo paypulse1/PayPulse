@@ -1531,7 +1531,7 @@ function TransactionSheet({
           {transaction.walletAmount !== undefined &&
             transaction.walletAmount !== null && (
               <div>
-                <dt>Merchant ledger impact</dt>
+                <dt>Total Amount</dt>
                 <dd>{formatWalletMovement(transaction.walletAmount)}</dd>
               </div>
             )}
@@ -4018,26 +4018,46 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
           </span>
         </header>
         <div className="crypto-wallet-balance">
-          <span>ON-CHAIN USDT BALANCE</span>
-          <strong>
-            {loading
-              ? "Loading…"
-              : wallet?.balance === null || !wallet
-                ? "Unavailable"
-                : `${wallet.balance} USDT`}
-          </strong>
-          <div className="crypto-wallet-address">
-            <span>DRPAY-ASSIGNED ADDRESS · {addressNetworkLabel}</span>
-            <strong className="crypto-wallet-address-value">
-              {wallet?.address || (loading ? "Loading…" : "Not assigned")}
+          <div className="crypto-wallet-token">
+            <span className="crypto-wallet-token-logo" aria-hidden="true">
+              ₮
+            </span>
+            <div className="crypto-wallet-token-copy">
+              <strong>Tether</strong>
+              <span>USDT</span>
+            </div>
+          </div>
+          <div className="crypto-wallet-balance-value">
+            <span>ON-CHAIN BALANCE</span>
+            <strong>
+              {loading
+                ? "Loading…"
+                : wallet?.balance === null || !wallet
+                  ? "Unavailable"
+                  : `${wallet.balance} USDT`}
             </strong>
-            <Button
-              disabled={!canReceiveUsdt}
-              icon={<Copy size={14} />}
-              onClick={() => void copyAddress()}
-            >
-              Copy deposit address
-            </Button>
+          </div>
+          <div className="crypto-wallet-address">
+            <div className="crypto-wallet-address-heading">
+              <span>WALLET ADDRESS</span>
+              <span className="crypto-wallet-network">
+                {addressNetworkLabel}
+              </span>
+            </div>
+            <div className="crypto-wallet-address-row">
+              <strong className="crypto-wallet-address-value">
+                {wallet?.address || (loading ? "Loading…" : "Not assigned")}
+              </strong>
+              <Button
+                variant="secondary"
+                className="crypto-wallet-copy-button"
+                disabled={!canReceiveUsdt}
+                icon={<Copy size={14} />}
+                onClick={() => void copyAddress()}
+              >
+                Copy
+              </Button>
+            </div>
           </div>
         </div>
         {wallet?.activation && (

@@ -203,8 +203,14 @@ h1, h2, p { margin-top: 0; }
 .crypto-wallet-badge.testnet, .crypto-wallet-withdrawal-status { background: var(--warning-soft); color: var(--warning); }
 .crypto-wallet-badge.unavailable { background: var(--danger-soft); color: var(--danger); }
 .crypto-wallet-balance { margin: 16px 0 12px; padding: 16px; border: 1px solid #dbe6f5; border-radius: 14px; background: linear-gradient(135deg, #f1f6fc, #e8eff8); }
-.crypto-wallet-balance > span, .crypto-wallet-address > span { display: block; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .075em; line-height: 1.5; }
-.crypto-wallet-balance > strong { display: block; margin-top: 7px; color: var(--ink); font-size: 26px; letter-spacing: -.045em; overflow-wrap: anywhere; }
+.crypto-wallet-token { display: flex; align-items: center; gap: 9px; }
+.crypto-wallet-token-logo { width: 34px; height: 34px; display: grid; flex: 0 0 34px; place-items: center; border-radius: 50%; background: #26a17b; color: white; font-size: 23px; font-weight: 700; line-height: 1; }
+.crypto-wallet-token-copy strong, .crypto-wallet-token-copy span { display: block; }
+.crypto-wallet-token-copy strong { color: var(--ink); font-size: 12px; line-height: 1.35; }
+.crypto-wallet-token-copy span { margin-top: 2px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .04em; }
+.crypto-wallet-balance-value { margin-top: 14px; }
+.crypto-wallet-balance-value > span, .crypto-wallet-address-heading > span:first-child { display: block; color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .075em; line-height: 1.5; }
+.crypto-wallet-balance-value > strong { display: block; margin-top: 5px; color: var(--ink); font-size: 26px; letter-spacing: -.045em; overflow-wrap: anywhere; }
 .crypto-wallet-balance small { font-size: 13px; letter-spacing: 0; }
 .crypto-activation { margin: 12px 0; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
 .crypto-activation > strong { display: block; font-size: 13px; }
@@ -216,10 +222,11 @@ h1, h2, p { margin-top: 0; }
 .crypto-activation-milestone strong { font-size: 11px; line-height: 1.45; }
 .crypto-activation-milestone small { margin-top: 4px; color: var(--muted); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
 .crypto-activation .crypto-activation-error { color: var(--danger); }
-.crypto-wallet-address { padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-soft); }
-.crypto-wallet-address strong, .crypto-wallet-address small { display: block; }
-.crypto-wallet-address strong { margin-top: 7px; font-size: 11px; }
-.crypto-wallet-address .crypto-wallet-address-value { overflow-wrap: anywhere; font: 700 13px/1.6 var(--font-family); }
+.crypto-wallet-address { margin-top: 14px; padding-top: 12px; border-top: 1px solid #d5e0ed; }
+.crypto-wallet-address-heading, .crypto-wallet-address-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.crypto-wallet-network { color: #167754; font-size: 9px; font-weight: 800; letter-spacing: .035em; text-align: right; }
+.crypto-wallet-address-value { min-width: 0; overflow-wrap: anywhere; color: var(--ink); font: 600 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.crypto-wallet-copy-button { min-height: 36px; flex: 0 0 auto; padding: 0 10px; font-size: 9px; }
 .crypto-wallet-address small { margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .crypto-wallet-operations { display: grid; gap: 12px; }
 .crypto-wallet-operations-header h3 { margin: 0; font-size: 14px; letter-spacing: -.025em; }
@@ -233,7 +240,6 @@ h1, h2, p { margin-top: 0; }
 .crypto-wallet-receive-copy { min-width: 0; }
 .crypto-wallet-receive strong { display: block; font-size: 12px; }
 .crypto-wallet-receive p { margin: 5px 0 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
-.crypto-wallet-address > .button { margin-top: 10px; min-height: 40px; padding: 8px 12px; font-size: 10px; white-space: nowrap; }
 .crypto-wallet-receive > small { grid-column: 1 / -1; color: var(--warning); font-size: 10px; line-height: 1.5; }
 .crypto-wallet-unavailable { padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-soft); }
 .crypto-wallet-unavailable-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
