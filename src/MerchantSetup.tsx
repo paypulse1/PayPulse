@@ -62,7 +62,7 @@ const webhookEvents = [
   ["disbursement.failed", "Disbursement failed"],
 ] as const;
 
-export function KybSetupPanel() {
+export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
   const [profile, setProfile] = useState(initialKyb);
   const [status, setStatus] = useState<KybProfile["status"] | "">("");
   const [reviewNotes, setReviewNotes] = useState("");
@@ -90,7 +90,7 @@ export function KybSetupPanel() {
       if (active) setLoading(false);
     });
     return () => { active = false; };
-  }, []);
+  }, [refreshVersion]);
 
   function updateField(field: keyof typeof initialKyb, value: string) {
     setProfile((current) => ({ ...current, [field]: value }));
@@ -181,7 +181,7 @@ export function KybSetupPanel() {
   );
 }
 
-export function DeveloperSetupPanel() {
+export function DeveloperSetupPanel({ refreshVersion }: { refreshVersion: number }) {
   const [keys, setKeys] = useState<MerchantApiKey[]>([]);
   const [webhook, setWebhook] = useState<MerchantWebhookSettings | null>(null);
   const [deliveries, setDeliveries] = useState<WebhookDelivery[]>([]);
@@ -193,7 +193,6 @@ export function DeveloperSetupPanel() {
   const [newKey, setNewKey] = useState("");
   const [signingSecret, setSigningSecret] = useState("");
   const [busy, setBusy] = useState("");
-  const [refreshingDeliveries, setRefreshingDeliveries] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -213,7 +212,7 @@ export function DeveloperSetupPanel() {
       if (active) setError(loadError instanceof Error ? loadError.message : "Could not load developer settings.");
     });
     return () => { active = false; };
-  }, []);
+  }, [refreshVersion]);
 
   async function addKey(event: FormEvent) {
     event.preventDefault();
@@ -300,18 +299,6 @@ export function DeveloperSetupPanel() {
     }
   }
 
-  async function refreshDeliveries() {
-    setRefreshingDeliveries(true);
-    setError("");
-    try {
-      setDeliveries(await getMerchantWebhookDeliveries());
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Could not refresh webhook history.");
-    } finally {
-      setRefreshingDeliveries(false);
-    }
-  }
-
   function toggleValue(values: string[], value: string, update: (next: string[]) => void) {
     update(values.includes(value) ? values.filter((item) => item !== value) : [...values, value]);
   }
@@ -345,13 +332,6 @@ export function DeveloperSetupPanel() {
         <strong>Recent webhook deliveries</strong>
         <p>Delivery history is limited to the latest 50 events. Failed deliveries retry automatically up to eight attempts.</p>
       </div>
-      <Button
-        variant="secondary"
-        disabled={refreshingDeliveries || busy !== ""}
-        onClick={() => void refreshDeliveries()}
-      >
-        {refreshingDeliveries ? "Refreshing…" : "Refresh delivery history"}
-      </Button>
       {deliveries.length ? (
         <div className="setup-key-list">
           {deliveries.map((delivery) => (

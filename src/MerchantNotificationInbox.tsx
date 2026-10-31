@@ -36,8 +36,14 @@ function formatNotificationDate(value: string) {
 
 export default function MerchantNotificationInbox({
   onUnreadCountChange,
+  refreshVersion,
+  pullDistance,
+  pullRefreshing,
 }: {
   onUnreadCountChange: (count: number) => void
+  refreshVersion: number
+  pullDistance: number
+  pullRefreshing: boolean
 }) {
   const [filter, setFilter] = useState<"All" | "Payments" | "Transfers">(
     "All",
@@ -92,7 +98,7 @@ export default function MerchantNotificationInbox({
     return () => {
       activeRef.current = false
     }
-  }, [])
+  }, [refreshVersion])
 
   async function markRead(notification: MerchantNotification) {
     if (notification.readAt || updatingId || markingAllRead) return
@@ -166,6 +172,27 @@ export default function MerchantNotificationInbox({
 
   return (
     <div className="notification-inbox">
+      {(pullDistance > 0 || pullRefreshing) && (
+        <div className="pull-refresh-indicator" role="status" aria-live="polite">
+          <span
+            className={pullRefreshing ? "is-refreshing" : ""}
+            style={{
+              transform: `translateY(${
+                pullRefreshing ? 0 : pullDistance - 38
+              }px)`,
+            }}
+          >
+            <RefreshCw size={15} />
+          </span>
+          <small>
+            {pullRefreshing
+              ? "Refreshing…"
+              : pullDistance >= 58
+                ? "Release to refresh"
+                : "Pull to refresh"}
+          </small>
+        </div>
+      )}
       <div className="notification-inbox-toolbar">
         <p>
           {unreadCount === 0
@@ -175,19 +202,6 @@ export default function MerchantNotificationInbox({
               }`}
         </p>
         <div className="notification-inbox-actions">
-          <button
-            type="button"
-            className="notification-mark-all"
-            disabled={loading || markingAllRead || Boolean(updatingId)}
-            onClick={() => void loadInbox()}
-          >
-            {loading ? (
-              <LoaderCircle className="spin" size={14} />
-            ) : (
-              <RefreshCw size={14} />
-            )}
-            Refresh
-          </button>
           <button
             type="button"
             className="notification-mark-all"
@@ -223,13 +237,7 @@ export default function MerchantNotificationInbox({
         <div className="inline-error notification-inbox-error" role="alert">
           <AlertCircle size={15} />
           <span>{error}</span>
-          <button
-            type="button"
-            onClick={() => void loadInbox()}
-            disabled={loading}
-          >
-            Retry
-          </button>
+          <small>Pull down to try again.</small>
         </div>
       )}
       {loading && notifications.length === 0 ? (

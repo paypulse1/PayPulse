@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react"
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type TouchEvent,
+} from "react"
 import {
   AlertCircle,
   Activity,
@@ -9,7 +16,6 @@ import {
   LoaderCircle,
   Lock,
   LogOut,
-  RefreshCw,
   ReceiptText,
   Search,
   Send,
@@ -137,6 +143,8 @@ export function SuperAdminConsole({
   const [newBusinessAddress, setNewBusinessAddress] = useState("")
   const [newPhoneNumber, setNewPhoneNumber] = useState("")
   const [loading, setLoading] = useState(true)
+  const [pullDistance, setPullDistance] = useState(0)
+  const [pullRefreshing, setPullRefreshing] = useState(false)
   const [savingSettings, setSavingSettings] = useState(false)
   const [savingMerchant, setSavingMerchant] = useState(false)
   const [savingUsdtAddress, setSavingUsdtAddress] = useState("")
@@ -152,6 +160,9 @@ export function SuperAdminConsole({
   const [payoutNote, setPayoutNote] = useState("")
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
+  const touchStartYRef = useRef<number | null>(null)
+  const touchStartXRef = useRef<number | null>(null)
+  const pullDistanceRef = useRef(0)
   const filteredMerchants = useMemo(() => {
     const query = merchantSearch.trim().toLowerCase()
     return merchants.filter((merchant) => {
@@ -466,7 +477,7 @@ export function SuperAdminConsole({
     applyResult(auditResult, "audit history", setAuditEvents)
     if (failures.length) {
       setError(
-        `Could not load ${failures.join("; ")}. Use Refresh to retry; if your session has expired, sign in again.`,
+        `Could not load ${failures.join("; ")}. Pull down to retry; if your session has expired, sign in again.`,
       )
     }
     setLoading(false)
@@ -475,6 +486,71 @@ export function SuperAdminConsole({
   useEffect(() => {
     void loadConsole()
   }, [])
+
+  function handleTouchStart(event: TouchEvent<HTMLElement>) {
+    let target = event.target instanceof Element ? event.target : null
+    while (target && target !== event.currentTarget) {
+      if (
+        target instanceof HTMLElement &&
+        ["auto", "scroll", "overlay"].includes(
+          window.getComputedStyle(target).overflowY,
+        ) &&
+        target.scrollHeight > target.clientHeight &&
+        target.scrollTop > 0
+      ) {
+        touchStartYRef.current = null
+        touchStartXRef.current = null
+        return
+      }
+      target = target.parentElement
+    }
+    if (
+      loading ||
+      pullRefreshing ||
+      event.touches.length !== 1 ||
+      window.scrollY > 0
+    ) {
+      touchStartYRef.current = null
+      touchStartXRef.current = null
+      return
+    }
+    touchStartYRef.current = event.touches[0].clientY
+    touchStartXRef.current = event.touches[0].clientX
+  }
+
+  function handleTouchMove(event: TouchEvent<HTMLElement>) {
+    const startY = touchStartYRef.current
+    const startX = touchStartXRef.current
+    if (startY === null || startX === null || event.touches.length !== 1) return
+    const deltaY = event.touches[0].clientY - startY
+    const deltaX = event.touches[0].clientX - startX
+    if (Math.abs(deltaX) > Math.abs(deltaY)) {
+      touchStartYRef.current = null
+      touchStartXRef.current = null
+      pullDistanceRef.current = 0
+      setPullDistance(0)
+      return
+    }
+    const distance = Math.max(0, deltaY)
+    const nextDistance = Math.min(84, distance * 0.55)
+    pullDistanceRef.current = nextDistance
+    setPullDistance(nextDistance)
+  }
+
+  async function handleTouchEnd() {
+    const shouldRefresh = !loading && pullDistanceRef.current >= 58
+    touchStartYRef.current = null
+    touchStartXRef.current = null
+    pullDistanceRef.current = 0
+    setPullDistance(0)
+    if (!shouldRefresh) return
+    setPullRefreshing(true)
+    try {
+      await loadConsole()
+    } finally {
+      setPullRefreshing(false)
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -969,7 +1045,27 @@ export function SuperAdminConsole({
   }
 
   return (
-    <main className="admin-screen">
+    <main
+      className="admin-screen"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={() => void handleTouchEnd()}
+      onTouchCancel={() => {
+        touchStartYRef.current = null
+        touchStartXRef.current = null
+        pullDistanceRef.current = 0
+        setPullDistance(0)
+      }}
+    >
+      {(pullDistance > 0 || pullRefreshing) && (
+        <div className="admin-pull-refresh" role="status" aria-live="polite">
+          {pullRefreshing
+            ? "Refreshing…"
+            : pullDistance >= 58
+              ? "Release to refresh"
+              : "Pull to refresh"}
+        </div>
+      )}
       <header className="admin-header">
         <Brand />
         <div>
@@ -1044,14 +1140,6 @@ export function SuperAdminConsole({
                 disabled={loading}
               >
                 Export CSV
-              </Button>
-              <Button
-                variant="secondary"
-                icon={<RefreshCw size={15} />}
-                onClick={() => void loadConsole()}
-                disabled={loading}
-              >
-                Refresh
               </Button>
             </div>
           </div>

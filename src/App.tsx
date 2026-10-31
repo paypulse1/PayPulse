@@ -3102,7 +3102,6 @@ function MerchantActivityChart({ refreshVersion }: { refreshVersion: number }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
-  const [retryKey, setRetryKey] = useState(0)
   const requestInFlight = useRef(false)
 
   useEffect(() => {
@@ -3136,7 +3135,7 @@ function MerchantActivityChart({ refreshVersion }: { refreshVersion: number }) {
       active = false
       window.clearInterval(timer)
     }
-  }, [refreshVersion, retryKey])
+  }, [refreshVersion])
 
   const maxValue = Math.max(
     1,
@@ -3188,10 +3187,7 @@ function MerchantActivityChart({ refreshVersion }: { refreshVersion: number }) {
           className="merchant-trend-message merchant-trend-error"
           role="status"
         >
-          <span>{error}</span>
-          <button type="button" onClick={() => setRetryKey((key) => key + 1)}>
-            Retry
-          </button>
+          <span>{error} Pull down to try again.</span>
         </div>
       ) : (
         <>
@@ -3342,8 +3338,6 @@ function WalletFloatingBalanceCard({
   const [payoutRequests, setPayoutRequests] =
     useState<FloatingTransferRequest[]>([])
   const [payoutRequestsError, setPayoutRequestsError] = useState("")
-  const [refreshingPayoutRequests, setRefreshingPayoutRequests] =
-    useState(false)
   const collectionTargetKrw = 1_000_000
   const currentCollectionsKrw = Math.max(0, data.cumulativeKrwCollections)
   const collectionProgress = Math.min(
@@ -3397,25 +3391,8 @@ function WalletFloatingBalanceCard({
     )
   }, [data.availableFloatingBalance, data.transferFeeFixed, refreshVersion])
 
-  async function refreshPayoutRequests() {
-    setRefreshingPayoutRequests(true)
-    setPayoutRequestsError("")
-    try {
-      setPayoutRequests(await getMerchantFloatingTransferRequests())
-    } catch (error) {
-      setPayoutRequestsError(
-        error instanceof Error
-          ? error.message
-          : "Could not load payout request history.",
-      )
-    } finally {
-      setRefreshingPayoutRequests(false)
-    }
-  }
-
   useEffect(() => {
     let active = true
-    setRefreshingPayoutRequests(true)
     setPayoutRequestsError("")
     getMerchantFloatingTransferRequests()
       .then((requests) => {
@@ -3428,9 +3405,6 @@ function WalletFloatingBalanceCard({
               ? error.message
               : "Could not load payout request history.",
           )
-      })
-      .finally(() => {
-        if (active) setRefreshingPayoutRequests(false)
       })
     return () => {
       active = false
@@ -3577,14 +3551,6 @@ function WalletFloatingBalanceCard({
       >
         <header className="section-header">
           <h3>Request history</h3>
-          <button
-            type="button"
-            className="text-button"
-            disabled={refreshingPayoutRequests}
-            onClick={() => void refreshPayoutRequests()}
-          >
-            {refreshingPayoutRequests ? "Refreshing…" : "Refresh"}
-          </button>
         </header>
         {payoutRequestsError ? (
           <p className="inline-error" role="alert">
@@ -3768,12 +3734,10 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
   const [wallet, setWallet] = useState<MerchantUsdtWallet | null>(null)
   const [deposits, setDeposits] = useState<MerchantUsdtDeposit[]>([])
   const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState("")
   const [depositError, setDepositError] = useState("")
   const [depositMessage, setDepositMessage] = useState("")
   const [depositLoading, setDepositLoading] = useState(true)
-  const [depositRefreshing, setDepositRefreshing] = useState(false)
   const [copyMessage, setCopyMessage] = useState("")
   const [depositQr, setDepositQr] = useState("")
   const [depositQrError, setDepositQrError] = useState("")
@@ -3825,9 +3789,8 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
     }
   }, [wallet?.address, wallet?.network])
 
-  async function loadWallet(refresh = false) {
-    if (refresh) setRefreshing(true)
-    else setLoading(true)
+  async function loadWallet() {
+    setLoading(true)
     setError("")
     try {
       setWallet(await getMerchantUsdtWallet())
@@ -3841,13 +3804,11 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
       )
     } finally {
       setLoading(false)
-      setRefreshing(false)
     }
   }
 
-  async function loadDeposits(refresh = false) {
-    if (refresh) setDepositRefreshing(true)
-    else setDepositLoading(true)
+  async function loadDeposits() {
+    setDepositLoading(true)
     setDepositError("")
     try {
       const result = await getMerchantUsdtDeposits()
@@ -3863,7 +3824,6 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
       )
     } finally {
       setDepositLoading(false)
-      setDepositRefreshing(false)
     }
   }
 
@@ -3885,12 +3845,9 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
     }
   }
 
-  const initialLoadRef = useRef(true)
   useEffect(() => {
-    const isRefresh = !initialLoadRef.current
-    initialLoadRef.current = false
-    void loadWallet(isRefresh)
-    void loadDeposits(isRefresh)
+    void loadWallet()
+    void loadDeposits()
     void loadWithdrawalConfig()
   }, [refreshVersion])
 
@@ -4007,8 +3964,8 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
       setWithdrawalAmount("")
       setWithdrawalDestination("")
       setWithdrawalTransactionId(transactionId)
-      void loadWallet(true)
-      void loadDeposits(true)
+      void loadWallet()
+      void loadDeposits()
     } catch (requestError) {
       setWithdrawalError(
         requestError instanceof Error
@@ -4203,24 +4160,19 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
             </small>
           )}
         </div>
-        <section
-          className="crypto-withdrawal"
-          aria-labelledby="crypto-withdrawal-title"
-        >
+        {(canWithdrawUsdt || withdrawalConfigLoading || withdrawalConfigError) && (
+          <section
+            className="crypto-withdrawal"
+            aria-labelledby="crypto-withdrawal-title"
+          >
           <div className="crypto-wallet-unavailable-heading">
             <div>
               <span className="eyebrow">TRONLINK</span>
               <h3 id="crypto-withdrawal-title">Withdraw USDT</h3>
             </div>
-            <span
-              className={
-                canWithdrawUsdt
-                  ? "crypto-wallet-receive-status"
-                  : "crypto-wallet-withdrawal-status"
-              }
-            >
-              {canWithdrawUsdt ? "AVAILABLE" : "NOT READY"}
-            </span>
+            {canWithdrawUsdt && (
+              <span className="crypto-wallet-receive-status">AVAILABLE</span>
+            )}
           </div>
           {withdrawalConfigLoading ? (
             <p className="crypto-wallet-feedback" role="status">
@@ -4233,14 +4185,7 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
             >
               {withdrawalConfigError}
             </p>
-          ) : !canWithdrawUsdt ? (
-            <p className="crypto-wallet-feedback" role="status">
-              {withdrawalConfig?.message ||
-                (!wallet?.address
-                  ? "Ask the DRPAY team to assign your TRON mainnet wallet."
-                  : "Withdrawals are not enabled for this wallet or API environment.")}
-            </p>
-          ) : (
+          ) : !withdrawalConfig ? null : (
             <>
               <p className="crypto-withdrawal-intro">
                 Open DRPAY in TronLink’s DApp browser or use the TronLink
@@ -4376,7 +4321,8 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
               </a>
             </p>
           )}
-        </section>
+          </section>
+        )}
         <div className="crypto-wallet-unavailable">
           <div className="crypto-wallet-unavailable-heading">
             <strong>Buy and sell USDT</strong>
@@ -4397,13 +4343,6 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
             <span className="eyebrow">TRON · TRC20</span>
             <h3>Recent USDT deposits</h3>
           </div>
-          <Button
-            variant="quiet"
-            disabled={depositLoading || depositRefreshing}
-            onClick={() => void loadDeposits(true)}
-          >
-            {depositRefreshing ? "Refreshing…" : "Refresh"}
-          </Button>
         </header>
         {depositLoading ? (
           <p className="crypto-wallet-feedback" role="status">
@@ -4477,17 +4416,6 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
           {error}
         </p>
       )}
-      <Button
-        variant="quiet"
-        className="crypto-wallet-refresh"
-        disabled={loading || refreshing || depositLoading || depositRefreshing}
-        onClick={() => {
-          void loadWallet(true)
-          void loadDeposits(true)
-        }}
-      >
-        {refreshing ? "Refreshing…" : "Refresh mainnet balance"}
-      </Button>
     </div>
   )
 }
@@ -4905,14 +4833,17 @@ function MoreView({
   )
 }
 
-function CheckoutEmailBrandingSettings() {
+function CheckoutEmailBrandingSettings({
+  refreshVersion,
+}: {
+  refreshVersion: number
+}) {
   const [branding, setBranding] = useState(DEFAULT_CHECKOUT_BRANDING)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   const [loadError, setLoadError] = useState("")
   const [notice, setNotice] = useState("")
-  const [retryLoad, setRetryLoad] = useState(0)
 
   useEffect(() => {
     let active = true
@@ -4936,7 +4867,7 @@ function CheckoutEmailBrandingSettings() {
     return () => {
       active = false
     }
-  }, [retryLoad])
+  }, [refreshVersion])
 
   async function saveBranding() {
     setSaving(true)
@@ -4973,14 +4904,7 @@ function CheckoutEmailBrandingSettings() {
       ) : loadError ? (
         <div className="inline-error" role="alert">
           <AlertCircle size={15} />
-          <span>{loadError}</span>
-          <button
-            type="button"
-            className="profile-inline-action"
-            onClick={() => setRetryLoad((attempt) => attempt + 1)}
-          >
-            Retry
-          </button>
+          <span>{loadError} Pull down to try again.</span>
         </div>
       ) : (
         <>
@@ -5045,7 +4969,6 @@ function ProfileInfoPage({
   const [institutions, setInstitutions] = useState<Institution[]>([])
   const [institutionsLoading, setInstitutionsLoading] = useState(false)
   const [institutionsError, setInstitutionsError] = useState("")
-  const [retryInstitutions, setRetryInstitutions] = useState(0)
   const [notificationPreferences, setNotificationPreferences] =
     useState<MerchantNotificationPreferences | null>(null)
   const [notificationPreferencesError, setNotificationPreferencesError] =
@@ -5121,7 +5044,7 @@ function ProfileInfoPage({
     return () => {
       active = false
     }
-  }, [refreshVersion, retryInstitutions, title])
+  }, [refreshVersion, title])
 
   const successfulTransactions = data.transactions.filter(
     (transaction) => transaction.status === "Completed",
@@ -5147,7 +5070,7 @@ function ProfileInfoPage({
       </header>
 
       {title === "Checkout & email branding" && (
-        <CheckoutEmailBrandingSettings />
+        <CheckoutEmailBrandingSettings refreshVersion={refreshVersion} />
       )}
 
       {title === "Merchant profile" && (
@@ -5221,13 +5144,7 @@ function ProfileInfoPage({
           ) : institutionsError ? (
             <div className="inline-error" role="alert">
               <AlertCircle size={15} />
-              {institutionsError}
-              <button
-                className="profile-inline-action"
-                onClick={() => setRetryInstitutions((attempt) => attempt + 1)}
-              >
-                Retry
-              </button>
+              {institutionsError} Pull down to try again.
             </div>
           ) : institutions.length === 0 ? (
             <p className="profile-sheet-state">
@@ -5546,9 +5463,13 @@ function ProfileInfoPage({
         </>
       )}
 
-      {title === "KYB verification" && <KybSetupPanel />}
+      {title === "KYB verification" && (
+        <KybSetupPanel refreshVersion={refreshVersion} />
+      )}
 
-      {title === "Developer settings" && <DeveloperSetupPanel />}
+      {title === "Developer settings" && (
+        <DeveloperSetupPanel refreshVersion={refreshVersion} />
+      )}
 
       {title === "API documentation" && (
         <div className="api-docs">
@@ -6831,17 +6752,23 @@ export default function App() {
   if (!data) {
     return (
       <>
-        <main className="dashboard-error-screen error-screen" role="alert">
+        <main
+          className="dashboard-error-screen error-screen"
+          role="alert"
+          onTouchStart={handleDashboardTouchStart}
+          onTouchMove={handleDashboardTouchMove}
+          onTouchEnd={() => void handleDashboardTouchEnd()}
+          onTouchCancel={() => {
+            touchStartYRef.current = null
+            touchStartXRef.current = null
+            pullDistanceRef.current = 0
+            setPullDistance(0)
+          }}
+        >
+          <p className="profile-info-note">Pull down to try again.</p>
           <AlertCircle size={28} />
           <h1>Wallet unavailable</h1>
           <p>{error || "We couldn’t load your merchant wallet."}</p>
-          <Button
-            variant="secondary"
-            onClick={loadDashboard}
-            icon={<RefreshCw size={16} />}
-          >
-            Retry
-          </Button>
           <Button variant="quiet" onClick={signOut}>
             Sign out
           </Button>
@@ -6936,7 +6863,7 @@ export default function App() {
             <div className="data-warning">
               <AlertCircle size={15} />
               {error}
-              <button onClick={loadDashboard}>Retry</button>
+              <span>Pull down to try again.</span>
             </div>
           )}
           <div
@@ -7124,6 +7051,15 @@ export default function App() {
           className="sheet-backdrop"
           role="presentation"
           onMouseDown={() => setShowNotifications(false)}
+          onTouchStart={handleDashboardTouchStart}
+          onTouchMove={handleDashboardTouchMove}
+          onTouchEnd={() => void handleDashboardTouchEnd()}
+          onTouchCancel={() => {
+            touchStartYRef.current = null
+            touchStartXRef.current = null
+            pullDistanceRef.current = 0
+            setPullDistance(0)
+          }}
         >
           <AccessibleDialog
             className="payment-sheet"
@@ -7145,6 +7081,9 @@ export default function App() {
               </IconButton>
             </header>
             <MerchantNotificationInbox
+              refreshVersion={refreshVersion}
+              pullDistance={pullDistance}
+              pullRefreshing={pullRefreshing}
               onUnreadCountChange={setUnreadNotificationCount}
             />
             <Button

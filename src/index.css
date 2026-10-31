@@ -74,6 +74,7 @@ h1, h2, p { margin-top: 0; }
 .pull-refresh-indicator > span { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 50%; background: white; color: var(--link); box-shadow: 0 4px 12px rgb(11 31 58 / 10%); transition: transform 100ms ease-out; }
 .pull-refresh-indicator > span.is-refreshing svg { animation: spin 900ms linear infinite; }
 .pull-refresh-indicator > small { padding: 5px 8px; border: 1px solid var(--line); border-radius: 999px; background: white; color: var(--muted); box-shadow: 0 4px 12px rgb(11 31 58 / 8%); font-size: 9px; font-weight: 700; }
+.admin-pull-refresh, .checkout-pull-refresh { position: fixed; z-index: 20; top: 12px; left: 50%; transform: translateX(-50%); padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: white; color: var(--muted); box-shadow: 0 4px 12px rgb(11 31 58 / 10%); font-size: 10px; font-weight: 700; pointer-events: none; }
 
 .balance-card { position: relative; overflow: hidden; min-height: 166px; padding: 20px; border-radius: 22px; background: linear-gradient(135deg, #071429 0%, var(--brand-navy) 50%, var(--brand-blue) 100%); color: white; box-shadow: 0 14px 35px rgb(11 31 58 / 24%); }
 .balance-card-wallet { margin-bottom: 11px; }
@@ -271,7 +272,6 @@ h1, h2, p { margin-top: 0; }
 .crypto-wallet-disclaimer { margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--warning-soft); color: var(--warning); font-size: 10px; line-height: 1.55; }
 .crypto-wallet-feedback { margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); color: var(--muted); font-size: 10px; line-height: 1.55; }
 .crypto-wallet-error { background: var(--danger-soft); color: var(--danger); }
-.crypto-wallet-refresh { width: 100%; min-height: 42px; padding: 9px 12px; font-size: 10px; }
 .wallet-ledger-card { margin-bottom: 18px; padding: 13px; display: grid; grid-template-columns: 36px 1fr auto; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
 .wallet-ledger-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 11px; background: #e6eef8; color: #1b4f9c; }
 .wallet-ledger-icon img { width: 27px; height: auto; }
