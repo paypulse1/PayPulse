@@ -4041,107 +4041,111 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
     Boolean(wallet?.address) && connectedTronLinkAddress === wallet?.address
 
   return (
-    <section className="crypto-wallet" aria-labelledby="crypto-wallet-title">
-      <header className="crypto-wallet-header">
-        <div>
-          <span className="eyebrow">CRYPTO WALLET</span>
-          <h2 id="crypto-wallet-title">USDT wallet</h2>
-        </div>
-        <span
-          className={`crypto-wallet-badge ${
-            wallet?.network === "TRON_SHASTA"
-              ? "testnet"
-              : !wallet && !loading
-                ? "unavailable"
-                : ""
-          }`}
-        >
-          {networkLabel}
-        </span>
-      </header>
-      <div className="crypto-wallet-balance">
-        <span>ON-CHAIN USDT BALANCE</span>
-        <strong>
-          {loading
-            ? "Loading…"
-            : wallet?.balance === null || !wallet
-              ? "Unavailable"
-              : `${wallet.balance} USDT`}
-        </strong>
-      </div>
-      {wallet?.activation && (
-        <section
-          className="crypto-activation"
-          aria-label="Merchant service activation requirements"
-        >
+    <div className="crypto-wallet-screen">
+      <section className="crypto-wallet" aria-labelledby="crypto-wallet-title">
+        <header className="crypto-wallet-header">
+          <div>
+            <span className="eyebrow">CRYPTO WALLET</span>
+            <h2 id="crypto-wallet-title">USDT wallet</h2>
+          </div>
+          <span
+            className={`crypto-wallet-badge ${
+              wallet?.network === "TRON_SHASTA"
+                ? "testnet"
+                : !wallet && !loading
+                  ? "unavailable"
+                  : ""
+            }`}
+          >
+            {networkLabel}
+          </span>
+        </header>
+        <div className="crypto-wallet-balance">
+          <span>ON-CHAIN USDT BALANCE</span>
           <strong>
-            {wallet.activation.fullyActivated
-              ? "Merchant services activated"
-              : "Complete service activation"}
+            {loading
+              ? "Loading…"
+              : wallet?.balance === null || !wallet
+                ? "Unavailable"
+                : `${wallet.balance} USDT`}
           </strong>
-          <p>
-            Sign-in and collections remain available. The PHP activation fee is
-            debited from your merchant wallet and credited to Super Admin.
-            Merchant payment transfers and API integrations unlock after the fee
-            is paid and the USDT balance requirement is met. These requirements
-            do not enable crypto trading or withdrawals.
-          </p>
-          <div className="crypto-activation-milestone">
-            <span>{wallet.activation.activationFee.complete ? "✓" : "1"}</span>
-            <div>
-              <strong>One-time PHP activation fee</strong>
-              <small>
-                {wallet.activation.activationFee.complete
-                  ? `PHP ${wallet.activation.activationFee.chargedAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} debited and credited to Super Admin`
-                  : `PHP ${wallet.activation.activationFee.requiredAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} will be debited when available`}
-              </small>
-              {!wallet.activation.activationFee.complete &&
-                wallet.activation.activationFee.availableWalletBalance !==
-                  null && (
-                  <small>
-                    Available merchant wallet balance: PHP{" "}
-                    {wallet.activation.activationFee.availableWalletBalance.toLocaleString(
-                      "en-PH",
-                      { minimumFractionDigits: 2, maximumFractionDigits: 2 },
-                    )}
-                  </small>
-                )}
-            </div>
-          </div>
-          <div className="crypto-activation-milestone">
-            <span>{wallet.activation.usdtBalance.complete ? "✓" : "2"}</span>
-            <div>
-              <strong>
-                Maintain at least 100 USDT after address assignment
-              </strong>
-              <small>
-                Qualifying balance:{" "}
-                {wallet.activation.usdtBalance.qualifyingBalance === null
-                  ? "Unavailable"
-                  : `${wallet.activation.usdtBalance.qualifyingBalance} USDT`}
-                {wallet.activation.usdtBalance.assignedAt
-                  ? ` · assigned ${new Date(wallet.activation.usdtBalance.assignedAt).toLocaleDateString()}`
-                  : ""}
-              </small>
-              {wallet.activation.usdtBalance.message && (
-                <small>{wallet.activation.usdtBalance.message}</small>
-              )}
-            </div>
-          </div>
-          {wallet.integrationEmailStatus === "failed" && (
-            <p className="crypto-activation-error" role="status">
-              Requirements are complete, but the API integration email could not
-              be sent. Ask Super Admin to resend the guide.
+        </div>
+        {wallet?.activation && (
+          <section
+            className="crypto-activation"
+            aria-label="Merchant service activation requirements"
+          >
+            <strong>
+              {wallet.activation.fullyActivated
+                ? "Merchant services activated"
+                : "Complete service activation"}
+            </strong>
+            <p>
+              Sign-in and collections remain available. The PHP activation fee
+              is debited from your merchant wallet and credited to Super Admin.
+              Merchant payment transfers and API integrations unlock after the
+              fee is paid and the USDT balance requirement is met. These
+              requirements do not enable crypto trading or withdrawals.
             </p>
-          )}
-        </section>
-      )}
-      <div className="crypto-wallet-address">
-        <span>DRPAY-ASSIGNED ADDRESS · {addressNetworkLabel}</span>
-        <strong className="crypto-wallet-address-value">
-          {wallet?.address || (loading ? "Loading…" : "Not assigned")}
-        </strong>
-      </div>
+            <div className="crypto-activation-milestone">
+              <span>
+                {wallet.activation.activationFee.complete ? "✓" : "1"}
+              </span>
+              <div>
+                <strong>One-time PHP activation fee</strong>
+                <small>
+                  {wallet.activation.activationFee.complete
+                    ? `PHP ${wallet.activation.activationFee.chargedAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} debited and credited to Super Admin`
+                    : `PHP ${wallet.activation.activationFee.requiredAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} will be debited when available`}
+                </small>
+                {!wallet.activation.activationFee.complete &&
+                  wallet.activation.activationFee.availableWalletBalance !==
+                    null && (
+                    <small>
+                      Available merchant wallet balance: PHP{" "}
+                      {wallet.activation.activationFee.availableWalletBalance.toLocaleString(
+                        "en-PH",
+                        { minimumFractionDigits: 2, maximumFractionDigits: 2 },
+                      )}
+                    </small>
+                  )}
+              </div>
+            </div>
+            <div className="crypto-activation-milestone">
+              <span>{wallet.activation.usdtBalance.complete ? "✓" : "2"}</span>
+              <div>
+                <strong>
+                  Maintain at least 100 USDT after address assignment
+                </strong>
+                <small>
+                  Qualifying balance:{" "}
+                  {wallet.activation.usdtBalance.qualifyingBalance === null
+                    ? "Unavailable"
+                    : `${wallet.activation.usdtBalance.qualifyingBalance} USDT`}
+                  {wallet.activation.usdtBalance.assignedAt
+                    ? ` · assigned ${new Date(wallet.activation.usdtBalance.assignedAt).toLocaleDateString()}`
+                    : ""}
+                </small>
+                {wallet.activation.usdtBalance.message && (
+                  <small>{wallet.activation.usdtBalance.message}</small>
+                )}
+              </div>
+            </div>
+            {wallet.integrationEmailStatus === "failed" && (
+              <p className="crypto-activation-error" role="status">
+                Requirements are complete, but the API integration email could
+                not be sent. Ask Super Admin to resend the guide.
+              </p>
+            )}
+          </section>
+        )}
+        <div className="crypto-wallet-address">
+          <span>DRPAY-ASSIGNED ADDRESS · {addressNetworkLabel}</span>
+          <strong className="crypto-wallet-address-value">
+            {wallet?.address || (loading ? "Loading…" : "Not assigned")}
+          </strong>
+        </div>
+      </section>
       <section
         className="crypto-wallet-operations"
         aria-labelledby="crypto-wallet-operations-title"
@@ -4155,7 +4159,11 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
             {canReceiveUsdt ? "RECEIVING AVAILABLE" : "RECEIVING UNAVAILABLE"}
           </span>
         </header>
-        <div className="crypto-wallet-receive">
+        <div
+          className={`crypto-wallet-receive ${
+            canReceiveUsdt ? "is-ready" : ""
+          }`}
+        >
           {canReceiveUsdt &&
             (depositQr ? (
               <div className="crypto-wallet-deposit-qr">
@@ -4319,7 +4327,9 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
                   </label>
                   <Button
                     type="submit"
-                    disabled={withdrawalBusy || !tronLinkMatchesAssignedAddress}
+                    disabled={
+                      withdrawalBusy || !tronLinkMatchesAssignedAddress
+                    }
                     icon={<Send size={14} />}
                   >
                     {withdrawalBusy
@@ -4478,7 +4488,7 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
       >
         {refreshing ? "Refreshing…" : "Refresh mainnet balance"}
       </Button>
-    </section>
+    </div>
   )
 }
 
