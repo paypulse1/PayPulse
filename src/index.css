@@ -1,7 +1,8 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
 @import 'tailwindcss';
 
 :root {
+  --font-family: "Manrope", sans-serif;
   --page: #e8edf5;
   --paper: #f5f7fb;
   --surface: #ffffff;
@@ -35,13 +36,13 @@
   --motion-slow: 280ms;
   --motion-ease: cubic-bezier(.2, .75, .25, 1);
   --motion-enter: cubic-bezier(.16, 1, .3, 1);
-  font-family: "Manrope", sans-serif;
+  font-family: var(--font-family);
   font-synthesis: none;
   color: var(--ink);
   background: var(--page);
 }
 
-* { box-sizing: border-box; }
+* { box-sizing: border-box; font-family: var(--font-family); }
 html, body, #root { min-width: 320px; min-height: 100%; margin: 0; }
 body { min-height: 100vh; min-height: 100dvh; }
 button, input, select, textarea { font: inherit; color: inherit; }
@@ -215,7 +216,7 @@ h1, h2, p { margin-top: 0; }
 .crypto-wallet-address { padding: 10px 11px; border: 1px dashed var(--line); border-radius: 10px; }
 .crypto-wallet-address strong, .crypto-wallet-address small { display: block; }
 .crypto-wallet-address strong { margin-top: 5px; font-size: 9px; }
-.crypto-wallet-address .crypto-wallet-address-value { overflow-wrap: anywhere; font: 8px "DM Mono", monospace; line-height: 1.6; }
+.crypto-wallet-address .crypto-wallet-address-value { overflow-wrap: anywhere; font: 8px var(--font-family); line-height: 1.6; }
 .crypto-wallet-address small { margin-top: 4px; color: var(--muted); font-size: 8px; line-height: 1.5; }
 .crypto-wallet-operations { margin-top: 11px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
 .crypto-wallet-operations-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -532,13 +533,13 @@ h1, h2, p { margin-top: 0; }
 .link-result > strong { display: block; font-size: 17px; }
 .link-result > p { max-width: 320px; margin: 7px auto 20px; color: var(--muted); font-size: 9px; line-height: 1.6; }
 .copy-link { width: 100%; min-height: 48px; margin-bottom: 14px; padding: 0 13px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-soft); display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.copy-link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 8px "DM Mono", monospace; }
+.copy-link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 8px var(--font-family); }
 .link-result > .button { width: 100%; }
 .result-actions { display: flex; gap: 8px; margin-bottom: 9px; }
 .result-actions .button { flex: 1; }
 .payment-link-share { margin: 14px 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); text-align: left; }
 .payment-link-share > .eyebrow { display: block; margin-bottom: 7px; }
-.payment-link-share > a { display: block; overflow-wrap: anywhere; color: var(--link); font: 8px "DM Mono", monospace; line-height: 1.55; text-decoration: underline; }
+.payment-link-share > a { display: block; overflow-wrap: anywhere; color: var(--link); font: 8px var(--font-family); line-height: 1.55; text-decoration: underline; }
 .payment-link-share-actions { display: flex; gap: 8px; margin-top: 10px; }
 .payment-link-share-actions > * { flex: 1; }
 .payment-link-share-message, .payment-link-share-error { margin: 8px 0 0; font-size: 8px; line-height: 1.45; }
@@ -602,7 +603,7 @@ h1, h2, p { margin-top: 0; }
 .scan-result { margin: 12px 0; padding: 12px; display: flex; gap: 10px; border-radius: 11px; background: var(--success-soft); color: var(--success); }
 .scan-result div strong, .scan-result div span { display: block; }
 .scan-result div strong { font-size: 9px; }
-.scan-result div span { margin-top: 3px; max-width: 280px; color: var(--muted); font: 7px "DM Mono", monospace; overflow-wrap: anywhere; }
+.scan-result div span { margin-top: 3px; max-width: 280px; color: var(--muted); font: 7px var(--font-family); overflow-wrap: anywhere; }
 .inline-error { padding: 10px 11px; display: flex; align-items: flex-start; gap: 7px; border-radius: 9px; background: var(--danger-soft); color: var(--danger); font-size: 8px; line-height: 1.5; }
 .data-warning { margin-bottom: 12px; padding: 9px 11px; display: flex; align-items: center; gap: 7px; border: 1px solid #ead9ab; border-radius: 10px; background: #fff8e7; color: #805b0c; font-size: 8px; }
 .data-warning button { margin-left: auto; border: 0; background: transparent; font-size: 8px; font-weight: 800; }
@@ -743,7 +744,7 @@ h1, h2, p { margin-top: 0; }
 .api-docs-section h3 { margin: 0 0 7px; font-size: 10px; }
 .api-docs-section > p { margin: 7px 0 0; color: var(--muted); font-size: 8px; line-height: 1.65; overflow-wrap: anywhere; }
 .api-docs-section > p strong { color: var(--ink); }
-.api-docs-section > p code, .api-docs-base code { padding: 2px 4px; border-radius: 4px; background: var(--surface-soft); color: var(--ink); font-family: "DM Mono", monospace; font-size: 7px; overflow-wrap: anywhere; }
+.api-docs-section > p code, .api-docs-base code { padding: 2px 4px; border-radius: 4px; background: var(--surface-soft); color: var(--ink); font-size: 7px; overflow-wrap: anywhere; }
 .api-docs-base { margin: 8px 0; padding: 9px; display: grid; gap: 5px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-soft); }
 .api-docs-base span, .api-docs-base small { color: var(--muted); font-size: 7px; }
 .api-docs-base code { width: fit-content; max-width: 100%; }
@@ -751,13 +752,13 @@ h1, h2, p { margin-top: 0; }
 .api-code-block > header { min-height: 31px; padding: 5px 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid #25354a; color: #d9e4f1; }
 .api-code-block > header strong { font-size: 7px; }
 .api-code-block > header button { padding: 4px 6px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid #42516a; border-radius: 5px; background: transparent; color: #d9e4f1; font-size: 7px; }
-.api-code-block pre { max-height: 320px; margin: 0; padding: 10px; overflow: auto; color: #d3e2f5; font: 7px/1.6 "DM Mono", monospace; tab-size: 2; white-space: pre; }
+.api-code-block pre { max-height: 320px; margin: 0; padding: 10px; overflow: auto; color: #d3e2f5; font: 7px/1.6 var(--font-family); tab-size: 2; white-space: pre; }
 .api-code-block p { margin: 0; padding: 0 9px 7px; color: #b9c8da; font-size: 7px; }
 .api-docs-endpoints { display: grid; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
 .api-docs-endpoints > div { min-height: 32px; padding: 6px 8px; display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 3px 6px; border-bottom: 1px solid var(--line); }
 .api-docs-endpoints > div:last-child { border-bottom: 0; }
 .api-docs-endpoints b { grid-row: span 2; align-self: center; color: #1b4f9c; font-size: 7px; }
-.api-docs-endpoints code { min-width: 0; overflow-wrap: anywhere; color: var(--ink); font: 7px "DM Mono", monospace; }
+.api-docs-endpoints code { min-width: 0; overflow-wrap: anywhere; color: var(--ink); font: 7px var(--font-family); }
 .api-docs-endpoints span { color: var(--muted); font-size: 7px; }
 .merchant-setup { display: grid; gap: 13px; }
 .merchant-setup .profile-info-intro { margin: 8px 0 0; }
@@ -783,7 +784,7 @@ h1, h2, p { margin-top: 0; }
 .setup-link-button.danger { color: var(--danger); }
 .setup-secret { min-width: 0; padding: 10px; display: grid; gap: 6px; border: 1px solid #e8d6af; border-radius: 9px; background: var(--accent-soft); }
 .setup-secret strong { font-size: 8px; }
-.setup-secret code, .profile-info-note code { overflow-wrap: anywhere; font-family: "DM Mono", monospace; font-size: 8px; }
+.setup-secret code, .profile-info-note code { overflow-wrap: anywhere; font-size: 8px; }
 .setup-error, .setup-notice { margin: 0; padding: 8px; border-radius: 8px; font-size: 8px; line-height: 1.5; }
 .setup-error { background: var(--danger-soft); color: var(--danger); }
 .setup-notice { background: var(--success-soft); color: var(--success); }
@@ -854,7 +855,7 @@ h1, h2, p { margin-top: 0; }
 .transfer-authorization .button { width: 100%; }
 .authorization-back { justify-self: center; padding: 4px; border: 0; background: transparent; color: var(--muted); font-size: 8px; font-weight: 700; }
 .authorization-back:disabled { opacity: .55; }
-.otp-input { text-align: center; font: 500 20px "DM Mono", monospace !important; letter-spacing: .3em; }
+.otp-input { text-align: center; font: 500 20px var(--font-family) !important; letter-spacing: .3em; }
 .auth-trust { margin-top: 21px; padding-top: 16px; border-top: 1px solid var(--line); display: flex; align-items: flex-start; gap: 8px; color: var(--muted); font-size: 8px; line-height: 1.5; }
 .auth-login-screen { position: relative; isolation: isolate; min-height: 100vh; min-height: 100dvh; padding: clamp(18px, 4vw, 48px); background: radial-gradient(ellipse at 12% 10%, #e5eefb 0%, transparent 38%), linear-gradient(135deg, #f5f8fc, #edf2f8); }
 .auth-login-screen::before, .auth-login-screen::after { position: fixed; z-index: -1; width: 320px; aspect-ratio: 1; content: ""; border: 1px solid rgb(27 79 156 / 6%); border-radius: 50%; pointer-events: none; }
@@ -994,7 +995,7 @@ h1, h2, p { margin-top: 0; }
 .admin-usdt-address-form { padding: 0 0 10px; display: flex; align-items: flex-end; gap: 8px; }
 .admin-usdt-address-form label { min-width: 0; flex: 1; }
 .admin-usdt-address-form label > span { display: block; margin-bottom: 5px; color: var(--muted); font-size: 7px; font-weight: 700; }
-.admin-usdt-address-form input { width: 100%; height: 35px; padding: 0 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); font: 8px "DM Mono", monospace; }
+.admin-usdt-address-form input { width: 100%; height: 35px; padding: 0 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); font: 8px var(--font-family); }
 .admin-usdt-address-form .button { min-height: 35px; padding: 6px 9px; font-size: 8px; }
 .admin-status-pill { padding: 5px 8px; border-radius: 999px; font-size: 7px; font-weight: 800; white-space: nowrap; }
 .admin-status-pill.active { background: var(--success-soft); color: var(--success); }
@@ -1099,7 +1100,7 @@ h1, h2, p { margin-top: 0; }
 .checkout-reference { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
 .checkout-reference > span { display: block; margin-bottom: 7px; color: var(--muted); font-size: 8px; font-weight: 700; }
 .checkout-reference button { width: 100%; min-height: 38px; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--ink); font-size: 8px; }
-.checkout-reference code { min-width: 0; overflow-wrap: anywhere; font: 500 8px "DM Mono", monospace; text-align: left; }
+.checkout-reference code { min-width: 0; overflow-wrap: anywhere; font: 500 8px var(--font-family); text-align: left; }
 .checkout-complete { min-height: 180px; padding: 32px 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; color: var(--success); text-align: center; }
 .checkout-complete strong { font-size: 12px; }
 .checkout-complete span, .checkout-expired { color: var(--muted); font-size: 9px; text-align: center; }

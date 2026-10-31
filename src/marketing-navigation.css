@@ -21,6 +21,10 @@
   display: none;
 }
 
+.drpay-mobile-menu[hidden] {
+  display: none;
+}
+
 @media (max-width: 800px) {
   .drpay-nav {
     z-index: 5;

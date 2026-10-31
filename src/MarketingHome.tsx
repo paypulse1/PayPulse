@@ -1,3 +1,4 @@
+import { useState } from "react"
 import {
   ArrowDown,
   ArrowRight,
@@ -5,10 +6,12 @@ import {
   CircleDollarSign,
   ClipboardList,
   LockKeyhole,
-  LogIn,
+  Menu,
   Smartphone,
+  X,
 } from "lucide-react"
 import "./marketing-home.css"
+import "./marketing-navigation.css"
 import { APP_ROUTES } from "./lib/routes"
 
 const APK_DOWNLOAD_URL = APP_ROUTES.androidDownload
@@ -77,13 +80,21 @@ const onboardingSteps = [
 ]
 
 export default function MarketingHome() {
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+
   return (
     <main className="drpay-home" id="top">
       <a className="drpay-skip-link" href="#drpay-content">
         Skip to main content
       </a>
       <header className="drpay-header">
-        <nav className="drpay-nav" aria-label="Main navigation">
+        <nav
+          className="drpay-nav"
+          aria-label="Main navigation"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setIsMobileMenuOpen(false)
+          }}
+        >
           <a className="drpay-brand" href="#top" aria-label="DRPAY home">
             <img className="drpay-brand-mark" src="/drpay-mark.svg" alt="" />
             <span>DRPAY</span>
@@ -104,17 +115,52 @@ export default function MarketingHome() {
               Get the app <ArrowRight size={15} aria-hidden="true" />
             </a>
           </div>
-          <div className="drpay-mobile-actions">
-            <a className="drpay-mobile-app" href={APK_DOWNLOAD_URL}>
-              Get the app
-            </a>
-            <a
-              className="drpay-mobile-login"
-              href={APP_ROUTES.merchantSignIn}
-              aria-label="Log in to your DRPAY account"
-            >
-              <LogIn size={18} aria-hidden="true" />
-            </a>
+          <button
+            className="drpay-mobile-menu-toggle"
+            type="button"
+            aria-label={isMobileMenuOpen ? "Close menu" : "Open menu"}
+            aria-expanded={isMobileMenuOpen}
+            aria-controls="drpay-mobile-menu"
+            onClick={() => setIsMobileMenuOpen((isOpen) => !isOpen)}
+          >
+            {isMobileMenuOpen ? (
+              <X size={19} aria-hidden="true" />
+            ) : (
+              <Menu size={19} aria-hidden="true" />
+            )}
+          </button>
+          <div
+            className="drpay-mobile-menu"
+            id="drpay-mobile-menu"
+            hidden={!isMobileMenuOpen}
+          >
+            <div className="drpay-nav-links">
+              <a href="#capabilities" onClick={() => setIsMobileMenuOpen(false)}>
+                Platform
+              </a>
+              <a href="#channels" onClick={() => setIsMobileMenuOpen(false)}>
+                Payment methods
+              </a>
+              <a href="#how" onClick={() => setIsMobileMenuOpen(false)}>
+                Getting started
+              </a>
+            </div>
+            <div className="drpay-nav-actions">
+              <a
+                className="drpay-login"
+                href={APP_ROUTES.merchantSignIn}
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                Log in
+              </a>
+              <a
+                className="drpay-button drpay-button-small"
+                href={APK_DOWNLOAD_URL}
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                Get the app <ArrowRight size={15} aria-hidden="true" />
+              </a>
+            </div>
           </div>
         </nav>
       </header>

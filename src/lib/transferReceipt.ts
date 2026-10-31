@@ -2,6 +2,17 @@ import { Capacitor } from "@capacitor/core";
 import { Directory, Filesystem } from "@capacitor/filesystem";
 import { Share } from "@capacitor/share";
 
+const receiptStyle = {
+  ink: "#0b1f3a",
+  slate: "#52647c",
+  muted: "#c6d3e2",
+  line: "#d8e1ed",
+  paper: "#f5f7fb",
+  white: "#ffffff",
+  success: "#16724a",
+  font: "Manrope, sans-serif",
+};
+
 export type TransferReceiptData = {
   amount: number;
   status: string;
@@ -12,6 +23,19 @@ export type TransferReceiptData = {
   accountNumber?: string;
   remarks?: string;
   createdAt: string;
+};
+
+type ReceiptRowLayout = {
+  label: string;
+  lines: string[];
+  height: number;
+};
+
+const receiptCanvas = {
+  width: 960,
+  horizontalPadding: 72,
+  contentWidth: 800,
+  rowLineHeight: 34,
 };
 
 function wrapText(context: CanvasRenderingContext2D, text: string, maxWidth: number) {
@@ -30,6 +54,38 @@ function wrapText(context: CanvasRenderingContext2D, text: string, maxWidth: num
   }
   if (line) lines.push(line);
   return lines;
+}
+
+function formatTransferDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function getReceiptRows(
+  receipt: TransferReceiptData,
+  context: CanvasRenderingContext2D,
+): ReceiptRowLayout[] {
+  const rows: [string, string][] = [
+    ["Status", receipt.status],
+    ["Reference", receipt.reference],
+  ];
+  if (receipt.recipientName) rows.push(["Recipient", receipt.recipientName]);
+  rows.push(["Institution", receipt.institutionName]);
+  if (receipt.accountNumber)
+    rows.push(["Account", `Ending ${receipt.accountNumber.slice(-4)}`]);
+  rows.push(["Network", receipt.channel]);
+  if (receipt.remarks) rows.push(["Remarks", receipt.remarks]);
+  rows.push(["Date", formatTransferDate(receipt.createdAt)]);
+
+  context.font = `600 25px ${receiptStyle.font}`;
+  return rows.map(([label, value]) => {
+    const lines = wrapText(context, value, receiptCanvas.contentWidth);
+    return {
+      label,
+      lines,
+      height: 32 + lines.length * receiptCanvas.rowLineHeight,
+    };
+  });
 }
 
 function receiptFileName(reference: string) {
@@ -59,78 +115,100 @@ async function shareReceiptBlob(blob: Blob, fileName: string) {
   await navigator.share({ title: "DRPAY transfer receipt", files: [image] });
 }
 
-export async function createTransferReceiptImage(receipt: TransferReceiptData) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 960;
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("Could not create the transfer receipt image.");
+function drawReceiptHeader(context: CanvasRenderingContext2D) {
+  context.fillStyle = receiptStyle.ink;
+  context.fillRect(32, 32, 896, 116);
+  context.fillStyle = receiptStyle.success;
+  context.fillRect(32, 32, 8, 116);
+  context.fillStyle = receiptStyle.white;
+  context.font = `800 24px ${receiptStyle.font}`;
+  context.fillText("DRPAY", receiptCanvas.horizontalPadding, 78);
+  context.fillStyle = receiptStyle.muted;
+  context.font = `600 16px ${receiptStyle.font}`;
+  context.fillText("TRANSFER RECEIPT", receiptCanvas.horizontalPadding, 112);
+}
 
-  const rows: [string, string][] = [
-    ["Status", receipt.status],
-    ["Reference", receipt.reference],
-  ];
-  if (receipt.recipientName) rows.push(["Recipient", receipt.recipientName]);
-  rows.push(["Institution", receipt.institutionName]);
-  if (receipt.accountNumber) rows.push(["Account", `Ending ${receipt.accountNumber.slice(-4)}`]);
-  rows.push(["Network", receipt.channel]);
-  if (receipt.remarks) rows.push(["Remarks", receipt.remarks]);
-  const transferDate = new Date(receipt.createdAt);
-  rows.push(["Date", Number.isNaN(transferDate.getTime()) ? receipt.createdAt : transferDate.toLocaleString()]);
-  const rowLayouts = rows.map(([label, value]) => {
-    context.font = "600 25px Arial, sans-serif";
-    const lines = wrapText(context, value, 800);
-    return { label, lines, height: 32 + lines.length * 34 };
-  });
-  const contentHeight = rowLayouts.reduce((total, row) => total + row.height, 0);
-  canvas.height = 450 + contentHeight;
+function drawReceiptAmount(
+  context: CanvasRenderingContext2D,
+  amount: number,
+) {
+  context.fillStyle = receiptStyle.slate;
+  context.font = `600 18px ${receiptStyle.font}`;
+  context.fillText("TRANSFER AMOUNT", receiptCanvas.horizontalPadding, 198);
+  context.fillStyle = receiptStyle.ink;
+  context.font = `800 46px ${receiptStyle.font}`;
+  context.fillText(
+    `PHP ${amount.toLocaleString("en-PH", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`,
+    receiptCanvas.horizontalPadding,
+    258,
+  );
+  context.strokeStyle = receiptStyle.line;
+  context.lineWidth = 2;
+  context.beginPath();
+  context.moveTo(receiptCanvas.horizontalPadding, 298);
+  context.lineTo(888, 298);
+  context.stroke();
+}
 
-  const drawContext = canvas.getContext("2d");
-  if (!drawContext) throw new Error("Could not draw the transfer receipt image.");
-  drawContext.fillStyle = "#e9eef5";
-  drawContext.fillRect(0, 0, canvas.width, canvas.height);
-  drawContext.fillStyle = "#ffffff";
-  drawContext.fillRect(32, 32, 896, canvas.height - 64);
-  drawContext.fillStyle = "#0b1f3a";
-  drawContext.fillRect(32, 32, 896, 116);
-  drawContext.fillStyle = "#ffffff";
-  drawContext.font = "800 24px Arial, sans-serif";
-  drawContext.fillText("DRPAY", 72, 78);
-  drawContext.fillStyle = "#c6d3e2";
-  drawContext.font = "600 16px Arial, sans-serif";
-  drawContext.fillText("TRANSFER RECEIPT", 72, 112);
-
-  drawContext.fillStyle = "#52647c";
-  drawContext.font = "600 18px Arial, sans-serif";
-  drawContext.fillText("TRANSFER AMOUNT", 72, 198);
-  drawContext.fillStyle = "#0b1f3a";
-  drawContext.font = "800 46px Arial, sans-serif";
-  drawContext.fillText(`PHP ${receipt.amount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 72, 258);
-  drawContext.strokeStyle = "#d8e1ed";
-  drawContext.lineWidth = 2;
-  drawContext.beginPath();
-  drawContext.moveTo(72, 298);
-  drawContext.lineTo(888, 298);
-  drawContext.stroke();
-
+function drawReceiptRows(
+  context: CanvasRenderingContext2D,
+  rows: ReceiptRowLayout[],
+  canvasHeight: number,
+) {
   let y = 344;
-  for (const row of rowLayouts) {
-    drawContext.fillStyle = "#52647c";
-    drawContext.font = "700 15px Arial, sans-serif";
-    drawContext.fillText(row.label.toUpperCase(), 72, y);
-    drawContext.fillStyle = "#0b1f3a";
-    drawContext.font = "600 25px Arial, sans-serif";
-    row.lines.forEach((line, index) => drawContext.fillText(line, 72, y + 34 + index * 34));
+  for (const row of rows) {
+    context.fillStyle = receiptStyle.slate;
+    context.font = `700 15px ${receiptStyle.font}`;
+    context.fillText(row.label.toUpperCase(), receiptCanvas.horizontalPadding, y);
+    context.fillStyle = receiptStyle.ink;
+    context.font = `600 25px ${receiptStyle.font}`;
+    row.lines.forEach((line, index) =>
+      context.fillText(
+        line,
+        receiptCanvas.horizontalPadding,
+        y + receiptCanvas.rowLineHeight * (index + 1),
+      ),
+    );
     y += row.height;
-    drawContext.strokeStyle = "#e6ebf2";
-    drawContext.beginPath();
-    drawContext.moveTo(72, y - 8);
-    drawContext.lineTo(888, y - 8);
-    drawContext.stroke();
+    context.strokeStyle = receiptStyle.line;
+    context.beginPath();
+    context.moveTo(receiptCanvas.horizontalPadding, y - 8);
+    context.lineTo(888, y - 8);
+    context.stroke();
   }
 
-  drawContext.fillStyle = "#52647c";
-  drawContext.font = "500 15px Arial, sans-serif";
-  drawContext.fillText("Provider-reported status. A pending transfer is not proof of settlement.", 72, canvas.height - 65);
+  context.fillStyle = receiptStyle.slate;
+  context.font = `500 15px ${receiptStyle.font}`;
+  context.fillText(
+    "Provider-reported status. A pending transfer is not proof of settlement.",
+    receiptCanvas.horizontalPadding,
+    canvasHeight - 65,
+  );
+}
+
+export async function createTransferReceiptImage(receipt: TransferReceiptData) {
+  await document.fonts.load(`600 25px ${receiptStyle.font}`);
+  const canvas = document.createElement("canvas");
+  canvas.width = receiptCanvas.width;
+  const measurementContext = canvas.getContext("2d");
+  if (!measurementContext)
+    throw new Error("Could not create the transfer receipt image.");
+
+  const rows = getReceiptRows(receipt, measurementContext);
+  canvas.height = 450 + rows.reduce((total, row) => total + row.height, 0);
+
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Could not draw the transfer receipt image.");
+  context.fillStyle = receiptStyle.paper;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = receiptStyle.white;
+  context.fillRect(32, 32, 896, canvas.height - 64);
+  drawReceiptHeader(context);
+  drawReceiptAmount(context, receipt.amount);
+  drawReceiptRows(context, rows, canvas.height);
 
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((blob) => {

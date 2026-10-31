@@ -114,7 +114,7 @@ async function createDocument({ documentType, status, payment }) {
   const reference = String(payment.referenceNo || "N/A")
   const title = fitText(regular, payment.title, 10, 330)
   const isReceipt = documentType === "Receipt"
-  const accent = isReceipt ? colors.green : colors.navy
+  const accent = colors.navy
   const isBirTaxDocument = !isReceipt && payment.isTaxInvoice === true
 
   drawDocumentHeader({
