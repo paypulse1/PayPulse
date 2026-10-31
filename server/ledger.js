@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto"
 
+export const PLATFORM_FEE_LEDGER_SOURCE_TYPES = [
+  "COLLECTION",
+  "FLOATING_TRANSFER",
+  "DISBURSEMENT",
+  "ACTIVATION_FEE",
+]
+
 const successfulPaymentStatuses = new Set(["EXECUTED", "MANUALLY_PAID"])
 const successfulDisbursementStatuses = new Set([
   "EXECUTED",

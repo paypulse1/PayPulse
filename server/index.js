@@ -37,7 +37,11 @@ import {
   isOperationsSession,
 } from "./access.js"
 import { createFloatingTransferRequest } from "./floating-transfers.js"
-import { calculateTransferDebit, createLedgerService } from "./ledger.js"
+import {
+  calculateTransferDebit,
+  createLedgerService,
+  PLATFORM_FEE_LEDGER_SOURCE_TYPES,
+} from "./ledger.js"
 import {
   formatTokenBalance,
   formatUsdtAmount,
@@ -54,6 +58,9 @@ import {
 } from "./payment-state.js"
 
 const { Pool } = pg
+const platformFeeLedgerSourceTypesSql = PLATFORM_FEE_LEDGER_SOURCE_TYPES.map(
+  (sourceType) => `'${sourceType}'`,
+).join(", ")
 const defaultCheckoutInstructions =
   "Open your {bank} or supported banking app.\nOpen your {bank} QR scanner and scan the code above.\nConfirm the PHP amount before completing payment."
 const defaultPaymentEmailSubject = "DRPAY: Payment request · {{reference}}"
@@ -1264,7 +1271,7 @@ async function initializeDatabase() {
     );
     CREATE TABLE IF NOT EXISTS platform_fee_ledger (
       id UUID PRIMARY KEY,
-      source_type TEXT NOT NULL CHECK (source_type IN ('COLLECTION', 'FLOATING_TRANSFER', 'DISBURSEMENT')),
+      source_type TEXT NOT NULL CHECK (source_type IN (${platformFeeLedgerSourceTypesSql})),
       source_id UUID NOT NULL,
       merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email),
       amount NUMERIC(18, 2) NOT NULL CHECK (amount >= 0),
@@ -1605,7 +1612,7 @@ async function initializeDatabase() {
     ALTER TABLE disbursements ADD COLUMN IF NOT EXISTS transfer_fee NUMERIC(18, 2) NOT NULL DEFAULT 0 CHECK (transfer_fee >= 0);
     ALTER TABLE platform_fee_ledger DROP CONSTRAINT IF EXISTS platform_fee_ledger_source_type_check;
     ALTER TABLE platform_fee_ledger ADD CONSTRAINT platform_fee_ledger_source_type_check
-      CHECK (source_type IN ('COLLECTION', 'FLOATING_TRANSFER', 'DISBURSEMENT'));
+      CHECK (source_type IN (${platformFeeLedgerSourceTypesSql}));
     CREATE INDEX IF NOT EXISTS disbursements_refund_payment_created_idx
       ON disbursements (refund_payment_id, created_at DESC)
       WHERE refund_payment_id IS NOT NULL;

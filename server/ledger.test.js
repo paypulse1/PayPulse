@@ -5,6 +5,7 @@ import {
   calculateTransferDebit,
   calculateTransferRequestAvailableBalance,
   createLedgerService,
+  PLATFORM_FEE_LEDGER_SOURCE_TYPES,
 } from "./ledger.js"
 import { createFloatingTransferRequest } from "./floating-transfers.js"
 import {
@@ -100,6 +101,8 @@ describe("collection settlement", () => {
     const credit = calls.find(({ sql }) =>
       sql.includes("INSERT INTO platform_fee_ledger"),
     )
+    expect(PLATFORM_FEE_LEDGER_SOURCE_TYPES).toContain("ACTIVATION_FEE")
+    expect(credit.sql).toContain("'ACTIVATION_FEE'")
     expect(debit.parameters[3]).toBe("-5000.00")
     expect(debit.parameters[4]).toBe("DRPAY-ACTIVATION")
     expect(credit.parameters[3]).toBe("5000.00")
