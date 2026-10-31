@@ -8,7 +8,7 @@ Review `render.yaml` and create its Blueprint in Render. It defines separate pro
 
 ## Railway production deployment
 
-Deploy the `Production` branch from the repository root as a single Railway service. `railway.json` installs the pinned pnpm version, runs the API check, typecheck, and Vite production build, then starts the API and serves the built frontend. Its `/readyz` health check passes only after the required configuration is present and the database is initialized.
+Deploy the `Production` branch from the repository root as a single Railway service. `railway.json` downloads the latest signed APK from the private GitHub release, installs the pinned pnpm version, runs the API check, typecheck, and Vite production build, then starts the API and serves the built frontend. Set `DRPAY_GITHUB_RELEASE_TOKEN` in Railway Variables to a fine-grained GitHub token with read-only Contents access to this repository. The build verifies the downloaded APK checksum before including it at `/drpay.apk`; the homepage download buttons use that public route. Its `/readyz` health check passes only after the required configuration is present and the database is initialized.
 
 Attach a Railway PostgreSQL service and set `DATABASE_URL` using that service's connection string reference. Configure the API secrets listed below in Railway's Variables settings, including `DRPAY_FRONTEND_ORIGIN` for the deployed merchant site, `DRPAY_MERCHANT_EMAIL`, `DRPAY_SUPER_ADMIN_EMAIL`, `DRPAY_SUPER_ADMIN_PASSWORD`, `DRPAY_PASSWORD_SALT`, `DRPAY_JWT_SECRET`, `RESEND_API_KEY`, and `RESEND_FROM_EMAIL`. Set `DRPAY_LIVE_CHECKOUT_ORIGIN` and `DRPAY_PUBLIC_API_ORIGIN` to the corresponding public production URLs when they differ from their defaults.
 
