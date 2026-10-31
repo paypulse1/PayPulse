@@ -4026,6 +4026,19 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
                 ? "Unavailable"
                 : `${wallet.balance} USDT`}
           </strong>
+          <div className="crypto-wallet-address">
+            <span>DRPAY-ASSIGNED ADDRESS · {addressNetworkLabel}</span>
+            <strong className="crypto-wallet-address-value">
+              {wallet?.address || (loading ? "Loading…" : "Not assigned")}
+            </strong>
+            <Button
+              disabled={!canReceiveUsdt}
+              icon={<Copy size={14} />}
+              onClick={() => void copyAddress()}
+            >
+              Copy deposit address
+            </Button>
+          </div>
         </div>
         {wallet?.activation && (
           <section
@@ -4096,12 +4109,6 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
             )}
           </section>
         )}
-        <div className="crypto-wallet-address">
-          <span>DRPAY-ASSIGNED ADDRESS · {addressNetworkLabel}</span>
-          <strong className="crypto-wallet-address-value">
-            {wallet?.address || (loading ? "Loading…" : "Not assigned")}
-          </strong>
-        </div>
       </section>
       <section
         className="crypto-wallet-operations"
@@ -4145,13 +4152,6 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
               Only send USDT on this network.
             </p>
           </div>
-          <Button
-            disabled={!canReceiveUsdt}
-            icon={<Copy size={14} />}
-            onClick={() => void copyAddress()}
-          >
-            Copy deposit address
-          </Button>
           {!canReceiveUsdt && (
             <small>
               {!wallet?.address
@@ -4328,10 +4328,7 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
             <strong>Buy and sell USDT</strong>
             <span>Not available</span>
           </div>
-          <p>
-            TronLink can approve withdrawals from a wallet you control. DRPAY
-            does not provide an exchange for buying or selling USDT.
-          </p>
+          <p>This feature is coming soon.</p>
         </div>
       </section>
       <section

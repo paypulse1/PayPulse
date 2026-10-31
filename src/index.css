@@ -233,8 +233,7 @@ h1, h2, p { margin-top: 0; }
 .crypto-wallet-receive-copy { min-width: 0; }
 .crypto-wallet-receive strong { display: block; font-size: 12px; }
 .crypto-wallet-receive p { margin: 5px 0 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
-.crypto-wallet-receive .button { grid-column: 1; justify-self: start; min-height: 40px; padding: 8px 12px; font-size: 10px; white-space: nowrap; }
-.crypto-wallet-receive.is-ready .button { grid-column: 2; }
+.crypto-wallet-address > .button { margin-top: 10px; min-height: 40px; padding: 8px 12px; font-size: 10px; white-space: nowrap; }
 .crypto-wallet-receive > small { grid-column: 1 / -1; color: var(--warning); font-size: 10px; line-height: 1.5; }
 .crypto-wallet-unavailable { padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-soft); }
 .crypto-wallet-unavailable-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
