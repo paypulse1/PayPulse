@@ -81,10 +81,6 @@ app.get("/", (req, res, next) => {
   return res.json({ status: "ok", service: "drpay-api" })
 })
 
-app.get("/healthz", (_req, res) => {
-  return res.json({ status: "ok", paymentEnvironment: process.env.SWIFTPAY_ENV || "sandbox" })
-})
-
 app.use(
   helmet({
     contentSecurityPolicy: {

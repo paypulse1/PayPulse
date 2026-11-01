@@ -1,35 +1,22 @@
 import { expect, test } from "@playwright/test"
 
-test("marketing page shows credited sector photography and sourced updates", async ({
+test("marketing homepage presents the DRPAY transfer flow", async ({
   page,
 }) => {
-  await page.goto("/")
+  await page.goto("/marketing")
 
-  const stories = page.locator(".merchant-scenes")
-  await stories.scrollIntoViewIfNeeded()
-  await expect(stories).toHaveAttribute("data-visible", "true")
   await expect(
-    page.getByRole("img", {
-      name: "Customer completing a mobile payment at a payment terminal",
-    }),
-  ).toHaveCount(1)
+    page.getByRole("heading", { name: "Payments, made clearer." }),
+  ).toBeVisible()
   await expect(
-    page.getByRole("img", {
-      name: "Currency exchange kiosks and international exchange-rate boards",
-    }),
-  ).toHaveCount(1)
-  await expect(
-    page.getByRole("img", {
-      name: "A hardware digital-asset wallet connected to a laptop displaying a transaction",
-    }),
-  ).toHaveCount(1)
-  await expect(page.locator(".photo-credit")).toHaveCount(3)
+    page.getByRole("link", { name: /Go to merchant sign in/ }),
+  ).toHaveAttribute("href", /\/login/)
 
-  const photos = page.locator(".merchant-scene-photo img")
-  await expect(photos).toHaveCount(3)
+  const transferScreens = page.locator(".drpay-phone-frame img")
+  await expect(transferScreens).toHaveCount(2)
   await expect
     .poll(() =>
-      photos.evaluateAll((images) =>
+      transferScreens.evaluateAll((images) =>
         images.every(
           (image) =>
             image instanceof HTMLImageElement &&
@@ -40,29 +27,29 @@ test("marketing page shows credited sector photography and sourced updates", asy
     )
     .toBe(true)
 
-  const updates = page.locator(".market-updates")
-  await updates.scrollIntoViewIfNeeded()
-  await expect(updates).toHaveAttribute("data-visible", "true")
-  await expect(page.locator(".market-update-card")).toHaveCount(4)
   await expect(
-    page.getByRole("heading", {
-      name: "Paymentology partners with Asia United Bank",
+    page.getByRole("img", { name: "DRPAY bank and wallet selection screen" }),
+  ).toHaveAttribute("src", "/IMG_20261101_183405_701.jpg")
+  await expect(
+    page.getByRole("img", {
+      name: "DRPAY transfer form with recipient and amount fields",
     }),
-  ).toBeVisible()
+  ).toHaveAttribute("src", "/IMG_20261101_183405_888.jpg")
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole("button", { name: "Open menu" }).click()
+  await page
+    .locator(".drpay-mobile-menu")
+    .getByRole("link", { name: "Getting started" })
+    .click()
+  await expect(page.locator(".drpay-mobile-menu")).toBeHidden()
   await expect(
-    page.getByRole("heading", { name: "SPiCE International 2026 · Cebu" }),
+    page.getByRole("heading", { name: "A considered start. A clearer day." }),
   ).toBeVisible()
-  await expect(
-    page.getByRole("link", { name: /Read Paymentology’s announcement/ }),
-  ).toHaveAttribute(
-    "href",
-    "https://www.paymentology.com/newsroom/paymentology-powers-asia-united-banks-digital-payments-surge-in-the-philippines",
-  )
-  await expect(page.locator(".market-update-card time")).toHaveCount(4)
 
   await page.emulateMedia({ reducedMotion: "reduce" })
-  await page.reload()
-  const reducedMotionStories = page.locator(".merchant-scenes")
-  await reducedMotionStories.scrollIntoViewIfNeeded()
-  await expect(reducedMotionStories).toHaveCSS("opacity", "1")
+  await expect(
+    page.getByRole("heading", { name: "Payments, made clearer." }),
+  ).toBeVisible()
+  await expect(page.locator(".drpay-phone-frame img")).toHaveCount(2)
 })
