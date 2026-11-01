@@ -35,7 +35,7 @@ export function DashboardLoading() {
             <img src="/drpay-mark.png" alt="" />
           </div>
           <div className="dashboard-loading-copy">
-            <h1>Loading your workspace</h1>
+            <h1>Loading</h1>
             <p>Preparing your merchant dashboard…</p>
           </div>
         </div>

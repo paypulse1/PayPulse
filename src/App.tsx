@@ -17,11 +17,13 @@ import QRCode from "qrcode"
 import {
   AlertCircle,
   ArrowDownLeft,
+  ArrowLeftRight,
   Bell,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleHelp,
+  CirclePlus,
   Clock3,
   Copy,
   Coins,
@@ -29,8 +31,10 @@ import {
   Download,
   Eye,
   Fingerprint,
+  HandCoins,
   Home,
   KeyRound,
+  LayoutDashboard,
   Link2,
   LoaderCircle,
   Lock,
@@ -41,13 +45,16 @@ import {
   QrCode,
   RefreshCw,
   ReceiptText,
+  ScanLine,
   Search,
   Share2,
   Send,
   Settings,
   ShieldCheck,
   Store,
+  UserRound,
   Users,
+  Wallet,
   WalletCards,
   X,
 } from "lucide-react"
@@ -3020,17 +3027,17 @@ function HomeView({
 
       <section className="quick-actions" aria-label="Quick actions">
         <QuickAction
-          icon={<CreditCard size={22} />}
+          icon={<HandCoins size={22} />}
           label="Collect"
           onClick={onRequestPayment}
         />
         <QuickAction
-          icon={<Send size={21} />}
+          icon={<ArrowLeftRight size={21} />}
           label="Transfer"
           onClick={onTransfer}
         />
         <QuickAction
-          icon={<QrCode size={21} />}
+          icon={<ScanLine size={21} />}
           label="Scan QR"
           onClick={onScan}
         />
@@ -5940,11 +5947,11 @@ export async function createInvoiceCheckout({ amount, invoiceId, customerEmail }
 }
 
 const tabs = [
-  { label: "Home", icon: Home },
-  { label: "Wallet", icon: WalletCards },
-  { label: "Collect", icon: Plus },
-  { label: "Transfer", icon: Send },
-  { label: "Profile", icon: Store },
+  { label: "Home", icon: LayoutDashboard },
+  { label: "Wallet", icon: Wallet },
+  { label: "Collect", icon: CirclePlus },
+  { label: "Transfer", icon: ArrowLeftRight },
+  { label: "Profile", icon: UserRound },
 ]
 
 function hasScrolledNestedContainer(
@@ -6982,10 +6989,12 @@ export default function App() {
             const isPay = label === "Collect"
             return (
               <button
+                type="button"
                 key={label}
                 className={`${activeTab === label ? "active" : ""} ${
                   isPay ? "pay-tab" : ""
                 }`}
+                aria-current={activeTab === label ? "page" : undefined}
                 onClick={() => {
                   if (isPay) {
                     setShowPayment(true)
@@ -6995,10 +7004,10 @@ export default function App() {
                   setActiveTab(label)
                 }}
               >
-                <span>
+                <span className="nav-icon">
                   <Icon
-                    size={isPay ? 23 : 20}
-                    strokeWidth={isPay ? 2.4 : 1.9}
+                    size={isPay ? 24 : 20}
+                    strokeWidth={isPay ? 2.2 : 1.8}
                   />
                 </span>
                 <small>{label}</small>

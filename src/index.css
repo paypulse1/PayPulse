@@ -100,12 +100,13 @@ h1, h2, p { margin-top: 0; }
 
 .quick-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin: 15px 0; }
 .quick-action { padding: 0; border: 0; background: transparent; display: grid; justify-items: center; gap: 7px; }
-.quick-action > span { width: 56px; height: 56px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 18px; background: linear-gradient(145deg, #fff, #f6f8fc); color: var(--brand-navy); box-shadow: 0 8px 18px rgb(16 35 61 / 7%); }
+.quick-action > span { width: 56px; height: 56px; display: grid; place-items: center; border: 1px solid #e1e8f2; border-radius: 18px; background: linear-gradient(145deg, #fff, #f4f7fc); color: var(--brand-blue); box-shadow: 0 8px 18px rgb(16 35 61 / 7%); }
 .quick-action:active > span { transform: scale(.95); }
 @media (hover: hover) and (pointer: fine) {
-  .quick-action:hover > span { border-color: #bdcbe0; box-shadow: 0 8px 18px rgba(11,31,58,.08); }
+  .quick-action:hover > span { transform: translateY(-2px); border-color: #bdcbe0; box-shadow: 0 10px 20px rgb(16 35 61 / 11%); }
+  .quick-action:hover strong { color: var(--brand-blue); }
 }
-.quick-action:first-child > span { background: var(--accent-soft); border-color: #ead8b2; color: var(--accent-strong); }
+.quick-action:first-child > span { background: linear-gradient(145deg, #fffaf0, var(--accent-soft)); border-color: #ead8b2; color: var(--accent-strong); }
 .quick-action strong { font-size: 8px; }
 
 .summary-card, .activity-section, .profile-card, .settings-list, .full-list { border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow-card); }
@@ -180,13 +181,13 @@ h1, h2, p { margin-top: 0; }
 
 .bottom-nav { position: absolute; z-index: 12; inset: auto 0 0; height: 76px; display: flex; justify-content: space-around; align-items: center; padding: 5px 10px 10px; border-top: 1px solid var(--line); background: rgb(255 255 255 / 96%); backdrop-filter: blur(16px); }
 .bottom-nav button { width: 20%; padding: 0; border: 0; background: transparent; color: #68788d; display: grid; justify-items: center; gap: 4px; }
-.bottom-nav button > span { height: 29px; display: grid; place-items: center; }
+.bottom-nav button > .nav-icon { width: 42px; height: 32px; display: grid; place-items: center; border-radius: 11px; transition: background-color var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease), transform var(--motion-fast) var(--motion-ease); }
 .bottom-nav small { font-size: 7px; font-weight: 600; }
 .bottom-nav button.active { color: var(--brand-blue); }
-.bottom-nav button.active:not(.pay-tab) > span { width: 36px; border-radius: 10px; background: var(--accent-soft); }
+.bottom-nav button.active:not(.pay-tab) > .nav-icon { background: #eaf1fb; }
 .bottom-nav .pay-tab { color: var(--ink); transform: translateY(-8px); }
-.bottom-nav .pay-tab > span { width: 49px; height: 49px; border-radius: 16px; background: linear-gradient(145deg, var(--brand-navy), var(--brand-blue)); color: #f2d99e; border: 5px solid var(--surface); box-shadow: 0 7px 18px rgb(11 31 58 / 22%); }
-.bottom-nav .pay-tab:active > span { transform: scale(.94); }
+.bottom-nav .pay-tab > .nav-icon { width: 49px; height: 49px; border-radius: 16px; background: linear-gradient(145deg, var(--brand-navy), var(--brand-blue)); color: #f2d99e; border: 5px solid var(--surface); box-shadow: 0 7px 18px rgb(11 31 58 / 22%); }
+.bottom-nav .pay-tab:active > .nav-icon { transform: scale(.94); }
 @media (hover: hover) and (pointer: fine) {
   .bottom-nav button:not(.pay-tab):hover { color: var(--ink); }
 }
@@ -679,7 +680,7 @@ h1, h2, p { margin-top: 0; }
 .mobile-app .mini-chart i:nth-last-child(-n+4) { background: linear-gradient(180deg, #5b8bd0, #2257a5); }
 .mobile-app .bottom-nav { background: rgb(255 255 255 / 97%); box-shadow: 0 -8px 24px rgb(16 35 61 / 4%); }
 .mobile-app .bottom-nav small { font-size: 8px; }
-.mobile-app .bottom-nav button.active:not(.pay-tab) > span { background: #edf3fd; }
+.mobile-app .bottom-nav button.active:not(.pay-tab) > .nav-icon { background: #edf3fd; }
 
 @media (max-width: 480px) {
   .app-stage { padding: 0; background: var(--paper); }
