@@ -5050,7 +5050,7 @@ function ProfileInfoPage({
             </div>
             <div>
               <dt>Wallet type</dt>
-              <dd>Merchant operational ledger</dd>
+              <dd>Merchant</dd>
             </div>
             <div>
               <dt>Available Balance</dt>
