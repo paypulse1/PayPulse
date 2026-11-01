@@ -2384,8 +2384,7 @@ function TransferSheet({
               </div>
             </label>
             <small className="transfer-fee-note">
-              A fixed fee of {formatPeso(transferFeeFixed)} is charged only if
-              the transfer settles.
+              Transfer Fee: {formatPeso(transferFeeFixed)}
             </small>
             <label>
               <span>Remarks</span>
@@ -3532,7 +3531,7 @@ function WalletFloatingBalanceCard({
             ? "Unlocked for this merchant. Progress reflects your own completed collections and remaining ledger balance. The DRPAY team will transfer your unsettled funds separately."
             : data.paymentEnvironment !== "production"
               ? "This progress reflects your merchant's own collections and available ledger balance. You can request a floating-balance transfer before the threshold if DRPAY-provided funds are available. This is a sandbox environment."
-              : "At ₩1,000,000 in this merchant's maintained collections, funds unlock for transfer by the DRPAY team. Your successful transfers reduce progress. Requests are available before the threshold if DRPAY-provided floating funds are available."}
+              : "Keep at least 1,000,000 KRW from Alipay+ collections in your live wallet to release and transfer unsettled funds into your PHP wallet."}
         </p>
       </div>
       <section
