@@ -74,7 +74,6 @@ import {
   getMerchantDashboard,
   getMerchantActivityPage,
   createMerchantFloatingTransferRequest,
-  getMerchantFloatingTransferRequests,
   getMerchantNotificationPreferences,
   getMerchantCheckoutPreferences,
   getMerchantNotificationInbox,
@@ -102,7 +101,6 @@ import {
   type MerchantActivityTrendPoint,
   type MerchantPayoutAccount,
   type MerchantCheckoutPreferences,
-  type FloatingTransferRequest,
   type MerchantNotificationPreferences,
   type MerchantUsdtWallet,
   type MerchantUsdtDeposit,
@@ -990,7 +988,7 @@ function PaymentBrandingOverrides({
       )}
       <details className="checkout-branding-overrides">
         <summary>
-          Customize checkout and email for this request
+          Customize this request
           {brandingLoading && <small>Loading saved defaults…</small>}
         </summary>
         <p>Changes here apply only to this payment request.</p>
@@ -3347,9 +3345,6 @@ function WalletFloatingBalanceCard({
   const [requestError, setRequestError] = useState("")
   const [requestMessage, setRequestMessage] = useState("")
   const [requestSubmitting, setRequestSubmitting] = useState(false)
-  const [payoutRequests, setPayoutRequests] =
-    useState<FloatingTransferRequest[]>([])
-  const [payoutRequestsError, setPayoutRequestsError] = useState("")
   const collectionTargetKrw = 1_000_000
   const currentCollectionsKrw = Math.max(0, data.cumulativeKrwCollections)
   const collectionProgress = Math.min(
@@ -3403,26 +3398,6 @@ function WalletFloatingBalanceCard({
     )
   }, [data.availableFloatingBalance, data.transferFeeFixed, refreshVersion])
 
-  useEffect(() => {
-    let active = true
-    setPayoutRequestsError("")
-    getMerchantFloatingTransferRequests()
-      .then((requests) => {
-        if (active) setPayoutRequests(requests)
-      })
-      .catch((error) => {
-        if (active)
-          setPayoutRequestsError(
-            error instanceof Error
-              ? error.message
-              : "Could not load payout request history.",
-          )
-      })
-    return () => {
-      active = false
-    }
-  }, [refreshVersion])
-
   async function submitTransferRequest() {
     setRequestError("")
     setRequestMessage("")
@@ -3430,8 +3405,7 @@ function WalletFloatingBalanceCard({
     if (amount <= 0) return
     setRequestSubmitting(true)
     try {
-      const request = await createMerchantFloatingTransferRequest({ amount })
-      setPayoutRequests((current) => [request, ...current].slice(0, 50))
+      await createMerchantFloatingTransferRequest({ amount })
       setAvailableToRequest((available) =>
         Math.max(0, available - amount - data.transferFeeFixed),
       )
@@ -3553,43 +3527,6 @@ function WalletFloatingBalanceCard({
           <p className="unsettled-request-success" role="status">
             {requestMessage}
           </p>
-        )}
-      </section>
-      <section
-        className="unsettled-request-history"
-        aria-label="Payout requests"
-      >
-        {payoutRequestsError ? (
-          <p className="inline-error" role="alert">
-            {payoutRequestsError}
-          </p>
-        ) : payoutRequests.length > 0 && (
-          <div className="profile-recent-list">
-            {payoutRequests.map((request) => (
-              <div key={request.id}>
-                <span>
-                  <strong>
-                    PHP{" "}
-                    {request.amount.toLocaleString("en-PH", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </strong>
-                  <small>
-                    {new Date(request.requestedAt).toLocaleDateString()} ·{" "}
-                    {request.bankName} · {request.status}
-                  </small>
-                  {request.payoutReference && (
-                    <small>Bank reference: {request.payoutReference}</small>
-                  )}
-                  {request.payoutNote && <small>{request.payoutNote}</small>}
-                  {request.failureReason && (
-                    <small>{request.failureReason}</small>
-                  )}
-                </span>
-              </div>
-            ))}
-          </div>
         )}
       </section>
     </section>
@@ -4580,7 +4517,7 @@ function WalletView({
           <h2>Unsettled Funds</h2>
           <p>
             Track your Alipay+ collection threshold for transferring unsettled
-            funds to your live SwiftPay PHP wallet.
+            funds to your live DRPAY PHP wallet.
           </p>
         </div>
         <WalletFloatingBalanceCard
@@ -5102,7 +5039,7 @@ function ProfileInfoPage({
             <div>
               <strong>{session.email}</strong>
               <span className="merchant-verified-badge">
-                <ShieldCheck size={12} aria-hidden="true" /> Verified merchant
+                <ShieldCheck size={12} aria-hidden="true" /> Verified Merchant
               </span>
             </div>
           </div>
@@ -5126,22 +5063,6 @@ function ProfileInfoPage({
               </dd>
             </div>
           </dl>
-          <div className="profile-info-intro">
-            <strong>Your merchant ledger</strong>
-            <p>
-              Collections, transfers, pending reservations, and activity are
-              tracked separately for this merchant. The DRPAY-funded floating
-              balance remains a separate wallet.
-            </p>
-          </div>
-          <div className="profile-info-intro">
-            <strong>Unsettled funds release</strong>
-            <p>
-              Your collection progress is based on this merchant’s activity. The
-              DRPAY team separately transfers unlocked unsettled funds; that
-              pooled settlement account is not your merchant ledger balance.
-            </p>
-          </div>
         </>
       )}
 
@@ -5477,8 +5398,7 @@ function ProfileInfoPage({
           )}
           <p className="profile-info-note">
             Email alerts are sent after the payment provider confirms the
-            transaction. Push alerts require notification permission and
-            Firebase setup on this device and server.
+            transaction.
           </p>
         </>
       )}
