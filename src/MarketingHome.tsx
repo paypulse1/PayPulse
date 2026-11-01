@@ -206,19 +206,29 @@ export default function MarketingHome() {
             <span className="drpay-visual-label-dot" />
             YOUR MERCHANT WORKSPACE
           </div>
-          <figure className="drpay-live-payout-frame">
-            <img
-              src="/marketing/drpay-live-payout.jpg"
-              alt="Example DRPAY transaction confirmation screen"
-              fetchPriority="high"
-            />
-            <figcaption>
-              <span className="drpay-confirmation-mark">
-                <Check size={14} aria-hidden="true" />
-              </span>
-              Example transaction confirmation
-            </figcaption>
-          </figure>
+          <div className="drpay-phone-showcase">
+            <figure className="drpay-phone-frame drpay-phone-frame-banks">
+              <img
+                src="/IMG_20261101_183405_701.jpg"
+                alt="DRPAY bank and wallet selection screen"
+                loading="lazy"
+              />
+              <figcaption>Choose a bank or wallet</figcaption>
+            </figure>
+            <figure className="drpay-phone-frame drpay-phone-frame-transfer">
+              <img
+                src="/IMG_20261101_183405_888.jpg"
+                alt="DRPAY transfer form with recipient and amount fields"
+                fetchPriority="high"
+              />
+              <figcaption>
+                <span className="drpay-confirmation-mark">
+                  <Check size={14} aria-hidden="true" />
+                </span>
+                A clear path to send
+              </figcaption>
+            </figure>
+          </div>
           <div className="drpay-visual-side-note" aria-hidden="true">
             <span>COLLECT</span>
             <span className="drpay-side-note-line" />

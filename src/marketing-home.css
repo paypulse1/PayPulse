@@ -319,36 +319,56 @@
   box-shadow: 0 0 0 4px rgb(58 171 120 / 12%);
 }
 
-.drpay-live-payout-frame {
+.drpay-phone-showcase {
   position: relative;
-  z-index: 1;
-  width: min(100%, 550px);
+  width: 100%;
+  max-width: 550px;
+  height: 630px;
   margin: 0 auto;
-  padding: 9px;
-  border: 1px solid rgb(255 255 255 / 90%);
-  border-radius: 16px;
+}
+
+.drpay-phone-frame {
+  position: absolute;
+  width: 51%;
+  margin: 0;
+  padding: 7px;
+  border: 1px solid #dfe6ef;
+  border-radius: 23px;
   background: var(--marketing-white);
   box-shadow:
     0 34px 80px rgb(16 35 63 / 14%),
     0 3px 12px rgb(16 35 63 / 5%);
-  transform: rotate(1.7deg);
 }
 
-.drpay-live-payout-frame img {
+.drpay-phone-frame-banks {
+  z-index: 1;
+  top: 72px;
+  left: 3%;
+  transform: rotate(-4deg);
+}
+
+.drpay-phone-frame-transfer {
+  z-index: 2;
+  top: 0;
+  right: 3%;
+  transform: rotate(3deg);
+}
+
+.drpay-phone-frame img {
   display: block;
   width: 100%;
   height: auto;
-  border-radius: 9px;
+  border-radius: 17px;
 }
 
-.drpay-live-payout-frame figcaption {
-  min-height: 49px;
-  padding: 8px 12px 3px;
+.drpay-phone-frame figcaption {
+  min-height: 42px;
+  padding: 7px 8px 2px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   color: #52647b;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
 }
 
@@ -1039,15 +1059,34 @@
     height: 10px;
   }
 
-  .drpay-live-payout-frame {
-    padding: 6px;
-    border-radius: 9px;
+  .drpay-phone-showcase {
+    height: min(620px, max(430px, 115vw));
   }
 
-  .drpay-live-payout-frame figcaption {
-    min-height: 40px;
-    padding: 6px 6px 2px;
-    font-size: 8px;
+  .drpay-phone-frame {
+    width: 48%;
+    padding: 5px;
+    border-radius: 17px;
+  }
+
+  .drpay-phone-frame-banks {
+    top: 54px;
+    left: 1%;
+  }
+
+  .drpay-phone-frame-transfer {
+    right: 1%;
+  }
+
+  .drpay-phone-frame img {
+    border-radius: 12px;
+  }
+
+  .drpay-phone-frame figcaption {
+    min-height: 34px;
+    padding: 5px 5px 2px;
+    font-size: 7px;
+    gap: 5px;
   }
 
   .drpay-confirmation-mark {
