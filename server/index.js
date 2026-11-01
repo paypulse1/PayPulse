@@ -197,9 +197,7 @@ const swiftPayEnvironment = process.env.SWIFTPAY_ENV || "sandbox"
 const tatumApiKey = process.env.TATUM_API_KEY
 const tronGridApiKey = process.env.TRONGRID_API_KEY
 const tronUsdtNetwork = process.env.TRON_USDT_NETWORK || "disabled"
-const tronUsdtWithdrawalLimit = parseUsdtAmount(
-  process.env.TRON_USDT_WITHDRAWAL_LIMIT_USDT || "100",
-)
+const tronUsdtWithdrawalMinimum = 20_000_000n
 const tronMainnetUsdtContract = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
 const tronMainnetUsdtDecimals = 6
 const checkoutOrigin =
@@ -398,14 +396,6 @@ function requiredEnvironment() {
     )
   if (!Number.isFinite(maxTransferAmount) || maxTransferAmount <= 0)
     missing.push("DRPAY_MAX_TRANSFER_PHP")
-  if (
-    tronUsdtNetwork === "mainnet" &&
-    (tronUsdtWithdrawalLimit === null || tronUsdtWithdrawalLimit <= 0n)
-  ) {
-    missing.push(
-      "TRON_USDT_WITHDRAWAL_LIMIT_USDT (positive, up to 6 decimals, with TRON_USDT_NETWORK=mainnet)",
-    )
-  }
   if (!["sandbox", "production"].includes(swiftPayEnvironment))
     missing.push("SWIFTPAY_ENV (sandbox or production)")
   if (
@@ -4512,10 +4502,6 @@ app.get(
 
 app.use("/v1", requireMerchant)
 
-function usdtWithdrawalLimitText() {
-  return formatUsdtAmount(tronUsdtWithdrawalLimit ?? -1n) || "0"
-}
-
 async function getAssignedMainnetUsdtAddress(email) {
   const { rows } = await pool.query(
     "SELECT address FROM merchant_usdt_wallets WHERE merchant_email = $1 AND network = 'TRON_MAINNET'",
@@ -4525,12 +4511,7 @@ async function getAssignedMainnetUsdtAddress(email) {
 }
 
 function isUsdtWithdrawalRequestAvailable(address) {
-  return (
-    tronUsdtNetwork === "mainnet" &&
-    tronUsdtWithdrawalLimit !== null &&
-    tronUsdtWithdrawalLimit > 0n &&
-    Boolean(address)
-  )
+  return tronUsdtNetwork === "mainnet" && Boolean(address)
 }
 
 app.get(
@@ -4541,11 +4522,9 @@ app.get(
     const enabled = isUsdtWithdrawalRequestAvailable(address)
     return res.set("Cache-Control", "no-store").json({
       enabled,
-      limit: usdtWithdrawalLimitText(),
+      minimum: formatUsdtAmount(tronUsdtWithdrawalMinimum),
       message:
-        tronUsdtNetwork !== "mainnet" ||
-        tronUsdtWithdrawalLimit === null ||
-        tronUsdtWithdrawalLimit <= 0n
+        tronUsdtNetwork !== "mainnet"
           ? "USDT withdrawal requests are unavailable in this API environment."
           : !address
             ? "A TRON mainnet wallet must be assigned before requesting a withdrawal."
@@ -4589,13 +4568,12 @@ app.post("/v1/crypto/usdt-withdrawals", pinAttemptLimiter, async (req, res) => {
   if (
     !/^\d{4}$/.test(pin) ||
     amount === null ||
-    amount <= 0n ||
-    amount > tronUsdtWithdrawalLimit ||
+    amount < tronUsdtWithdrawalMinimum ||
     !tronAddressPayload(destination) ||
     destination === fromAddress
   ) {
     return res.status(400).json({
-      error: `Enter a valid destination and amount up to ${usdtWithdrawalLimitText()} USDT, then confirm with your four-digit MPIN.`,
+      error: `Enter a valid destination and an amount of at least ${formatUsdtAmount(tronUsdtWithdrawalMinimum)} USDT, then confirm with your four-digit MPIN.`,
     })
   }
   const pinResult = await verifyMerchantPin(req.merchantEmail, pin)

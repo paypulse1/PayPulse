@@ -3827,16 +3827,11 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
     if (!wallet?.address || !withdrawalConfig?.enabled) return
 
     const rawAmount = parseUsdtAmount(withdrawalAmount)
-    const limit = parseUsdtAmount(withdrawalConfig.limit)
+    const minimum = parseUsdtAmount(withdrawalConfig.minimum)
     const destination = withdrawalDestination.trim()
-    if (
-      rawAmount === null ||
-      rawAmount <= 0n ||
-      limit === null ||
-      rawAmount > limit
-    ) {
+    if (rawAmount === null || minimum === null || rawAmount < minimum) {
       setWithdrawalError(
-        `Enter an amount greater than 0 and no more than ${withdrawalConfig.limit} USDT.`,
+        `Enter an amount of at least ${withdrawalConfig.minimum} USDT.`,
       )
       return
     }
@@ -4108,12 +4103,12 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
           >
             <div className="crypto-wallet-unavailable-heading">
               <div>
-                <span className="eyebrow">SUPER ADMIN REVIEW</span>
-                <h3 id="crypto-withdrawal-title">Request a USDT withdrawal</h3>
+                <span className="eyebrow">EXTERNAL TRANSFER</span>
+                <h3 id="crypto-withdrawal-title">Transfer USDT</h3>
               </div>
               {canRequestUsdt && (
                 <span className="crypto-wallet-receive-status">
-                  REQUESTS OPEN
+                  TRANSFERING AVAILABLE
                 </span>
               )}
             </div>
@@ -4130,34 +4125,28 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
               </p>
             ) : !withdrawalConfig ? null : (
               <>
-                <p className="crypto-withdrawal-intro">
-                  Submit a request for Super Admin to review. If approved, the
-                  payout will be sent to your TRON address. The maximum request
-                  is {withdrawalConfig.limit} USDT. Your MPIN confirms the
-                  request; it does not send funds immediately.
-                </p>
                 {withdrawalConfig.enabled ? (
                   <>
                     <ol className="crypto-withdrawal-steps">
                       <li>
                         <span>1</span>
                         <div>
-                          <strong>Submit request</strong>
-                          <small>Confirm with your MPIN</small>
+                          <strong>Send</strong>
+                          <small>Fund your USDT</small>
                         </div>
                       </li>
                       <li>
                         <span>2</span>
                         <div>
-                          <strong>Admin review</strong>
-                          <small>Track status below</small>
+                          <strong>Receive</strong>
+                          <small>Track your Crypto</small>
                         </div>
                       </li>
                       <li>
                         <span>3</span>
                         <div>
-                          <strong>Payout</strong>
-                          <small>Transaction recorded in history</small>
+                          <strong>Trade</strong>
+                          <small>Earn with Trading</small>
                         </div>
                       </li>
                     </ol>
@@ -4183,8 +4172,7 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
                         <span>Amount (USDT)</span>
                         <input
                           inputMode="decimal"
-                          max={withdrawalConfig.limit}
-                          min="0.000001"
+                          min={withdrawalConfig.minimum}
                           placeholder="0.00"
                           required
                           step="0.000001"
@@ -4195,7 +4183,7 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
                           }
                         />
                         <small>
-                          Maximum {withdrawalConfig.limit} USDT per request.
+                          Minimum {withdrawalConfig.minimum} USDT. No maximum.
                         </small>
                       </label>
                       <label>
@@ -4534,6 +4522,11 @@ function WalletView({
         >
           Back to Wallet
         </Button>
+        <div className="wallet-subpage-heading crypto-wallet-page-heading">
+          <span className="eyebrow">TRON · TRC20</span>
+          <h2>USDT wallet</h2>
+          <p>View your balance, receive USDT, and manage transfer requests.</p>
+        </div>
         <MainnetUsdtWallet refreshVersion={refreshVersion} />
       </section>
     )

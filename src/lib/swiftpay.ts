@@ -253,7 +253,7 @@ export type MerchantUsdtDepositHistory = {
 
 export type MerchantUsdtWithdrawalConfig = {
   enabled: boolean
-  limit: string
+  minimum: string
   message: string | null
 }
 
