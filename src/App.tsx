@@ -3457,9 +3457,6 @@ function WalletFloatingBalanceCard({
         </span>
         <div>
           <strong>Unsettled Funds</strong>
-          <p>
-            Shared progress across merchants using the same DRPAY PHP wallet.
-          </p>
         </div>
       </div>
       <div className="floating-balance-values">
@@ -3472,18 +3469,19 @@ function WalletFloatingBalanceCard({
       </div>
       <div
         className="collection-progress"
-        aria-label={`Shared maintained KRW collections: ${formatKrw(currentCollectionsKrw)} of ${formatKrw(collectionTargetKrw)}`}
+        aria-label={`Maintained KRW Collections: ${formatKrw(currentCollectionsKrw)} of ${formatKrw(collectionTargetKrw)}`}
       >
         <p>
-          Shared maintained KRW collections{" "}
+          Maintained KRW Collections{" "}
           <strong>
             {balanceVisible ? formatKrw(currentCollectionsKrw) : "₩ ••••••"}
           </strong>
+          <span> / {formatKrw(collectionTargetKrw)}</span>
         </p>
         <div
           className="collection-progress-track"
           role="progressbar"
-          aria-label="Shared KRW collections toward the live-wallet unlock threshold"
+          aria-label="Maintained KRW collections toward the live-wallet unlock threshold"
           aria-valuemin={0}
           aria-valuemax={collectionTargetKrw}
           aria-valuenow={Math.min(
@@ -3568,7 +3566,7 @@ function WalletFloatingBalanceCard({
           <p className="inline-error" role="alert">
             {payoutRequestsError}
           </p>
-        ) : payoutRequests.length ? (
+        ) : payoutRequests.length > 0 && (
           <div className="profile-recent-list">
             {payoutRequests.map((request) => (
               <div key={request.id}>
@@ -3595,10 +3593,6 @@ function WalletFloatingBalanceCard({
               </div>
             ))}
           </div>
-        ) : (
-          <p className="profile-info-note">
-            Your payout requests and reconciliation references will appear here.
-          </p>
         )}
       </section>
     </section>
