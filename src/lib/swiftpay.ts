@@ -20,6 +20,7 @@ export type Transaction = {
   recipientAccountNumber?: string
   remarks?: string
   isRefund?: boolean
+  createdAt?: string
   date: string
   status: "Completed" | "Pending" | "Failed"
   rawStatus: string
@@ -1074,6 +1075,7 @@ function toTransaction(
     recipientAccountNumber: item.recipientAccountNumber,
     remarks: item.remarks,
     isRefund: item.isRefund,
+    createdAt: item.createdAt,
     date: new Date(item.createdAt).toLocaleString("en-PH", {
       month: "short",
       day: "numeric",

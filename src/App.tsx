@@ -1379,7 +1379,9 @@ function TransactionSheet({
     recipientName: transaction.recipientName,
     accountNumber: transaction.recipientAccountNumber,
     remarks: transaction.remarks,
-    createdAt: transaction.date,
+    sentVia: "DRPAY Wallet",
+    refNo: transaction.reference,
+    createdAt: transaction.createdAt || transaction.date,
   }
 
   function repeatTransfer() {
@@ -1733,6 +1735,8 @@ function TransferSheet({
   const [result, setResult] = useState<TransferResult | null>(null)
   const [receiptDetails, setReceiptDetails] = useState<{
     amount: number
+    feeAmount: number
+    totalAmount: number
     channel: "INSTAPAY" | "PESONET"
     institutionName: string
     accountNumber: string
@@ -1807,6 +1811,8 @@ function TransferSheet({
       setResult(response)
       setReceiptDetails({
         amount: Number(amount),
+        feeAmount: transferFeeFixed,
+        totalAmount: Number(amount) + transferFeeFixed,
         channel,
         institutionName: selectedBank?.name || bank,
         accountNumber: account,
