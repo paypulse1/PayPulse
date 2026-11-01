@@ -9,8 +9,6 @@ import {
 import {
   AlertCircle,
   Activity,
-  ArrowUpRight,
-  Clock3,
   Download,
   Home,
   LoaderCircle,
@@ -21,7 +19,6 @@ import {
   Send,
   Settings,
   ShieldCheck,
-  Store,
   Users,
   UserPlus,
   WalletCards,
@@ -60,6 +57,10 @@ import {
 } from "./lib/swiftpay"
 import { Brand, Button } from "./AppPrimitives"
 import AuditAdminSection from "./super-admin/AuditAdminSection"
+import MerchantAccountProfileForm, {
+  type EditableMerchantAccount,
+} from "./super-admin/MerchantAccountProfileForm"
+import OverviewAdminSection from "./super-admin/OverviewAdminSection"
 import PaymentAdminSection from "./super-admin/PaymentAdminSection"
 
 type AdminPage = "overview" | "payments" | "merchants" | "kyb" | "ledger" | "requests" | "audit" | "settings"
@@ -105,7 +106,7 @@ export function SuperAdminConsole({
   })
   const [merchants, setMerchants] = useState<AdminMerchantAccount[]>([])
   const [editingMerchant, setEditingMerchant] =
-    useState<AdminMerchantAccount & { originalEmail: string } | null>(null)
+    useState<EditableMerchantAccount | null>(null)
   const [internalWallets, setInternalWallets] =
     useState<AdminInternalWalletSummary[]>([])
   const [transferRequests, setTransferRequests] =
@@ -1245,188 +1246,18 @@ export function SuperAdminConsole({
         ) : (
           <>
             {activePage === "overview" && (
-              <>
-                <section
-                  className="admin-stat-grid"
-                  aria-label="Operations summary"
-                >
-                  <article>
-                    <span>Merchant accounts</span>
-                    <strong>{merchants.length}</strong>
-                    <small>
-                      {activeMerchantCount} active ·{" "}
-                      {merchants.length - activeMerchantCount} disabled
-                    </small>
-                  </article>
-                  <article>
-                    <span>Floating balance total</span>
-                    <strong>
-                      ₱
-                      {totalLedgerBalance.toLocaleString("en-PH", {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </strong>
-                    <small>Pending requests are reserved · PHP</small>
-                  </article>
-                  <article>
-                    <span>Pending transfer requests</span>
-                    <strong>{pendingTransferRequests.length}</strong>
-                    <small>Awaiting team review</small>
-                  </article>
-                  <article>
-                    <span>Available floating balance</span>
-                    <strong>
-                      ₱
-                      {Math.max(
-                        totalLedgerBalance - reservedTransferBalance,
-                        0,
-                      ).toLocaleString("en-PH", {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </strong>
-                    <small>After pending transfer reservations · PHP</small>
-                  </article>
-                  <article>
-                    <span>Pending payments</span>
-                    <strong>{pendingPaymentCount}</strong>
-                    <small>Awaiting payment confirmation review</small>
-                  </article>
-                  <article>
-                    <span>KYB applications</span>
-                    <strong>{pendingKybCount}</strong>
-                    <small>Pending or in review</small>
-                  </article>
-                  <article>
-                    <span>Platform fee wallet</span>
-                    <strong>
-                      ₱
-                      {settings.superAdminFeeWallet.toLocaleString("en-PH", {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </strong>
-                    <small>Recorded collection and transfer fees</small>
-                  </article>
-                  <article>
-                    <span>Collection rate</span>
-                    <strong>
-                      {settings.krwToPhpRate
-                        ? `${settings.krwToPhpRate.toLocaleString("en-PH")} PHP`
-                        : "Automatic"}
-                    </strong>
-                    <small>
-                      {settings.krwToPhpRate
-                        ? "KRW → PHP manual override"
-                        : "Live reference rate"}
-                    </small>
-                  </article>
-                  <article>
-                    <span>USDT collection</span>
-                    <strong>
-                      {settings.usdtAddress ? "Configured" : "Not configured"}
-                    </strong>
-                    <small>
-                      {settings.usdtNetwork || "No receiving network set"}
-                    </small>
-                  </article>
-                </section>
-                <section className="admin-card">
-                  <div className="admin-card-heading">
-                    <span className="setting-icon">
-                      <Clock3 size={19} />
-                    </span>
-                    <div>
-                      <h2>Needs attention</h2>
-                      <p>
-                        Jump directly to pending reviews and recent changes.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="admin-quick-links">
-                    <button
-                      type="button"
-                      onClick={() => setActivePage("payments")}
-                    >
-                      <span>{pendingPaymentCount}</span> Payments to review{" "}
-                      <ArrowUpRight size={15} />
-                    </button>
-                    <button type="button" onClick={() => setActivePage("kyb")}>
-                      <span>{pendingKybCount}</span> KYB applications{" "}
-                      <ArrowUpRight size={15} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActivePage("requests")}
-                    >
-                      <span>{pendingTransferRequests.length}</span> Transfer
-                      requests <ArrowUpRight size={15} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActivePage("audit")}
-                    >
-                      <span>{auditEvents.length}</span> Recorded audit events{" "}
-                      <ArrowUpRight size={15} />
-                    </button>
-                  </div>
-                </section>
-                <section className="admin-card">
-                  <div className="admin-card-heading">
-                    <span className="setting-icon">
-                      <Users size={19} />
-                    </span>
-                    <div>
-                      <h2>Merchant access</h2>
-                      <p>
-                        Recently added accounts and their current access status.
-                      </p>
-                    </div>
-                    <button
-                      className="admin-text-action"
-                      onClick={() => setActivePage("merchants")}
-                    >
-                      Manage merchants
-                    </button>
-                  </div>
-                  <div className="admin-account-list">
-                    {merchants.slice(0, 5).map((account) => (
-                      <div className="admin-account-row" key={account.email}>
-                        <div>
-                          <strong>{account.email}</strong>
-                          <small>
-                            Added{" "}
-                            {new Date(account.createdAt).toLocaleDateString()}
-                          </small>
-                        </div>
-                        <span
-                          className={`admin-status-pill ${
-                            account.active ? "active" : "disabled"
-                          }`}
-                        >
-                          {account.active ? "Active" : "Disabled"}
-                        </span>
-                      </div>
-                    ))}
-                    {merchants.length === 0 && (
-                      <p className="admin-empty">
-                        No merchant accounts yet. Create one to get started.
-                      </p>
-                    )}
-                  </div>
-                </section>
-                <section className="admin-card admin-overview-note">
-                  <ShieldCheck size={18} />
-                  <p>
-                    Successful collections credit merchants net of the
-                    collection fee. Successful bank transfers and
-                    floating-balance payout requests debit the requested amount
-                    plus the fixed transfer fee. Fees are recorded in the
-                    platform fee wallet; refunds are exempt.
-                  </p>
-                </section>
-              </>
+              <OverviewAdminSection
+                settings={settings}
+                merchants={merchants}
+                activeMerchantCount={activeMerchantCount}
+                totalLedgerBalance={totalLedgerBalance}
+                pendingTransferCount={pendingTransferRequests.length}
+                reservedTransferBalance={reservedTransferBalance}
+                pendingPaymentCount={pendingPaymentCount}
+                pendingKybCount={pendingKybCount}
+                auditEventCount={auditEvents.length}
+                onNavigate={setActivePage}
+              />
             )}
             {activePage === "payments" && (
               <PaymentAdminSection
@@ -2531,151 +2362,13 @@ export function SuperAdminConsole({
                   )}
                 </div>
                 {editingMerchant && (
-                  <form
-                    className="admin-merchant-profile-form"
+                  <MerchantAccountProfileForm
+                    merchant={editingMerchant}
+                    saving={savingMerchant}
+                    onChange={setEditingMerchant}
                     onSubmit={saveMerchantProfile}
-                  >
-                    <div className="admin-card-heading">
-                      <span className="setting-icon">
-                        <Store size={19} />
-                      </span>
-                      <div>
-                        <h2>Edit merchant profile</h2>
-                        <p>
-                          Updating the login email requires the merchant to sign
-                          in again.
-                        </p>
-                      </div>
-                    </div>
-                    <label>
-                      <span>Merchant email / login</span>
-                      <input
-                        type="email"
-                        value={editingMerchant.email}
-                        onChange={(event) =>
-                          setEditingMerchant({
-                            ...editingMerchant,
-                            email: event.target.value,
-                          })
-                        }
-                        required
-                        maxLength={254}
-                      />
-                    </label>
-                    <label>
-                      <span>Business or display name</span>
-                      <input
-                        value={editingMerchant.businessName}
-                        onChange={(event) =>
-                          setEditingMerchant({
-                            ...editingMerchant,
-                            businessName: event.target.value,
-                          })
-                        }
-                        maxLength={160}
-                      />
-                    </label>
-                    <label>
-                      <span>Contact person</span>
-                      <input
-                        value={editingMerchant.contactPerson}
-                        onChange={(event) =>
-                          setEditingMerchant({
-                            ...editingMerchant,
-                            contactPerson: event.target.value,
-                          })
-                        }
-                        maxLength={120}
-                      />
-                    </label>
-                    <label>
-                      <span>Phone number</span>
-                      <input
-                        type="tel"
-                        value={editingMerchant.phoneNumber}
-                        onChange={(event) =>
-                          setEditingMerchant({
-                            ...editingMerchant,
-                            phoneNumber: event.target.value,
-                          })
-                        }
-                        maxLength={40}
-                      />
-                    </label>
-                    <label>
-                      <span>Business address</span>
-                      <textarea
-                        value={editingMerchant.businessAddress}
-                        onChange={(event) =>
-                          setEditingMerchant({
-                            ...editingMerchant,
-                            businessAddress: event.target.value,
-                          })
-                        }
-                        maxLength={500}
-                        rows={3}
-                      />
-                    </label>
-                    <div className="admin-profile-payout-heading">
-                      <strong>Saved payout account</strong>
-                      <small>
-                        Leave all fields blank to remove the saved payout
-                        account.
-                      </small>
-                    </div>
-                    <label>
-                      <span>Bank or wallet name</span>
-                      <input
-                        value={editingMerchant.bankName}
-                        onChange={(event) =>
-                          setEditingMerchant({
-                            ...editingMerchant,
-                            bankName: event.target.value,
-                          })
-                        }
-                        maxLength={100}
-                      />
-                    </label>
-                    <label>
-                      <span>Account holder name</span>
-                      <input
-                        value={editingMerchant.accountName}
-                        onChange={(event) =>
-                          setEditingMerchant({
-                            ...editingMerchant,
-                            accountName: event.target.value,
-                          })
-                        }
-                        maxLength={120}
-                      />
-                    </label>
-                    <label>
-                      <span>Account number</span>
-                      <input
-                        value={editingMerchant.accountNumber}
-                        onChange={(event) =>
-                          setEditingMerchant({
-                            ...editingMerchant,
-                            accountNumber: event.target.value,
-                          })
-                        }
-                        maxLength={34}
-                        autoComplete="off"
-                      />
-                    </label>
-                    <div className="admin-transfer-request-actions">
-                      <Button type="submit" disabled={savingMerchant}>
-                        {savingMerchant ? "Saving…" : "Save merchant profile"}
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        disabled={savingMerchant}
-                        onClick={() => setEditingMerchant(null)}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </form>
+                    onCancel={() => setEditingMerchant(null)}
+                  />
                 )}
               </section>
             )}
