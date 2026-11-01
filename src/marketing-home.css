@@ -857,6 +857,136 @@
   margin-left: 14px;
 }
 
+@keyframes drpay-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes drpay-showcase-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-9px);
+  }
+}
+
+@keyframes drpay-orbit-turn {
+  from {
+    transform: rotate(-12deg);
+  }
+  to {
+    transform: rotate(348deg);
+  }
+}
+
+@keyframes drpay-pulse-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 4px rgb(58 171 120 / 12%);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgb(58 171 120 / 5%);
+  }
+}
+
+@keyframes drpay-cta-orbit {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(12deg);
+  }
+}
+
+.drpay-hero-copy > * {
+  animation: drpay-fade-up 650ms both;
+}
+
+.drpay-hero-copy > :nth-child(2) {
+  animation-delay: 80ms;
+}
+
+.drpay-hero-copy > :nth-child(3) {
+  animation-delay: 150ms;
+}
+
+.drpay-hero-copy > :nth-child(4) {
+  animation-delay: 220ms;
+}
+
+.drpay-hero-copy > :nth-child(5) {
+  animation-delay: 290ms;
+}
+
+.drpay-hero-visual {
+  animation: drpay-fade-up 800ms 160ms both;
+}
+
+.drpay-phone-showcase {
+  animation: drpay-showcase-float 7s ease-in-out 1s infinite;
+}
+
+.drpay-visual-orbit {
+  animation: drpay-orbit-turn 36s linear infinite;
+}
+
+.drpay-visual-label-dot {
+  animation: drpay-pulse-glow 2.8s ease-in-out infinite;
+}
+
+.drpay-capability-card {
+  transition:
+    transform 200ms ease,
+    border-color 200ms ease,
+    box-shadow 200ms ease;
+}
+
+.drpay-capability-card:hover {
+  transform: translateY(-5px);
+  border-color: #b7c8dd;
+  box-shadow: 0 16px 34px rgb(16 35 63 / 8%);
+}
+
+.drpay-capability-card-top svg {
+  transition: transform 200ms ease;
+}
+
+.drpay-capability-card:hover .drpay-capability-card-top svg {
+  transform: scale(1.12) rotate(-5deg);
+}
+
+.drpay-step {
+  transition:
+    padding 180ms ease,
+    background-color 180ms ease;
+}
+
+.drpay-step:hover {
+  padding-right: 10px;
+  padding-left: 10px;
+  background: rgb(255 255 255 / 55%);
+}
+
+.drpay-step-check {
+  transition: transform 180ms ease;
+}
+
+.drpay-step:hover .drpay-step-check {
+  transform: translateX(3px);
+}
+
+.drpay-cta-art {
+  animation: drpay-cta-orbit 18s ease-in-out infinite alternate;
+}
+
 @media (min-width: 1500px) {
   .drpay-hero {
     min-height: 700px;
