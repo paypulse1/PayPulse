@@ -257,6 +257,20 @@ export type MerchantUsdtWithdrawalConfig = {
   message: string | null
 }
 
+export type UsdtWithdrawalRequest = {
+  id: string
+  merchantEmail?: string
+  amount: string
+  fromAddress: string
+  destination: string
+  status: "PENDING" | "COMPLETED" | "REJECTED"
+  requestedAt: string
+  reviewedAt: string | null
+  reviewedBy?: string | null
+  transactionId: string | null
+  rejectionReason: string | null
+}
+
 export type AdminInternalWalletSummary = {
   email: string
   active: boolean
@@ -1271,29 +1285,34 @@ export async function getMerchantUsdtWithdrawalConfig(): Promise<MerchantUsdtWit
   )
 }
 
-export async function authorizeMerchantUsdtWithdrawal(input: {
+export async function getMerchantUsdtWithdrawalRequests(): Promise<UsdtWithdrawalRequest[]> {
+  return backendRequest<UsdtWithdrawalRequest[]>("/v1/crypto/usdt-withdrawals")
+}
+
+export async function createMerchantUsdtWithdrawalRequest(input: {
   amount: string
   destination: string
-  idempotencyKey: string
   pin: string
-}): Promise<{ stepUpToken: string }> {
-  return backendRequest<{ stepUpToken: string }>(
-    "/v1/crypto/usdt-withdrawals/authorize",
-    {
-      method: "POST",
-      body: JSON.stringify(input),
-    },
+}): Promise<UsdtWithdrawalRequest> {
+  return backendRequest<UsdtWithdrawalRequest>("/v1/crypto/usdt-withdrawals", {
+    method: "POST",
+    body: JSON.stringify(input),
+  })
+}
+
+export async function getAdminUsdtWithdrawalRequests(): Promise<UsdtWithdrawalRequest[]> {
+  return backendRequest<UsdtWithdrawalRequest[]>(
+    "/v1/admin/crypto/usdt-withdrawals",
   )
 }
 
-export async function consumeMerchantUsdtWithdrawalAuthorization(input: {
-  amount: string
-  destination: string
-  idempotencyKey: string
-  stepUpToken: string
-}): Promise<{ authorized: true }> {
-  return backendRequest<{ authorized: true }>(
-    "/v1/crypto/usdt-withdrawals/consume",
+export async function reviewAdminUsdtWithdrawalRequest(
+  id: string,
+  decision: "completed" | "rejected",
+  input: { transactionId?: string; reason?: string },
+): Promise<UsdtWithdrawalRequest> {
+  return backendRequest<UsdtWithdrawalRequest>(
+    `/v1/admin/crypto/usdt-withdrawals/${encodeURIComponent(id)}/${decision}`,
     {
       method: "POST",
       body: JSON.stringify(input),

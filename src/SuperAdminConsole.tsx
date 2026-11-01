@@ -37,6 +37,8 @@ import {
   getAdminKybApplications,
   createAdminTaxInvoice,
   markAdminPaymentLinkPaid,
+  getAdminUsdtWithdrawalRequests,
+  reviewAdminUsdtWithdrawalRequest,
   sendAdminMerchantInvitation,
   reviewAdminFloatingTransferRequest,
   reviewAdminKybApplication,
@@ -53,6 +55,7 @@ import {
   type AdminSettings,
   type PaymentLinkResult,
   type FloatingTransferRequest,
+  type UsdtWithdrawalRequest,
   type Session,
 } from "./lib/swiftpay"
 import { Brand, Button } from "./AppPrimitives"
@@ -111,6 +114,8 @@ export function SuperAdminConsole({
     useState<AdminInternalWalletSummary[]>([])
   const [transferRequests, setTransferRequests] =
     useState<FloatingTransferRequest[]>([])
+  const [cryptoWithdrawalRequests, setCryptoWithdrawalRequests] =
+    useState<UsdtWithdrawalRequest[]>([])
   const [paymentLinks, setPaymentLinks] = useState<AdminPaymentLink[]>([])
   const [auditEvents, setAuditEvents] = useState<AdminAuditEvent[]>([])
   const [paymentVerificationNotes, setPaymentVerificationNotes] =
@@ -159,6 +164,11 @@ export function SuperAdminConsole({
   const [successfulRequestId, setSuccessfulRequestId] = useState("")
   const [payoutReference, setPayoutReference] = useState("")
   const [payoutNote, setPayoutNote] = useState("")
+  const [cryptoDecisionRequestId, setCryptoDecisionRequestId] = useState("")
+  const [cryptoDecision, setCryptoDecision] =
+    useState<"completed" | "rejected" | null>(null)
+  const [cryptoPayoutTransactionId, setCryptoPayoutTransactionId] = useState("")
+  const [cryptoRejectionReason, setCryptoRejectionReason] = useState("")
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
   const touchStartYRef = useRef<number | null>(null)
@@ -183,6 +193,9 @@ export function SuperAdminConsole({
     0,
   )
   const pendingTransferRequests = transferRequests.filter(
+    (request) => request.status === "PENDING",
+  )
+  const pendingCryptoWithdrawalRequests = cryptoWithdrawalRequests.filter(
     (request) => request.status === "PENDING",
   )
   const reservedTransferBalance = pendingTransferRequests.reduce(
@@ -254,6 +267,31 @@ export function SuperAdminConsole({
       )
     })
   }, [transferRequests, requestSearch, requestStatus])
+  const filteredCryptoWithdrawalRequests = useMemo(() => {
+    const query = requestSearch.trim().toLowerCase()
+    return cryptoWithdrawalRequests.filter((request) => {
+      const matchesQuery =
+        !query ||
+        [
+          request.merchantEmail,
+          request.destination,
+          request.id,
+          request.rejectionReason,
+          request.amount,
+        ]
+          .filter(Boolean)
+          .some((value) => value!.toLowerCase().includes(query))
+      const status =
+        request.status === "COMPLETED"
+          ? "successful"
+          : request.status === "REJECTED"
+            ? "failed"
+            : "pending"
+      return (
+        matchesQuery && (requestStatus === "all" || status === requestStatus)
+      )
+    })
+  }, [cryptoWithdrawalRequests, requestSearch, requestStatus])
   const filteredAuditEvents = useMemo(() => {
     const query = auditSearch.trim().toLowerCase()
     return auditEvents.filter(
@@ -333,6 +371,23 @@ export function SuperAdminConsole({
         })),
       )
     }
+    const addCryptoWithdrawalRequests = (items: UsdtWithdrawalRequest[]) => {
+      rows.push(
+        ...items.map((request) => ({
+          section: "Crypto withdrawal request",
+          record: request.id,
+          merchant: request.merchantEmail || "",
+          status: request.status,
+          amount: request.amount,
+          currency: "USDT",
+          date: request.reviewedAt || request.requestedAt,
+          actor: request.reviewedBy || "",
+          summary: request.transactionId
+            ? `TRON transaction ${request.transactionId}`
+            : request.rejectionReason || `Destination ${request.destination}`,
+        })),
+      )
+    }
     const addAudit = (items: AdminAuditEvent[]) => {
       rows.push(
         ...items.map((event) => ({
@@ -350,8 +405,10 @@ export function SuperAdminConsole({
     }
     if (activePage === "payments") addPayments(filteredPayments)
     else if (activePage === "kyb") addKyb(filteredKybApplications)
-    else if (activePage === "requests") addRequests(filteredTransferRequests)
-    else if (activePage === "audit") addAudit(filteredAuditEvents)
+    else if (activePage === "requests") {
+      addRequests(filteredTransferRequests)
+      addCryptoWithdrawalRequests(filteredCryptoWithdrawalRequests)
+    } else if (activePage === "audit") addAudit(filteredAuditEvents)
     else if (activePage === "merchants") {
       rows.push(
         ...filteredMerchants.map((merchant) => ({
@@ -384,6 +441,7 @@ export function SuperAdminConsole({
       addPayments(paymentLinks)
       addKyb(kybApplications)
       addRequests(transferRequests)
+      addCryptoWithdrawalRequests(cryptoWithdrawalRequests)
       addAudit(auditEvents)
       rows.push(
         ...merchants.map((merchant) => ({
@@ -435,6 +493,7 @@ export function SuperAdminConsole({
       getAdminMerchantAccounts(),
       getAdminInternalWallets(),
       getAdminFloatingTransferRequests(),
+      getAdminUsdtWithdrawalRequests(),
       getAdminPaymentLinks(),
       getAdminKybApplications(),
       getAdminAuditEvents(),
@@ -458,6 +517,7 @@ export function SuperAdminConsole({
       merchantsResult,
       walletsResult,
       requestsResult,
+      cryptoRequestsResult,
       paymentLinksResult,
       kybResult,
       auditResult,
@@ -473,6 +533,11 @@ export function SuperAdminConsole({
       )
     })
     applyResult(requestsResult, "transfer requests", setTransferRequests)
+    applyResult(
+      cryptoRequestsResult,
+      "crypto withdrawal requests",
+      setCryptoWithdrawalRequests,
+    )
     applyResult(paymentLinksResult, "payment links", setPaymentLinks)
     applyResult(kybResult, "KYB", setKybApplications)
     applyResult(auditResult, "audit history", setAuditEvents)
@@ -892,6 +957,53 @@ export function SuperAdminConsole({
     }
   }
 
+  async function reviewCryptoWithdrawalRequest(
+    request: UsdtWithdrawalRequest,
+    decision: "completed" | "rejected",
+  ) {
+    const transactionId = cryptoPayoutTransactionId.trim()
+    const reason = cryptoRejectionReason.trim()
+    if (decision === "completed" && !/^[0-9a-f]{64}$/i.test(transactionId)) {
+      setError("Enter the 64-character TRON payout transaction ID.")
+      return
+    }
+    if (decision === "rejected" && !reason) {
+      setError("Enter a reason before rejecting this withdrawal request.")
+      return
+    }
+    setReviewingRequestId(request.id)
+    setError("")
+    setNotice("")
+    try {
+      const reviewed = await reviewAdminUsdtWithdrawalRequest(
+        request.id,
+        decision,
+        decision === "completed" ? { transactionId } : { reason },
+      )
+      setCryptoWithdrawalRequests((current) =>
+        current.map((item) => (item.id === reviewed.id ? reviewed : item)),
+      )
+      setCryptoDecisionRequestId("")
+      setCryptoDecision(null)
+      setCryptoPayoutTransactionId("")
+      setCryptoRejectionReason("")
+      setNotice(
+        decision === "completed"
+          ? "USDT payout recorded as completed."
+          : "USDT withdrawal request rejected and the reason recorded.",
+      )
+      await refreshAuditEvents()
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not review the crypto withdrawal request.",
+      )
+    } finally {
+      setReviewingRequestId("")
+    }
+  }
+
   async function confirmPaymentAsPaid(payment: AdminPaymentLink) {
     const verificationNote = paymentVerificationNotes[payment.id]?.trim() || ""
     if (verificationNote.length < 10) {
@@ -1098,7 +1210,7 @@ export function SuperAdminConsole({
                         : activePage === "ledger"
                           ? "Floating balance"
                           : activePage === "requests"
-                            ? "Transfer requests"
+                            ? "Withdrawal requests"
                             : activePage === "audit"
                               ? "Audit history"
                               : "Collection settings"}
@@ -1115,7 +1227,7 @@ export function SuperAdminConsole({
                         : activePage === "ledger"
                           ? "Adjust merchant floating balances and review their audit entries."
                           : activePage === "requests"
-                            ? "Mark requests successful or failed and arrange payouts for successful requests."
+                            ? "Review bank transfers and merchant USDT withdrawal requests."
                             : activePage === "audit"
                               ? "Review recorded balance adjustments, transfer decisions, and KYB reviews."
                               : "Configure collection references used by the merchant app."}
@@ -1198,11 +1310,10 @@ export function SuperAdminConsole({
             ["ledger", "Floating balance", WalletCards],
             [
               "requests",
-              `Transfer requests${
-                transferRequests.filter(
-                  (request) => request.status === "PENDING",
-                ).length
-                  ? ` (${transferRequests.filter((request) => request.status === "PENDING").length})`
+              `Requests${
+                pendingTransferRequests.length +
+                pendingCryptoWithdrawalRequests.length
+                  ? ` (${pendingTransferRequests.length + pendingCryptoWithdrawalRequests.length})`
                   : ""
               }`,
               Send,
@@ -1437,10 +1548,10 @@ export function SuperAdminConsole({
                   <label className="admin-search">
                     <Search size={16} />
                     <input
-                      aria-label="Search transfer requests"
+                      aria-label="Search withdrawal requests"
                       value={requestSearch}
                       onChange={(event) => setRequestSearch(event.target.value)}
-                      placeholder="Merchant, bank, account name, or request ID"
+                      placeholder="Merchant, bank, destination, account, or request ID"
                     />
                   </label>
                   <label className="admin-filter">
@@ -1677,6 +1788,266 @@ export function SuperAdminConsole({
                                   </Button>
                                 </div>
                               </form>
+                            )}
+                          </div>
+                        ) : (
+                          request.reviewedAt && (
+                            <small className="admin-transfer-reviewed">
+                              Reviewed{" "}
+                              {new Date(request.reviewedAt).toLocaleString()}
+                              {request.reviewedBy
+                                ? ` · ${request.reviewedBy}`
+                                : ""}
+                            </small>
+                          )
+                        )}
+                      </article>
+                    ))
+                  )}
+                </div>
+              </section>
+            )}
+            {activePage === "requests" && (
+              <section className="admin-card">
+                <div className="admin-card-heading">
+                  <span className="setting-icon">
+                    <WalletCards size={19} />
+                  </span>
+                  <div>
+                    <h2>USDT withdrawal requests</h2>
+                    <p>
+                      Review merchant requests and complete payouts manually.
+                      Record a payout only after sending USDT on TRON.
+                    </p>
+                  </div>
+                  <span className="admin-crypto-pending-count">
+                    <span aria-hidden="true" />
+                    {pendingCryptoWithdrawalRequests.length} awaiting review
+                  </span>
+                </div>
+                <div
+                  className="admin-crypto-summary"
+                  aria-label="USDT withdrawal request totals"
+                >
+                  <div className="pending">
+                    <span>Awaiting review</span>
+                    <strong>{pendingCryptoWithdrawalRequests.length}</strong>
+                  </div>
+                  <div className="completed">
+                    <span>Payout sent</span>
+                    <strong>
+                      {
+                        cryptoWithdrawalRequests.filter(
+                          (request) => request.status === "COMPLETED",
+                        ).length
+                      }
+                    </strong>
+                  </div>
+                  <div className="rejected">
+                    <span>Rejected</span>
+                    <strong>
+                      {
+                        cryptoWithdrawalRequests.filter(
+                          (request) => request.status === "REJECTED",
+                        ).length
+                      }
+                    </strong>
+                  </div>
+                </div>
+                <div className="admin-transfer-request-list">
+                  {filteredCryptoWithdrawalRequests.length === 0 ? (
+                    <p className="admin-empty">
+                      {cryptoWithdrawalRequests.length
+                        ? "No crypto requests match these filters."
+                        : "No USDT withdrawal requests have been submitted."}
+                    </p>
+                  ) : (
+                    filteredCryptoWithdrawalRequests.map((request) => (
+                      <article
+                        className={`admin-transfer-request admin-crypto-request ${request.status.toLowerCase()}`}
+                        key={request.id}
+                      >
+                        <div className="admin-transfer-request-heading">
+                          <div>
+                            <strong>{request.merchantEmail}</strong>
+                            <small>
+                              Submitted{" "}
+                              {new Date(request.requestedAt).toLocaleString()}
+                            </small>
+                          </div>
+                          <span
+                            className={`admin-status-pill ${
+                              request.status === "COMPLETED"
+                                ? "successful"
+                                : request.status === "REJECTED"
+                                  ? "failed"
+                                  : "pending"
+                            }`}
+                          >
+                            {request.status === "PENDING"
+                              ? "Awaiting review"
+                              : request.status === "COMPLETED"
+                                ? "Payout sent"
+                                : "Rejected"}
+                          </span>
+                        </div>
+                        <strong className="admin-transfer-request-amount">
+                          {request.amount} USDT
+                        </strong>
+                        <dl>
+                          <div>
+                            <dt>Merchant assigned wallet</dt>
+                            <dd>{request.fromAddress}</dd>
+                          </div>
+                          <div>
+                            <dt>Destination</dt>
+                            <dd>{request.destination}</dd>
+                          </div>
+                          <div>
+                            <dt>Request ID</dt>
+                            <dd>{request.id}</dd>
+                          </div>
+                        </dl>
+                        {request.transactionId && (
+                          <p className="admin-transfer-reviewed">
+                            <strong>TRON payout transaction</strong>{" "}
+                            <a
+                              href={`https://tronscan.org/#/transaction/${encodeURIComponent(request.transactionId)}`}
+                              rel="noreferrer"
+                              target="_blank"
+                            >
+                              {request.transactionId}
+                            </a>
+                          </p>
+                        )}
+                        {request.rejectionReason && (
+                          <p className="admin-transfer-failure-reason">
+                            <strong>Rejection reason</strong>
+                            {request.rejectionReason}
+                          </p>
+                        )}
+                        {request.status === "PENDING" ? (
+                          <div className="admin-transfer-request-actions">
+                            <Button
+                              disabled={reviewingRequestId === request.id}
+                              onClick={() => {
+                                setCryptoDecisionRequestId(request.id)
+                                setCryptoDecision("completed")
+                                setCryptoPayoutTransactionId("")
+                                setCryptoRejectionReason("")
+                                setError("")
+                              }}
+                            >
+                              Record payout
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              disabled={reviewingRequestId === request.id}
+                              onClick={() => {
+                                setCryptoDecisionRequestId(request.id)
+                                setCryptoDecision("rejected")
+                                setCryptoPayoutTransactionId("")
+                                setCryptoRejectionReason("")
+                                setError("")
+                              }}
+                            >
+                              Reject request
+                            </Button>
+                            {cryptoDecisionRequestId === request.id && (
+                              <div className="admin-transfer-failure-form">
+                                {cryptoDecision === "completed" ? (
+                                  <form
+                                    onSubmit={(event) => {
+                                      event.preventDefault()
+                                      void reviewCryptoWithdrawalRequest(
+                                        request,
+                                        "completed",
+                                      )
+                                    }}
+                                  >
+                                    <label>
+                                      <span>
+                                        TRON transaction ID (after payout is
+                                        sent)
+                                      </span>
+                                      <input
+                                        autoComplete="off"
+                                        maxLength={64}
+                                        minLength={64}
+                                        required
+                                        value={cryptoPayoutTransactionId}
+                                        onChange={(event) =>
+                                          setCryptoPayoutTransactionId(
+                                            event.target.value,
+                                          )
+                                        }
+                                        placeholder="64-character transaction ID"
+                                      />
+                                    </label>
+                                    <Button
+                                      type="submit"
+                                      disabled={
+                                        reviewingRequestId === request.id ||
+                                        !/^[0-9a-f]{64}$/i.test(
+                                          cryptoPayoutTransactionId.trim(),
+                                        )
+                                      }
+                                    >
+                                      {reviewingRequestId === request.id
+                                        ? "Saving…"
+                                        : "Confirm payout sent"}
+                                    </Button>
+                                  </form>
+                                ) : (
+                                  <form
+                                    onSubmit={(event) => {
+                                      event.preventDefault()
+                                      void reviewCryptoWithdrawalRequest(
+                                        request,
+                                        "rejected",
+                                      )
+                                    }}
+                                  >
+                                    <label>
+                                      <span>Reason for rejection</span>
+                                      <textarea
+                                        maxLength={500}
+                                        required
+                                        rows={3}
+                                        value={cryptoRejectionReason}
+                                        onChange={(event) =>
+                                          setCryptoRejectionReason(
+                                            event.target.value,
+                                          )
+                                        }
+                                        placeholder="Explain why this request cannot be approved"
+                                      />
+                                    </label>
+                                    <Button
+                                      variant="secondary"
+                                      type="submit"
+                                      disabled={
+                                        reviewingRequestId === request.id ||
+                                        !cryptoRejectionReason.trim()
+                                      }
+                                    >
+                                      {reviewingRequestId === request.id
+                                        ? "Saving…"
+                                        : "Confirm rejection"}
+                                    </Button>
+                                  </form>
+                                )}
+                                <Button
+                                  variant="quiet"
+                                  disabled={reviewingRequestId === request.id}
+                                  onClick={() => {
+                                    setCryptoDecisionRequestId("")
+                                    setCryptoDecision(null)
+                                  }}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
                             )}
                           </div>
                         ) : (
