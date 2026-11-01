@@ -263,18 +263,19 @@ function drawReceiptCard(
 
   context.fillStyle = receiptStyle.blue
   context.fillRect(0, 0, receiptCanvas.width, context.canvas.height)
-  drawRoundedRect(context, cardX + 16, 34, 54, 54, 14)
+  const logoCenterX = receiptCanvas.width / 2
+  drawRoundedRect(context, logoCenterX - 37, 18, 74, 74, 18)
   context.fillStyle = receiptStyle.white
   context.fill()
-  context.drawImage(logo, cardX + 23, 41, 40, 40)
+  context.drawImage(logo, logoCenterX - 31, 24, 62, 62)
   context.fillStyle = receiptStyle.white
-  context.font = `700 26px ${receiptStyle.font}`
-  context.textAlign = "left"
-  context.fillText("DRPAY", cardX + 82, 70)
+  context.font = `700 32px ${receiptStyle.font}`
+  context.textAlign = "center"
+  context.fillText("DRPAY", logoCenterX, 126)
   context.fillStyle = receiptStyle.white
   context.font = `600 30px ${receiptStyle.font}`
   context.textAlign = "center"
-  context.fillText("Bank Transfer", receiptCanvas.width / 2, 142)
+  context.fillText("Bank Transfer", logoCenterX, 169)
   context.textAlign = "left"
   drawCloseButton(context, cardX + cardW - 30, 132)
 
