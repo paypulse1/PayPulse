@@ -4567,6 +4567,50 @@ function WalletView({
         onToggleBalanceVisibility={toggleBalanceVisibility}
         onWithdraw={onWithdraw}
       />
+      <section className="wallet-action-grid" aria-label="Wallet actions">
+        <button
+          type="button"
+          className="wallet-action-card"
+          onClick={onWithdraw}
+        >
+          <span className="wallet-action-icon">
+            <ArrowLeftRight size={19} aria-hidden="true" />
+          </span>
+          <span className="wallet-action-copy">
+            <strong>Transfer PHP</strong>
+            <small>Send to a bank or wallet</small>
+          </span>
+          <ChevronRight size={16} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="wallet-action-card"
+          onClick={() => onOpenSubscreen("unsettled-balance")}
+        >
+          <span className="wallet-action-icon">
+            <Clock3 size={19} aria-hidden="true" />
+          </span>
+          <span className="wallet-action-copy">
+            <strong>Unsettled funds</strong>
+            <small>View balance and request payout</small>
+          </span>
+          <ChevronRight size={16} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="wallet-action-card"
+          onClick={() => onOpenSubscreen("usdt")}
+        >
+          <span className="wallet-action-icon wallet-action-icon-crypto">
+            <Coins size={19} aria-hidden="true" />
+          </span>
+          <span className="wallet-action-copy">
+            <strong>USDT wallet</strong>
+            <small>Receive and transfer crypto</small>
+          </span>
+          <ChevronRight size={16} aria-hidden="true" />
+        </button>
+      </section>
       <WalletActivitySection
         transactions={transactions}
         totalTransactions={activity.length}
