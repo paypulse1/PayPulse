@@ -3557,11 +3557,8 @@ function WalletFloatingBalanceCard({
       </section>
       <section
         className="unsettled-request-history"
-        aria-label="Payout request history"
+        aria-label="Payout requests"
       >
-        <header className="section-header">
-          <h3>Request history</h3>
-        </header>
         {payoutRequestsError ? (
           <p className="inline-error" role="alert">
             {payoutRequestsError}
