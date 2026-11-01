@@ -5724,7 +5724,7 @@ export async function createInvoiceCheckout({ amount, invoiceId, customerEmail }
   "status": "EXECUTED",
   "amount": 125.50,
   "currency": "PHP",
-  "referenceNo": "DRP-..."
+  "referenceNo": "482731"
 }`}
             />
             <p>

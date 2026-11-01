@@ -273,7 +273,7 @@ export async function createMerchantApiIntegrationGuidePdf({
     "200 RESPONSE PAYLOAD",
     '{\n  "code": "opaque_checkout_code",\n  "paymentUrl": "' +
       paymentUrl +
-      '/?checkout=opaque_checkout_code",\n  "status": "EXECUTED",\n  "amount": 125.50,\n  "currency": "PHP",\n  "referenceNo": "DRP-..."\n}',
+      '/?checkout=opaque_checkout_code",\n  "status": "EXECUTED",\n  "amount": 125.50,\n  "currency": "PHP",\n  "referenceNo": "482731"\n}',
     91,
   )
   drawParagraph(

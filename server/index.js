@@ -7,6 +7,7 @@ import {
   scryptSync,
   timingSafeEqual,
 } from "node:crypto"
+import { reserveTransactionReference } from "./transaction-reference.js"
 import { existsSync } from "node:fs"
 import { lookup } from "node:dns/promises"
 import { BlockList, isIP } from "node:net"
@@ -1449,6 +1450,18 @@ async function initializeDatabase() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS transaction_references (
+      reference_no TEXT PRIMARY KEY CHECK (reference_no ~ '^[0-9]{6}$'),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    INSERT INTO transaction_references (reference_no)
+      SELECT reference_no FROM payment_links
+      WHERE reference_no ~ '^[0-9]{6}$'
+      ON CONFLICT (reference_no) DO NOTHING;
+    INSERT INTO transaction_references (reference_no)
+      SELECT merchant_reference_no FROM disbursements
+      WHERE merchant_reference_no ~ '^[0-9]{6}$'
+      ON CONFLICT (reference_no) DO NOTHING;
     CREATE TABLE IF NOT EXISTS merchant_push_devices (
       token TEXT PRIMARY KEY,
       merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
@@ -6705,10 +6718,13 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
   }
 
   const id = randomUUID()
-  const referenceNo = `DRP-${randomUUID()}`
   const code = randomBytes(32).toString("base64url")
+  const client = await pool.connect()
+  let referenceNo
   try {
-    await pool.query(
+    await client.query("BEGIN")
+    referenceNo = await reserveTransactionReference(client)
+    await client.query(
       `INSERT INTO payment_links (
       id, idempotency_key, reference_no, code, title, amount, collection_amount_krw,
       payment_institution_code, payment_institution_name, payment_institution_logo_url,
@@ -6737,12 +6753,16 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
         customerEmail || null,
       ],
     )
+    await client.query("COMMIT")
   } catch (error) {
+    await client.query("ROLLBACK")
     if (error.code === "23505") return res.status(409).json({
         error:
           "The checkout outcome is unknown. Check wallet activity before retrying.",
       })
     throw error
+  } finally {
+    client.release()
   }
 
   try {
@@ -7094,7 +7114,7 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
   await pool.query("DELETE FROM used_step_up_tokens WHERE expires_at <= NOW()")
 
   const id = randomUUID()
-  const merchantReferenceNo = `DRP-${randomUUID()}`
+  let merchantReferenceNo
   const client = await pool.connect()
   try {
     await client.query("BEGIN")
@@ -7192,6 +7212,7 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
           "This security confirmation has already been used. Verify again.",
       })
     }
+    merchantReferenceNo = await reserveTransactionReference(client)
     await client.query(
       `INSERT INTO disbursements
        (id, idempotency_key, merchant_reference_no, amount, transfer_fee, channel, institution_code, recipient_name, recipient_account_number, remarks, request_fingerprint, status, merchant_email, refund_payment_id)
