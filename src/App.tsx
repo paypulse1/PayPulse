@@ -23,7 +23,6 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleHelp,
-  CirclePlus,
   Clock3,
   Copy,
   Coins,
@@ -34,7 +33,6 @@ import {
   HandCoins,
   Home,
   KeyRound,
-  LayoutDashboard,
   Link2,
   LoaderCircle,
   Lock,
@@ -54,7 +52,6 @@ import {
   Store,
   UserRound,
   Users,
-  Wallet,
   WalletCards,
   X,
 } from "lucide-react"
@@ -139,8 +136,12 @@ import { APP_ROUTES } from "./lib/routes"
 import QrPaymentDisplay, { InstitutionLogo } from "./QrPaymentDisplay"
 import InstitutionSelectionScreen from "./InstitutionSelectionScreen"
 import { DeveloperSetupPanel, KybSetupPanel } from "./MerchantSetup"
-import { Brand, Button } from "./AppPrimitives"
+import { Brand, Button, IconButton } from "./AppPrimitives"
+import AppNavigation, { type AppTab } from "./AppNavigation"
 import AccessibleDialog from "./AccessibleDialog"
+import UsdtDepositHistory from "./UsdtDepositHistory"
+import WalletScreen from "./WalletScreen"
+import useBalanceVisibility from "./useBalanceVisibility"
 import { SuperAdminConsole } from "./SuperAdminConsole"
 import MerchantSignIn from "./MerchantSignIn"
 import MerchantNotificationInbox from "./MerchantNotificationInbox"
@@ -375,34 +376,6 @@ function ApiCodeBlock({ title, code }: { title: string; code: string }) {
   )
 }
 
-function useBalanceVisibility() {
-  const email = getSession()?.email.toLowerCase() || "default"
-  const storageKey = `drpay.balance-visibility.${encodeURIComponent(email)}`
-  const [preference, setPreference] = useState(() => ({
-    storageKey,
-    visible: localStorage.getItem(storageKey) !== "hidden",
-  }))
-  const balanceVisible =
-    preference.storageKey === storageKey
-      ? preference.visible
-      : localStorage.getItem(storageKey) !== "hidden"
-
-  useEffect(() => {
-    setPreference({
-      storageKey,
-      visible: localStorage.getItem(storageKey) !== "hidden",
-    })
-  }, [storageKey])
-
-  const toggleBalanceVisibility = useCallback(() => {
-    const visible = !balanceVisible
-    localStorage.setItem(storageKey, visible ? "visible" : "hidden")
-    setPreference({ storageKey, visible })
-  }, [balanceVisible, storageKey])
-
-  return { balanceVisible, toggleBalanceVisibility }
-}
-
 function AvailableBalanceCard({
   data,
   balanceVisible,
@@ -461,28 +434,6 @@ function AvailableBalanceCard({
         </div>
       )}
     </section>
-  )
-}
-
-function IconButton({
-  children,
-  label,
-  onClick,
-  dark = false,
-}: {
-  children: ReactNode
-  label: string
-  onClick?: () => void
-  dark?: boolean
-}) {
-  return (
-    <button
-      className={`icon-button ${dark ? "icon-button-dark" : ""}`}
-      aria-label={label}
-      onClick={onClick}
-    >
-      {children}
-    </button>
   )
 }
 
@@ -3295,15 +3246,6 @@ function MerchantActivityChart({ refreshVersion }: { refreshVersion: number }) {
   )
 }
 
-const WALLET_ACTIVITY_FILTERS = [
-  "All activity",
-  "Money in",
-  "Money out",
-  "Completed",
-  "Pending",
-  "Failed",
-]
-
 function WalletBalancePanel({
   data,
   balanceVisible,
@@ -3526,136 +3468,6 @@ function WalletFloatingBalanceCard({
         )}
       </section>
     </section>
-  )
-}
-
-function WalletActivitySection({
-  transactions,
-  totalTransactions,
-  filter,
-  query,
-  fromDate,
-  toDate,
-  hasMore,
-  loadingMore,
-  activityError,
-  onExport,
-  onFilterChange,
-  onQueryChange,
-  onDateChange,
-  onLoadMore,
-  onTransaction,
-}: {
-  transactions: Transaction[]
-  totalTransactions: number
-  filter: string
-  query: string
-  fromDate: string
-  toDate: string
-  hasMore: boolean
-  loadingMore: boolean
-  activityError: string
-  onExport: (fromDate: string, toDate: string) => void
-  onFilterChange: (filter: string) => void
-  onQueryChange: (query: string) => void
-  onDateChange: (key: "from" | "to", value: string) => void
-  onLoadMore: () => void
-  onTransaction: (transaction: Transaction) => void
-}) {
-  return (
-    <>
-      <header className="wallet-activity-heading">
-        <div>
-          <span className="eyebrow">MERCHANT ACTIVITY</span>
-          <h2>Wallet activity</h2>
-        </div>
-        <span>{transactions.length} shown</span>
-        <button
-          type="button"
-          className="text-button"
-          onClick={() => onExport(fromDate, toDate)}
-        >
-          Export date-range CSV
-        </button>
-      </header>
-      <label className="activity-search">
-        <Search size={16} />
-        <input
-          value={query}
-          onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="Search description or reference"
-          aria-label="Search wallet activity"
-        />
-      </label>
-      <div className="wallet-date-filters" aria-label="Filter activity by date">
-        <label>
-          <span>From</span>
-          <input
-            type="date"
-            value={fromDate}
-            max={toDate || undefined}
-            onChange={(event) => onDateChange("from", event.target.value)}
-          />
-        </label>
-        <label>
-          <span>To</span>
-          <input
-            type="date"
-            value={toDate}
-            min={fromDate || undefined}
-            onChange={(event) => onDateChange("to", event.target.value)}
-          />
-        </label>
-      </div>
-      <div className="filter-row">
-        {WALLET_ACTIVITY_FILTERS.map((item) => (
-          <button
-            key={item}
-            type="button"
-            aria-pressed={filter === item}
-            className={filter === item ? "active" : ""}
-            onClick={() => onFilterChange(item)}
-          >
-            {item}
-          </button>
-        ))}
-      </div>
-      <div className="transaction-list full-list">
-        {transactions.length > 0 ? (
-          transactions.map((transaction) => (
-            <TransactionRow
-              key={transaction.id}
-              transaction={transaction}
-              onClick={() => onTransaction(transaction)}
-            />
-          ))
-        ) : (
-          <div className="wallet-empty-state">
-            <WalletCards size={23} />
-            <strong>
-              {totalTransactions
-                ? "No matching activity"
-                : "No wallet activity yet"}
-            </strong>
-            <p>
-              {totalTransactions
-                ? "Try a different filter or search term."
-                : "Incoming payments and outgoing transfers will appear here."}
-            </p>
-          </div>
-        )}
-      </div>
-      {activityError && (
-        <p className="inline-error" role="alert">
-          {activityError}
-        </p>
-      )}
-      {hasMore && (
-        <Button variant="secondary" disabled={loadingMore} onClick={onLoadMore}>
-          {loadingMore ? "Loading…" : "Load more activity"}
-        </Button>
-      )}
-    </>
   )
 }
 
@@ -4312,65 +4124,12 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
           <p>This feature is coming soon.</p>
         </div>
       </section>
-      <section
-        className="crypto-deposit-history"
-        aria-label="USDT deposit history"
-      >
-        <header className="section-header">
-          <div>
-            <span className="eyebrow">TRON · TRC20</span>
-            <h3>Recent USDT deposits</h3>
-          </div>
-        </header>
-        {depositLoading ? (
-          <p className="crypto-wallet-feedback" role="status">
-            Loading confirmed deposits…
-          </p>
-        ) : depositError ? (
-          <p
-            className="crypto-wallet-feedback crypto-wallet-error"
-            role="alert"
-          >
-            {depositError}
-          </p>
-        ) : deposits.length ? (
-          <div className="crypto-deposit-list">
-            {deposits.map((deposit) => (
-              <article
-                className="crypto-deposit-row"
-                key={deposit.transactionId}
-              >
-                <div>
-                  <strong>{deposit.amount} USDT</strong>
-                  <small>
-                    {new Date(deposit.blockTimestamp).toLocaleString()}
-                  </small>
-                  <small>From {deposit.from}</small>
-                </div>
-                <span
-                  className={`crypto-wallet-badge ${
-                    deposit.confirmed ? "" : "pending"
-                  }`}
-                >
-                  {deposit.confirmed ? "CONFIRMED" : "PENDING"}
-                </span>
-                <a
-                  href={`https://tronscan.org/#/transaction/${encodeURIComponent(deposit.transactionId)}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  View transaction
-                </a>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <p className="crypto-wallet-feedback" role="status">
-            {depositMessage ||
-              "No confirmed USDT deposits found since this address was assigned."}
-          </p>
-        )}
-      </section>
+      <UsdtDepositHistory
+        deposits={deposits}
+        loading={depositLoading}
+        error={depositError}
+        message={depositMessage}
+      />
       {wallet?.network === "TRON_SHASTA" && (
         <p className="crypto-wallet-disclaimer">
           This address is marked as Shasta testnet and is not queried on
@@ -4399,239 +4158,6 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
         </p>
       )}
     </div>
-  )
-}
-
-function WalletView({
-  data,
-  refreshVersion,
-  onWithdraw,
-  onTransaction,
-  onExportActivity,
-  subscreen,
-  onOpenSubscreen,
-  onCloseSubscreen,
-}: {
-  data: DashboardData
-  refreshVersion: number
-  onWithdraw: () => void
-  onTransaction: (transaction: Transaction) => void
-  onExportActivity: (fromDate: string, toDate: string) => void
-  subscreen: "overview" | "usdt" | "unsettled-balance"
-  onOpenSubscreen: (subscreen: "usdt" | "unsettled-balance") => void
-  onCloseSubscreen: () => void
-}) {
-  const [filter, setFilter] = useState("All activity")
-  const [query, setQuery] = useState("")
-  const [fromDate, setFromDate] = useState("")
-  const [toDate, setToDate] = useState("")
-  const [activity, setActivity] = useState(data.transactions)
-  const [activityHasMore, setActivityHasMore] = useState(
-    data.transactions.length === 50,
-  )
-  const [activityLoading, setActivityLoading] = useState(false)
-  const [activityError, setActivityError] = useState("")
-  const { balanceVisible, toggleBalanceVisibility } = useBalanceVisibility()
-  useEffect(() => {
-    if (!fromDate && !toDate) {
-      setActivity(data.transactions)
-      setActivityHasMore(data.transactions.length === 50)
-      setActivityError("")
-      setActivityLoading(false)
-      return
-    }
-    let active = true
-    setActivityLoading(true)
-    setActivityError("")
-    getMerchantActivityPage({
-      limit: 50,
-      offset: 0,
-      from: fromDate,
-      to: toDate,
-    })
-      .then((page) => {
-        if (!active) return
-        setActivity(page)
-        setActivityHasMore(page.length === 50)
-      })
-      .catch((loadError) => {
-        if (active)
-          setActivityError(
-            loadError instanceof Error
-              ? loadError.message
-              : "Could not load wallet activity.",
-          )
-      })
-      .finally(() => {
-        if (active) setActivityLoading(false)
-      })
-    return () => {
-      active = false
-    }
-  }, [fromDate, toDate, data.transactions])
-
-  async function loadMoreActivity() {
-    setActivityLoading(true)
-    setActivityError("")
-    try {
-      const page = await getMerchantActivityPage({
-        limit: 50,
-        offset: activity.length,
-        from: fromDate,
-        to: toDate,
-      })
-      setActivity((current) => [...current, ...page])
-      setActivityHasMore(page.length === 50)
-    } catch (loadError) {
-      setActivityError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Could not load more wallet activity.",
-      )
-    } finally {
-      setActivityLoading(false)
-    }
-  }
-
-  const transactions = useMemo(
-    () =>
-      activity.filter((item) => {
-        const matchesFilter =
-          filter === "All activity" ||
-          (filter === "Money in" &&
-            (item.walletAmount ?? item.numericAmount) > 0) ||
-          (filter === "Money out" &&
-            (item.walletAmount ?? item.numericAmount) < 0) ||
-          item.status === filter
-        const matchesQuery =
-          `${item.reference} ${item.customer} ${item.description}`
-            .toLowerCase()
-            .includes(query.toLowerCase())
-        return matchesFilter && matchesQuery
-      }),
-    [activity, filter, query],
-  )
-
-  if (subscreen === "usdt") {
-    return (
-      <section className="wallet-page wallet-usdt-page">
-        <Button
-          variant="quiet"
-          icon={<ChevronLeft size={17} />}
-          onClick={onCloseSubscreen}
-        >
-          Back to Wallet
-        </Button>
-        <div className="wallet-subpage-heading crypto-wallet-page-heading">
-          <span className="eyebrow">TRON · TRC20</span>
-          <h2>USDT wallet</h2>
-          <p>View your balance, receive USDT, and manage transfer requests.</p>
-        </div>
-        <MainnetUsdtWallet refreshVersion={refreshVersion} />
-      </section>
-    )
-  }
-
-  if (subscreen === "unsettled-balance") {
-    return (
-      <section className="wallet-page wallet-unsettled-page">
-        <Button
-          variant="quiet"
-          icon={<ChevronLeft size={17} />}
-          onClick={onCloseSubscreen}
-        >
-          Back to Wallet
-        </Button>
-        <div className="wallet-subpage-heading">
-          <span className="eyebrow">WALLET</span>
-          <h2>Unsettled Funds</h2>
-          <p>
-            Track your Alipay+ collection threshold for transferring unsettled
-            funds to your live DRPAY PHP wallet.
-          </p>
-        </div>
-        <WalletFloatingBalanceCard
-          data={data}
-          balanceVisible={balanceVisible}
-          refreshVersion={refreshVersion}
-        />
-      </section>
-    )
-  }
-
-  return (
-    <section className="wallet-page">
-      <WalletBalancePanel
-        data={data}
-        balanceVisible={balanceVisible}
-        onToggleBalanceVisibility={toggleBalanceVisibility}
-        onWithdraw={onWithdraw}
-      />
-      <section className="wallet-action-grid" aria-label="Wallet actions">
-        <button
-          type="button"
-          className="wallet-action-card"
-          onClick={onWithdraw}
-        >
-          <span className="wallet-action-icon">
-            <ArrowLeftRight size={19} aria-hidden="true" />
-          </span>
-          <span className="wallet-action-copy">
-            <strong>Transfer PHP</strong>
-            <small>Send to a bank or wallet</small>
-          </span>
-          <ChevronRight size={16} aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className="wallet-action-card"
-          onClick={() => onOpenSubscreen("unsettled-balance")}
-        >
-          <span className="wallet-action-icon">
-            <Clock3 size={19} aria-hidden="true" />
-          </span>
-          <span className="wallet-action-copy">
-            <strong>Unsettled funds</strong>
-            <small>View balance and request payout</small>
-          </span>
-          <ChevronRight size={16} aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className="wallet-action-card"
-          onClick={() => onOpenSubscreen("usdt")}
-        >
-          <span className="wallet-action-icon wallet-action-icon-crypto">
-            <Coins size={19} aria-hidden="true" />
-          </span>
-          <span className="wallet-action-copy">
-            <strong>USDT wallet</strong>
-            <small>Receive and transfer crypto</small>
-          </span>
-          <ChevronRight size={16} aria-hidden="true" />
-        </button>
-      </section>
-      <WalletActivitySection
-        transactions={transactions}
-        totalTransactions={activity.length}
-        filter={filter}
-        query={query}
-        fromDate={fromDate}
-        toDate={toDate}
-        hasMore={activityHasMore}
-        loadingMore={activityLoading}
-        activityError={activityError}
-        onExport={onExportActivity}
-        onFilterChange={setFilter}
-        onQueryChange={setQuery}
-        onDateChange={(key, value) => {
-          if (key === "from") setFromDate(value)
-          else setToDate(value)
-        }}
-        onLoadMore={() => void loadMoreActivity()}
-        onTransaction={onTransaction}
-      />
-    </section>
   )
 }
 
@@ -4745,13 +4271,13 @@ function MoreView({
   const items = [
     {
       label: "Merchant profile",
-      description: "Business and account details",
+      description: "View your business and account details.",
       icon: Store,
       action: () => onInfo("Merchant profile"),
     },
     {
       label: "Checkout & email branding",
-      description: "Customize checkout instructions and payment emails",
+      description: "Customize checkout details and payment emails.",
       icon: Settings,
       action: () => onInfo("Checkout & email branding"),
     },
@@ -4759,7 +4285,7 @@ function MoreView({
       ? [
           {
             label: "Payment link",
-            description: "Create and share your branded hosted checkout",
+            description: "Create and share a branded checkout link.",
             icon: Link2,
             action: onPaymentLink,
           },
@@ -4768,69 +4294,71 @@ function MoreView({
     {
       label: "Transfer banks",
       description: Capacitor.isNativePlatform()
-        ? "InstaPay"
-        : "InstaPay and PESONet",
+        ? "View supported InstaPay banks."
+        : "View supported InstaPay and PESONet banks.",
       icon: CreditCard,
       action: () => onInfo("Transfer banks"),
     },
     {
       label: "Statements",
-      description: "View and download wallet activity",
+      description: "View and download wallet activity.",
       icon: ReceiptText,
       action: () => onInfo("Statements"),
     },
     {
       label: "Notifications",
-      description: "Email and push alerts",
+      description: "Manage email and push alerts.",
       icon: Bell,
       action: () => onInfo("Notifications"),
     },
     {
       label: "Security",
-      description: "Session and device protection",
+      description: "Manage session and device protection.",
       icon: ShieldCheck,
       action: () => onInfo("Security"),
     },
     {
       label: "KYB verification",
-      description: "Business and owner verification",
+      description: "Manage business and owner verification.",
       icon: ShieldCheck,
       action: () => onInfo("KYB verification"),
     },
     {
       label: "Developer settings",
-      description: "API keys, webhooks, and callbacks",
+      description: "Manage API keys, webhooks, and callbacks.",
       icon: KeyRound,
       action: () => onInfo("Developer settings"),
     },
     {
       label: "API documentation",
-      description: "Merchant integration guide",
+      description: "Read the merchant integration guide.",
       icon: Settings,
       action: () => onInfo("API documentation"),
     },
     {
       label: "Help center",
-      description: "DRPAY merchant support",
+      description: "Contact DRPAY merchant support.",
       icon: CircleHelp,
       action: () => onInfo("Help center"),
     },
   ]
 
   return (
-    <section className="more-page">
+    <section className="more-page" aria-label="Profile and account settings">
       <div className="profile-card">
-        <span className="profile-avatar">DV</span>
-        <div>
+        <span className="profile-avatar">
+          <UserRound size={20} aria-hidden="true" />
+        </span>
+        <div className="profile-card-info">
           <strong>{session.email}</strong>
-          <span>{session.role.replace("_", " ")} · Merchant ledger</span>
-          <span className="merchant-verified-badge">
-            <ShieldCheck size={12} aria-hidden="true" /> Verified
-          </span>
+          <span>Merchant account</span>
         </div>
-        <ShieldCheck size={20} />
       </div>
-      <div className="settings-list">
+      <div className="profile-menu-heading">
+        <h2>Account settings</h2>
+        <p>Manage your profile, preferences, and security.</p>
+      </div>
+      <nav className="settings-list" aria-label="Account settings">
         {items.map(({ label, description, icon: Icon, action }) => (
           <button key={label} onClick={action}>
             <span className="setting-icon">
@@ -4843,7 +4371,7 @@ function MoreView({
             <ChevronRight size={17} />
           </button>
         ))}
-      </div>
+      </nav>
       <Button
         variant="secondary"
         className="sign-out-button"
@@ -5112,8 +4640,8 @@ function ProfileInfoPage({
             </span>
             <div>
               <strong>{session.email}</strong>
-              <span className="merchant-verified-badge">
-                <ShieldCheck size={12} aria-hidden="true" /> Verified Merchant
+              <span className="profile-account-badge">
+                <Store size={12} aria-hidden="true" /> Merchant account
               </span>
             </div>
           </div>
@@ -5930,14 +5458,6 @@ export async function createInvoiceCheckout({ amount, invoiceId, customerEmail }
   )
 }
 
-const tabs = [
-  { label: "Home", icon: LayoutDashboard },
-  { label: "Wallet", icon: Wallet },
-  { label: "Collect", icon: CirclePlus },
-  { label: "Transfer", icon: ArrowLeftRight },
-  { label: "Profile", icon: UserRound },
-]
-
 function hasScrolledNestedContainer(
   target: EventTarget | null,
   root: HTMLElement,
@@ -5989,7 +5509,7 @@ export default function App() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [securityStatus, setSecurityStatus] =
     useState<MerchantSecurityStatus | null>(null)
-  const [activeTab, setActiveTab] = useState("Home")
+  const [activeTab, setActiveTab] = useState<AppTab>("Home")
   const [walletSubscreen, setWalletSubscreen] =
     useState<"overview" | "usdt" | "unsettled-balance">("overview")
   const [profileSection, setProfileSection] = useState("")
@@ -6915,7 +6435,7 @@ export default function App() {
               />
             )}
             {activeTab === "Wallet" && (
-              <WalletView
+              <WalletScreen
                 data={data}
                 refreshVersion={refreshVersion}
                 onWithdraw={() => setShowTransfer(true)}
@@ -6926,6 +6446,13 @@ export default function App() {
                 subscreen={walletSubscreen}
                 onOpenSubscreen={(subscreen) => setWalletSubscreen(subscreen)}
                 onCloseSubscreen={() => setWalletSubscreen("overview")}
+                renderBalancePanel={(props) => <WalletBalancePanel {...props} />}
+                renderUsdtWallet={(version) => (
+                  <MainnetUsdtWallet refreshVersion={version} />
+                )}
+                renderUnsettledBalanceCard={(props) => (
+                  <WalletFloatingBalanceCard {...props} />
+                )}
               />
             )}
             {activeTab === "Transfer" && (
@@ -6968,37 +6495,14 @@ export default function App() {
           </div>
         </div>
 
-        <nav className="bottom-nav" aria-label="App navigation">
-          {tabs.map(({ label, icon: Icon }) => {
-            const isPay = label === "Collect"
-            return (
-              <button
-                type="button"
-                key={label}
-                className={`${activeTab === label ? "active" : ""} ${
-                  isPay ? "pay-tab" : ""
-                }`}
-                aria-current={activeTab === label ? "page" : undefined}
-                onClick={() => {
-                  if (isPay) {
-                    setShowPayment(true)
-                    return
-                  }
-                  setWalletSubscreen("overview")
-                  setActiveTab(label)
-                }}
-              >
-                <span className="nav-icon">
-                  <Icon
-                    size={isPay ? 24 : 20}
-                    strokeWidth={isPay ? 2.2 : 1.8}
-                  />
-                </span>
-                <small>{label}</small>
-              </button>
-            )
-          })}
-        </nav>
+        <AppNavigation
+          activeTab={activeTab}
+          onNavigate={(tab) => {
+            setWalletSubscreen("overview")
+            setActiveTab(tab)
+          }}
+          onCollect={() => setShowPayment(true)}
+        />
       </main>
 
       {showPayment && (

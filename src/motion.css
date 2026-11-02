@@ -1,0 +1,62 @@
+:root {
+  --motion-fast: 140ms;
+  --motion-link: 160ms;
+  --motion-base: 200ms;
+  --motion-control: 180ms;
+  --motion-slow: 280ms;
+  --motion-enter-duration: 360ms;
+  --motion-hero-enter: 650ms;
+  --motion-showcase-enter: 800ms;
+  --motion-showcase-delay: 160ms;
+  --motion-spin: 900ms;
+  --motion-stagger-step: 45ms;
+  --motion-ease: cubic-bezier(.2, .75, .25, 1);
+  --motion-enter: cubic-bezier(.16, 1, .3, 1);
+  --glass-surface: rgb(247 249 252 / 94%);
+  --glass-surface-soft: rgb(247 249 252 / 88%);
+  --glass-border: rgb(216 225 237 / 82%);
+  --overlay-scrim: rgb(7 20 41 / 58%);
+  --glass-blur: 18px;
+  --overlay-blur: 4px;
+}
+
+@keyframes backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes sheet-in {
+  from { transform: translateY(24px); opacity: .7; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes workspace-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes nav-icon-enter {
+  from { transform: scale(.92); }
+  to { transform: none; }
+}
+
+@keyframes content-reveal {
+  from { opacity: 0; transform: translateY(9px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

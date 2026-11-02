@@ -10,6 +10,31 @@ type ButtonProps = {
   disabled?: boolean
 }
 
+export function IconButton({
+  children,
+  label,
+  onClick,
+  dark = false,
+}: {
+  children: ReactNode
+  label: string
+  onClick?: () => void
+  dark?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      className={`icon-button ${dark ? "icon-button-dark" : ""}`}
+      aria-label={label}
+      onClick={onClick}
+    >
+      <span className="icon-button-icon" aria-hidden="true">
+        {children}
+      </span>
+    </button>
+  )
+}
+
 export function Button({
   children,
   className = "",
@@ -26,7 +51,11 @@ export function Button({
       onClick={onClick}
       disabled={disabled}
     >
-      {icon}
+      {icon && (
+        <span className="button-icon" aria-hidden="true">
+          {icon}
+        </span>
+      )}
       {children}
     </button>
   )

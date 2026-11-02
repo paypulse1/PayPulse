@@ -60,8 +60,8 @@
   top: 0;
   z-index: 3;
   border-bottom: 1px solid rgb(16 35 63 / 8%);
-  background: rgb(247 249 252 / 88%);
-  backdrop-filter: blur(18px);
+  background: var(--glass-surface-soft);
+  backdrop-filter: blur(var(--glass-blur));
 }
 
 .drpay-nav {
@@ -139,9 +139,9 @@
   font-weight: 750;
   text-decoration: none;
   transition:
-    transform 180ms ease,
-    background 180ms ease,
-    box-shadow 180ms ease;
+    transform var(--motion-control) ease,
+    background var(--motion-control) ease,
+    box-shadow var(--motion-control) ease;
 }
 
 .drpay-button:hover {
@@ -258,7 +258,7 @@
 
 .drpay-text-link svg {
   color: var(--marketing-blue);
-  transition: transform 160ms ease;
+  transition: transform var(--motion-link) ease;
 }
 
 .drpay-text-link:hover svg {
@@ -907,7 +907,7 @@
 }
 
 .drpay-hero-copy > * {
-  animation: drpay-fade-up 650ms both;
+  animation: drpay-fade-up var(--motion-hero-enter) both;
 }
 
 .drpay-hero-copy > :nth-child(2) {
@@ -927,7 +927,7 @@
 }
 
 .drpay-hero-visual {
-  animation: drpay-fade-up 800ms 160ms both;
+  animation: drpay-fade-up var(--motion-showcase-enter) var(--motion-showcase-delay) both;
 }
 
 .drpay-phone-showcase {
@@ -944,9 +944,9 @@
 
 .drpay-capability-card {
   transition:
-    transform 200ms ease,
-    border-color 200ms ease,
-    box-shadow 200ms ease;
+    transform var(--motion-base) ease,
+    border-color var(--motion-base) ease,
+    box-shadow var(--motion-base) ease;
 }
 
 .drpay-capability-card:hover {
@@ -965,8 +965,8 @@
 
 .drpay-step {
   transition:
-    padding 180ms ease,
-    background-color 180ms ease;
+    padding var(--motion-control) ease,
+    background-color var(--motion-control) ease;
 }
 
 .drpay-step:hover {
@@ -976,7 +976,7 @@
 }
 
 .drpay-step-check {
-  transition: transform 180ms ease;
+  transition: transform var(--motion-control) ease;
 }
 
 .drpay-step:hover .drpay-step-check {
@@ -1395,16 +1395,5 @@
 
   .drpay-copyright {
     margin-left: auto;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .drpay-home *,
-  .drpay-home *::before,
-  .drpay-home *::after {
-    scroll-behavior: auto !important;
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
   }
 }
