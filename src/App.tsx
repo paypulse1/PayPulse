@@ -2509,7 +2509,7 @@ function ScannerSheet({
       const reader = new BrowserQRCodeReader()
       let result
       try {
-        result = await reader.decodeFromImageUrl(imageUrl)
+        result = await reader.decodeFromImageElement(image)
       } catch {
         const canvas = document.createElement("canvas")
         const scale = Math.max(
@@ -2522,7 +2522,7 @@ function ScannerSheet({
         if (!context) throw new Error("Could not prepare the uploaded image.")
         context.imageSmoothingEnabled = false
         context.drawImage(image, 0, 0, canvas.width, canvas.height)
-        result = await reader.decodeFromImageUrl(canvas.toDataURL("image/png"))
+        result = reader.decodeFromCanvas(canvas)
       }
       handlePayload(result.getText())
     } catch (error) {

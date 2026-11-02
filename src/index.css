@@ -303,19 +303,19 @@ h1, h2, p { margin-top: 0; }
 .crypto-withdrawal-request.pending { border-left: 3px solid #d59a28; }
 .crypto-withdrawal-request.completed { border-left: 3px solid #31835b; }
 .crypto-withdrawal-request.rejected { border-left: 3px solid #c14f4f; }
-.crypto-withdrawal-request > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.crypto-withdrawal-request > div { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .crypto-withdrawal-request > div > strong { font-size: 11px; }
 .crypto-withdrawal-request > small { color: var(--muted); font-size: 9px; overflow-wrap: anywhere; }
 .crypto-withdrawal-request > a { color: var(--link); font-size: 9px; font-weight: 700; text-decoration: none; }
 .crypto-withdrawal-request > a:hover { text-decoration: underline; text-underline-offset: 2px; }
-.crypto-usdt-status { padding: 4px 7px; background: #fff4dc; color: #9a6500; font-size: 8px; text-transform: uppercase; }
+.crypto-usdt-status { max-width: 100%; padding: 5px 9px; background: #fff4dc; color: #9a6500; font-size: 10px; text-transform: uppercase; }
 .crypto-usdt-status-completed, .crypto-usdt-status-confirmed { background: var(--success-soft); color: var(--success); }
 .crypto-withdrawal a { color: var(--link); font-weight: 750; text-decoration: none; }
 .crypto-withdrawal a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .crypto-deposit-history { min-width: 0; }
 .crypto-deposit-history .section-header { margin-bottom: 10px; }
 .crypto-deposit-history .section-header h3 { margin: 0; font-size: 15px; letter-spacing: -.03em; }
-.crypto-deposit-list { max-height: 320px; overflow-y: auto; border: 1px solid #e4eaf2; border-radius: 13px; }
+.crypto-deposit-list { border: 1px solid #e4eaf2; border-radius: 13px; }
 .crypto-deposit-row { padding: 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px 10px; border-bottom: 1px solid var(--line); }
 .crypto-deposit-row:last-child { border-bottom: 0; }
 .crypto-deposit-row > div strong, .crypto-deposit-row > div small, .crypto-deposit-row > div time { display: block; }
