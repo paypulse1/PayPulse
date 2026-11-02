@@ -4064,7 +4064,7 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
               </p>
             ) : withdrawalRequests.length > 0 ? (
               <div className="crypto-withdrawal-history">
-                <h4>Withdrawal requests</h4>
+                <h4>Active withdrawal</h4>
                 {withdrawalRequests.map((request) => (
                   <article
                     className={`crypto-withdrawal-request ${request.status.toLowerCase()}`}

@@ -20,7 +20,7 @@ export default function UsdtStatus({
 }) {
   const label =
     context === "withdrawal" && status === "PENDING"
-      ? "Awaiting review"
+      ? "Awaiting confirmation"
       : statusLabels[status]
   const accessibleLabel =
     context === "deposit"
@@ -28,7 +28,7 @@ export default function UsdtStatus({
         ? "Deposit confirmed"
         : "Deposit pending"
       : status === "PENDING"
-        ? "Withdrawal awaiting review"
+        ? "Withdrawal awaiting confirmation"
         : status === "COMPLETED"
           ? "Withdrawal payout sent"
           : "Withdrawal rejected"
