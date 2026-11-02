@@ -183,7 +183,6 @@ export default function MerchantSignIn({
               <ShieldCheck size={17} />
               <span>
                 <strong>Your account, protected</strong>
-                <small>New devices are verified using your merchant email.</small>
               </span>
             </div>
         {stage === "email" && (
@@ -385,10 +384,7 @@ export default function MerchantSignIn({
         )}
             <div className="auth-trust">
               <Lock size={15} />
-              <span>
-                Your sign-in is protected with device verification. Sessions
-                expire automatically after eight hours.
-              </span>
+              <span>DO NOT SHARE YOUR MPIN</span>
             </div>
           </section>
           <PoweredByFooter />
