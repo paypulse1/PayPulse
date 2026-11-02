@@ -1,4 +1,5 @@
 import type { MerchantUsdtDeposit } from "./lib/swiftpay"
+import UsdtStatus from "./UsdtStatus"
 
 export default function UsdtDepositHistory({
   deposits,
@@ -45,13 +46,10 @@ export default function UsdtDepositHistory({
                 </time>
                 <small>From {deposit.from}</small>
               </div>
-              <span
-                className={`crypto-wallet-badge ${
-                  deposit.confirmed ? "" : "pending"
-                }`}
-              >
-                {deposit.confirmed ? "CONFIRMED" : "PENDING"}
-              </span>
+              <UsdtStatus
+                context="deposit"
+                status={deposit.confirmed ? "CONFIRMED" : "PENDING"}
+              />
               <a
                 href={`https://tronscan.org/#/transaction/${encodeURIComponent(deposit.transactionId)}`}
                 target="_blank"

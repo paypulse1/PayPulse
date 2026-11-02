@@ -140,6 +140,7 @@ import { Brand, Button, IconButton } from "./AppPrimitives"
 import AppNavigation, { type AppTab } from "./AppNavigation"
 import AccessibleDialog from "./AccessibleDialog"
 import UsdtDepositHistory from "./UsdtDepositHistory"
+import UsdtStatus from "./UsdtStatus"
 import WalletScreen from "./WalletScreen"
 import useBalanceVisibility from "./useBalanceVisibility"
 import { SuperAdminConsole } from "./SuperAdminConsole"
@@ -4071,22 +4072,10 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
                   >
                     <div>
                       <strong>{request.amount} USDT</strong>
-                      <span
-                        className={`crypto-withdrawal-status ${request.status.toLowerCase()}`}
-                        aria-label={`Request status: ${
-                          request.status === "PENDING"
-                            ? "Awaiting review"
-                            : request.status === "COMPLETED"
-                              ? "Payout sent"
-                              : "Rejected"
-                        }`}
-                      >
-                        {request.status === "PENDING"
-                          ? "Awaiting review"
-                          : request.status === "COMPLETED"
-                            ? "Payout sent"
-                            : "Rejected"}
-                      </span>
+                      <UsdtStatus
+                        context="withdrawal"
+                        status={request.status}
+                      />
                     </div>
                     <small>
                       To {request.destination} ·{" "}

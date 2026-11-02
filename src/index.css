@@ -221,9 +221,10 @@ h1, h2, p { margin-top: 0; }
 .crypto-wallet-header, .crypto-wallet-operations-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .crypto-wallet-header .eyebrow, .crypto-wallet-operations-header .eyebrow { margin-bottom: 5px; }
 .crypto-wallet-header h2 { margin: 0; font-size: 20px; letter-spacing: -.045em; }
-.crypto-wallet-badge, .crypto-wallet-receive-status, .crypto-wallet-withdrawal-status { width: fit-content; padding: 6px 9px; border-radius: 999px; background: var(--success-soft); color: var(--success); font-size: 9px; font-weight: 800; letter-spacing: .035em; line-height: 1.25; text-align: center; }
+.crypto-wallet-badge, .crypto-wallet-receive-status, .crypto-wallet-withdrawal-status, .crypto-usdt-status { width: fit-content; padding: 6px 9px; border-radius: 999px; background: var(--success-soft); color: var(--success); font-size: 9px; font-weight: 800; letter-spacing: .035em; line-height: 1.25; text-align: center; }
 .crypto-wallet-badge { max-width: 52%; padding: 7px 10px; font-size: 8px; }
-.crypto-wallet-badge.testnet, .crypto-wallet-badge.pending, .crypto-wallet-withdrawal-status { background: var(--warning-soft); color: var(--warning); }
+.crypto-wallet-badge.testnet, .crypto-wallet-badge.pending, .crypto-wallet-withdrawal-status, .crypto-usdt-status-pending { background: var(--warning-soft); color: var(--warning); }
+.crypto-usdt-status-rejected { background: var(--danger-soft); color: var(--danger); }
 .crypto-wallet-badge.unavailable { background: var(--danger-soft); color: var(--danger); }
 .crypto-wallet-balance { position: relative; margin: 18px 0 12px; padding: 22px; overflow: hidden; border: 1px solid rgb(255 255 255 / 12%); border-radius: 20px; background: radial-gradient(circle at 92% 8%, rgb(91 139 208 / 28%), transparent 36%), linear-gradient(135deg, #091a31, #102d54 58%, #2257a5); color: #fff; box-shadow: 0 15px 32px rgb(12 34 65 / 18%); }
 .crypto-wallet-balance::after { position: absolute; z-index: 0; right: -52px; bottom: -96px; width: 164px; height: 164px; border: 24px solid rgb(255 255 255 / 7%); border-radius: 50%; content: ""; pointer-events: none; }
@@ -252,7 +253,7 @@ h1, h2, p { margin-top: 0; }
 .crypto-wallet-address-heading, .crypto-wallet-address-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .crypto-wallet-network { color: #b9c9df; font-size: 8px; font-weight: 800; letter-spacing: .035em; text-align: right; }
 .crypto-wallet-address-row { margin-top: 9px; padding: 10px; border: 1px solid rgb(255 255 255 / 16%); border-radius: 12px; background: rgb(255 255 255 / 8%); }
-.crypto-wallet-address-value { min-width: 0; overflow-wrap: anywhere; color: #fff; font: 600 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.crypto-wallet-address-value { min-width: 0; overflow-wrap: anywhere; color: #fff; font: 600 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: none; }
 .crypto-wallet-copy-button { min-height: 34px; flex: 0 0 auto; padding: 0 10px; border-color: rgb(255 255 255 / 22%); background: rgb(255 255 255 / 10%); color: #fff; font-size: 9px; }
 .crypto-wallet-copy-button:hover:not(:disabled) { border-color: rgb(255 255 255 / 40%); background: rgb(255 255 255 / 17%); }
 .crypto-wallet-copy-button:disabled { border-color: rgb(255 255 255 / 10%); background: rgb(255 255 255 / 5%); color: #9cadc4; }
@@ -307,9 +308,8 @@ h1, h2, p { margin-top: 0; }
 .crypto-withdrawal-request > small { color: var(--muted); font-size: 9px; overflow-wrap: anywhere; }
 .crypto-withdrawal-request > a { color: var(--link); font-size: 9px; font-weight: 700; text-decoration: none; }
 .crypto-withdrawal-request > a:hover { text-decoration: underline; text-underline-offset: 2px; }
-.crypto-withdrawal-status { padding: 4px 7px; border-radius: 999px; background: #fff4dc; color: #9a6500; font-size: 8px; font-weight: 800; text-transform: uppercase; }
-.crypto-withdrawal-status.completed { background: var(--success-soft); color: var(--success); }
-.crypto-withdrawal-status.rejected { background: var(--danger-soft); color: var(--danger); }
+.crypto-usdt-status { padding: 4px 7px; background: #fff4dc; color: #9a6500; font-size: 8px; text-transform: uppercase; }
+.crypto-usdt-status-completed, .crypto-usdt-status-confirmed { background: var(--success-soft); color: var(--success); }
 .crypto-withdrawal a { color: var(--link); font-weight: 750; text-decoration: none; }
 .crypto-withdrawal a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .crypto-deposit-history { min-width: 0; }
