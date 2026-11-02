@@ -4610,7 +4610,7 @@ app.get("/v1/crypto/usdt-wallet", cryptoWalletLimiter, async (req, res) => {
       network: "TRON_MAINNET",
       balance: null,
       configured: ready,
-      message: "The DRPAY team has not assigned your TRON mainnet address.",
+      message: "We're working on assigning your USDT address.",
     })
   }
   if (assigned.network !== "TRON_MAINNET") {
