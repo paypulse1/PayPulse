@@ -430,7 +430,7 @@ function AvailableBalanceCard({
             className="balance-card-withdraw"
             onClick={onWithdraw}
           >
-            <Send size={14} /> Withdraw
+            <Send size={14} /> Transfer PHP
           </button>
         </div>
       )}
@@ -4024,8 +4024,8 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
                         icon={<Send size={14} />}
                       >
                         {withdrawalBusy
-                          ? "Submitting request…"
-                          : "Submit withdrawal request"}
+                          ? "Transferring USDT…"
+                          : "Transfer USDT"}
                       </Button>
                     </form>
                   </>

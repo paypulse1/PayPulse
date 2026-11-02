@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import {
-  ArrowLeftRight,
   ChevronLeft,
   ChevronRight,
   Clock3,
@@ -210,10 +209,7 @@ export default function WalletScreen({
         onToggleBalanceVisibility: toggleBalanceVisibility,
         onWithdraw,
       })}
-      <WalletActionGrid
-        onWithdraw={onWithdraw}
-        onOpenSubscreen={onOpenSubscreen}
-      />
+      <AdditionalWalletCards onOpenSubscreen={onOpenSubscreen} />
       <WalletActivitySection
         transactions={transactions}
         totalTransactions={activity.length}
@@ -238,25 +234,17 @@ export default function WalletScreen({
   )
 }
 
-function WalletActionGrid({
-  onWithdraw,
+function AdditionalWalletCards({
   onOpenSubscreen,
 }: {
-  onWithdraw: () => void
   onOpenSubscreen: (subscreen: "usdt" | "unsettled-balance") => void
 }) {
   const actions = [
     {
-      label: "Transfer PHP",
-      description: "Send to a bank or wallet",
-      icon: ArrowLeftRight,
-      onClick: onWithdraw,
-      iconClassName: "",
-    },
-    {
       label: "Unsettled funds",
       description: "View balance and request payout",
       icon: Clock3,
+      actionLabel: "View funds",
       onClick: () => onOpenSubscreen("unsettled-balance"),
       iconClassName: "",
     },
@@ -264,30 +252,43 @@ function WalletActionGrid({
       label: "USDT wallet",
       description: "Receive and transfer crypto",
       icon: Coins,
+      actionLabel: "Open wallet",
       onClick: () => onOpenSubscreen("usdt"),
-      iconClassName: "wallet-action-icon-crypto",
+      iconClassName: "wallet-card-icon-crypto",
     },
   ]
 
   return (
-    <section className="wallet-action-grid" aria-label="Wallet actions">
+    <section className="wallet-card-grid" aria-label="Other wallet cards">
       {actions.map(
-        ({ label, description, icon: Icon, onClick, iconClassName }) => (
-          <button
+        ({
+          label,
+          description,
+          icon: Icon,
+          actionLabel,
+          onClick,
+          iconClassName,
+        }) => (
+          <article
             key={label}
-            type="button"
-            className="wallet-action-card"
-            onClick={onClick}
+            className="wallet-card"
           >
-            <span className={`wallet-action-icon ${iconClassName}`}>
-              <Icon size={19} aria-hidden="true" />
-            </span>
-            <span className="wallet-action-copy">
+            <header className="wallet-card-heading">
+              <span className={`wallet-card-icon ${iconClassName}`}>
+                <Icon size={19} aria-hidden="true" />
+              </span>
               <strong>{label}</strong>
-              <small>{description}</small>
-            </span>
-            <ChevronRight size={16} aria-hidden="true" />
-          </button>
+            </header>
+            <p>{description}</p>
+            <button
+              type="button"
+              className="wallet-card-action"
+              onClick={onClick}
+            >
+              {actionLabel}
+              <ChevronRight size={15} aria-hidden="true" />
+            </button>
+          </article>
         ),
       )}
     </section>
