@@ -1261,26 +1261,6 @@ export function SuperAdminConsole({
           className="admin-nav"
           aria-label="Super admin dashboard navigation"
         >
-          <label className="admin-mobile-page-select">
-            <span>Dashboard section</span>
-            <select
-              value={activePage}
-              onChange={(event) => {
-                setActivePage(event.target.value as AdminPage)
-                setError("")
-                setNotice("")
-              }}
-            >
-              <option value="overview">Overview</option>
-              <option value="payments">QRPH payments</option>
-              <option value="merchants">Merchant accounts</option>
-              <option value="kyb">KYB applications</option>
-              <option value="ledger">Floating balance</option>
-              <option value="requests">Transfer requests</option>
-              <option value="audit">Audit history</option>
-              <option value="settings">Collection settings</option>
-            </select>
-          </label>
           {([
             ["overview", "Overview", Home],
             [
