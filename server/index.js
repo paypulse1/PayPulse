@@ -3683,6 +3683,60 @@ app.get("/v1/admin/internal-wallets/:email", async (req, res) => {
   })
 })
 
+app.get("/v1/admin/merchants/:email/wallet", async (req, res) => {
+  const email =
+    typeof req.params.email === "string"
+      ? req.params.email.trim().toLowerCase()
+      : ""
+  const account = await pool.query(
+    "SELECT email FROM merchant_accounts WHERE email = $1",
+    [email],
+  )
+  if (!account.rowCount)
+    return res.status(404).json({ error: "Merchant account not found." })
+
+  const [balanceResult, transactionResult] = await Promise.all([
+    pool.query(
+      `SELECT COALESCE(SUM(amount), 0)::float8 AS balance
+       FROM merchant_wallet_ledger
+       WHERE merchant_email = $1`,
+      [email],
+    ),
+    pool.query(
+      `SELECT wallet.id, wallet.source_type AS "sourceType",
+         wallet.source_id::text AS "sourceId",
+         wallet.reference_no AS "referenceNo",
+         CASE
+           WHEN wallet.source_type = 'COLLECTION'
+             THEN COALESCE(payment.title, 'Payment collection')
+           WHEN disbursement.refund_payment_id IS NOT NULL
+             THEN 'Collection refund'
+           ELSE COALESCE(disbursement.institution_code, 'Merchant transfer')
+         END AS description,
+         CASE
+           WHEN wallet.source_type = 'COLLECTION' THEN payment.status
+           ELSE disbursement.status
+         END AS status,
+         wallet.amount::float8 AS amount, wallet.created_at AS "createdAt"
+       FROM merchant_wallet_ledger wallet
+       LEFT JOIN payment_links payment
+         ON wallet.source_type = 'COLLECTION' AND payment.id = wallet.source_id
+       LEFT JOIN disbursements disbursement
+         ON wallet.source_type = 'DISBURSEMENT' AND disbursement.id = wallet.source_id
+       WHERE wallet.merchant_email = $1
+       ORDER BY wallet.created_at DESC, wallet.id DESC
+       LIMIT 100`,
+      [email],
+    ),
+  ])
+  return res.set("Cache-Control", "no-store").json({
+    merchantEmail: email,
+    currency: "PHP",
+    balance: balanceResult.rows[0].balance,
+    transactions: transactionResult.rows,
+  })
+})
+
 app.post("/v1/admin/internal-wallets/:email/adjustments", async (req, res) => {
   const email =
     typeof req.params.email === "string"

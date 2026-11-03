@@ -1073,6 +1073,7 @@ h1, h2, p { margin-top: 0; }
 .internal-ledger-balance span { color: var(--muted); font-size: 8px; font-weight: 700; }
 .internal-ledger-balance strong { font-size: 22px; letter-spacing: -.04em; }
 .internal-ledger-balance small { color: var(--warning); font-size: 8px; font-weight: 700; }
+.admin-merchant-wallet-balance { margin-top: 12px; }
 .admin-card .admin-ledger-form { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
 .admin-adjustment-list { margin-top: 20px; }
 .admin-adjustment-list > strong { display: block; margin-bottom: 8px; font-size: 9px; }

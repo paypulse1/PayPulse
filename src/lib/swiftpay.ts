@@ -294,6 +294,24 @@ export type AdminInternalWallet = {
   adjustments: InternalWalletAdjustment[]
 }
 
+export type AdminMerchantWalletTransaction = {
+  id: string
+  sourceType: "COLLECTION" | "DISBURSEMENT"
+  sourceId: string
+  referenceNo: string
+  description: string
+  status: string | null
+  amount: number
+  createdAt: string
+}
+
+export type AdminMerchantWallet = {
+  merchantEmail: string
+  currency: "PHP"
+  balance: number
+  transactions: AdminMerchantWalletTransaction[]
+}
+
 export type MerchantPayoutAccount = {
   bankName: string
   accountName: string
@@ -1331,6 +1349,14 @@ export async function getAdminInternalWallet(
 ): Promise<AdminInternalWallet> {
   return backendRequest<AdminInternalWallet>(
     `/v1/admin/internal-wallets/${encodeURIComponent(email)}`,
+  )
+}
+
+export async function getAdminMerchantWallet(
+  email: string,
+): Promise<AdminMerchantWallet> {
+  return backendRequest<AdminMerchantWallet>(
+    `/v1/admin/merchants/${encodeURIComponent(email)}/wallet`,
   )
 }
 

@@ -30,6 +30,7 @@ import {
   getAdminFloatingTransferRequests,
   getAdminInternalWallet,
   getAdminInternalWallets,
+  getAdminMerchantWallet,
   getAdminKybDocumentUrl,
   getAdminMerchantAccounts,
   getAdminPaymentLinks,
@@ -48,6 +49,7 @@ import {
   updateAdminSettings,
   type AdminInternalWallet,
   type AdminInternalWalletSummary,
+  type AdminMerchantWallet,
   type AdminAuditEvent,
   type AdminKybApplication,
   type AdminMerchantAccount,
@@ -141,6 +143,10 @@ export function SuperAdminConsole({
   const [selectedWalletEmail, setSelectedWalletEmail] = useState("")
   const [selectedWallet, setSelectedWallet] =
     useState<AdminInternalWallet | null>(null)
+  const [merchantWallet, setMerchantWallet] =
+    useState<AdminMerchantWallet | null>(null)
+  const [merchantWalletLoading, setMerchantWalletLoading] = useState(false)
+  const [merchantWalletError, setMerchantWalletError] = useState("")
   const [adjustmentAmount, setAdjustmentAmount] = useState("")
   const [adjustmentReason, setAdjustmentReason] = useState("")
   const [newEmail, setNewEmail] = useState("")
@@ -425,6 +431,17 @@ export function SuperAdminConsole({
       )
     } else if (activePage === "ledger") {
       rows.push(
+        ...(merchantWallet?.transactions || []).map((transaction) => ({
+          section: "Merchant wallet transaction",
+          record: transaction.referenceNo,
+          merchant: selectedWalletEmail,
+          status: transaction.sourceType === "COLLECTION" ? "Credit" : "Debit",
+          amount: transaction.amount,
+          currency: "PHP",
+          date: transaction.createdAt,
+          actor: "",
+          summary: `${transaction.description} · ${transaction.status || "Recorded"}`,
+        })),
         ...(selectedWallet?.adjustments || []).map((adjustment) => ({
           section: "Floating balance adjustment",
           record: adjustment.id,
@@ -622,10 +639,15 @@ export function SuperAdminConsole({
     let active = true
     if (!selectedWalletEmail) {
       setSelectedWallet(null)
+      setMerchantWallet(null)
+      setMerchantWalletLoading(false)
       return () => {
         active = false
       }
     }
+    setMerchantWallet(null)
+    setMerchantWalletError("")
+    setMerchantWalletLoading(true)
     getAdminInternalWallet(selectedWalletEmail)
       .then((wallet) => {
         if (active) setSelectedWallet(wallet)
@@ -637,6 +659,21 @@ export function SuperAdminConsole({
               ? requestError.message
               : "Could not load internal ledger.",
           )
+      })
+    getAdminMerchantWallet(selectedWalletEmail)
+      .then((wallet) => {
+        if (active) setMerchantWallet(wallet)
+      })
+      .catch((requestError) => {
+        if (active)
+          setMerchantWalletError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Could not load merchant wallet history.",
+          )
+      })
+      .finally(() => {
+        if (active) setMerchantWalletLoading(false)
       })
     return () => {
       active = false
@@ -1420,6 +1457,70 @@ export function SuperAdminConsole({
                           ? `₱${selectedWallet.availableBalance.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} available after pending requests`
                           : "Loading Available Balance…"}
                       </small>
+                    </div>
+                    <div className="internal-ledger-balance admin-merchant-wallet-balance">
+                      <span>Merchant wallet balance · PHP</span>
+                      <strong>
+                        {merchantWallet
+                          ? `₱${merchantWallet.balance.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                          : merchantWalletLoading
+                            ? "Loading…"
+                            : "Unavailable"}
+                      </strong>
+                      <small>
+                        Sum of recorded collections and disbursements
+                      </small>
+                    </div>
+                    <div className="admin-adjustment-list">
+                      <strong>Merchant wallet history · Recent 100</strong>
+                      {merchantWalletError ? (
+                        <p className="admin-empty" role="alert">
+                          {merchantWalletError}
+                        </p>
+                      ) : merchantWalletLoading ? (
+                        <p className="admin-empty" role="status">
+                          Loading merchant wallet history…
+                        </p>
+                      ) : !merchantWallet?.transactions.length ? (
+                        <p className="admin-empty">
+                          No merchant wallet transactions recorded.
+                        </p>
+                      ) : (
+                        merchantWallet.transactions.map((transaction) => (
+                          <div
+                            className="admin-adjustment-row"
+                            key={transaction.id}
+                          >
+                            <span
+                              className={
+                                transaction.amount < 0 ? "debit" : "credit"
+                              }
+                            >
+                              {transaction.amount < 0 ? "−" : "+"}₱
+                              {Math.abs(transaction.amount).toLocaleString(
+                                "en-PH",
+                                {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                },
+                              )}
+                            </span>
+                            <div>
+                              <strong>{transaction.description}</strong>
+                              <small>
+                                {transaction.sourceType === "COLLECTION"
+                                  ? "Collection"
+                                  : "Disbursement"}{" "}
+                                · {transaction.referenceNo} ·{" "}
+                                {transaction.status || "Recorded"} ·{" "}
+                                {new Date(
+                                  transaction.createdAt,
+                                ).toLocaleString()}
+                              </small>
+                            </div>
+                          </div>
+                        ))
+                      )}
                     </div>
                     <form
                       className="admin-ledger-form"
