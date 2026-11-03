@@ -149,11 +149,11 @@ services:
       - key: DRPAY_GITHUB_RELEASE_TOKEN
         sync: false
       - key: VITE_DRPAY_BACKEND_URL
-        value: https://api.live.denpay.cc
+        value: https://drpay-merchant-production.up.railway.app
       - key: VITE_DRPAY_MERCHANT_SIGNIN_URL
         value: https://merchant.denpay.cc/login
       - key: VITE_DRPAY_LIVE_BACKEND_URL
-        value: https://api.live.denpay.cc
+        value: https://drpay-merchant-production.up.railway.app
       - key: VITE_DRPAY_SANDBOX_BACKEND_URL
         value: https://api.sandbox.denpay.cc
     routes:
