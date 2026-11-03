@@ -1150,6 +1150,14 @@ function matchesPasswordHash(candidate, salt, expectedHash) {
 async function initializeDatabase() {
   const initializationStartedAt = Date.now()
   console.info("Database schema initialization started")
+  const existingApiKeyColumns = await pool.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_schema = current_schema() AND table_name = 'merchant_api_keys'
+     ORDER BY ordinal_position`,
+  )
+  console.info("Existing merchant API key columns", {
+    columns: existingApiKeyColumns.rows.map((row) => row.column_name),
+  })
   await pool.query(`
     CREATE TABLE IF NOT EXISTS merchant_accounts (
       email TEXT PRIMARY KEY,
