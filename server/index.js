@@ -1150,14 +1150,6 @@ function matchesPasswordHash(candidate, salt, expectedHash) {
 async function initializeDatabase() {
   const initializationStartedAt = Date.now()
   console.info("Database schema initialization started")
-  const existingApiKeyColumns = await pool.query(
-    `SELECT column_name FROM information_schema.columns
-     WHERE table_schema = current_schema() AND table_name = 'merchant_api_keys'
-     ORDER BY ordinal_position`,
-  )
-  console.info("Existing merchant API key columns", {
-    columns: existingApiKeyColumns.rows.map((row) => row.column_name),
-  })
   await pool.query(`
     CREATE TABLE IF NOT EXISTS merchant_accounts (
       email TEXT PRIMARY KEY,
@@ -1371,6 +1363,42 @@ async function initializeDatabase() {
     );
     ALTER TABLE merchant_api_keys
       ADD COLUMN IF NOT EXISTS scopes TEXT[] NOT NULL DEFAULT ARRAY['read'];
+    ALTER TABLE merchant_api_keys
+      ADD COLUMN IF NOT EXISTS merchant_email TEXT;
+    DO $migration$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'merchant_api_keys'
+          AND column_name = 'email'
+      ) THEN
+        UPDATE merchant_api_keys
+        SET merchant_email = email
+        WHERE merchant_email IS NULL;
+      END IF;
+
+      IF EXISTS (
+        SELECT 1 FROM merchant_api_keys WHERE merchant_email IS NULL
+      ) THEN
+        RAISE EXCEPTION 'Could not associate every merchant API key with a merchant account';
+      END IF;
+
+      ALTER TABLE merchant_api_keys
+        ALTER COLUMN merchant_email SET NOT NULL;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'merchant_api_keys'::regclass
+          AND conname = 'merchant_api_keys_merchant_email_fkey'
+      ) THEN
+        ALTER TABLE merchant_api_keys
+          ADD CONSTRAINT merchant_api_keys_merchant_email_fkey
+          FOREIGN KEY (merchant_email) REFERENCES merchant_accounts(email)
+          ON DELETE CASCADE;
+      END IF;
+    END
+    $migration$;
     CREATE TABLE IF NOT EXISTS merchant_webhook_settings (
       merchant_email TEXT PRIMARY KEY REFERENCES merchant_accounts(email) ON DELETE CASCADE,
       endpoint_url TEXT NOT NULL,
