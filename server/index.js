@@ -1370,6 +1370,7 @@ async function initializeDatabase() {
       enabled BOOLEAN NOT NULL DEFAULT TRUE,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    ALTER TABLE merchant_webhook_settings ADD COLUMN IF NOT EXISTS callback_url TEXT;
     CREATE TABLE IF NOT EXISTS merchant_webhook_deliveries (
       id UUID PRIMARY KEY,
       merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
