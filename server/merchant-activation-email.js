@@ -34,3 +34,37 @@ export function createMerchantActivationEmail({
     ],
   })
 }
+
+export function createMerchantApiGuideEmail({
+  contactPerson,
+  portalUrl,
+  postmanCollectionUrl,
+}) {
+  return createMerchantEmail({
+    subject: "Your DRPAY Merchant API integration guide",
+    title: "Merchant API integration guide",
+    greeting: contactPerson,
+    paragraphs: [
+      "As requested, the Merchant API Integration Guide and Postman collection are attached.",
+      "Generate your own environment-specific API key in Profile > Developer settings. The key is shown once and is not included in this email.",
+      "Store the key securely on your server. Never expose it in browser or mobile app code.",
+    ],
+    documents: [
+      {
+        name: "Merchant API Integration Guide",
+        description: "Authentication and request/response payload examples",
+      },
+      {
+        name: "DRPAY Merchant API Postman Collection",
+        description: "Ready-to-run API requests",
+      },
+    ],
+    action: { label: "Open merchant portal", url: portalUrl },
+    links: [
+      { label: "Download Postman collection", url: postmanCollectionUrl },
+    ],
+    footerNotes: [
+      "Production API requests can move real money. Test in sandbox before using production credentials.",
+    ],
+  })
+}

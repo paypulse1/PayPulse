@@ -5108,9 +5108,11 @@ DRPAY_API_KEY=your_environment_specific_key`}
               payment and a self-hosted DRPAY checkout page. The response
               includes <code>paymentUrl</code> to redirect your customer to,{" "}
               <code>qrCode</code> for rendering a QR in your own experience, and{" "}
-              <code>qrImageUrl</code> for the QR image. Optionally include{" "}
-              <code>customerEmail</code> to email the customer the checkout link
-              and a separate payment-confirmed notice after SwiftPay reports{" "}
+              <code>qrImageUrl</code> for the QR image. The{" "}
+              <code>currency</code> field only accepts PHP and defaults to PHP
+              when omitted. Optionally include <code>customerEmail</code> to
+              email the customer the checkout link and a separate
+              payment-confirmed notice after SwiftPay reports{" "}
               <code>EXECUTED</code> or the DRPAY team independently verifies the
               payment. Checkout links use your environment’s branded host:{" "}
               <code>
@@ -5325,8 +5327,10 @@ export async function createInvoiceCheckout({ amount, invoiceId, customerEmail }
               </div>
             </div>
             <p>
-              API keys are limited to 120 requests per minute. API keys cannot
-              initiate disbursements or access other merchants' records.
+              API keys are limited to 120 requests per minute. Payment-link
+              creation is additionally limited to 20 requests per minute per
+              client IP. API keys cannot initiate disbursements or access other
+              merchants' records.
             </p>
           </section>
 

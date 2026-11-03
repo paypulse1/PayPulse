@@ -243,7 +243,7 @@ export async function createMerchantApiIntegrationGuidePdf({
   y = pageHeight - 137
   drawHeading("3. Create a hosted payment link")
   drawParagraph(
-    "Each create request needs a unique Idempotency-Key of 16-100 letters, digits, periods, underscores, colons, or hyphens. Reuse the same key only when retrying the same intended payment after an ambiguous response.",
+    "Only PHP payment links are supported; currency defaults to PHP when omitted. Each API key is limited to 120 requests per minute. Payment-link creation is additionally limited to 20 requests per minute per client IP. Each create request needs a unique Idempotency-Key of 16-100 letters, digits, periods, underscores, colons, or hyphens. Reuse the same key only when retrying the same intended payment after an ambiguous response.",
   )
   drawCode(
     "POST /v1/payment-links",

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { createMerchantActivationEmail } from "./merchant-activation-email.js"
+import {
+  createMerchantActivationEmail,
+  createMerchantApiGuideEmail,
+} from "./merchant-activation-email.js"
 
 describe("merchant activation email", () => {
   it("sends the API guide and collection instructions without issuing a key", () => {
@@ -35,5 +38,22 @@ describe("merchant activation email", () => {
     expect(email.html).toContain("&lt;Merchant&gt;")
     expect(email.html).toContain("&quot;Example&quot; &lt;Trading&gt;")
     expect(email.html).not.toContain("<Merchant>")
+  })
+})
+
+describe("merchant API guide email", () => {
+  it("uses a resend-specific message and does not imply account activation", () => {
+    const email = createMerchantApiGuideEmail({
+      contactPerson: "Alex Merchant",
+      portalUrl: "https://merchant.example.test/login",
+      postmanCollectionUrl:
+        "https://merchant.example.test/postman/DRPAY-Merchant-API.postman_collection.json",
+    })
+
+    expect(email.subject).toContain("integration guide")
+    expect(email.text).toContain("As requested")
+    expect(email.text).toContain("Merchant API Integration Guide")
+    expect(email.text).not.toContain("activation requirements")
+    expect(email.html).toContain("Download Postman collection")
   })
 })

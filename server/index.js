@@ -9,6 +9,7 @@ import {
 } from "node:crypto"
 import { reserveTransactionReference } from "./transaction-reference.js"
 import { existsSync } from "node:fs"
+import { readFile } from "node:fs/promises"
 import { lookup } from "node:dns/promises"
 import { BlockList, isIP } from "node:net"
 import https from "node:https"
@@ -53,9 +54,18 @@ import {
   createCustomerPaymentRequestEmail,
   createTaxInvoiceEmailCopy,
 } from "./customer-payment-email.js"
+import {
+  createMerchantActivationEmail,
+  createMerchantApiGuideEmail,
+} from "./merchant-activation-email.js"
+import { createMerchantApiIntegrationGuidePdf } from "./merchant-api-integration-guide.js"
 import { createAlipayPlusAgreementPdf } from "./alipay-plus-agreement.js"
 import { createMerchantAgreementPdf } from "./merchant-agreement.js"
 import { sendMerchantInvitationEmail } from "./merchant-invitation-email.js"
+import {
+  isSupportedPaymentLinkCurrency,
+  paymentLinkRequestFingerprint,
+} from "./payment-link-idempotency.js"
 import {
   canManuallyConfirmPayment,
   createPaymentStateService,
@@ -3709,6 +3719,62 @@ async function sendMerchantInvitation(merchant) {
   })
 }
 
+async function sendMerchantIntegrationGuide(merchant) {
+  const [guide, collection] = await Promise.all([
+    createMerchantApiIntegrationGuidePdf({
+      merchantName: merchant.businessName || merchant.email,
+      apiBaseUrl: publicApiOrigin,
+      checkoutOrigin,
+      paymentEnvironment: swiftPayEnvironment,
+    }),
+    readFile(
+      new URL(
+        "../public/postman/DRPAY-Merchant-API.postman_collection.json",
+        import.meta.url,
+      ),
+    ),
+  ])
+  const portalUrl = new URL("/login", frontendOrigin).toString()
+  const postmanCollectionUrl = new URL(
+    "/postman/DRPAY-Merchant-API.postman_collection.json",
+    frontendOrigin,
+  ).toString()
+  const email = createMerchantApiGuideEmail({
+    contactPerson:
+      merchant.contactPerson || merchant.businessName || merchant.email,
+    portalUrl,
+    postmanCollectionUrl,
+  })
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${resendApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: resendFromEmail,
+      to: [merchant.email],
+      ...email,
+      attachments: [
+        {
+          filename: "DRPAY-Merchant-API-Integration-Guide.pdf",
+          content: guide.toString("base64"),
+          content_type: "application/pdf",
+        },
+        {
+          filename: "DRPAY-Merchant-API.postman_collection.json",
+          content: collection.toString("base64"),
+          content_type: "application/json",
+        },
+      ],
+    }),
+    signal: AbortSignal.timeout(10_000),
+  })
+  if (!response.ok) {
+    throw new Error(`Resend returned HTTP ${response.status}.`)
+  }
+}
+
 app.get("/v1/admin/internal-wallets", async (_req, res) => {
   const result = await pool.query(
     `SELECT m.email, m.active,
@@ -4174,6 +4240,38 @@ app.post("/v1/admin/merchants/:email/invitation", async (req, res) => {
     })
   }
   return res.json({ email, invitationEmailStatus: "sent" })
+})
+
+app.post("/v1/admin/merchants/:email/integration-guide", async (req, res) => {
+  const email =
+    typeof req.params.email === "string"
+      ? req.params.email.trim().toLowerCase()
+      : ""
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+    return res.status(400).json({ error: "Choose a valid merchant account." })
+  }
+  const result = await pool.query(
+    `SELECT email, business_name AS "businessName",
+       contact_person AS "contactPerson"
+     FROM merchant_accounts WHERE email = $1 AND active = TRUE`,
+    [email],
+  )
+  if (!result.rowCount) {
+    return res.status(404).json({ error: "Active merchant account not found." })
+  }
+  try {
+    await sendMerchantIntegrationGuide(result.rows[0])
+  } catch (error) {
+    console.error("Merchant API integration guide delivery failed", {
+      email,
+      error: error instanceof Error ? error.message : "unknown error",
+    })
+    return res.status(503).json({
+      error:
+        "The merchant API integration guide could not be sent. Try again later.",
+    })
+  }
+  return res.json({ email, integrationEmailStatus: "sent" })
 })
 
 app.put("/v1/admin/merchants/:email/usdt-wallet", async (req, res) => {
@@ -6732,6 +6830,11 @@ function validIdempotencyKey(value) {
 }
 
 app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
+  if (!isSupportedPaymentLinkCurrency(req.body?.currency)) {
+    return res.status(400).json({
+      error: "Only PHP payment links are supported.",
+    })
+  }
   const submittedAmount = Number(req.body?.amount)
   const amount = Number.isFinite(submittedAmount)
     ? Math.round(submittedAmount * 100) / 100
@@ -6860,6 +6963,43 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
   )
   if (existing.rowCount) {
     const row = existing.rows[0]
+    const replayInstitutionDeepLink =
+      row.payment_institution_deep_link &&
+      submittedInstitutionDeepLink === row.payment_institution_deep_link
+        ? row.payment_institution_deep_link
+        : institutionDeepLink
+    const requestFingerprint = paymentLinkRequestFingerprint({
+      amount,
+      collectionAmountKrw,
+      description: title,
+      customerEmail,
+      paymentInstitutionCode: institutionCode,
+      paymentInstitutionName: institutionName,
+      paymentInstitutionLogoUrl: institutionLogoUrl,
+      paymentInstitutionDeepLink: replayInstitutionDeepLink,
+      ...branding,
+    })
+    const storedFingerprint = paymentLinkRequestFingerprint({
+      amount: row.amount,
+      collectionAmountKrw: row.collection_amount_krw,
+      description: row.title,
+      customerEmail: row.customer_email,
+      paymentInstitutionCode: row.payment_institution_code,
+      paymentInstitutionName: row.payment_institution_name,
+      paymentInstitutionLogoUrl: row.payment_institution_logo_url,
+      paymentInstitutionDeepLink: row.payment_institution_deep_link,
+      checkoutInstructions: row.checkout_instructions,
+      emailSubject: row.email_subject,
+      emailMessage: row.email_message,
+      emailBrandColor: row.email_brand_color,
+      emailLogoUrl: row.email_logo_url,
+    })
+    if (storedFingerprint !== requestFingerprint) {
+      return res.status(409).json({
+        error:
+          "This Idempotency-Key was already used with different payment details.",
+      })
+    }
     let qrPayload = row.qr_payload
     if (row.payment_token && !qrPayload) {
       try {
