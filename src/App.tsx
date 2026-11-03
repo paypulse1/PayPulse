@@ -5004,7 +5004,7 @@ function ProfileInfoPage({
 
       {title === "API documentation" && (
         <div className="api-docs">
-          <div className="profile-info-intro">
+          <div className="profile-info-intro api-docs-hero">
             <strong>Integrate your DRPAY wallet and collections</strong>
             <p>
               Read your merchant-specific PHP wallet, create a QR-backed hosted
@@ -5056,6 +5056,10 @@ function ProfileInfoPage({
               a mobile app, source control, or client-side environment
               variables.
             </p>
+            <ApiCodeBlock
+              title="Authorization header"
+              code={`Authorization: Bearer $DRPAY_API_KEY`}
+            />
             <ApiCodeBlock
               title="Server environment variables"
               code={`DRPAY_API_BASE_URL=${getApiBaseUrl()}

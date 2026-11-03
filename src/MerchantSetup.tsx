@@ -304,7 +304,9 @@ export function DeveloperSetupPanel({ refreshVersion }: { refreshVersion: number
   }
 
   return (
-    <div className="merchant-setup">
+    <div className="merchant-setup developer-settings">
+      {error && <p className="setup-error" role="alert">{error}</p>}
+      {notice && <p className="setup-notice" role="status">{notice}</p>}
       <div className="profile-info-intro"><strong>API keys</strong><p>Use the generated key as a Bearer token. Keys are shown once, stored only as hashes, and can be revoked immediately.</p></div>
       <form className="setup-form" onSubmit={(event) => void addKey(event)}>
         <label className="setup-form-wide">Key name<input value={keyName} onChange={(event) => setKeyName(event.target.value)} placeholder="Production checkout server" required maxLength={80} /></label>
@@ -375,8 +377,6 @@ export function DeveloperSetupPanel({ refreshVersion }: { refreshVersion: number
         <p className="profile-info-note">No webhook events have been queued yet.</p>
       )}
       {signingSecret && <div className="setup-secret"><strong>Copy this signing secret now</strong><code>{signingSecret}</code></div>}
-      {error && <p className="setup-error" role="alert">{error}</p>}
-      {notice && <p className="setup-notice" role="status">{notice}</p>}
       <p className="profile-info-note"><a href="/postman/DRPAY-Merchant-API.postman_collection.json" download>Download the Postman collection</a> · API base URL: <code>{getApiBaseUrl()}</code></p>
     </div>
   );
