@@ -705,6 +705,7 @@ export function SuperAdminConsole({
 
   async function addMerchant(event: FormEvent) {
     event.preventDefault()
+    const invitedEmail = newEmail.trim()
     setSavingMerchant(true)
     setError("")
     setNotice("")
@@ -721,9 +722,7 @@ export function SuperAdminConsole({
       setNewContactPerson("")
       setNewBusinessAddress("")
       setNewPhoneNumber("")
-      setNotice(
-        "Merchant account created. The invitation was sent; the API guide and Postman collection were sent in a separate email.",
-      )
+      setNotice(`Merchant invitation and agreements emailed to ${invitedEmail}.`)
       await loadConsole()
       await refreshAuditEvents()
     } catch (requestError) {

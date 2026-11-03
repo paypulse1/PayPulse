@@ -18,7 +18,7 @@ export function createMerchantInvitationEmail({
     paragraphs: [
       `${providerName} has invited ${businessName} to set up a merchant account.`,
       "Review and sign the attached Merchant Services Agreement. By signing, you agree to its strict confidentiality, non-disclosure, and data-protection obligations covering all non-public information connected with DRPAY, your account, customers, transactions, services, and this relationship.",
-      "The KRW and USDT guide is included for reference. Review and sign the attached Alipay+ Service Access and Incorporation Addendum, which is between DRPAY and your business. Any applicable Alipay+, acquirer, or wallet terms will be identified and provided for your review before the related payment service is enabled.",
+      "Review and sign the attached Alipay+ Service Access and Incorporation Addendum, which is between DRPAY and your business. Any applicable Alipay+, acquirer, or wallet terms will be identified and provided for your review before the related payment service is enabled.",
       "Sign in using this email address and follow the email verification steps.",
     ],
     action: { label: "Open merchant portal", url: invitationUrl },
@@ -27,10 +27,6 @@ export function createMerchantInvitationEmail({
         name: "Merchant Services Agreement",
         description:
           "Personalized agreement containing confidential commercial terms",
-      },
-      {
-        name: "KRW and USDT guide",
-        description: "Reference guide for KRW collections and USDT transfers",
       },
       {
         name: "Alipay+ Service Access and Incorporation Addendum",
@@ -44,4 +40,32 @@ export function createMerchantInvitationEmail({
     ],
     signature: providerName,
   })
+}
+
+export async function sendMerchantInvitationEmail({
+  to,
+  from,
+  apiKey,
+  attachments,
+  invitation,
+  fetchImpl = fetch,
+}) {
+  const email = createMerchantInvitationEmail(invitation)
+  const response = await fetchImpl("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: [to],
+      ...email,
+      attachments,
+    }),
+    signal: AbortSignal.timeout(10_000),
+  })
+  if (!response.ok) {
+    throw new Error(`Resend returned HTTP ${response.status}.`)
+  }
 }

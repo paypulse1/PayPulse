@@ -53,6 +53,9 @@ import {
   createCustomerPaymentRequestEmail,
   createTaxInvoiceEmailCopy,
 } from "./customer-payment-email.js"
+import { createAlipayPlusAgreementPdf } from "./alipay-plus-agreement.js"
+import { createMerchantAgreementPdf } from "./merchant-agreement.js"
+import { sendMerchantInvitationEmail } from "./merchant-invitation-email.js"
 import {
   canManuallyConfirmPayment,
   createPaymentStateService,
@@ -1145,9 +1148,12 @@ async function initializeDatabase() {
       contact_person TEXT NOT NULL DEFAULT '',
       phone_number TEXT NOT NULL DEFAULT '',
       business_address TEXT NOT NULL DEFAULT '',
+      invitation_accepted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    ALTER TABLE merchant_accounts
+      ADD COLUMN IF NOT EXISTS invitation_accepted_at TIMESTAMPTZ;
     CREATE TABLE IF NOT EXISTS merchant_usdt_wallets (
       merchant_email TEXT PRIMARY KEY REFERENCES merchant_accounts(email) ON DELETE CASCADE ON UPDATE CASCADE,
       address TEXT NOT NULL UNIQUE,
@@ -1211,6 +1217,15 @@ async function initializeDatabase() {
       last_used_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (email, device_token_hash)
     );
+    UPDATE merchant_accounts account
+    SET invitation_accepted_at = devices.first_verified_at
+    FROM (
+      SELECT email, MIN(created_at) AS first_verified_at
+      FROM merchant_devices
+      GROUP BY email
+    ) devices
+    WHERE account.email = devices.email
+      AND account.invitation_accepted_at IS NULL;
     CREATE TABLE IF NOT EXISTS merchant_biometric_credentials (
       email TEXT NOT NULL,
       device_token_hash TEXT NOT NULL,
@@ -2466,6 +2481,12 @@ app.post("/v1/auth/device/otp/verify", loginLimiter, async (req, res) => {
        VALUES ($1, $2) ON CONFLICT (email, device_token_hash) DO UPDATE SET last_used_at = NOW()`,
       [email, deviceTokenHash(deviceToken)],
     )
+    await client.query(
+      `UPDATE merchant_accounts
+       SET invitation_accepted_at = COALESCE(invitation_accepted_at, NOW())
+       WHERE email = $1`,
+      [email],
+    )
     await client.query("COMMIT")
     return res
       .set("Cache-Control", "no-store")
@@ -3620,6 +3641,7 @@ app.get("/v1/admin/merchants", async (_req, res) => {
        COALESCE(payout.account_name, '') AS "accountName",
        COALESCE(payout.account_number, '') AS "accountNumber",
        crypto.address AS "usdtAddress",
+       merchant.invitation_accepted_at AS "invitationAcceptedAt",
        merchant.created_at AS "createdAt", merchant.updated_at AS "updatedAt"
      FROM merchant_accounts merchant
      LEFT JOIN merchant_payout_accounts payout ON payout.merchant_email = merchant.email
@@ -3628,6 +3650,64 @@ app.get("/v1/admin/merchants", async (_req, res) => {
   )
   return res.json(result.rows)
 })
+
+async function sendMerchantInvitation(merchant) {
+  const settingsResult = await pool.query(
+    `SELECT setting_key, setting_value FROM system_settings
+     WHERE setting_key = ANY($1)`,
+    [["collection_fee_percent", "transfer_fee_fixed", "agreement_activation_fee"]],
+  )
+  const settings = Object.fromEntries(
+    settingsResult.rows.map((row) => [row.setting_key, row.setting_value]),
+  )
+  const createdAt = new Date()
+  const agreementId = randomUUID()
+  const [merchantAgreement, alipayPlusAgreement] =
+    await Promise.all([
+      createMerchantAgreementPdf({
+        agreementId,
+        merchantEmail: merchant.email,
+        businessName: merchant.businessName,
+        contactPerson: merchant.contactPerson,
+        businessAddress: merchant.businessAddress,
+        phoneNumber: merchant.phoneNumber,
+        collectionFeePercent: Number(settings.collection_fee_percent ?? 0.5),
+        transferFeeFixed: Number(settings.transfer_fee_fixed ?? 15),
+        activationFee: Number(settings.agreement_activation_fee ?? 5000),
+        createdAt,
+      }),
+      createAlipayPlusAgreementPdf({
+        agreementId: `alipay-${agreementId}`,
+        merchantName: merchant.businessName,
+        merchantEmail: merchant.email,
+        merchantAddress: merchant.businessAddress,
+        contactPerson: merchant.contactPerson,
+        phoneNumber: merchant.phoneNumber,
+        createdAt,
+      }),
+    ])
+  const attachments = [
+    ["Merchant-Services-Agreement.pdf", merchantAgreement],
+    ["Alipay-Plus-Service-Addendum.pdf", alipayPlusAgreement],
+  ].map(([filename, content]) => ({
+    filename,
+    content: content.toString("base64"),
+    content_type: "application/pdf",
+  }))
+  const invitationUrl = new URL("/login", frontendOrigin).toString()
+  await sendMerchantInvitationEmail({
+    to: merchant.email,
+    from: resendFromEmail,
+    apiKey: resendApiKey,
+    attachments,
+    invitation: {
+      contactPerson: merchant.contactPerson,
+      providerName: "DRPAY",
+      businessName: merchant.businessName,
+      invitationUrl,
+    },
+  })
+}
 
 app.get("/v1/admin/internal-wallets", async (_req, res) => {
   const result = await pool.query(
@@ -3975,23 +4055,54 @@ app.post("/v1/admin/merchants", async (req, res) => {
     typeof req.body?.email === "string"
       ? req.body.email.trim().toLowerCase()
       : ""
+  const businessName =
+    typeof req.body?.businessName === "string"
+      ? req.body.businessName.trim()
+      : ""
+  const contactPerson =
+    typeof req.body?.contactPerson === "string"
+      ? req.body.contactPerson.trim()
+      : ""
+  const businessAddress =
+    typeof req.body?.businessAddress === "string"
+      ? req.body.businessAddress.trim()
+      : ""
+  const phoneNumber =
+    typeof req.body?.phoneNumber === "string"
+      ? req.body.phoneNumber.trim()
+      : ""
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
     return res
       .status(400)
       .json({ error: "Enter a valid merchant email address." })
   }
+  if (
+    !businessName ||
+    businessName.length > 160 ||
+    !contactPerson ||
+    contactPerson.length > 120 ||
+    !businessAddress ||
+    businessAddress.length > 500 ||
+    phoneNumber.length > 40
+  ) {
+    return res.status(400).json({
+      error: "Enter valid business name, contact, address, and phone details.",
+    })
+  }
   const client = await pool.connect()
+  let merchant
   try {
     await client.query("BEGIN")
     const result = await client.query(
-      `INSERT INTO merchant_accounts (email)
-       VALUES ($1)
+      `INSERT INTO merchant_accounts
+         (email, business_name, contact_person, phone_number, business_address)
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING email, active, business_name AS "businessName", contact_person AS "contactPerson",
          phone_number AS "phoneNumber", business_address AS "businessAddress",
          '' AS "bankName", '' AS "accountName", '' AS "accountNumber",
          NULL AS "usdtAddress",
          created_at AS "createdAt", updated_at AS "updatedAt"`,
-      [email],
+      [email, businessName, contactPerson, phoneNumber, businessAddress],
     )
     await recordAdminAuditEvent(client, {
       eventKey: `merchant-created:${email}:${randomUUID()}`,
@@ -4002,7 +4113,7 @@ app.post("/v1/admin/merchants", async (req, res) => {
       summary: "Merchant account access was created.",
     })
     await client.query("COMMIT")
-    return res.status(201).json(result.rows[0])
+    merchant = result.rows[0]
   } catch (error) {
     await client.query("ROLLBACK")
     if (error.code === "23505")
@@ -4013,6 +4124,56 @@ app.post("/v1/admin/merchants", async (req, res) => {
   } finally {
     client.release()
   }
+  try {
+    await sendMerchantInvitation(merchant)
+  } catch (error) {
+    console.error("Merchant invitation email delivery failed", {
+      email,
+      error: error instanceof Error ? error.message : "unknown error",
+    })
+    return res.status(503).json({
+      error:
+        "Merchant account was created, but the invitation email could not be sent. Resend the invitation to retry.",
+    })
+  }
+  return res.status(201).json({
+    ...merchant,
+    invitationEmailStatus: "sent",
+  })
+})
+
+app.post("/v1/admin/merchants/:email/invitation", async (req, res) => {
+  const email =
+    typeof req.params.email === "string"
+      ? req.params.email.trim().toLowerCase()
+      : ""
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+    return res.status(400).json({ error: "Choose a valid merchant account." })
+  }
+  const result = await pool.query(
+    `SELECT email, business_name AS "businessName",
+       contact_person AS "contactPerson", phone_number AS "phoneNumber",
+       business_address AS "businessAddress"
+     FROM merchant_accounts WHERE email = $1 AND active = TRUE`,
+    [email],
+  )
+  if (!result.rowCount) {
+    return res
+      .status(404)
+      .json({ error: "Active merchant account not found." })
+  }
+  try {
+    await sendMerchantInvitation(result.rows[0])
+  } catch (error) {
+    console.error("Merchant invitation email resend failed", {
+      email,
+      error: error instanceof Error ? error.message : "unknown error",
+    })
+    return res.status(503).json({
+      error: "The merchant invitation email could not be sent. Try again later.",
+    })
+  }
+  return res.json({ email, invitationEmailStatus: "sent" })
 })
 
 app.put("/v1/admin/merchants/:email/usdt-wallet", async (req, res) => {
