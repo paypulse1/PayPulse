@@ -1290,6 +1290,15 @@ async function initializeDatabase() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE (source_type, source_id)
     );
+    CREATE TABLE IF NOT EXISTS merchant_wallet_adjustments (
+      id UUID PRIMARY KEY,
+      merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      amount NUMERIC(18, 2) NOT NULL CHECK (amount <> 0),
+      reference_no TEXT NOT NULL UNIQUE,
+      reason TEXT NOT NULL,
+      adjusted_by TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
     CREATE TABLE IF NOT EXISTS merchant_payout_accounts (
       merchant_email TEXT PRIMARY KEY REFERENCES merchant_accounts(email) ON DELETE CASCADE,
       bank_name TEXT NOT NULL,
@@ -1517,6 +1526,8 @@ async function initializeDatabase() {
       ON internal_wallet_adjustments (merchant_email, created_at DESC);
     CREATE INDEX IF NOT EXISTS merchant_wallet_ledger_merchant_created_idx
       ON merchant_wallet_ledger (merchant_email, created_at DESC);
+    CREATE INDEX IF NOT EXISTS merchant_wallet_adjustments_merchant_created_idx
+      ON merchant_wallet_adjustments (merchant_email, created_at DESC);
     CREATE INDEX IF NOT EXISTS floating_transfer_requests_merchant_status_idx
       ON floating_transfer_requests (merchant_email, status, requested_at DESC);
     CREATE INDEX IF NOT EXISTS floating_transfer_requests_status_created_idx
@@ -3843,9 +3854,10 @@ app.get("/v1/admin/merchants/:email/wallet", async (req, res) => {
 
   const [balanceResult, transactionResult] = await Promise.all([
     pool.query(
-      `SELECT COALESCE(SUM(amount), 0)::float8 AS balance
-       FROM merchant_wallet_ledger
-       WHERE merchant_email = $1`,
+      `SELECT (
+         COALESCE((SELECT SUM(amount) FROM merchant_wallet_ledger WHERE merchant_email = $1), 0) +
+         COALESCE((SELECT SUM(amount) FROM merchant_wallet_adjustments WHERE merchant_email = $1), 0)
+       )::float8 AS balance`,
       [email],
     ),
     pool.query(
@@ -3870,7 +3882,16 @@ app.get("/v1/admin/merchants/:email/wallet", async (req, res) => {
        LEFT JOIN disbursements disbursement
          ON wallet.source_type = 'DISBURSEMENT' AND disbursement.id = wallet.source_id
        WHERE wallet.merchant_email = $1
-       ORDER BY wallet.created_at DESC, wallet.id DESC
+       UNION ALL
+       SELECT adjustment.id, 'ADMIN_ADJUSTMENT' AS "sourceType",
+         adjustment.id::text AS "sourceId",
+         adjustment.reference_no AS "referenceNo",
+         adjustment.reason AS description, 'RECORDED' AS status,
+         adjustment.amount::float8 AS amount,
+         adjustment.created_at AS "createdAt"
+       FROM merchant_wallet_adjustments adjustment
+       WHERE adjustment.merchant_email = $1
+       ORDER BY "createdAt" DESC, id DESC
        LIMIT 100`,
       [email],
     ),
@@ -3881,6 +3902,116 @@ app.get("/v1/admin/merchants/:email/wallet", async (req, res) => {
     balance: balanceResult.rows[0].balance,
     transactions: transactionResult.rows,
   })
+})
+
+app.post("/v1/admin/merchants/:email/wallet/adjustments", async (req, res) => {
+  const email =
+    typeof req.params.email === "string"
+      ? req.params.email.trim().toLowerCase()
+      : ""
+  const submittedAmount = Number(req.body?.amount)
+  const amount = Number.isFinite(submittedAmount)
+    ? Math.round(submittedAmount * 100) / 100
+    : Number.NaN
+  const reason =
+    typeof req.body?.reason === "string" ? req.body.reason.trim() : ""
+  if (
+    !Number.isFinite(amount) ||
+    amount === 0 ||
+    Math.abs(submittedAmount - amount) > 1e-7 ||
+    Math.abs(amount) > 1_000_000_000
+  ) {
+    return res.status(400).json({
+      error:
+        "Enter a non-zero PHP adjustment with no more than two decimal places.",
+    })
+  }
+  if (!reason || reason.length > 250) {
+    return res
+      .status(400)
+      .json({ error: "Enter an adjustment reason of 1–250 characters." })
+  }
+  const client = await pool.connect()
+  try {
+    await client.query("BEGIN")
+    const account = await client.query(
+      "SELECT email FROM merchant_accounts WHERE email = $1 FOR UPDATE",
+      [email],
+    )
+    if (!account.rowCount) {
+      await client.query("ROLLBACK")
+      return res.status(404).json({ error: "Merchant account not found." })
+    }
+    const wallet = await client.query(
+      `WITH balance AS (
+           SELECT
+             COALESCE((SELECT SUM(amount) FROM merchant_wallet_ledger WHERE merchant_email = $1), 0) +
+             COALESCE((SELECT SUM(amount) FROM merchant_wallet_adjustments WHERE merchant_email = $1), 0) AS amount
+         ), reservations AS (
+           SELECT COALESCE(SUM(
+             CASE WHEN d.refund_payment_id IS NOT NULL
+               THEN GREATEST(COALESCE(p.amount, d.amount) - COALESCE(f.amount, 0), 0)
+               ELSE d.amount + d.transfer_fee
+             END
+           ), 0) AS amount
+           FROM disbursements d
+           LEFT JOIN payment_links p ON p.id = d.refund_payment_id
+           LEFT JOIN platform_fee_ledger f
+             ON f.source_type = 'COLLECTION' AND f.source_id = p.id
+           WHERE d.merchant_email = $1
+             AND d.status NOT IN ('EXECUTED', 'SUCCESS', 'COMPLETED', 'REJECTED',
+               'ERROR', 'FAILED', 'CANCELED', 'CANCELLED', 'EXPIRED', 'REVERSED')
+         )
+         SELECT balance.amount::numeric AS balance,
+           reservations.amount::numeric AS reserved
+         FROM balance CROSS JOIN reservations`,
+      [email],
+    )
+    if (
+      Number(wallet.rows[0].balance) + amount <
+      Number(wallet.rows[0].reserved)
+    ) {
+      await client.query("ROLLBACK")
+      return res.status(409).json({
+        error:
+          "This adjustment would reduce the merchant wallet below pending transfers.",
+      })
+    }
+    const adjustmentId = randomUUID()
+    const referenceNo = `ADMIN-${adjustmentId}`
+    const result = await client.query(
+      `INSERT INTO merchant_wallet_adjustments
+           (id, merchant_email, amount, reference_no, reason, adjusted_by)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, 'ADMIN_ADJUSTMENT' AS "sourceType",
+           id::text AS "sourceId", reference_no AS "referenceNo",
+           reason AS description, 'RECORDED' AS status,
+           amount::float8 AS amount, created_at AS "createdAt"`,
+      [
+        adjustmentId,
+        email,
+        amount.toFixed(2),
+        referenceNo,
+        reason,
+        req.adminEmail,
+      ],
+    )
+    await recordAdminAuditEvent(client, {
+      eventKey: `merchant-wallet-adjustment:${adjustmentId}`,
+      category: "Merchant wallet",
+      action: amount < 0 ? "Balance debited" : "Balance credited",
+      target: email,
+      actor: req.adminEmail,
+      summary: `PHP ${amount.toFixed(2)} · ${reason}`,
+    })
+    await client.query("COMMIT")
+    return res.status(201).json(result.rows[0])
+  } catch (error) {
+    await client.query("ROLLBACK")
+    throw error
+  } finally {
+    client.release()
+  }
 })
 
 app.post("/v1/admin/internal-wallets/:email/adjustments", async (req, res) => {
@@ -6759,6 +6890,21 @@ app.get("/v1/wallet/activity", async (req, res) => {
         AND d.created_at >= (SELECT created_at FROM merchant_accounts WHERE email = $3)
         AND ($5::date IS NULL OR d.created_at >= $5::date)
         AND ($6::date IS NULL OR d.created_at < $6::date + INTERVAL '1 day')
+      UNION ALL
+      SELECT adjustment.id::text, adjustment.reference_no AS "referenceNo",
+        NULL::text AS "institutionCode", adjustment.reason AS description,
+        NULL::text AS "institutionName", NULL::text AS "institutionLogoUrl",
+        NULL::text AS "recipientName", NULL::text AS "recipientAccountNumber",
+        NULL::text AS remarks, FALSE AS "isRefund",
+        'Admin adjustment' AS channel, 'SUCCESS' AS status,
+        adjustment.amount::float8 AS amount, adjustment.amount::float8 AS "walletAmount",
+        adjustment.created_at AS "createdAt", 'ADMIN_ADJUSTMENT' AS "transactionType",
+        FALSE AS "canRefund", NULL::text AS "refundStatus"
+      FROM merchant_wallet_adjustments adjustment
+      WHERE adjustment.merchant_email = $3
+        AND adjustment.created_at >= (SELECT created_at FROM merchant_accounts WHERE email = $3)
+        AND ($5::date IS NULL OR adjustment.created_at >= $5::date)
+        AND ($6::date IS NULL OR adjustment.created_at < $6::date + INTERVAL '1 day')
       ORDER BY "createdAt" DESC LIMIT $1 OFFSET $2
     `,
       [limit, offset, req.merchantEmail, maxTransferAmount, fromDate, toDate],

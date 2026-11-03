@@ -26,6 +26,7 @@ import {
 import {
   getAdminAuditEvents,
   createAdminInternalWalletAdjustment,
+  createAdminMerchantWalletAdjustment,
   createAdminMerchantAccount,
   getAdminFloatingTransferRequests,
   getAdminInternalWallet,
@@ -147,6 +148,10 @@ export function SuperAdminConsole({
     useState<AdminMerchantWallet | null>(null)
   const [merchantWalletLoading, setMerchantWalletLoading] = useState(false)
   const [merchantWalletError, setMerchantWalletError] = useState("")
+  const [merchantAdjustmentAmount, setMerchantAdjustmentAmount] = useState("")
+  const [merchantAdjustmentReason, setMerchantAdjustmentReason] = useState("")
+  const [savingMerchantAdjustment, setSavingMerchantAdjustment] =
+    useState(false)
   const [adjustmentAmount, setAdjustmentAmount] = useState("")
   const [adjustmentReason, setAdjustmentReason] = useState("")
   const [newEmail, setNewEmail] = useState("")
@@ -923,6 +928,52 @@ export function SuperAdminConsole({
     }
   }
 
+  async function adjustMerchantWallet(event: FormEvent) {
+    event.preventDefault()
+    if (!selectedWalletEmail) return
+    setSavingMerchantAdjustment(true)
+    setError("")
+    setNotice("")
+    try {
+      const adjustment = await createAdminMerchantWalletAdjustment(
+        selectedWalletEmail,
+        {
+          amount: Number(merchantAdjustmentAmount),
+          reason: merchantAdjustmentReason,
+        },
+      )
+      setMerchantAdjustmentAmount("")
+      setMerchantAdjustmentReason("")
+      setMerchantWallet((current) =>
+        current
+          ? {
+              ...current,
+              balance:
+                Math.round((current.balance + adjustment.amount) * 100) / 100,
+              transactions: [
+                adjustment,
+                ...current.transactions.filter(
+                  (transaction) => transaction.id !== adjustment.id,
+                ),
+              ].slice(0, 100),
+            }
+          : current,
+      )
+      setNotice(
+        "Merchant wallet adjustment recorded. Pending transfers remain reserved.",
+      )
+      await refreshAuditEvents()
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not record merchant wallet adjustment.",
+      )
+    } finally {
+      setSavingMerchantAdjustment(false)
+    }
+  }
+
   async function reviewTransferRequest(
     request: FloatingTransferRequest,
     decision: "successful" | "failed",
@@ -1261,7 +1312,7 @@ export function SuperAdminConsole({
                       : activePage === "kyb"
                         ? "Review merchant business and beneficial-owner verification."
                         : activePage === "ledger"
-                          ? "Adjust merchant floating balances and review their audit entries."
+                          ? "Manage merchant floating and wallet balances with audited adjustments."
                           : activePage === "requests"
                             ? "Review bank transfers and merchant USDT withdrawal requests."
                             : activePage === "audit"
@@ -1433,9 +1484,12 @@ export function SuperAdminConsole({
                       <span>Merchant account</span>
                       <select
                         value={selectedWalletEmail}
-                        onChange={(event) =>
+                        disabled={savingMerchantAdjustment}
+                        onChange={(event) => {
                           setSelectedWalletEmail(event.target.value)
-                        }
+                          setMerchantAdjustmentAmount("")
+                          setMerchantAdjustmentReason("")
+                        }}
                       >
                         {merchants.map((merchant) => (
                           <option key={merchant.email} value={merchant.email}>
@@ -1467,9 +1521,62 @@ export function SuperAdminConsole({
                             : "Unavailable"}
                       </strong>
                       <small>
-                        Sum of recorded collections and disbursements
+                        Recorded collections, disbursements, and admin
+                        adjustments
                       </small>
                     </div>
+                    <form
+                      className="admin-ledger-form"
+                      onSubmit={adjustMerchantWallet}
+                    >
+                      <label>
+                        <span>Wallet adjustment amount (PHP)</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="-1000000000"
+                          max="1000000000"
+                          value={merchantAdjustmentAmount}
+                          onChange={(event) =>
+                            setMerchantAdjustmentAmount(event.target.value)
+                          }
+                          placeholder="Positive adds; negative subtracts"
+                          required
+                        />
+                        <small>
+                          A debit cannot reduce the balance below pending
+                          transfers.
+                        </small>
+                      </label>
+                      <label>
+                        <span>Reason for audit record</span>
+                        <input
+                          maxLength={250}
+                          value={merchantAdjustmentReason}
+                          onChange={(event) =>
+                            setMerchantAdjustmentReason(event.target.value)
+                          }
+                          required
+                          placeholder="Reason visible in merchant wallet history"
+                        />
+                      </label>
+                      <Button
+                        type="submit"
+                        disabled={
+                          savingMerchantAdjustment ||
+                          !selectedWalletEmail ||
+                          merchantWalletLoading ||
+                          !merchantWallet ||
+                          !merchantAdjustmentAmount ||
+                          Number(merchantAdjustmentAmount) === 0 ||
+                          !merchantAdjustmentReason.trim()
+                        }
+                      >
+                        {savingMerchantAdjustment
+                          ? "Recording…"
+                          : "Adjust merchant wallet"}
+                      </Button>
+                    </form>
                     <div className="admin-adjustment-list">
                       <strong>Merchant wallet history · Recent 100</strong>
                       {merchantWalletError ? (
@@ -1507,9 +1614,11 @@ export function SuperAdminConsole({
                             <div>
                               <strong>{transaction.description}</strong>
                               <small>
-                                {transaction.sourceType === "COLLECTION"
-                                  ? "Collection"
-                                  : "Disbursement"}{" "}
+                                {transaction.sourceType === "ADMIN_ADJUSTMENT"
+                                  ? "Super admin adjustment"
+                                  : transaction.sourceType === "COLLECTION"
+                                    ? "Collection"
+                                    : "Disbursement"}{" "}
                                 · {transaction.referenceNo} ·{" "}
                                 {transaction.status || "Recorded"} ·{" "}
                                 {new Date(

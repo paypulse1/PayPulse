@@ -198,18 +198,45 @@ export function DeveloperSetupPanel({ refreshVersion }: { refreshVersion: number
 
   useEffect(() => {
     let active = true;
-    Promise.all([getMerchantApiKeys(), getMerchantWebhook(), getMerchantWebhookDeliveries()]).then(([nextKeys, nextWebhook, nextDeliveries]) => {
-      if (!active) return;
-      setKeys(nextKeys);
-      setWebhook(nextWebhook);
-      setDeliveries(nextDeliveries);
-      if (nextWebhook) {
-        setEndpointUrl(nextWebhook.endpointUrl);
-        setCallbackUrl(nextWebhook.callbackUrl || "");
-        setEvents(nextWebhook.events);
+    const failures: string[] = [];
+    setError("");
+    const captureFailure = (section: string, loadError: unknown) => {
+      const message =
+        loadError instanceof Error
+          ? loadError.message
+          : "The request could not be completed.";
+      failures.push(`${section}: ${message}`);
+    };
+    void Promise.all([
+      getMerchantApiKeys()
+        .then((nextKeys) => {
+          if (active) setKeys(nextKeys);
+        })
+        .catch((loadError: unknown) => captureFailure("API keys", loadError)),
+      getMerchantWebhook()
+        .then((nextWebhook) => {
+          if (!active) return;
+          setWebhook(nextWebhook);
+          if (nextWebhook) {
+            setEndpointUrl(nextWebhook.endpointUrl);
+            setCallbackUrl(nextWebhook.callbackUrl || "");
+            setEvents(nextWebhook.events);
+          }
+        })
+        .catch((loadError: unknown) =>
+          captureFailure("Webhook settings", loadError),
+        ),
+      getMerchantWebhookDeliveries()
+        .then((nextDeliveries) => {
+          if (active) setDeliveries(nextDeliveries);
+        })
+        .catch((loadError: unknown) =>
+          captureFailure("Webhook delivery history", loadError),
+        ),
+    ]).then(() => {
+      if (active && failures.length) {
+        setError(`Could not load ${failures.join("; ")}.`);
       }
-    }).catch((loadError: unknown) => {
-      if (active) setError(loadError instanceof Error ? loadError.message : "Could not load developer settings.");
     });
     return () => { active = false; };
   }, [refreshVersion]);

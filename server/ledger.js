@@ -77,10 +77,13 @@ export function createLedgerService({
   async function getMerchantWalletState(db, merchantEmail) {
     const result = await db.query(
       `WITH ledger AS (
-         SELECT COALESCE(SUM(amount), 0)::numeric AS balance,
-           COALESCE(SUM(amount) FILTER (WHERE source_type = 'COLLECTION'), 0)::numeric AS collection_credits
-         FROM merchant_wallet_ledger
-         WHERE merchant_email = $1
+        SELECT (
+          COALESCE((SELECT SUM(amount) FROM merchant_wallet_ledger WHERE merchant_email = $1), 0) +
+          COALESCE((SELECT SUM(amount) FROM merchant_wallet_adjustments WHERE merchant_email = $1), 0)
+        )::numeric AS balance,
+          COALESCE(SUM(amount) FILTER (WHERE source_type = 'COLLECTION'), 0)::numeric AS collection_credits
+        FROM merchant_wallet_ledger
+        WHERE merchant_email = $1
        ), collections AS (
          SELECT COALESCE(SUM(collection_amount_krw), 0)::numeric AS completed_krw
          FROM payment_links
@@ -145,16 +148,17 @@ export function createLedgerService({
       if (
         !Number.isFinite(activationFee) ||
         activationFee < 0 ||
-        Math.abs(activationFee * 100 - Math.round(activationFee * 100)) >
-          1e-7
+        Math.abs(activationFee * 100 - Math.round(activationFee * 100)) > 1e-7
       ) {
         throw new Error("The configured merchant activation fee is invalid.")
       }
       const wallet = await client.query(
         `WITH ledger AS (
-           SELECT COALESCE(SUM(amount), 0)::numeric AS balance
-           FROM merchant_wallet_ledger WHERE merchant_email = $1
-         ), reservations AS (
+          SELECT (
+            COALESCE((SELECT SUM(amount) FROM merchant_wallet_ledger WHERE merchant_email = $1), 0) +
+            COALESCE((SELECT SUM(amount) FROM merchant_wallet_adjustments WHERE merchant_email = $1), 0)
+          )::numeric AS balance
+        ), reservations AS (
            SELECT COALESCE(SUM(
              CASE WHEN d.refund_payment_id IS NOT NULL
                THEN GREATEST(COALESCE(p.amount, d.amount) - COALESCE(f.amount, 0), 0)

@@ -296,7 +296,7 @@ export type AdminInternalWallet = {
 
 export type AdminMerchantWalletTransaction = {
   id: string
-  sourceType: "COLLECTION" | "DISBURSEMENT"
+  sourceType: "COLLECTION" | "DISBURSEMENT" | "ADMIN_ADJUSTMENT"
   sourceId: string
   referenceNo: string
   description: string
@@ -1082,24 +1082,28 @@ function toTransaction(
       : item.description ||
         (isCredit ? "Payment link collection" : "Bank transfer"),
     email: isCredit ? "Money received" : "Money sent",
-    initials: type.includes("ACTIVATION_FEE")
-      ? "AF"
-      : type.includes("DISBURSEMENT")
-        ? "TX"
-        : type.includes("DEPOSIT")
-          ? "DP"
-          : item.channel === "QR Ph checkout"
-            ? "QR"
-            : "PL",
+    initials: type.includes("ADMIN_ADJUSTMENT")
+      ? "AD"
+      : type.includes("ACTIVATION_FEE")
+        ? "AF"
+        : type.includes("DISBURSEMENT")
+          ? "TX"
+          : type.includes("DEPOSIT")
+            ? "DP"
+            : item.channel === "QR Ph checkout"
+              ? "QR"
+              : "PL",
     color: ["lime", "blue", "peach", "violet", "mint"][
       index % 5
     ] as Transaction["color"],
     reference: item.referenceNo,
-    channel: type.includes("DISBURSEMENT")
-      ? item.channel
-      : type.includes("DEPOSIT")
-        ? "Bank"
-        : item.channel,
+    channel: type.includes("ADMIN_ADJUSTMENT")
+      ? "Admin adjustment"
+      : type.includes("DISBURSEMENT")
+        ? item.channel
+        : type.includes("DEPOSIT")
+          ? "Bank"
+          : item.channel,
     institutionCode: item.institutionCode || cachedInstitution?.code,
     institutionName: item.institutionName || cachedInstitution?.name,
     institutionLogoUrl: item.institutionLogoUrl || cachedInstitution?.logoUrl,
@@ -1357,6 +1361,19 @@ export async function getAdminMerchantWallet(
 ): Promise<AdminMerchantWallet> {
   return backendRequest<AdminMerchantWallet>(
     `/v1/admin/merchants/${encodeURIComponent(email)}/wallet`,
+  )
+}
+
+export async function createAdminMerchantWalletAdjustment(
+  email: string,
+  input: { amount: number; reason: string },
+): Promise<AdminMerchantWalletTransaction> {
+  return backendRequest<AdminMerchantWalletTransaction>(
+    `/v1/admin/merchants/${encodeURIComponent(email)}/wallet/adjustments`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
   )
 }
 
