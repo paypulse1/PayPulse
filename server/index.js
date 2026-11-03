@@ -1361,6 +1361,8 @@ async function initializeDatabase() {
       last_used_at TIMESTAMPTZ,
       revoked_at TIMESTAMPTZ
     );
+    ALTER TABLE merchant_api_keys
+      ADD COLUMN IF NOT EXISTS scopes TEXT[] NOT NULL DEFAULT ARRAY['read'];
     CREATE TABLE IF NOT EXISTS merchant_webhook_settings (
       merchant_email TEXT PRIMARY KEY REFERENCES merchant_accounts(email) ON DELETE CASCADE,
       endpoint_url TEXT NOT NULL,
