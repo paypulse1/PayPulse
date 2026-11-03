@@ -1376,6 +1376,9 @@ async function initializeDatabase() {
         UPDATE merchant_api_keys
         SET merchant_email = email
         WHERE merchant_email IS NULL;
+
+        ALTER TABLE merchant_api_keys
+          ALTER COLUMN email DROP NOT NULL;
       END IF;
 
       IF EXISTS (
