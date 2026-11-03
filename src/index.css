@@ -1403,12 +1403,22 @@ h1, h2, p { margin-top: 0; }
 }
 
 .admin-screen > .admin-content > .admin-nav::before {
-  content: "ADMINISTRATION";
-  padding: 4px 11px 10px;
+  display: none;
+}
+
+.admin-screen .admin-nav-group {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.admin-screen .admin-nav-group-label {
+  padding: 8px 11px 5px;
   color: #8491a4;
-  font-size: 10px;
+  font-size: 10px !important;
   font-weight: 800;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .admin-screen > .admin-content > .admin-nav button {
@@ -1426,8 +1436,33 @@ h1, h2, p { margin-top: 0; }
   flex: 0 0 auto;
 }
 
+.admin-screen > .admin-content > .admin-nav button .admin-nav-label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-screen > .admin-content > .admin-nav button .admin-nav-count {
+  min-width: 23px;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: #fce8e7;
+  color: #a3312c;
+  font-size: 11px !important;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .admin-screen > .admin-content > .admin-nav button.active {
   background: #e9f0fd;
+  color: #1b4f9c;
+}
+
+.admin-screen > .admin-content > .admin-nav button.active .admin-nav-count {
+  background: #d6e5ff;
   color: #1b4f9c;
 }
 
@@ -1464,6 +1499,7 @@ h1, h2, p { margin-top: 0; }
 }
 
 .admin-screen .admin-stat-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   padding: 22px 32px 0;
   gap: 16px;
 }
@@ -1493,6 +1529,54 @@ h1, h2, p { margin-top: 0; }
 .admin-screen > .admin-content > .admin-overview-note {
   margin-right: 32px;
   margin-left: 32px;
+}
+
+.admin-screen .admin-action-queue .admin-quick-links {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+}
+
+.admin-screen .admin-action-queue .admin-quick-links button {
+  min-height: 92px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 16px;
+  grid-template-rows: auto auto;
+  align-content: center;
+  column-gap: 11px;
+  row-gap: 4px;
+  padding: 14px;
+}
+
+.admin-screen .admin-action-queue .admin-quick-links button .admin-queue-count {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  min-width: 38px;
+  padding: 7px 5px;
+  border-radius: 10px;
+  background: #fff;
+  color: #1b4f9c;
+  font-size: 17px !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-screen .admin-action-queue .admin-quick-links button strong {
+  grid-column: 2;
+  min-width: 0;
+  color: #203854;
+  font-size: 13px !important;
+}
+
+.admin-screen .admin-action-queue .admin-quick-links button small {
+  grid-column: 2;
+  min-width: 0;
+  color: #708098;
+  font-size: 11px !important;
+}
+
+.admin-screen .admin-action-queue .admin-quick-links button svg {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  margin: 0;
 }
 
 .admin-screen > .admin-content > .admin-card {
@@ -1656,6 +1740,15 @@ h1, h2, p { margin-top: 0; }
     display: none;
   }
 
+  .admin-screen .admin-nav-group {
+    display: contents;
+    margin: 0;
+  }
+
+  .admin-screen .admin-nav-group-label {
+    display: none;
+  }
+
   .admin-screen > .admin-content > .admin-nav button {
     width: auto;
     min-height: 42px;
@@ -1706,6 +1799,14 @@ h1, h2, p { margin-top: 0; }
 
   .admin-screen > .admin-content > .admin-card {
     padding: 18px;
+  }
+
+  .admin-screen .admin-action-queue .admin-quick-links {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-screen .admin-action-queue .admin-quick-links button {
+    min-height: 76px;
   }
 
   .admin-screen .admin-invite-form {

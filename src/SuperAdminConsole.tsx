@@ -22,6 +22,7 @@ import {
   Users,
   UserPlus,
   WalletCards,
+  type LucideIcon,
 } from "lucide-react"
 import {
   getAdminAuditEvents,
@@ -70,6 +71,57 @@ import OverviewAdminSection from "./super-admin/OverviewAdminSection"
 import PaymentAdminSection from "./super-admin/PaymentAdminSection"
 
 type AdminPage = "overview" | "payments" | "merchants" | "kyb" | "ledger" | "requests" | "audit" | "settings"
+
+const ADMIN_PAGE_METADATA: Record<
+  AdminPage,
+  { title: string; description: string; exportLabel: string }
+> = {
+  overview: {
+    title: "Operations overview",
+    description: "Prioritize reviews and monitor merchant operations.",
+    exportLabel: "workspace",
+  },
+  payments: {
+    title: "QRPH payments",
+    description:
+      "Review QR checkouts and record independently verified payments.",
+    exportLabel: "payments",
+  },
+  merchants: {
+    title: "Merchant accounts",
+    description: "Create merchant access and manage account status.",
+    exportLabel: "merchants",
+  },
+  kyb: {
+    title: "KYB applications",
+    description:
+      "Review merchant business and beneficial-owner verification.",
+    exportLabel: "KYB applications",
+  },
+  ledger: {
+    title: "Merchant balances",
+    description:
+      "Manage merchant floating and wallet balances with audited adjustments.",
+    exportLabel: "balances",
+  },
+  requests: {
+    title: "Withdrawal requests",
+    description:
+      "Review bank transfers and merchant USDT withdrawal requests.",
+    exportLabel: "withdrawal requests",
+  },
+  audit: {
+    title: "Audit history",
+    description:
+      "Review recorded balance adjustments, transfer decisions, and KYB reviews.",
+    exportLabel: "audit history",
+  },
+  settings: {
+    title: "Collection settings",
+    description: "Configure collection references used by the merchant app.",
+    exportLabel: "workspace",
+  },
+}
 
 type AdminExportRow = {
   section: string
@@ -220,6 +272,61 @@ export function SuperAdminConsole({
   const pendingPaymentCount = paymentLinks.filter(
     (payment) => payment.status === "PENDING",
   ).length
+  const pendingWithdrawalCount =
+    pendingTransferRequests.length + pendingCryptoWithdrawalRequests.length
+  const activePageMetadata = ADMIN_PAGE_METADATA[activePage]
+  const adminNavigationGroups: {
+    label: string
+    items: {
+      page: AdminPage
+      label: string
+      icon: LucideIcon
+      pendingCount?: number
+    }[]
+  }[] = [
+    {
+      label: "Workspace",
+      items: [{ page: "overview", label: "Overview", icon: Home }],
+    },
+    {
+      label: "Operations",
+      items: [
+        {
+          page: "payments",
+          label: "Payments",
+          icon: ReceiptText,
+          pendingCount: pendingPaymentCount,
+        },
+        {
+          page: "requests",
+          label: "Withdrawal requests",
+          icon: Send,
+          pendingCount: pendingWithdrawalCount,
+        },
+        { page: "ledger", label: "Floating balance", icon: WalletCards },
+      ],
+    },
+    {
+      label: "Merchants",
+      items: [
+        { page: "merchants", label: "Accounts", icon: Users },
+        {
+          page: "kyb",
+          label: "KYB review",
+          icon: ShieldCheck,
+          pendingCount: pendingKybCount,
+        },
+      ],
+    },
+    {
+      label: "Oversight",
+      items: [{ page: "audit", label: "Audit history", icon: Activity }],
+    },
+    {
+      label: "Configuration",
+      items: [{ page: "settings", label: "Settings", icon: Settings }],
+    },
+  ]
   const filteredPayments = useMemo(() => {
     const query = paymentSearch.trim().toLowerCase()
     return paymentLinks.filter((payment) => {
@@ -1285,40 +1392,8 @@ export function SuperAdminConsole({
           <span className="eyebrow">SUPER ADMINISTRATION</span>
           <div className="admin-page-heading">
             <div>
-              <h1>
-                {activePage === "overview"
-                  ? "Operations overview"
-                  : activePage === "payments"
-                    ? "QRPH payments"
-                    : activePage === "merchants"
-                      ? "Merchant accounts"
-                      : activePage === "kyb"
-                        ? "KYB applications"
-                        : activePage === "ledger"
-                          ? "Floating balance"
-                          : activePage === "requests"
-                            ? "Withdrawal requests"
-                            : activePage === "audit"
-                              ? "Audit history"
-                              : "Collection settings"}
-              </h1>
-              <p>
-                {activePage === "overview"
-                  ? "Monitor merchant access and floating balances."
-                  : activePage === "payments"
-                    ? "Review QR checkouts and record independently verified payments."
-                    : activePage === "merchants"
-                      ? "Create merchant access and manage account status."
-                      : activePage === "kyb"
-                        ? "Review merchant business and beneficial-owner verification."
-                        : activePage === "ledger"
-                          ? "Manage merchant floating and wallet balances with audited adjustments."
-                          : activePage === "requests"
-                            ? "Review bank transfers and merchant USDT withdrawal requests."
-                            : activePage === "audit"
-                              ? "Review recorded balance adjustments, transfer decisions, and KYB reviews."
-                              : "Configure collection references used by the merchant app."}
-              </p>
+              <h1>{activePageMetadata.title}</h1>
+              <p>{activePageMetadata.description}</p>
             </div>
             <div className="admin-header-actions">
               {activePage !== "merchants" && (
@@ -1338,6 +1413,7 @@ export function SuperAdminConsole({
                 icon={<Download size={15} />}
                 onClick={exportCurrentData}
                 disabled={loading}
+                aria-label={`Export ${activePageMetadata.exportLabel} as CSV`}
               >
                 Export CSV
               </Button>
@@ -1348,60 +1424,36 @@ export function SuperAdminConsole({
           className="admin-nav"
           aria-label="Super admin dashboard navigation"
         >
-          {([
-            ["overview", "Overview", Home],
-            [
-              "payments",
-              `Payments${
-                paymentLinks.filter((payment) => payment.status === "PENDING")
-                  .length
-                  ? ` (${paymentLinks.filter((payment) => payment.status === "PENDING").length})`
-                  : ""
-              }`,
-              ReceiptText,
-            ],
-            ["merchants", "Merchants", Users],
-            [
-              "kyb",
-              `KYB${
-                kybApplications.filter(
-                  (application) =>
-                    application.status === "PENDING" ||
-                    application.status === "IN_REVIEW",
-                ).length
-                  ? ` (${kybApplications.filter((application) => application.status === "PENDING" || application.status === "IN_REVIEW").length})`
-                  : ""
-              }`,
-              ShieldCheck,
-            ],
-            ["ledger", "Floating balance", WalletCards],
-            [
-              "requests",
-              `Requests${
-                pendingTransferRequests.length +
-                pendingCryptoWithdrawalRequests.length
-                  ? ` (${pendingTransferRequests.length + pendingCryptoWithdrawalRequests.length})`
-                  : ""
-              }`,
-              Send,
-            ],
-            ["audit", "Audit history", Activity],
-            ["settings", "Settings", Settings],
-          ] as const).map(([page, label, Icon]) => (
-            <button
-              key={page}
-              type="button"
-              className={activePage === page ? "active" : ""}
-              aria-current={activePage === page ? "page" : undefined}
-              onClick={() => {
-                setActivePage(page)
-                setError("")
-                setNotice("")
-              }}
-            >
-              <Icon size={16} />
-              {label}
-            </button>
+          {adminNavigationGroups.map((group) => (
+            <div className="admin-nav-group" key={group.label}>
+              <span className="admin-nav-group-label">{group.label}</span>
+              {group.items.map(({ page, label, icon: Icon, pendingCount }) => (
+                <button
+                  key={page}
+                  type="button"
+                  className={activePage === page ? "active" : ""}
+                  aria-current={activePage === page ? "page" : undefined}
+                  aria-label={
+                    pendingCount
+                      ? `${label}, ${pendingCount} items need review`
+                      : undefined
+                  }
+                  onClick={() => {
+                    setActivePage(page)
+                    setError("")
+                    setNotice("")
+                  }}
+                >
+                  <Icon size={16} />
+                  <span className="admin-nav-label">{label}</span>
+                  {!!pendingCount && (
+                    <span className="admin-nav-count" aria-hidden="true">
+                      {pendingCount}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
         {error && (
@@ -1430,6 +1482,9 @@ export function SuperAdminConsole({
                 activeMerchantCount={activeMerchantCount}
                 totalLedgerBalance={totalLedgerBalance}
                 pendingTransferCount={pendingTransferRequests.length}
+                pendingCryptoWithdrawalCount={
+                  pendingCryptoWithdrawalRequests.length
+                }
                 reservedTransferBalance={reservedTransferBalance}
                 pendingPaymentCount={pendingPaymentCount}
                 pendingKybCount={pendingKybCount}

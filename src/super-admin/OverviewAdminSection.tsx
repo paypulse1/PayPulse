@@ -9,6 +9,7 @@ type OverviewAdminSectionProps = {
   activeMerchantCount: number
   totalLedgerBalance: number
   pendingTransferCount: number
+  pendingCryptoWithdrawalCount: number
   reservedTransferBalance: number
   pendingPaymentCount: number
   pendingKybCount: number
@@ -29,14 +30,58 @@ export default function OverviewAdminSection({
   activeMerchantCount,
   totalLedgerBalance,
   pendingTransferCount,
+  pendingCryptoWithdrawalCount,
   reservedTransferBalance,
   pendingPaymentCount,
   pendingKybCount,
   auditEventCount,
   onNavigate,
 }: OverviewAdminSectionProps) {
+  const pendingWithdrawalCount =
+    pendingTransferCount + pendingCryptoWithdrawalCount
+
   return (
     <>
+      <section className="admin-card admin-action-queue">
+        <div className="admin-card-heading">
+          <span className="setting-icon">
+            <Clock3 size={19} />
+          </span>
+          <div>
+            <h2>Review queue</h2>
+            <p>Resolve pending work first, then review the wider workspace.</p>
+          </div>
+          <button
+            className="admin-text-action"
+            type="button"
+            onClick={() => onNavigate("audit")}
+          >
+            Audit history · {auditEventCount}
+          </button>
+        </div>
+        <div className="admin-quick-links">
+          <button type="button" onClick={() => onNavigate("payments")}>
+            <span className="admin-queue-count">{pendingPaymentCount}</span>
+            <strong>Payments to review</strong>
+            <small>Verify incoming QRPH payments</small>
+            <ArrowUpRight size={15} />
+          </button>
+          <button type="button" onClick={() => onNavigate("requests")}>
+            <span className="admin-queue-count">{pendingWithdrawalCount}</span>
+            <strong>Withdrawal requests</strong>
+            <small>
+              {pendingTransferCount} bank · {pendingCryptoWithdrawalCount} USDT
+            </small>
+            <ArrowUpRight size={15} />
+          </button>
+          <button type="button" onClick={() => onNavigate("kyb")}>
+            <span className="admin-queue-count">{pendingKybCount}</span>
+            <strong>KYB applications</strong>
+            <small>Pending or in review</small>
+            <ArrowUpRight size={15} />
+          </button>
+        </div>
+      </section>
       <section className="admin-stat-grid" aria-label="Operations summary">
         <article>
           <span>Merchant accounts</span>
@@ -49,12 +94,7 @@ export default function OverviewAdminSection({
         <article>
           <span>Floating balance total</span>
           <strong>₱{formatPhpAmount(totalLedgerBalance)}</strong>
-          <small>Pending requests are reserved · PHP</small>
-        </article>
-        <article>
-          <span>Pending transfer requests</span>
-          <strong>{pendingTransferCount}</strong>
-          <small>Awaiting team review</small>
+          <small>Before pending reservations · PHP</small>
         </article>
         <article>
           <span>Available floating balance</span>
@@ -65,16 +105,6 @@ export default function OverviewAdminSection({
             )}
           </strong>
           <small>After pending transfer reservations · PHP</small>
-        </article>
-        <article>
-          <span>Pending payments</span>
-          <strong>{pendingPaymentCount}</strong>
-          <small>Awaiting payment confirmation review</small>
-        </article>
-        <article>
-          <span>KYB applications</span>
-          <strong>{pendingKybCount}</strong>
-          <small>Pending or in review</small>
         </article>
         <article>
           <span>Platform fee wallet</span>
@@ -101,35 +131,6 @@ export default function OverviewAdminSection({
           </strong>
           <small>{settings.usdtNetwork || "No receiving network set"}</small>
         </article>
-      </section>
-      <section className="admin-card">
-        <div className="admin-card-heading">
-          <span className="setting-icon">
-            <Clock3 size={19} />
-          </span>
-          <div>
-            <h2>Needs attention</h2>
-            <p>Jump directly to pending reviews and recent changes.</p>
-          </div>
-        </div>
-        <div className="admin-quick-links">
-          <button type="button" onClick={() => onNavigate("payments")}>
-            <span>{pendingPaymentCount}</span> Payments to review{" "}
-            <ArrowUpRight size={15} />
-          </button>
-          <button type="button" onClick={() => onNavigate("kyb")}>
-            <span>{pendingKybCount}</span> KYB applications{" "}
-            <ArrowUpRight size={15} />
-          </button>
-          <button type="button" onClick={() => onNavigate("requests")}>
-            <span>{pendingTransferCount}</span> Transfer requests{" "}
-            <ArrowUpRight size={15} />
-          </button>
-          <button type="button" onClick={() => onNavigate("audit")}>
-            <span>{auditEventCount}</span> Recorded audit events{" "}
-            <ArrowUpRight size={15} />
-          </button>
-        </div>
       </section>
       <section className="admin-card">
         <div className="admin-card-heading">
