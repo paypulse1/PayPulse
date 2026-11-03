@@ -7809,7 +7809,9 @@ app.use((error, req, res, _next) => {
     Number.isInteger(error.status) && error.status >= 400 && error.status < 600
       ? error.status
       : 500
+  const requestId = randomUUID()
   console.error("API request failed", {
+    requestId,
     method: req.method,
     path: req.path,
     status,
@@ -7822,6 +7824,7 @@ app.use((error, req, res, _next) => {
       status === 413
         ? "The uploaded attachment exceeds the 10 MB limit."
         : "The request could not be completed.",
+    requestId,
   })
 })
 

@@ -678,6 +678,7 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly requestId?: string,
   ) {
     super(message)
     this.name = "ApiError"
@@ -689,12 +690,19 @@ async function parseResponse<T>(
   expireSessionOnUnauthorized = true,
 ): Promise<T> {
   if (response.ok) return response.json() as Promise<T>
-  const body = (await response.json().catch(() => ({}))) as { error?: string }
+  const body = (await response.json().catch(() => ({}))) as {
+    error?: string
+    requestId?: string
+  }
+  const withRequestReference = (message: string) =>
+    body.requestId ? `${message} (Reference: ${body.requestId})` : message
   const errorMessage =
     body.error ===
     "Pay the one-time PHP activation fee and maintain 100 USDT above the assigned address's starting balance to enable this merchant service."
       ? "Please pay the required TAX or contact support."
       : body.error
+        ? withRequestReference(body.error)
+        : undefined
   if (
     response.status === 502 ||
     response.status === 503 ||
@@ -704,6 +712,7 @@ async function parseResponse<T>(
       errorMessage ||
         "DRPAY is temporarily unavailable. Please try again in a few minutes.",
       response.status,
+      body.requestId,
     )
   }
   if (response.status === 401 && expireSessionOnUnauthorized) clearSession()
@@ -713,6 +722,7 @@ async function parseResponse<T>(
         ? "Your session has expired. Sign in again."
         : `Request failed (${response.status})`),
     response.status,
+    body.requestId,
   )
 }
 

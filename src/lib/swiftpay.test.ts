@@ -86,3 +86,39 @@ test("activation gate errors use the tax and support message", async () => {
     return true
   })
 })
+
+test("API errors include their server reference for support", async () => {
+  vi.stubEnv("VITE_DRPAY_BACKEND_URL", "https://api.example.test")
+  vi.stubGlobal("window", {
+    location: {
+      hostname: "localhost",
+      origin: "http://localhost",
+    },
+  })
+  installSessionStorage(new MockStorage())
+  saveSession({
+    accessToken: "test-token",
+    expiresAt: Date.now() + 60_000,
+    email: "merchant@example.com",
+    role: "merchant",
+  })
+  vi.stubGlobal(
+    "fetch",
+    async () =>
+      new Response(
+        JSON.stringify({
+          error: "The request could not be completed.",
+          requestId: "request-123",
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } },
+      ),
+  )
+
+  const { ApiError, getMerchantApiKeys } = await import("./swiftpay.ts")
+  await assert.rejects(getMerchantApiKeys(), (error: unknown) => {
+    assert.ok(error instanceof ApiError)
+    assert.equal(error.requestId, "request-123")
+    assert.match(error.message, /Reference: request-123/)
+    return true
+  })
+})
