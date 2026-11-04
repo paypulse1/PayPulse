@@ -4081,9 +4081,54 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
         <div className="crypto-wallet-unavailable">
           <div className="crypto-wallet-unavailable-heading">
             <strong>Buy and sell USDT</strong>
-            <span>Not available</span>
+            <span>Guidance</span>
           </div>
-          <p>This feature is coming soon.</p>
+          <div style={{ display: "grid", gap: "0.75rem" }}>
+            <p>
+              Self-serve crypto trading is not active yet. Use the wallet flow
+              above for deposits, withdrawals, and transfer review, then contact
+              the DRPAY team for fiat or OTC assistance.
+            </p>
+            <ul
+              style={{
+                margin: 0,
+                paddingLeft: "1.2rem",
+                display: "grid",
+                gap: "0.4rem",
+              }}
+            >
+              <li>
+                <Coins size={14} style={{ verticalAlign: "text-bottom" }} />
+                &nbsp;Deposit USDT to your assigned TRON wallet to receive funds.
+              </li>
+              <li>
+                <ArrowLeftRight
+                  size={14}
+                  style={{ verticalAlign: "text-bottom" }}
+                />
+                &nbsp;Request a verified transfer when you are ready to move
+                funds out.
+              </li>
+              <li>
+                <Bell size={14} style={{ verticalAlign: "text-bottom" }} />
+                &nbsp;For OTC pricing, conversion support, or manual settlement,
+                email the DRPAY team.
+              </li>
+            </ul>
+            <a
+              href={`mailto:${supportEmail}?subject=${encodeURIComponent("USDT buy/sell support")}`}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                fontWeight: 600,
+                color: "inherit",
+              }}
+            >
+              <Mail size={14} />
+              Contact support
+            </a>
+          </div>
         </div>
       </section>
       <UsdtDepositHistory
