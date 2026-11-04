@@ -70,6 +70,7 @@ import {
   canManuallyConfirmPayment,
   createPaymentStateService,
 } from "./payment-state.js"
+import { sendTelegramMessage } from "./telegram-notifications.js"
 
 const { Pool } = pg
 const platformFeeLedgerSourceTypesSql = PLATFORM_FEE_LEDGER_SOURCE_TYPES.map(
@@ -204,6 +205,8 @@ const fcmProjectId = process.env.FCM_PROJECT_ID
 const fcmServiceAccountEmail = process.env.FCM_SERVICE_ACCOUNT_EMAIL
 const fcmServiceAccountPrivateKey =
   process.env.FCM_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, "\n")
+const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN
+const telegramChatId = process.env.TELEGRAM_CHAT_ID
 const swiftPayAccessKey = process.env.SWIFTPAY_ACCESS_KEY
 const swiftPaySecretKey = process.env.SWIFTPAY_SECRET_KEY
 const swiftPayEnvironment = process.env.SWIFTPAY_ENV || "sandbox"
@@ -381,6 +384,7 @@ let liveKrwPhpRateCache = null
 let fcmAccessToken
 let fcmAccessTokenExpiresAt = 0
 let reconcilingPending = false
+let scanningTelegramUsdtDeposits = false
 
 function requiredEnvironment() {
   const missing = []
@@ -824,6 +828,19 @@ async function queueSuccessfulTransaction(transactionType, transactionId) {
         transaction.amount,
       ],
     )
+    await queueAdminMoneyNotification({
+      eventType: transactionType,
+      eventId: transactionId,
+      merchantEmail: transaction.merchant_email,
+      direction: transactionType === "PAYMENT" ? "IN" : "OUT",
+      amount: transaction.amount,
+      currency: "PHP",
+      reference: transaction.reference_no,
+      details:
+        transactionType === "PAYMENT"
+          ? "Merchant payment confirmed"
+          : "Merchant transfer completed",
+    })
   }
   if (transactionType === "PAYMENT" && transaction?.customer_email) {
     await pool.query(
@@ -833,6 +850,26 @@ async function queueSuccessfulTransaction(transactionType, transactionId) {
       [randomUUID(), transactionId, transaction.customer_email],
     )
   }
+}
+
+async function queueAdminMoneyNotification(notification, executor = pool) {
+  await executor.query(
+    `INSERT INTO admin_telegram_notifications
+       (id, event_type, event_id, merchant_email, direction, amount, currency, reference, details)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     ON CONFLICT (event_type, event_id) DO NOTHING`,
+    [
+      randomUUID(),
+      notification.eventType,
+      notification.eventId,
+      notification.merchantEmail,
+      notification.direction,
+      notification.amount,
+      notification.currency,
+      notification.reference,
+      notification.details,
+    ],
+  )
 }
 
 const {
@@ -989,6 +1026,61 @@ async function dispatchCustomerPaymentNotifications() {
         [notification.id, delaySeconds],
       )
       console.error("Customer payment confirmation remains queued for retry", {
+        notificationId: notification.id,
+        attempt: notification.attempts + 1,
+        error: error.message,
+      })
+    }
+  }
+}
+
+async function dispatchAdminTelegramNotifications() {
+  if (!telegramBotToken || !telegramChatId) return
+  const pending = await pool.query(
+    `SELECT notification.id, notification.merchant_email,
+       COALESCE(NULLIF(BTRIM(merchant.business_name), ''), notification.merchant_email) AS merchant_name,
+       notification.direction, notification.amount, notification.currency,
+       notification.reference, notification.details, notification.attempts
+     FROM admin_telegram_notifications notification
+     LEFT JOIN merchant_accounts merchant ON merchant.email = notification.merchant_email
+     WHERE notification.sent_at IS NULL AND notification.next_attempt_at <= NOW()
+     ORDER BY notification.created_at ASC
+     LIMIT 25`,
+  )
+  for (const notification of pending.rows) {
+    const amount = Number(notification.amount).toLocaleString("en-PH", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: notification.currency === "USDT" ? 6 : 2,
+    })
+    const message = [
+      "DRPAY merchant transaction",
+      `Direction: ${notification.direction === "IN" ? "INCOMING" : "OUTGOING"}`,
+      `Merchant: ${notification.merchant_name}`,
+      `Merchant email: ${notification.merchant_email}`,
+      `Amount: ${notification.currency} ${amount}`,
+      `Reference: ${notification.reference}`,
+      `Details: ${notification.details}`,
+    ].join("\n")
+    try {
+      await sendTelegramMessage({
+        botToken: telegramBotToken,
+        chatId: telegramChatId,
+        text: message,
+      })
+      await pool.query(
+        "UPDATE admin_telegram_notifications SET sent_at = NOW(), attempts = attempts + 1 WHERE id = $1",
+        [notification.id],
+      )
+    } catch (error) {
+      const delaySeconds = Math.min(3600, 30 * 2 ** notification.attempts)
+      await pool.query(
+        `UPDATE admin_telegram_notifications
+         SET attempts = attempts + 1, last_error = $2, last_attempt_at = NOW(),
+           next_attempt_at = NOW() + ($3 * INTERVAL '1 second')
+         WHERE id = $1`,
+        [notification.id, error.message, delaySeconds],
+      )
+      console.error("Telegram transaction notification remains queued", {
         notificationId: notification.id,
         attempt: notification.attempts + 1,
         error: error.message,
@@ -1554,6 +1646,31 @@ async function initializeDatabase() {
       push_sent_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE (transaction_type, transaction_id)
+    );
+    CREATE TABLE IF NOT EXISTS admin_telegram_notifications (
+      id UUID PRIMARY KEY,
+      event_type TEXT NOT NULL,
+      event_id TEXT NOT NULL,
+      merchant_email TEXT NOT NULL,
+      direction TEXT NOT NULL CHECK (direction IN ('IN', 'OUT')),
+      amount NUMERIC(24, 6) NOT NULL CHECK (amount > 0),
+      currency TEXT NOT NULL,
+      reference TEXT NOT NULL,
+      details TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      last_attempt_at TIMESTAMPTZ,
+      next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      sent_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (event_type, event_id)
+    );
+    CREATE INDEX IF NOT EXISTS admin_telegram_notifications_pending_idx
+      ON admin_telegram_notifications (next_attempt_at, created_at)
+      WHERE sent_at IS NULL;
+    CREATE TABLE IF NOT EXISTS admin_telegram_wallet_scans (
+      merchant_email TEXT PRIMARY KEY,
+      first_scan_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     ALTER TABLE transaction_notifications ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;
     CREATE TABLE IF NOT EXISTS transaction_push_deliveries (
@@ -2780,6 +2897,21 @@ app.post(
             ? `TRON transaction ${transactionId}`
             : reason),
       })
+      if (nextStatus === "COMPLETED") {
+        await queueAdminMoneyNotification(
+          {
+            eventType: "USDT_WITHDRAWAL",
+            eventId: id,
+            merchantEmail: request.rows[0].merchant_email,
+            direction: "OUT",
+            amount: request.rows[0].amount,
+            currency: "USDT",
+            reference: transactionId,
+            details: `USDT withdrawal to ${request.rows[0].destination}`,
+          },
+          client,
+        )
+      }
       await client.query("COMMIT")
       return res.set("Cache-Control", "no-store").json(updated.rows[0])
     } catch (error) {
@@ -4278,6 +4410,21 @@ app.post(
               }`
         }`,
       })
+      if (nextStatus === "SUCCESSFUL") {
+        await queueAdminMoneyNotification(
+          {
+            eventType: "FLOATING_TRANSFER",
+            eventId: id,
+            merchantEmail: email,
+            direction: "OUT",
+            amount: request.rows[0].amount,
+            currency: "PHP",
+            reference: payoutReference,
+            details: `Floating-balance payout via ${request.rows[0].bank_name}; fee PHP ${Number(request.rows[0].transfer_fee).toFixed(2)}`,
+          },
+          client,
+        )
+      }
       await client.query("COMMIT")
       return res.json(updated.rows[0])
     } catch (error) {
@@ -5189,6 +5336,103 @@ app.get("/v1/crypto/usdt-wallet", cryptoWalletLimiter, async (req, res) => {
   }
 })
 
+async function fetchConfirmedUsdtDeposits(address) {
+  const endpoint = new URL(
+    `https://api.trongrid.io/v1/accounts/${encodeURIComponent(address)}/transactions/trc20`,
+  )
+  endpoint.searchParams.set("limit", "50")
+  endpoint.searchParams.set("contract_address", tronMainnetUsdtContract)
+  endpoint.searchParams.set("only_confirmed", "true")
+  endpoint.searchParams.set("order_by", "block_timestamp,desc")
+  const headers = { Accept: "application/json" }
+  if (tronGridApiKey) headers["TRON-PRO-API-KEY"] = tronGridApiKey
+  const response = await fetch(endpoint, {
+    headers,
+    signal: AbortSignal.timeout(10_000),
+  })
+  if (!response.ok)
+    throw new Error(`TRON transaction service returned HTTP ${response.status}`)
+  const result = await response.json()
+  if (!Array.isArray(result?.data)) {
+    throw new Error("TRON transaction service returned an invalid deposit list")
+  }
+  return result.data
+    .filter(
+      (item) =>
+        typeof item?.to === "string" &&
+        item.to.toLowerCase() === address.toLowerCase() &&
+        String(item?.token_info?.address || "").toLowerCase() ===
+          tronMainnetUsdtContract.toLowerCase() &&
+        String(item?.token_info?.symbol || "").toUpperCase() === "USDT" &&
+        Number(item?.token_info?.decimals) === tronMainnetUsdtDecimals &&
+        typeof item?.value === "string" &&
+        /^[0-9]+$/.test(item.value) &&
+        typeof item?.from === "string" &&
+        typeof item?.transaction_id === "string" &&
+        Number.isFinite(Number(item?.block_timestamp)),
+    )
+    .map((item) => ({
+      transactionId: item.transaction_id,
+      amount: formatTokenBalance(
+        BigInt(item.value).toString(16),
+        tronMainnetUsdtDecimals,
+      ),
+      from: item.from,
+      blockTimestamp: new Date(Number(item.block_timestamp)).toISOString(),
+      confirmed: true,
+    }))
+}
+
+async function scanTelegramUsdtDeposits() {
+  if (!telegramBotToken || !telegramChatId || tronUsdtNetwork !== "mainnet") {
+    return
+  }
+  if (scanningTelegramUsdtDeposits) return
+  scanningTelegramUsdtDeposits = true
+  try {
+    const wallets = await pool.query(
+      `SELECT merchant_email, address FROM merchant_usdt_wallets
+       WHERE network = 'TRON_MAINNET' ORDER BY merchant_email`,
+    )
+    for (const wallet of wallets.rows) {
+      try {
+        const state = await pool.query(
+          `INSERT INTO admin_telegram_wallet_scans (merchant_email)
+           VALUES ($1) ON CONFLICT (merchant_email) DO UPDATE
+             SET merchant_email = EXCLUDED.merchant_email
+           RETURNING first_scan_at`,
+          [wallet.merchant_email],
+        )
+        const firstScanAt = new Date(state.rows[0].first_scan_at)
+        // Include recent confirmations while keeping older wallet history out of the first alert batch.
+        const depositScanCutoff = firstScanAt.getTime() - 5 * 60_000
+        const deposits = await fetchConfirmedUsdtDeposits(wallet.address)
+        for (const deposit of deposits) {
+          if (new Date(deposit.blockTimestamp).getTime() < depositScanCutoff)
+            continue
+          await queueAdminMoneyNotification({
+            eventType: "USDT_DEPOSIT",
+            eventId: `${deposit.transactionId}:${deposit.from}:${deposit.amount}`,
+            merchantEmail: wallet.merchant_email,
+            direction: "IN",
+            amount: deposit.amount,
+            currency: "USDT",
+            reference: deposit.transactionId,
+            details: `Confirmed USDT deposit to ${wallet.address}`,
+          })
+        }
+      } catch (error) {
+        console.error("Telegram USDT deposit scan failed", {
+          merchantEmail: wallet.merchant_email,
+          error: error.name || "provider error",
+        })
+      }
+    }
+  } finally {
+    scanningTelegramUsdtDeposits = false
+  }
+}
+
 app.get("/v1/crypto/usdt-deposits", cryptoWalletLimiter, async (req, res) => {
   const wallet = await pool.query(
     "SELECT address, network FROM merchant_usdt_wallets WHERE merchant_email = $1",
@@ -5208,53 +5452,7 @@ app.get("/v1/crypto/usdt-deposits", cryptoWalletLimiter, async (req, res) => {
     })
   }
   try {
-    const endpoint = new URL(
-      `https://api.trongrid.io/v1/accounts/${encodeURIComponent(assigned.address)}/transactions/trc20`,
-    )
-    endpoint.searchParams.set("limit", "50")
-    endpoint.searchParams.set("contract_address", tronMainnetUsdtContract)
-    endpoint.searchParams.set("only_confirmed", "true")
-    endpoint.searchParams.set("order_by", "block_timestamp,desc")
-    const headers = { Accept: "application/json" }
-    if (tronGridApiKey) headers["TRON-PRO-API-KEY"] = tronGridApiKey
-    const response = await fetch(endpoint, {
-      headers,
-      signal: AbortSignal.timeout(10_000),
-    })
-    if (!response.ok)
-      throw new Error(
-        `TRON transaction service returned HTTP ${response.status}`,
-      )
-    const result = await response.json()
-    if (!Array.isArray(result?.data)) {
-      throw new Error(
-        "TRON transaction service returned an invalid deposit list",
-      )
-    }
-    const deposits = result.data
-      .filter(
-        (item) =>
-          typeof item?.to === "string" &&
-          item.to.toLowerCase() === assigned.address.toLowerCase() &&
-          String(item?.token_info?.address || "").toLowerCase() ===
-            tronMainnetUsdtContract.toLowerCase() &&
-          String(item?.token_info?.symbol || "").toUpperCase() === "USDT" &&
-          Number(item?.token_info?.decimals) === tronMainnetUsdtDecimals &&
-          typeof item?.value === "string" &&
-          /^[0-9]+$/.test(item.value) &&
-          typeof item?.transaction_id === "string" &&
-          Number.isFinite(Number(item?.block_timestamp)),
-      )
-      .map((item) => ({
-        transactionId: item.transaction_id,
-        amount: formatTokenBalance(
-          BigInt(item.value).toString(16),
-          tronMainnetUsdtDecimals,
-        ),
-        from: item.from,
-        blockTimestamp: new Date(Number(item.block_timestamp)).toISOString(),
-        confirmed: true,
-      }))
+    const deposits = await fetchConfirmedUsdtDeposits(assigned.address)
     return res.set("Cache-Control", "no-store").json({
       deposits,
       configured: true,
@@ -6665,6 +6863,7 @@ async function reconcilePending() {
       disbursementCount: transfers.rowCount,
     })
     await dispatchTransactionNotifications()
+    await dispatchAdminTelegramNotifications()
     await dispatchCustomerPaymentRequests()
     await dispatchCustomerPaymentNotifications()
     await dispatchMerchantWebhooks()
@@ -6681,6 +6880,27 @@ function startNotificationWorker() {
     console.warn(
       "Firebase push delivery is disabled until FCM_PROJECT_ID, FCM_SERVICE_ACCOUNT_EMAIL, and FCM_SERVICE_ACCOUNT_PRIVATE_KEY are configured.",
     )
+  }
+  if (!telegramBotToken || !telegramChatId) {
+    console.warn(
+      "Telegram transaction alerts are disabled until TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are configured.",
+    )
+  } else {
+    void scanTelegramUsdtDeposits().catch((error) => {
+      console.error(
+        "Telegram USDT deposit scan failed",
+        error.name || "database error",
+      )
+    })
+    const telegramDepositTimer = setInterval(() => {
+      void scanTelegramUsdtDeposits().catch((error) => {
+        console.error(
+          "Telegram USDT deposit scan failed",
+          error.name || "database error",
+        )
+      })
+    }, 5 * 60_000)
+    telegramDepositTimer.unref()
   }
   const timer = setInterval(() => {
     void reconcilePending().catch((error) => {

@@ -12,6 +12,8 @@ Deploy the `Production` branch from the repository root as a single Railway serv
 
 Attach a Railway PostgreSQL service and set `DATABASE_URL` using that service's connection string reference. Configure the API secrets listed below in Railway's Variables settings, including `DRPAY_FRONTEND_ORIGIN` for the deployed merchant site, `DRPAY_MERCHANT_EMAIL`, `DRPAY_SUPER_ADMIN_EMAIL`, `DRPAY_SUPER_ADMIN_PASSWORD`, `DRPAY_PASSWORD_SALT`, `DRPAY_JWT_SECRET`, `RESEND_API_KEY`, and `RESEND_FROM_EMAIL`. Set `DRPAY_LIVE_CHECKOUT_ORIGIN` and `DRPAY_PUBLIC_API_ORIGIN` to the corresponding public production URLs when they differ from their defaults.
 
+To send super-admin transaction alerts through Telegram, create a bot with BotFather, send it `/start` from the super-admin's Telegram account, retrieve the private chat ID from the bot's `getUpdates` response, then configure `TELEGRAM_BOT_TOKEN` and that `TELEGRAM_CHAT_ID` on the API service. Keep the bot token server-side; never expose these settings in a `VITE_*` variable.
+
 Live payment collection is enabled only when `SWIFTPAY_ENV=production`, `SWIFTPAY_LIVE_MONEY_ACKNOWLEDGED=I_UNDERSTAND_REAL_MONEY`, and live `SWIFTPAY_ACCESS_KEY` and `SWIFTPAY_SECRET_KEY` values are set. Keep all secrets in Railway Variables; never add them to source control or any `VITE_*` variable. The service exits with an error when required configuration is missing, so Railway will not mark an incomplete production deployment healthy.
 
 The Railway production service serves the API and Vite application together. Its live API URL is `https://drpay-merchant-production.up.railway.app`; the frontend uses this service URL rather than `api.live.denpay.cc`. Attach `merchant.denpay.cc` and `pay.live.denpay.cc` to this service and use the CNAME and TXT verification records Railway displays. Confirm DNS propagation and certificate issuance in Railway before directing production traffic.
@@ -39,6 +41,7 @@ Set these secrets directly in Render when prompted:
 - `RESEND_FROM_EMAIL`: sender address on a domain verified with Resend.
 - `DRPAY_EMAIL_LOGO_URL` (optional): public HTTPS URL for the DRPAY logo shown in all outgoing email templates. Defaults to `https://merchant.denpay.cc/drpay-mark.png`.
 - `FCM_PROJECT_ID`, `FCM_SERVICE_ACCOUNT_EMAIL`, and `FCM_SERVICE_ACCOUNT_PRIVATE_KEY`: Firebase Cloud Messaging server credentials for Android transaction push alerts. Store the private key as a deployment secret; convert escaped `\n` sequences to newlines at runtime.
+- `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`: Telegram bot credentials and the super-admin chat destination for confirmed merchant payments, transfers, USDT deposits/withdrawals, and completed floating-balance payouts.
 - `SWIFTPAY_ACCESS_KEY` and `SWIFTPAY_SECRET_KEY`: credentials for the selected SwiftPay environment.
 - `TATUM_API_KEY`: server-only Tatum RPC credential. Configure only on `drpay-live-api`; never add it to any `VITE_*` variable.
 - `TRONGRID_API_KEY`: optional TRON Grid API key for mainnet wallet/deposit requests on `drpay-live-api`; leave unset if not using a key.
