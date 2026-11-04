@@ -28,7 +28,7 @@ describe("sendTelegramMessage", () => {
     )
   })
 
-  it("reports unsuccessful Telegram API responses for retry", async () => {
+  it("reports a redacted Telegram API rejection for retry", async () => {
     await expect(
       sendTelegramMessage({
         botToken: "test-token",
@@ -36,9 +36,15 @@ describe("sendTelegramMessage", () => {
         text: "Payment received",
         fetchImpl: vi.fn().mockResolvedValue({
           ok: true,
-          json: async () => ({ ok: false }),
+          status: 400,
+          json: async () => ({
+            ok: false,
+            description: "Bad Request: chat 12345 not found for test-token",
+          }),
         }),
       }),
-    ).rejects.toThrow("Telegram transaction notification delivery failed.")
+    ).rejects.toThrow(
+      "Telegram rejected the notification (HTTP 400): Bad Request: chat [redacted] not found for [redacted].",
+    )
   })
 })
