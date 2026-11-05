@@ -96,6 +96,7 @@ jobs:
         run: jarsigner -verify android/app/build/outputs/bundle/release/app-release.aab
 
       - name: Publish app bundle to Google Play internal testing
+        if: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON != '' }}
         env:
           GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           ANDROID_VERSION_NAME: ${{ github.ref_name }}
