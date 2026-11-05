@@ -9,7 +9,7 @@
       "client_info": {
         "mobilesdk_app_id": "1:497801553432:android:28ba11bfc85ea0280d456d",
         "android_client_info": {
-          "package_name": "ph.drpays.merchant"
+          "package_name": "ph.drpay.merchant"
         }
       },
       "oauth_client": [],

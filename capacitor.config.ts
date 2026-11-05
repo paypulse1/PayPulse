@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
-  appId: "ph.drpays.merchant",
+  appId: "ph.drpay.merchant",
   appName: "DRPAY",
   webDir: "dist",
   plugins: {
