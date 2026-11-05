@@ -2529,7 +2529,7 @@ function ScannerSheet({
               {mode === "scan"
                 ? "Scan a QR"
                 : mode === "collect"
-                  ? "Open-amount QRPH"
+                  ? "QRPH collection"
                   : "Merchant QR details"}
             </h2>
           </div>
@@ -2601,7 +2601,7 @@ function ScannerSheet({
           </>
         ) : mode === "collect" ? (
           <div className="static-qr-collection">
-            <p>Customer enters the amount in their QRPH payment app.</p>
+            <p>Customer scans this QR and enters the amount in their QRPH payment app.</p>
             <img
               src="/static-qrph.jpg"
               alt="SwiftPay static QRPH merchant code"
@@ -2637,7 +2637,7 @@ function ScannerSheet({
                 <dd>
                   {merchantQr?.amount
                     ? `${merchantQr.currency || "PHP"} ${merchantQr.amount.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`
-                    : "Open amount"}
+                    : "Variable amount"}
                 </dd>
               </div>
               {merchantQr?.city && (
