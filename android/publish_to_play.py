@@ -8,7 +8,7 @@ from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.service_account import Credentials
 
 
-PACKAGE_NAME = "ph.drpay.merchant"
+PACKAGE_NAME = "ph.drpays.merchant"
 TRACK = "internal"
 API_ROOT = "https://androidpublisher.googleapis.com/androidpublisher/v3"
 UPLOAD_ROOT = "https://androidpublisher.googleapis.com/upload/androidpublisher/v3"

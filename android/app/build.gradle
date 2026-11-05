@@ -1,10 +1,10 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace = "ph.drpay.merchant"
+    namespace = "ph.drpays.merchant"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "ph.drpay.merchant"
+        applicationId "ph.drpays.merchant"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode = Integer.parseInt(System.getenv("ANDROID_VERSION_CODE") ?: "1")
