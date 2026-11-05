@@ -651,11 +651,6 @@ h1, h2, p { margin-top: 0; }
 .scanner-hint { position: absolute; inset: auto 10px 12px; color: white; text-align: center; font-size: 9px; text-shadow: 0 1px 3px #000; }
 .camera-retry { margin-left: auto; padding: 3px 5px; flex: 0 0 auto; border: 0; background: transparent; color: inherit; font-size: 8px; font-weight: 800; white-space: nowrap; }
 .scanner-file-input { display: none; }
-.scanner-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 12px; }
-.static-qr-collection { display: grid; justify-items: center; gap: 12px; }
-.static-qr-collection p { margin: 0; color: var(--muted); font-size: 9px; text-align: center; }
-.static-qr-collection img { width: min(100%, 320px); aspect-ratio: 1; border: 1px solid var(--line); border-radius: 12px; object-fit: contain; background: #fff; }
-.static-qr-collection a { display: inline-flex; align-items: center; justify-content: center; gap: 7px; text-decoration: none; }
 .merchant-qr-details { display: grid; justify-items: center; }
 .merchant-qr-icon { width: 52px; height: 52px; display: grid; place-items: center; border-radius: 16px; background: #eaf1fb; color: #1b4f9c; }
 .merchant-qr-details > strong { margin-top: 10px; font-size: 13px; }

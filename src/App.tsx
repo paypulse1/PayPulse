@@ -2354,7 +2354,7 @@ function ScannerSheet({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const uploadRef = useRef<HTMLInputElement>(null)
-  const [mode, setMode] = useState<"scan" | "collect" | "merchant">("scan")
+  const [mode, setMode] = useState<"scan" | "merchant">("scan")
   const [cameraError, setCameraError] = useState("")
   const [cameraRetry, setCameraRetry] = useState(0)
   const [decodingUpload, setDecodingUpload] = useState(false)
@@ -2526,11 +2526,7 @@ function ScannerSheet({
           <div>
             <span className="eyebrow">QR SCANNER</span>
             <h2>
-              {mode === "scan"
-                ? "Scan a QR"
-                : mode === "collect"
-                  ? "QRPH collection"
-                  : "Merchant QR details"}
+              {mode === "scan" ? "Scan a QR" : "Merchant QR details"}
             </h2>
           </div>
           <IconButton label="Close" onClick={onClose}>
@@ -2579,44 +2575,15 @@ function ScannerSheet({
               accept="image/*"
               onChange={(event) => void scanImage(event.target.files?.[0])}
             />
-            <div className="scanner-actions">
-              <Button
-                variant="secondary"
-                disabled={decodingUpload}
-                onClick={() => uploadRef.current?.click()}
-                icon={<Download size={17} />}
-              >
-                Upload a QR
-              </Button>
-              <Button
-                onClick={() => {
-                  setCameraError("")
-                  setMode("collect")
-                }}
-                icon={<QrCode size={17} />}
-              >
-                Generate QR
-              </Button>
-            </div>
-          </>
-        ) : mode === "collect" ? (
-          <div className="static-qr-collection">
-            <p>Customer scans this QR and enters the amount in their QRPH payment app.</p>
-            <img
-              src="/static-qrph.jpg"
-              alt="SwiftPay static QRPH merchant code"
-            />
-            <a
-              className="button button-secondary"
-              href="/static-qrph.jpg"
-              download="swiftpay-static-qrph.jpg"
+            <Button
+              variant="secondary"
+              disabled={decodingUpload}
+              onClick={() => uploadRef.current?.click()}
+              icon={<Download size={17} />}
             >
-              <Download size={16} /> Download QR
-            </a>
-            <Button variant="quiet" onClick={() => setMode("scan")}>
-              Back to scanner
+              Upload a QR
             </Button>
-          </div>
+          </>
         ) : (
           <div className="merchant-qr-details">
             <span className="merchant-qr-icon">
