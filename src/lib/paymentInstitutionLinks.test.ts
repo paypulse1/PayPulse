@@ -19,14 +19,31 @@ test("Alipay institutions use the Alipay+ label and scanner deep link", () => {
   )
 })
 
-test("institutions without a verified app link use the QR fallback", () => {
+test("GCash institutions can open GCash when no provider app link is supplied", () => {
   const institution = {
-    code: "GCASH",
-    name: "GCash",
+    code: "G-XCHANGE INC.",
+    name: "G-Xchange, Inc. (GCash)",
   }
 
   assert.equal(getPaymentInstitutionAppName(institution), "GCash")
-  assert.equal(getPaymentInstitutionDeepLink(institution), undefined)
+  assert.equal(getPaymentInstitutionDeepLink(institution), "gcash://")
+  assert.equal(
+    getPaymentInstitutionDeepLink(institution, "000201+qr&data"),
+    "gcash://qrcode/scan?qrdata=000201%2Bqr%26data",
+  )
+})
+
+test("a verified GCash provider app link takes precedence over the fallback", () => {
+  const institution = {
+    code: "GCASH",
+    name: "GCash",
+    deepLink: "gcash://qr/scan",
+  }
+
+  assert.equal(
+    getPaymentInstitutionDeepLink(institution),
+    "gcash://qr/scan",
+  )
 })
 
 test("provider app links are available for any institution when safely supplied", () => {

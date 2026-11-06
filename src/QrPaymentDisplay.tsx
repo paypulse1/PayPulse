@@ -51,6 +51,9 @@ export function InstitutionLogo({ institution, className = "" }: { institution: 
 export default function QrPaymentDisplay({ value, institution, showBirLogo = false, showBrandNotes = true }: { value?: string; institution?: InstitutionBrand; showBirLogo?: boolean; showBrandNotes?: boolean }) {
   const [image, setImage] = useState("");
   const [error, setError] = useState("");
+  const institutionDeepLink = institution
+    ? getPaymentInstitutionDeepLink(institution, value)
+    : undefined;
 
   useEffect(() => {
     let active = true;
@@ -94,13 +97,15 @@ export default function QrPaymentDisplay({ value, institution, showBirLogo = fal
           />
         )}
       </div>
-      {institution && getPaymentInstitutionDeepLink(institution) ? (
+      {institution && institutionDeepLink ? (
         <div className="qr-app-actions">
           <a
             className="button button-secondary"
-            href={getPaymentInstitutionDeepLink(institution)}
+            href={institutionDeepLink}
           >
-            Open {getPaymentInstitutionAppName(institution)} to scan
+            {getPaymentInstitutionAppName(institution) === "GCash"
+              ? "Pay with Gcash"
+              : `Open ${getPaymentInstitutionAppName(institution)} to scan`}
           </a>
           {showBrandNotes && (
             <p className="qr-brand-note">

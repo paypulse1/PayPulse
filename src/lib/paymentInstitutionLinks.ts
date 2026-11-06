@@ -1,12 +1,26 @@
 import type { InstitutionBrand } from "./swiftpay"
 
-export function getPaymentInstitutionAppName(institution: InstitutionBrand) {
-  return institution.code.trim().toUpperCase() === "ALIPAY"
-    ? "Alipay+"
-    : institution.name
+function isGcashInstitution(institution: InstitutionBrand) {
+  const identity = `${institution.code} ${institution.name}`
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+  return identity.includes("GCASH") || identity.includes("GXCHANGE")
 }
 
-export function getPaymentInstitutionDeepLink(institution: InstitutionBrand) {
+export function getPaymentInstitutionAppName(institution: InstitutionBrand) {
+  if (institution.code.trim().toUpperCase() === "ALIPAY") return "Alipay+"
+  if (isGcashInstitution(institution)) return "GCash"
+  return institution.name
+}
+
+export function getPaymentInstitutionDeepLink(
+  institution: InstitutionBrand,
+  qrPayload?: string,
+) {
+  if (isGcashInstitution(institution) && qrPayload) {
+    return `gcash://qrcode/scan?qrdata=${encodeURIComponent(qrPayload)}`
+  }
+
   const providerLink = institution.deepLink?.trim()
   if (providerLink && isSafePaymentInstitutionDeepLink(providerLink)) {
     return providerLink
@@ -15,6 +29,7 @@ export function getPaymentInstitutionDeepLink(institution: InstitutionBrand) {
   if (institution.code.trim().toUpperCase() === "ALIPAY") {
     return "alipays://platformapi/startapp?appId=20000056"
   }
+  if (isGcashInstitution(institution)) return "gcash://"
   return undefined
 }
 
