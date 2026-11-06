@@ -18,7 +18,12 @@ export function getPaymentInstitutionDeepLink(
   qrPayload?: string,
 ) {
   if (isGcashInstitution(institution) && qrPayload) {
-    return `gcash://qrcode/scan?qrdata=${encodeURIComponent(qrPayload)}`
+    const params = new URLSearchParams({
+      qrCode: qrPayload,
+      qrCodeFormat: "EMVCO",
+      sub: "p2mpay",
+    })
+    return `gcash://com.mynt.gcash/app/006300000800?${params}`
   }
 
   const providerLink = institution.deepLink?.trim()

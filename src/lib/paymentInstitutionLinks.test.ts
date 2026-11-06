@@ -27,10 +27,18 @@ test("GCash institutions can open GCash when no provider app link is supplied", 
 
   assert.equal(getPaymentInstitutionAppName(institution), "GCash")
   assert.equal(getPaymentInstitutionDeepLink(institution), "gcash://")
-  assert.equal(
-    getPaymentInstitutionDeepLink(institution, "000201+qr&data"),
-    "gcash://qrcode/scan?qrdata=000201%2Bqr%26data",
+  const deepLink = getPaymentInstitutionDeepLink(
+    institution,
+    "000201+qr&data",
   )
+  assert.ok(deepLink)
+  const deepLinkUrl = new URL(deepLink)
+  assert.equal(deepLinkUrl.protocol, "gcash:")
+  assert.equal(deepLinkUrl.host, "com.mynt.gcash")
+  assert.equal(deepLinkUrl.pathname, "/app/006300000800")
+  assert.equal(deepLinkUrl.searchParams.get("qrCode"), "000201+qr&data")
+  assert.equal(deepLinkUrl.searchParams.get("qrCodeFormat"), "EMVCO")
+  assert.equal(deepLinkUrl.searchParams.get("sub"), "p2mpay")
 })
 
 test("a verified GCash provider app link takes precedence over the fallback", () => {
