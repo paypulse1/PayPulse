@@ -113,6 +113,12 @@ export default function QrPaymentDisplay({ value, institution, showBirLogo = fal
             </p>
           )}
         </div>
+      ) : institution &&
+        getPaymentInstitutionAppName(institution) === "GCash" &&
+        showBrandNotes ? (
+        <p className="qr-brand-note">
+          Open GCash on another device and scan this QR to pay.
+        </p>
       ) : null}
     </div>
   );
