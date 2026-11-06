@@ -577,7 +577,7 @@ function getConfiguredApiBaseUrl() {
 }
 
 export function getApiBaseUrl() {
-  return getConfiguredApiBaseUrl().replace(/\/$/, "") || window.location.origin
+  return getConfiguredApiBaseUrl().replace(/\/$/, "")
 }
 const SESSION_KEY = "drpay_session"
 export const SESSION_EXPIRED_EVENT = "drpay:session-expired"

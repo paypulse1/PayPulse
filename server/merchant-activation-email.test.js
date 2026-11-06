@@ -21,7 +21,7 @@ describe("merchant activation email", () => {
     )
     expect(email.text).toContain("not included in this email")
     expect(email.text).toContain("payload examples")
-    expect(email.html).toContain("Profile &gt; Developer settings")
+    expect(email.html).toContain("Profile &gt; Developer hub &gt; API access")
     expect(email.html).toContain("Download Postman collection")
     expect(email.text).not.toContain("drp_production_")
     expect(email.html).not.toContain("drp_production_")

@@ -1,5 +1,37 @@
 import { describe, expect, it, vi } from "vitest"
-import { sendTelegramMessage } from "./telegram-notifications.js"
+import {
+  formatAdminTelegramNotification,
+  sendTelegramMessage,
+} from "./telegram-notifications.js"
+
+describe("formatAdminTelegramNotification", () => {
+  it("includes the posted and available merchant wallet balances", () => {
+    const message = formatAdminTelegramNotification(
+      {
+        direction: "IN",
+        merchant_name: "Example Merchant",
+        merchant_email: "merchant@example.com",
+        amount: "125.5",
+        currency: "PHP",
+        reference: "PAY-123",
+        details: "Merchant payment confirmed",
+      },
+      { balance: "1250.5", reserved: "250" },
+    )
+
+    expect(message).toContain("Merchant balance: PHP 1,250.50")
+    expect(message).toContain("Available balance: PHP 1,000.50")
+  })
+
+  it("rejects missing or invalid merchant wallet balances", () => {
+    expect(() =>
+      formatAdminTelegramNotification(
+        { amount: "10", currency: "PHP" },
+        { balance: null, reserved: "0" },
+      ),
+    ).toThrow("The merchant wallet balance is invalid.")
+  })
+})
 
 describe("sendTelegramMessage", () => {
   it("sends a plain-text message to the configured super-admin chat", async () => {

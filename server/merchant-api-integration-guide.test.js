@@ -33,7 +33,7 @@ describe("merchant API integration guide PDF", () => {
     expect(text).toContain("Example Trading Co.")
     expect(text).toContain("SANDBOX")
     expect(text).toContain("https://api.example.test")
-    expect(text).toContain("Profile > Developer settings")
+    expect(text).toContain("Profile > Developer hub > API access")
     expect(text).toContain("It is shown only once")
     expect(text).toContain("Authorization:")
     expect(text).toContain(["Be", "arer"].join(""))

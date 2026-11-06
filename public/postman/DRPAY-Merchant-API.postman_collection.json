@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "a7b6d83d-d44c-4fe2-bd81-09f0a95f05e8",
     "name": "DRPAY Merchant API",
-    "description": "Use a key created by the signed-in merchant in Profile > Developer settings. Keys are environment-specific, shown once, and must be kept server-side. Set baseUrl to the API URL in the activation email or merchant API guide. Only endpoints authorized for merchant-generated API keys are included.",
+    "description": "Use a key created by the signed-in merchant in Profile > Developer hub > API access. Keys are environment-specific, shown once, and must be kept server-side. Set baseUrl to the API URL in the activation email or merchant API guide. Only endpoints authorized for merchant-generated API keys are included.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [

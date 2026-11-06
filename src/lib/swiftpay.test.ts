@@ -260,7 +260,10 @@ test("merchant registration uploads identity documents through a signed private 
             uploadUrl: "https://storage.example.test/signed-upload",
             objectKey: "kyb/document-id",
             fileName: "owner-id.png",
-            headers: { "Content-Type": "image/png" },
+            headers: {
+              "Content-Type": "image/png",
+              "x-amz-meta-document-id": "document-id",
+            },
           }
         : { uploaded: true, documentType: "identity_front" }
       return new Response(JSON.stringify(response), {
@@ -300,6 +303,10 @@ test("merchant registration uploads identity documents through a signed private 
     ],
   )
   assert.equal(requests[1].options?.body, file)
+  assert.deepEqual(requests[1].options?.headers, {
+    "Content-Type": "image/png",
+    "x-amz-meta-document-id": "document-id",
+  })
   assert.deepEqual(JSON.parse(String(requests[2].options?.body)), {
     challengeId: "registration-challenge",
     documentId: "document-id",
@@ -308,5 +315,62 @@ test("merchant registration uploads identity documents through a signed private 
     fileName: "owner-id.png",
     contentType: "image/png",
     sizeBytes: file.size,
+  })
+})
+
+test("merchant KYB uploads send the signed document metadata header", async () => {
+  vi.stubEnv("VITE_DRPAY_BACKEND_URL", "https://api.example.test")
+  vi.stubGlobal("window", {
+    location: {
+      hostname: "localhost",
+      origin: "http://localhost",
+    },
+  })
+  installSessionStorage(new MockStorage())
+  saveSession({
+    accessToken: "merchant-token",
+    expiresAt: Date.now() + 60_000,
+    email: "merchant@example.com",
+    role: "merchant",
+  })
+  const requests: Array<{ url: string; options?: RequestInit }> = []
+  vi.stubGlobal(
+    "fetch",
+    async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = input.toString()
+      requests.push({ url, options })
+      if (url === "https://storage.example.test/signed-upload")
+        return new Response(null, { status: 200 })
+      const response = url.endsWith("/presign")
+        ? {
+            documentId: "kyb-document-id",
+            uploadUrl: "https://storage.example.test/signed-upload",
+            objectKey: "kyb/kyb-document-id",
+            fileName: "business-registration.png",
+            headers: {
+              "Content-Type": "image/png",
+              "x-amz-meta-document-id": "kyb-document-id",
+            },
+          }
+        : { uploaded: true, documentType: "business_registration" }
+      return new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    },
+  )
+
+  const { uploadKybDocument } = await import("./swiftpay.ts")
+  const file = new File(["business document"], "business-registration.png", {
+    type: "image/png",
+  })
+  assert.deepEqual(await uploadKybDocument("business_registration", file), {
+    uploaded: true,
+    documentType: "business_registration",
+  })
+  assert.equal(requests[1].options?.body, file)
+  assert.deepEqual(requests[1].options?.headers, {
+    "Content-Type": "image/png",
+    "x-amz-meta-document-id": "kyb-document-id",
   })
 })

@@ -12,7 +12,7 @@ export function createMerchantActivationEmail({
     greeting: contactPerson,
     paragraphs: [
       `Your DRPAY merchant account for ${businessName} has completed its activation requirements.`,
-      "The Merchant API Integration Guide includes authentication and request/response payload examples. Generate your own environment-specific API key in Profile > Developer settings. The key is shown once and is not included in this email.",
+      "The Merchant API Integration Guide includes authentication and request/response payload examples. Generate your own environment-specific API key in Profile > Developer hub > API access. The key is shown once and is not included in this email.",
       "Store the key securely on your server. Never expose it in browser or mobile app code.",
     ],
     documents: [
@@ -46,7 +46,7 @@ export function createMerchantApiGuideEmail({
     greeting: contactPerson,
     paragraphs: [
       "As requested, the Merchant API Integration Guide and Postman collection are attached.",
-      "Generate your own environment-specific API key in Profile > Developer settings. The key is shown once and is not included in this email.",
+      "Generate your own environment-specific API key in Profile > Developer hub > API access. The key is shown once and is not included in this email.",
       "Store the key securely on your server. Never expose it in browser or mobile app code.",
     ],
     documents: [

@@ -1,3 +1,50 @@
+function formatTelegramMoney(value, maximumFractionDigits = 2) {
+  if (value === null || value === undefined || value === "") {
+    throw new Error("The merchant wallet balance is invalid.")
+  }
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) {
+    throw new Error("The merchant wallet balance is invalid.")
+  }
+  return amount.toLocaleString("en-PH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits,
+  })
+}
+
+export function formatAdminTelegramNotification(notification, walletState) {
+  if (
+    walletState?.balance === null ||
+    walletState?.balance === undefined ||
+    walletState?.reserved === null ||
+    walletState?.reserved === undefined
+  ) {
+    throw new Error("The merchant wallet balance is invalid.")
+  }
+  const balance = Number(walletState.balance)
+  const reserved = Number(walletState.reserved)
+  if (!Number.isFinite(balance) || !Number.isFinite(reserved)) {
+    throw new Error("The merchant wallet balance is invalid.")
+  }
+  const amount = formatTelegramMoney(
+    notification.amount,
+    notification.currency === "USDT" ? 6 : 2,
+  )
+  const availableBalance = formatTelegramMoney(balance - reserved)
+
+  return [
+    "DRPAY merchant transaction",
+    `Direction: ${notification.direction === "IN" ? "INCOMING" : "OUTGOING"}`,
+    `Merchant: ${notification.merchant_name}`,
+    `Merchant email: ${notification.merchant_email}`,
+    `Amount: ${notification.currency} ${amount}`,
+    `Merchant balance: PHP ${formatTelegramMoney(balance)}`,
+    `Available balance: PHP ${availableBalance}`,
+    `Reference: ${notification.reference}`,
+    `Details: ${notification.details}`,
+  ].join("\n")
+}
+
 export async function sendTelegramMessage({
   botToken,
   chatId,

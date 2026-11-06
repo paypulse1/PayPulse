@@ -45,3 +45,18 @@ test("uses the Railway production API when no live API URL is configured", async
     "https://drpay-merchant-production.up.railway.app",
   )
 })
+
+test("does not use the frontend origin as an unconfigured API base URL", async () => {
+  vi.stubEnv("VITE_DRPAY_BACKEND_URL", "")
+  vi.stubEnv("VITE_DRPAY_LIVE_BACKEND_URL", "")
+  vi.stubEnv("VITE_DRPAY_SANDBOX_BACKEND_URL", "")
+  vi.stubGlobal("window", {
+    location: {
+      hostname: "localhost",
+      origin: "http://localhost:8443",
+    },
+  })
+
+  const { getApiBaseUrl } = await import("./swiftpay.ts")
+  assert.equal(getApiBaseUrl(), "")
+})

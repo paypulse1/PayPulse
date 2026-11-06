@@ -214,7 +214,7 @@ export async function createMerchantApiIntegrationGuidePdf({
 
   drawHeading("1. Generate your own merchant API key")
   drawParagraph(
-    "Sign in to your active merchant account, open Profile > Developer settings, create a named API key, and select the permissions your integration needs. Choose read to retrieve wallet information and payment status; choose payments:write to create payment links. Select both for the examples in this guide.",
+    "Sign in to your active merchant account, open Profile > Developer hub > API access, create a named API key, and select the permissions your integration needs. Choose read to retrieve wallet information and payment status; choose payments:write to create payment links. Select both for the examples in this guide.",
   )
   drawParagraph(
     "The key is generated for your merchant account and this payment environment. It is shown only once. Store it in your server-side secret manager; never send it in email, browser code, mobile app code, or source control. DRPAY does not include an API key in this message.",
