@@ -48,11 +48,11 @@ export function InstitutionLogo({ institution, className = "" }: { institution: 
   );
 }
 
-export default function QrPaymentDisplay({ value, institution, showBirLogo = false, showBrandNotes = true }: { value?: string; institution?: InstitutionBrand; showBirLogo?: boolean; showBrandNotes?: boolean }) {
+export default function QrPaymentDisplay({ value, institution, amount, showBirLogo = false, showBrandNotes = true }: { value?: string; institution?: InstitutionBrand; amount?: number; showBirLogo?: boolean; showBrandNotes?: boolean }) {
   const [image, setImage] = useState("");
   const [error, setError] = useState("");
   const institutionDeepLink = institution
-    ? getPaymentInstitutionDeepLink(institution, value)
+    ? getPaymentInstitutionDeepLink(institution, value, amount)
     : undefined;
 
   useEffect(() => {
