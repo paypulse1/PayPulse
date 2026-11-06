@@ -18,6 +18,9 @@ import {
   type MerchantWebhookSettings,
   type WebhookDelivery,
 } from "./lib/swiftpay";
+import MerchantApiDocumentation, {
+  type PaymentEnvironment,
+} from "./MerchantApiDocumentation";
 
 function Button({
   children,
@@ -405,6 +408,68 @@ export function DeveloperSetupPanel({ refreshVersion }: { refreshVersion: number
       )}
       {signingSecret && <div className="setup-secret"><strong>Copy this signing secret now</strong><code>{signingSecret}</code></div>}
       <p className="profile-info-note"><a href="/postman/DRPAY-Merchant-API.postman_collection.json" download>Download the Postman collection</a> · API base URL: <code>{getApiBaseUrl()}</code></p>
+    </div>
+  );
+}
+
+export function DeveloperCenter({
+  refreshVersion,
+  apiBaseUrl,
+  paymentEnvironment,
+}: {
+  refreshVersion: number;
+  apiBaseUrl: string;
+  paymentEnvironment: PaymentEnvironment;
+}) {
+  const [activeTab, setActiveTab] = useState<"access" | "guide">("access");
+
+  return (
+    <div className="developer-center">
+      <div className="developer-center-intro">
+        <strong>Developer hub</strong>
+        <p>Manage your API credentials and webhooks, or follow the integration guide.</p>
+      </div>
+      <nav className="developer-center-tabs" aria-label="Developer tools">
+        <button
+          id="developer-access-tab"
+          className="developer-center-tab"
+          type="button"
+          aria-pressed={activeTab === "access"}
+          aria-controls="developer-access-panel"
+          onClick={() => setActiveTab("access")}
+        >
+          API access
+        </button>
+        <button
+          id="developer-guide-tab"
+          className="developer-center-tab"
+          type="button"
+          aria-pressed={activeTab === "guide"}
+          aria-controls="developer-guide-panel"
+          onClick={() => setActiveTab("guide")}
+        >
+          Integration guide
+        </button>
+      </nav>
+      <div
+        id="developer-access-panel"
+        className="developer-center-panel"
+        aria-label="API access"
+        hidden={activeTab !== "access"}
+      >
+        <DeveloperSetupPanel refreshVersion={refreshVersion} />
+      </div>
+      <div
+        id="developer-guide-panel"
+        className="developer-center-panel"
+        aria-label="Integration guide"
+        hidden={activeTab !== "guide"}
+      >
+        <MerchantApiDocumentation
+          apiBaseUrl={apiBaseUrl}
+          paymentEnvironment={paymentEnvironment}
+        />
+      </div>
     </div>
   );
 }

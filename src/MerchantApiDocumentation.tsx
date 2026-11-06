@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react"
 import { Copy } from "lucide-react"
 
-type PaymentEnvironment = "production" | "sandbox"
+export type PaymentEnvironment = "production" | "sandbox"
 
 function ApiCodeBlock({ title, code }: { title: string; code: string }) {
   const [copyState, setCopyState] = useState("")
@@ -99,6 +99,7 @@ export default function MerchantApiDocumentation({
   apiBaseUrl: string
   paymentEnvironment: PaymentEnvironment
 }) {
+  const configuredApiBaseUrl = apiBaseUrl.trim()
   const isProduction = paymentEnvironment === "production"
   const environmentLabel = isProduction
     ? "Production / live money"
@@ -131,7 +132,7 @@ export default function MerchantApiDocumentation({
 
       <DocsSection title="1. Set up API access">
         <p>
-          Create a key in <strong>Profile → Developer settings</strong>. Use{" "}
+          Create a key in <strong>Profile → Developer hub → API access</strong>. Use{" "}
           <code>read</code> to retrieve your wallet and activity. Use{" "}
           <code>payments:write</code> to create collections; choose both scopes
           to use the complete integration. Keys are environment-specific.
@@ -145,24 +146,35 @@ export default function MerchantApiDocumentation({
         </p>
         <div className="api-docs-base">
           <span>API base URL for this session</span>
-          <code>{apiBaseUrl}</code>
+          <code>{configuredApiBaseUrl || "Not configured"}</code>
           <small>Environment: {environmentLabel}</small>
         </div>
-        <p>
-          Use the base URL shown above for this environment. Store the key in
-          your server&apos;s secret manager and send it as a bearer token over
-          HTTPS. Never put the key or SwiftPay credentials in browser code, a
-          mobile app, source control, or client-side environment variables.
-        </p>
+        {configuredApiBaseUrl ? (
+          <p>
+            Use the base URL shown above for this environment. Store the key in
+            your server&apos;s secret manager and send it as a bearer token over
+            HTTPS. Never put the key or SwiftPay credentials in browser code, a
+            mobile app, source control, or client-side environment variables.
+          </p>
+        ) : (
+          <p role="status">
+            The API base URL is not configured for this app. Set
+            VITE_DRPAY_BACKEND_URL or the matching live/sandbox backend URL in
+            the frontend build environment before using these integration
+            examples.
+          </p>
+        )}
         <ApiCodeBlock
           title="Authorization header"
           code={`Authorization: Bearer $DRPAY_API_KEY`}
         />
-        <ApiCodeBlock
-          title="Server environment variables"
-          code={`DRPAY_API_BASE_URL=${apiBaseUrl}
+        {configuredApiBaseUrl && (
+          <ApiCodeBlock
+            title="Server environment variables"
+            code={`DRPAY_API_BASE_URL=${configuredApiBaseUrl}
 DRPAY_API_KEY=your_environment_specific_key`}
-        />
+          />
+        )}
       </DocsSection>
 
       <DocsSection title="2. Read wallet balance">
@@ -370,7 +382,7 @@ export async function createInvoiceCheckout({ amount, invoiceId, customerEmail }
       <DocsSection title="Payment webhooks">
         <p>
           Configure a public HTTPS webhook in{" "}
-          <strong>Profile → Developer settings</strong> to receive{" "}
+          <strong>Profile → Developer hub → API access</strong> to receive{" "}
           <code>payment.succeeded</code> and <code>payment.failed</code> events.
           Verify <code>DRPAY-Signature</code> using HMAC-SHA256 over the exact
           raw request body and your webhook signing secret. Deduplicate by event{" "}

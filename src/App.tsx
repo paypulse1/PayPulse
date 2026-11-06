@@ -135,8 +135,7 @@ import LegalPage, { getLegalPage, supportEmail } from "./LegalPages"
 import { APP_ROUTES } from "./lib/routes"
 import QrPaymentDisplay, { InstitutionLogo } from "./QrPaymentDisplay"
 import InstitutionSelectionScreen from "./InstitutionSelectionScreen"
-import { DeveloperSetupPanel, KybSetupPanel } from "./MerchantSetup"
-import MerchantApiDocumentation from "./MerchantApiDocumentation"
+import { DeveloperCenter, KybSetupPanel } from "./MerchantSetup"
 import { Brand, Button, IconButton } from "./AppPrimitives"
 import AppNavigation, { type AppTab } from "./AppNavigation"
 import AccessibleDialog from "./AccessibleDialog"
@@ -4298,16 +4297,10 @@ function MoreView({
       action: () => onInfo("KYB verification"),
     },
     {
-      label: "Developer settings",
-      description: "Manage API keys, webhooks, and callbacks.",
+      label: "Developer hub",
+      description: "Manage API access, webhooks, and integration docs.",
       icon: KeyRound,
-      action: () => onInfo("Developer settings"),
-    },
-    {
-      label: "API documentation",
-      description: "Read the merchant integration guide.",
-      icon: Settings,
-      action: () => onInfo("API documentation"),
+      action: () => onInfo("Developer hub"),
     },
     {
       label: "Help center",
@@ -4983,12 +4976,9 @@ function ProfileInfoPage({
         <KybSetupPanel refreshVersion={refreshVersion} />
       )}
 
-      {title === "Developer settings" && (
-        <DeveloperSetupPanel refreshVersion={refreshVersion} />
-      )}
-
-      {title === "API documentation" && (
-        <MerchantApiDocumentation
+      {title === "Developer hub" && (
+        <DeveloperCenter
+          refreshVersion={refreshVersion}
           apiBaseUrl={getApiBaseUrl()}
           paymentEnvironment={data.paymentEnvironment}
         />
