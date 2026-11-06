@@ -34,6 +34,7 @@ import {
   createPaymentReceiptPdf,
 } from "./payment-documents.js"
 import {
+  getBearerToken,
   hasApiKeyPermission,
   isMerchantSession,
   isOperationsSession,
@@ -70,7 +71,11 @@ import {
   canManuallyConfirmPayment,
   createPaymentStateService,
 } from "./payment-state.js"
-import { sendTelegramMessage } from "./telegram-notifications.js"
+import {
+  formatAdminTelegramNotification,
+  sendTelegramMessage,
+} from "./telegram-notifications.js"
+import { createPinnedLookup } from "./pinned-lookup.js"
 
 const { Pool } = pg
 const platformFeeLedgerSourceTypesSql = PLATFORM_FEE_LEDGER_SOURCE_TYPES.map(
@@ -1061,24 +1066,15 @@ async function dispatchAdminTelegramNotifications() {
      LIMIT 25`,
   )
   for (const notification of pending.rows) {
-    const amount = Number(notification.amount).toLocaleString("en-PH", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: notification.currency === "USDT" ? 6 : 2,
-    })
-    const message = [
-      "DRPAY merchant transaction",
-      `Direction: ${notification.direction === "IN" ? "INCOMING" : "OUTGOING"}`,
-      `Merchant: ${notification.merchant_name}`,
-      `Merchant email: ${notification.merchant_email}`,
-      `Amount: ${notification.currency} ${amount}`,
-      `Reference: ${notification.reference}`,
-      `Details: ${notification.details}`,
-    ].join("\n")
     try {
+      const walletState = await getMerchantWalletState(
+        pool,
+        notification.merchant_email,
+      )
       await sendTelegramMessage({
         botToken: telegramBotToken,
         chatId: telegramChatId,
-        text: message,
+        text: formatAdminTelegramNotification(notification, walletState),
       })
       await pool.query(
         "UPDATE admin_telegram_notifications SET sent_at = NOW(), attempts = attempts + 1 WHERE id = $1",
@@ -2095,17 +2091,18 @@ function paymentStatusFromResponse(data) {
 }
 
 async function requireMerchant(req, res, next) {
-  const match = /^Bearer (.+)$/.exec(req.get("authorization") || "")
-  if (!match || !jwtSecret)
+  const authorization = req.get("authorization")
+  const bearerToken = getBearerToken(authorization)
+  if (!bearerToken || !jwtSecret)
     return res.status(401).json({ error: "Sign in is required." })
-  if (match[1].startsWith("drp_")) {
-    if (!match[1].startsWith(`drp_${swiftPayEnvironment}_`)) {
+  if (bearerToken.startsWith("drp_")) {
+    if (!bearerToken.startsWith(`drp_${swiftPayEnvironment}_`)) {
       return res.status(401).json({
         error:
           "The API key is invalid or belongs to another payment environment.",
       })
     }
-    const keyHash = createHash("sha256").update(match[1]).digest("hex")
+    const keyHash = createHash("sha256").update(bearerToken).digest("hex")
     const result = await pool.query(
       `SELECT k.id, k.merchant_email, k.scopes, a.active
        FROM merchant_api_keys k JOIN merchant_accounts a ON a.email = k.merchant_email
@@ -2138,7 +2135,7 @@ async function requireMerchant(req, res, next) {
   }
   let payload
   try {
-    ;({ payload } = await jwtVerify(match[1], jwtSecret, {
+    ;({ payload } = await jwtVerify(bearerToken, jwtSecret, {
       algorithms: ["HS256"],
     }))
   } catch {
@@ -2258,8 +2255,7 @@ function sendWebhookRequest(url, payload, signature) {
             path: `${parsed.pathname}${parsed.search}`,
             method: "POST",
             servername: parsed.hostname,
-            lookup: (_hostname, _options, callback) =>
-              callback(null, address, isIP(address)),
+            lookup: createPinnedLookup(address),
             headers: {
               "Content-Type": "application/json",
               "Content-Length": Buffer.byteLength(body),
@@ -2811,7 +2807,10 @@ app.post(
         uploadUrl,
         objectKey,
         fileName: safeName,
-        headers: { "Content-Type": contentType },
+        headers: {
+          "Content-Type": contentType,
+          "x-amz-meta-document-id": documentId,
+        },
         expiresInSeconds: 300,
       })
     } catch (error) {
@@ -6314,7 +6313,10 @@ app.post("/v1/kyb/documents/presign", async (req, res) => {
       uploadUrl,
       objectKey,
       fileName: safeName,
-      headers: { "Content-Type": contentType },
+      headers: {
+        "Content-Type": contentType,
+        "x-amz-meta-document-id": documentId,
+      },
       expiresInSeconds: 300,
     })
   } catch (error) {

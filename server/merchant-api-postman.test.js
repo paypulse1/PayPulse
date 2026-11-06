@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
-import { hasApiKeyPermission } from "./access.js"
+import { getBearerToken, hasApiKeyPermission } from "./access.js"
 
 const collectionPath = fileURLToPath(
   new URL(
@@ -31,6 +31,14 @@ describe("merchant API Postman collection", () => {
         `${method} ${path}`,
       ).toBe(true)
     }
+  })
+
+  it("parses bearer tokens from the authorization header without accepting other schemes", () => {
+    expect(getBearerToken("Bearer drp_sandbox_1234567890abcdef")).toBe(
+      "drp_sandbox_1234567890abcdef",
+    )
+    expect(getBearerToken("  bearer   token.value  ")).toBe("token.value")
+    expect(getBearerToken("Basic secret")).toBeNull()
   })
 
   it("does not export an API key in the collection variables", async () => {

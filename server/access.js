@@ -8,6 +8,12 @@ const apiKeyReadPaths = new Set([
   "/payment-institutions",
 ])
 
+export function getBearerToken(authorizationHeader) {
+  if (typeof authorizationHeader !== "string") return null
+  const match = /^Bearer\s+(.+)$/i.exec(authorizationHeader.trim())
+  return match ? match[1] : null
+}
+
 export function isMerchantSession(payload) {
   return (
     typeof payload?.sub === "string" &&
