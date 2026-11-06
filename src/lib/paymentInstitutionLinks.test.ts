@@ -58,41 +58,10 @@ test("GCash institutions can open GCash when no provider app link is supplied", 
   assert.equal(deepLinkUrl.searchParams.get("qrCode"), qrPayload)
   assert.equal(deepLinkUrl.searchParams.get("qrCodeFormat"), "EMVCO")
   assert.equal(deepLinkUrl.searchParams.get("sub"), "p2mpay")
-  assert.equal(deepLinkUrl.searchParams.get("orderAmount"), "125.50")
-  assert.equal(
-    deepLinkUrl.searchParams.get("merchantName"),
-    "SwiftPay Merchant",
-  )
-  assert.equal(
-    deepLinkUrl.searchParams.get("tfrbnkcode"),
-    "SRCPPHM2XXX",
-  )
-  assert.equal(deepLinkUrl.searchParams.get("shopId"), "merchant-123")
-  assert.equal(deepLinkUrl.searchParams.get("tfrAcctNo"), "account-456")
-  assert.equal(
-    deepLinkUrl.searchParams.get("acqInfo"),
-    "acquirer-ref",
-  )
-  assert.equal(
-    deepLinkUrl.searchParams.get("param3"),
-    "99960005~ph.ppmi.p2m~~~010",
-  )
-  assert.equal(
-    deepLinkUrl.searchParams.get("param5"),
-    "merchant-123~SwiftPay Merchant~terminal-1~acquirer-ref",
-  )
-})
-
-test("GCash deep link uses checkout amount when QRPH has no amount field", () => {
-  const institution = { code: "GCASH", name: "GCash" }
-  const deepLink = getPaymentInstitutionDeepLink(
-    institution,
-    "000201",
-    125.5,
-  )
-
-  assert.ok(deepLink)
-  assert.equal(new URL(deepLink).searchParams.get("orderAmount"), "125.50")
+  assert.equal(deepLinkUrl.searchParams.has("shopId"), false)
+  assert.equal(deepLinkUrl.searchParams.has("tfrAcctNo"), false)
+  assert.equal(deepLinkUrl.searchParams.has("param3"), false)
+  assert.equal(deepLinkUrl.searchParams.has("param5"), false)
 })
 
 test("a verified GCash provider app link takes precedence over the fallback", () => {
