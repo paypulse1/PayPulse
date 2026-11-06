@@ -1018,6 +1018,43 @@ h1, h2, p { margin-top: 0; }
 .auth-login-card .button-primary { box-shadow: 0 7px 15px rgb(11 31 58 / 14%); }
 .auth-login-card .button-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 10px 20px rgb(11 31 58 / 18%); }
 .auth-login-card .authorization-back { min-height: 34px; font-size: 11px; }
+.auth-registration-link { width: 100%; margin-top: 16px; padding: 14px 8px; border: 0; border-top: 1px solid var(--line); background: transparent; color: var(--muted); font: inherit; font-size: 11px; cursor: pointer; }
+.auth-registration-link strong { color: #1b4f9c; }
+.registration-progress { margin: 0 0 22px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; color: #8794a5; font-size: 9px; font-weight: 700; }
+.registration-progress > span { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 5px; white-space: nowrap; }
+.registration-progress b { width: 23px; height: 23px; display: grid; place-items: center; border: 1px solid #d4deea; border-radius: 50%; font-size: 9px; }
+.registration-progress small { overflow: hidden; max-width: 100%; font-size: 8px; text-overflow: ellipsis; }
+.registration-progress > span.current { color: #1b4f9c; }
+.registration-progress > span.current b, .registration-progress > span.complete b { border-color: #1b4f9c; background: #e6eef8; color: #1b4f9c; }
+.registration-step-hint { color: var(--muted); font-size: 10px; line-height: 1.5; }
+.merchant-registration-card form { gap: 11px; }
+.merchant-registration-card select, .merchant-registration-card textarea { width: 100%; min-height: 49px; padding: 12px 13px; border: 1px solid var(--line); border-radius: 11px; outline: 0; background: var(--surface-soft); font: inherit; font-size: 11px; }
+.merchant-registration-card select:focus, .merchant-registration-card textarea:focus { border-color: #1b4f9c; box-shadow: 0 0 0 3px #e6eef8; }
+.merchant-registration-card textarea { resize: vertical; }
+.registration-document-note { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.registration-documents { display: grid; gap: 9px; }
+.registration-document { padding: 12px; display: grid; gap: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
+.registration-document-heading { min-width: 0; display: flex; align-items: center; gap: 9px; }
+.registration-document-icon { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 10px; background: #e6eef8; color: #1b4f9c; }
+.registration-document-heading > span:nth-child(2) { min-width: 0; flex: 1; display: grid; gap: 3px; }
+.registration-document-heading strong { font-size: 10px; }
+.registration-document-heading small, .registration-uploaded-name { color: var(--muted); font-size: 9px; line-height: 1.4; overflow-wrap: anywhere; }
+.registration-document-status { flex: 0 0 auto; color: var(--muted); font-size: 8px; font-weight: 800; }
+.registration-document-status.required { color: #9a6500; }
+.registration-document-status.uploaded { color: var(--success); }
+.registration-uploaded-name { padding-left: 43px; }
+.registration-document-action { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.registration-document-action input { min-width: 0; height: auto; flex: 1; padding: 6px; font-size: 10px; }
+.registration-document-action .button { width: auto; min-height: 38px; flex: 0 0 auto; font-size: 10px; }
+.merchant-registration-card .auth-trust { margin-top: 15px; }
+.registration-complete { display: grid; gap: 14px; }
+.registration-complete-icon { width: 52px; height: 52px; display: grid; place-items: center; border-radius: 16px; background: var(--success-soft); color: var(--success); }
+.registration-complete h1 { margin: 0; }
+.registration-complete > p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.65; overflow-wrap: anywhere; }
+.registration-review-note { padding: 13px; display: flex; align-items: flex-start; gap: 10px; border: 1px solid #f1dfb8; border-radius: 12px; background: #fffaf0; color: #9a6500; }
+.registration-review-note > span { display: grid; gap: 4px; }
+.registration-review-note strong { font-size: 10px; }
+.registration-review-note small { color: #786642; font-size: 9px; line-height: 1.5; }
 .auth-login-card .auth-trust { margin-top: 21px; font-size: 10px; line-height: 1.6; }
 .auth-login-panel .auth-powered-by { width: min(100%, 430px); margin-top: 17px; padding-block: 11px 9px; }
 @media (max-width: 760px) {
@@ -1035,6 +1072,9 @@ h1, h2, p { margin-top: 0; }
   .auth-login-screen { padding: 8px; }
   .auth-login-panel { padding-inline: 12px; }
   .auth-login-card { padding: 18px; }
+  .registration-progress { gap: 2px; }
+  .registration-progress b { width: 19px; height: 19px; font-size: 8px; }
+  .registration-progress small { font-size: 7px; }
   .auth-powered-by { padding-inline: 14px; }
 }
 @media (max-height: 760px) and (min-width: 761px) {

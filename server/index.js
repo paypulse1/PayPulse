@@ -105,6 +105,7 @@ app.use(
           "https://drpay-merchant-production.up.railway.app",
           "https://api.live.denpay.cc",
           "https://api.sandbox.denpay.cc",
+          "https://*.r2.cloudflarestorage.com",
         ],
       },
     },
@@ -260,6 +261,18 @@ const maxInstapayAmount = 50_000
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 10,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+})
+const registrationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+})
+const registrationOtpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
   standardHeaders: "draft-8",
   legacyHeaders: false,
 })
@@ -481,7 +494,7 @@ async function sendMerchantOtp(email, code) {
     "DRPAY",
     "",
     "Confirm it's you",
-    `Use this one-time code to securely verify your device: ${code}`,
+    `Use this one-time code to securely verify your DRPAY account or trusted device: ${code}`,
     "",
     "This code expires in 10 minutes. For your security, never share it with anyone. DRPAY will never ask you to share a verification code.",
     "",
@@ -494,7 +507,7 @@ async function sendMerchantOtp(email, code) {
         <div style="padding:32px;background:#ffffff;border:1px solid #e2e9e4;border-radius:16px">
           <div style="margin-bottom:10px;color:#5d7867;font-size:11px;font-weight:700;letter-spacing:1.5px">SECURITY VERIFICATION</div>
           <h1 style="margin:0 0 12px;font-size:24px;line-height:1.3">Confirm it’s you</h1>
-          <p style="margin:0;color:#58665e;font-size:14px;line-height:1.6">Enter this one-time code in DRPAY to verify your device.</p>
+          <p style="margin:0;color:#58665e;font-size:14px;line-height:1.6">Enter this one-time code in DRPAY to verify your account or trusted device.</p>
           <div style="margin:26px 0;padding:19px 12px;background:#f4f8f5;border:1px solid #e2e9e4;border-radius:12px;text-align:center">
             <div style="color:#163c2a;font-size:32px;font-weight:700;letter-spacing:9px">${code}</div>
           </div>
@@ -1256,6 +1269,8 @@ async function initializeDatabase() {
     );
     ALTER TABLE merchant_accounts
       ADD COLUMN IF NOT EXISTS invitation_accepted_at TIMESTAMPTZ;
+    ALTER TABLE merchant_accounts
+      ADD COLUMN IF NOT EXISTS registration_pending BOOLEAN NOT NULL DEFAULT FALSE;
     CREATE TABLE IF NOT EXISTS merchant_usdt_wallets (
       merchant_email TEXT PRIMARY KEY REFERENCES merchant_accounts(email) ON DELETE CASCADE ON UPDATE CASCADE,
       address TEXT NOT NULL UNIQUE,
@@ -1312,6 +1327,37 @@ async function initializeDatabase() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS merchant_email_otps_expiry_idx ON merchant_email_otps (expires_at);
+    CREATE TABLE IF NOT EXISTS merchant_registration_otps (
+      id UUID PRIMARY KEY,
+      email TEXT NOT NULL,
+      phone_number TEXT NOT NULL,
+      code_hash TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      expires_at TIMESTAMPTZ NOT NULL,
+      verified_at TIMESTAMPTZ,
+      consumed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    ALTER TABLE merchant_registration_otps
+      DROP COLUMN IF EXISTS business_name,
+      DROP COLUMN IF EXISTS contact_person,
+      DROP COLUMN IF EXISTS business_address;
+    ALTER TABLE merchant_registration_otps
+      ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ;
+    CREATE INDEX IF NOT EXISTS merchant_registration_otps_email_created_idx
+      ON merchant_registration_otps (email, created_at DESC);
+    CREATE TABLE IF NOT EXISTS merchant_registration_documents (
+      id UUID PRIMARY KEY,
+      challenge_id UUID NOT NULL REFERENCES merchant_registration_otps(id) ON DELETE CASCADE,
+      document_type TEXT NOT NULL CHECK (document_type IN ('business_registration', 'identity_front', 'identity_back', 'proof_of_address')),
+      object_key TEXT NOT NULL UNIQUE,
+      file_name TEXT NOT NULL,
+      content_type TEXT NOT NULL,
+      size_bytes BIGINT NOT NULL CHECK (size_bytes > 0 AND size_bytes <= 10485760),
+      completed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (challenge_id, document_type)
+    );
     CREATE TABLE IF NOT EXISTS merchant_devices (
       email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
       device_token_hash TEXT NOT NULL,
@@ -2505,6 +2551,620 @@ app.post("/v1/auth/login", loginLimiter, async (req, res) => {
   return res
     .set("Cache-Control", "no-store")
     .json({ accessToken, expiresInSeconds, email, role: "super_admin" })
+})
+
+app.post(
+  "/v1/auth/registration/otp/request",
+  registrationOtpLimiter,
+  async (req, res) => {
+  const email =
+    typeof req.body?.email === "string"
+      ? req.body.email.trim().toLowerCase()
+      : ""
+  const phoneNumber =
+    typeof req.body?.phoneNumber === "string"
+      ? req.body.phoneNumber.trim()
+      : ""
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+    return res.status(400).json({ error: "Enter a valid email address." })
+  }
+  if (!/^\+?[0-9()\-\s]{7,40}$/.test(phoneNumber)) {
+    return res.status(400).json({
+      error: "Enter a valid mobile number.",
+    })
+  }
+  const account = await pool.query(
+    "SELECT email FROM merchant_accounts WHERE email = $1",
+    [email],
+  )
+  if (account.rowCount) {
+    return res.status(409).json({
+      error: "An account or registration already exists for this email.",
+    })
+  }
+  await pool.query(
+    "DELETE FROM merchant_registration_otps WHERE created_at < NOW() - INTERVAL '24 hours'",
+  )
+  const recentRequest = await pool.query(
+    `SELECT id FROM merchant_registration_otps
+     WHERE email = $1 AND created_at > NOW() - INTERVAL '60 seconds'
+     ORDER BY created_at DESC LIMIT 1`,
+    [email],
+  )
+  if (recentRequest.rowCount) {
+    return res.set("Cache-Control", "no-store").json({
+      challengeId: recentRequest.rows[0].id,
+      message: "A verification code has already been sent. Check your email.",
+    })
+  }
+  const recentRequests = await pool.query(
+    `SELECT COUNT(*)::int AS count FROM merchant_registration_otps
+     WHERE email = $1 AND created_at > NOW() - INTERVAL '15 minutes'`,
+    [email],
+  )
+  if (recentRequests.rows[0].count >= 5) {
+    return res.status(429).json({
+      error: "Too many verification codes requested. Try again in 15 minutes.",
+    })
+  }
+  const challengeId = randomUUID()
+  const code = String(randomInt(100_000, 1_000_000))
+  const codeHash = createHmac("sha256", jwtSecretValue)
+    .update(`${challengeId}:${email}:${code}`)
+    .digest("hex")
+  await pool.query(
+    `UPDATE merchant_registration_otps SET consumed_at = NOW()
+     WHERE email = $1 AND consumed_at IS NULL`,
+    [email],
+  )
+  await pool.query(
+    `INSERT INTO merchant_registration_otps
+       (id, email, phone_number, code_hash, expires_at)
+     VALUES ($1, $2, $3, $4, NOW() + INTERVAL '10 minutes')`,
+    [challengeId, email, phoneNumber, codeHash],
+  )
+  try {
+    await sendMerchantOtp(email, code)
+  } catch {
+    await pool.query("DELETE FROM merchant_registration_otps WHERE id = $1", [
+      challengeId,
+    ])
+    return res.status(503).json({
+      error: "Verification email could not be sent. Try again later.",
+    })
+  }
+  return res
+    .set("Cache-Control", "no-store")
+    .json({ challengeId, message: "A verification code has been sent." })
+})
+
+app.post(
+  "/v1/auth/registration/otp/verify",
+  registrationLimiter,
+  async (req, res) => {
+  const email =
+    typeof req.body?.email === "string"
+      ? req.body.email.trim().toLowerCase()
+      : ""
+  const code = typeof req.body?.code === "string" ? req.body.code.trim() : ""
+  const challengeId =
+    typeof req.body?.challengeId === "string" ? req.body.challengeId : ""
+  if (
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+    email.length > 254 ||
+    !/^\d{6}$/.test(code) ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      challengeId,
+    )
+  ) {
+    return res
+      .status(400)
+      .json({ error: "Enter the six-digit email verification code." })
+  }
+  const client = await pool.connect()
+  try {
+    await client.query("BEGIN")
+    const challenge = await client.query(
+      `SELECT code_hash
+       FROM merchant_registration_otps
+       WHERE id = $1 AND email = $2 AND consumed_at IS NULL
+         AND verified_at IS NULL AND expires_at > NOW() AND attempts < 5
+       FOR UPDATE`,
+      [challengeId, email],
+    )
+    const record = challenge.rows[0]
+    if (!record) {
+      await client.query("ROLLBACK")
+      return res
+        .status(401)
+        .json({ error: "That code is invalid or expired. Request a new code." })
+    }
+    await client.query(
+      "UPDATE merchant_registration_otps SET attempts = attempts + 1 WHERE id = $1",
+      [challengeId],
+    )
+    const expectedHash = createHmac("sha256", jwtSecretValue)
+      .update(`${challengeId}:${email}:${code}`)
+      .digest()
+    const actualHash = Buffer.from(record.code_hash, "hex")
+    if (
+      actualHash.length !== expectedHash.length ||
+      !timingSafeEqual(actualHash, expectedHash)
+    ) {
+      await client.query("COMMIT")
+      return res.status(401).json({
+        error: "That code is incorrect. Check your email and try again.",
+      })
+    }
+    await client.query(
+      "UPDATE merchant_registration_otps SET verified_at = NOW() WHERE id = $1",
+      [challengeId],
+    )
+    await client.query("COMMIT")
+    return res
+      .set("Cache-Control", "no-store")
+      .json({ email, status: "verified" })
+  } catch (error) {
+    await client.query("ROLLBACK")
+    if (error.code === "23505") {
+      return res.status(409).json({
+        error: "An account or registration already exists for this email.",
+      })
+    }
+    throw error
+  } finally {
+    client.release()
+  }
+})
+
+app.post(
+  "/v1/auth/registration/documents/presign",
+  registrationLimiter,
+  async (req, res) => {
+    if (!r2Client || !r2BucketName) {
+      return res.status(503).json({
+        error: "Private document storage is not configured on this server.",
+      })
+    }
+    const challengeId =
+      typeof req.body?.challengeId === "string" ? req.body.challengeId : ""
+    const documentType = req.body?.documentType
+    const fileName =
+      typeof req.body?.fileName === "string" ? req.body.fileName.trim() : ""
+    const contentType = req.body?.contentType
+    const sizeBytes = Number(req.body?.sizeBytes)
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        challengeId,
+      ) ||
+      !allowedKybDocuments.has(documentType) ||
+      !fileName ||
+      fileName.length > 180 ||
+      /[/\\\u0000-\u001f]/.test(fileName) ||
+      !["application/pdf", "image/jpeg", "image/png"].includes(contentType) ||
+      !Number.isSafeInteger(sizeBytes) ||
+      sizeBytes <= 0 ||
+      sizeBytes > kybDocumentMaxBytes
+    ) {
+      return res.status(400).json({
+        error: "Choose a PDF, JPEG, or PNG document no larger than 10 MB.",
+      })
+    }
+    const challenge = await pool.query(
+      `SELECT id FROM merchant_registration_otps
+       WHERE id = $1 AND verified_at > NOW() - INTERVAL '24 hours'
+         AND consumed_at IS NULL`,
+      [challengeId],
+    )
+    if (!challenge.rowCount) {
+      return res.status(401).json({
+        error: "Verify your email again before uploading documents.",
+      })
+    }
+    const existing = await pool.query(
+      `SELECT id, completed_at FROM merchant_registration_documents
+       WHERE challenge_id = $1 AND document_type = $2`,
+      [challengeId, documentType],
+    )
+    if (existing.rows[0]?.completed_at) {
+      return res.status(409).json({
+        error: "This document was already uploaded. Continue to the next step.",
+      })
+    }
+    if (existing.rowCount) {
+      await pool.query(
+        "DELETE FROM merchant_registration_documents WHERE id = $1",
+        [existing.rows[0].id],
+      )
+    }
+    const documentId = randomUUID()
+    const objectKey = `kyb/${randomUUID()}`
+    const safeName = fileName.replace(/[^\w .()-]/g, "_").slice(0, 180)
+    await pool.query(
+      `INSERT INTO merchant_registration_documents
+         (id, challenge_id, document_type, object_key, file_name, content_type, size_bytes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        documentId,
+        challengeId,
+        documentType,
+        objectKey,
+        safeName,
+        contentType,
+        sizeBytes,
+      ],
+    )
+    try {
+      const uploadUrl = await getSignedUrl(
+        r2Client,
+        new PutObjectCommand({
+          Bucket: r2BucketName,
+          Key: objectKey,
+          ContentType: contentType,
+          ContentLength: sizeBytes,
+          Metadata: { "document-id": documentId },
+        }),
+        { expiresIn: 300 },
+      )
+      return res.set("Cache-Control", "no-store").json({
+        documentId,
+        uploadUrl,
+        objectKey,
+        fileName: safeName,
+        headers: { "Content-Type": contentType },
+        expiresInSeconds: 300,
+      })
+    } catch (error) {
+      await pool.query(
+        "DELETE FROM merchant_registration_documents WHERE id = $1",
+        [documentId],
+      )
+      console.error(
+        "Could not create private registration document upload",
+        error.name || "storage error",
+      )
+      return res.status(503).json({
+        error: "Private document upload is temporarily unavailable.",
+      })
+    }
+  },
+)
+
+app.post(
+  "/v1/auth/registration/documents/complete",
+  registrationLimiter,
+  async (req, res) => {
+    if (!r2Client || !r2BucketName) {
+      return res.status(503).json({
+        error: "Private document storage is not configured on this server.",
+      })
+    }
+    const {
+      challengeId,
+      documentId,
+      objectKey,
+      documentType,
+      fileName,
+      contentType,
+      sizeBytes,
+    } = req.body || {}
+    if (
+      !/^[0-9a-f-]{36}$/i.test(challengeId || "") ||
+      !/^[0-9a-f-]{36}$/i.test(documentId || "") ||
+      typeof objectKey !== "string" ||
+      !objectKey.startsWith("kyb/") ||
+      !allowedKybDocuments.has(documentType) ||
+      typeof fileName !== "string" ||
+      fileName.length > 180 ||
+      !["application/pdf", "image/jpeg", "image/png"].includes(contentType) ||
+      !Number.isSafeInteger(Number(sizeBytes)) ||
+      Number(sizeBytes) <= 0 ||
+      Number(sizeBytes) > kybDocumentMaxBytes
+    ) {
+      return res
+        .status(400)
+        .json({ error: "The uploaded document details are invalid." })
+    }
+    const reservation = await pool.query(
+      `SELECT document_type, object_key, file_name, content_type, size_bytes
+       FROM merchant_registration_documents
+       WHERE id = $1 AND challenge_id = $2 AND object_key = $3
+         AND completed_at IS NULL`,
+      [documentId, challengeId, objectKey],
+    )
+    const record = reservation.rows[0]
+    if (
+      !record ||
+      record.document_type !== documentType ||
+      record.file_name !== fileName ||
+      record.content_type !== contentType ||
+      Number(record.size_bytes) !== Number(sizeBytes)
+    ) {
+      return res.status(409).json({
+        error: "This document upload is invalid. Choose the file again.",
+      })
+    }
+    const challenge = await pool.query(
+      `SELECT id FROM merchant_registration_otps
+       WHERE id = $1 AND verified_at > NOW() - INTERVAL '24 hours'
+         AND consumed_at IS NULL`,
+      [challengeId],
+    )
+    if (!challenge.rowCount) {
+      return res.status(401).json({
+        error: "Verify your email again before uploading documents.",
+      })
+    }
+    try {
+      const object = await r2Client.send(
+        new HeadObjectCommand({ Bucket: r2BucketName, Key: objectKey }),
+      )
+      if (
+        Number(object.ContentLength) !== Number(sizeBytes) ||
+        object.ContentType !== contentType ||
+        object.Metadata?.["document-id"] !== documentId
+      ) {
+        return res.status(400).json({
+          error: "The stored document does not match the selected file.",
+        })
+      }
+      await pool.query(
+        "UPDATE merchant_registration_documents SET completed_at = NOW() WHERE id = $1",
+        [documentId],
+      )
+      return res
+        .set("Cache-Control", "no-store")
+        .json({ uploaded: true, documentType })
+    } catch (error) {
+      console.error(
+        "Could not verify private registration document upload",
+        error.name || "storage error",
+      )
+      return res.status(503).json({
+        error: "Could not verify the uploaded document. Try again.",
+      })
+    }
+  },
+)
+
+app.post(
+  "/v1/auth/registration/submit",
+  registrationLimiter,
+  async (req, res) => {
+  const email =
+    typeof req.body?.email === "string"
+      ? req.body.email.trim().toLowerCase()
+      : ""
+  const challengeId =
+    typeof req.body?.challengeId === "string" ? req.body.challengeId : ""
+  const businessName =
+    typeof req.body?.businessName === "string"
+      ? req.body.businessName.trim()
+      : ""
+  const contactPerson =
+    typeof req.body?.contactPerson === "string"
+      ? req.body.contactPerson.trim()
+      : ""
+  const businessAddress =
+    typeof req.body?.businessAddress === "string"
+      ? req.body.businessAddress.trim()
+      : ""
+  const registrationNumber =
+    typeof req.body?.registrationNumber === "string"
+      ? req.body.registrationNumber.trim()
+      : ""
+  const businessType =
+    typeof req.body?.businessType === "string"
+      ? req.body.businessType.trim()
+      : ""
+  const country =
+    typeof req.body?.country === "string" ? req.body.country.trim() : ""
+  const ownerFullName =
+    typeof req.body?.ownerFullName === "string"
+      ? req.body.ownerFullName.trim()
+      : ""
+  const ownerDateOfBirth =
+    typeof req.body?.ownerDateOfBirth === "string"
+      ? req.body.ownerDateOfBirth.trim()
+      : ""
+  const ownerNationality =
+    typeof req.body?.ownerNationality === "string"
+      ? req.body.ownerNationality.trim()
+      : ""
+  const ownerEmail =
+    typeof req.body?.ownerEmail === "string"
+      ? req.body.ownerEmail.trim().toLowerCase()
+      : ""
+  const ownerPhone =
+    typeof req.body?.ownerPhone === "string"
+      ? req.body.ownerPhone.trim()
+      : ""
+  const bankName =
+    typeof req.body?.bankName === "string" ? req.body.bankName.trim() : ""
+  const accountName =
+    typeof req.body?.accountName === "string" ? req.body.accountName.trim() : ""
+  const accountNumber =
+    typeof req.body?.accountNumber === "string"
+      ? req.body.accountNumber.replace(/\s+/g, "")
+      : ""
+  const pin = typeof req.body?.pin === "string" ? req.body.pin : ""
+  if (
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+    email.length > 254 ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      challengeId,
+    )
+  ) {
+    return res.status(400).json({ error: "Verify your email to continue." })
+  }
+  if (
+    !businessName ||
+    businessName.length > 160 ||
+    !contactPerson ||
+    contactPerson.length > 120 ||
+    !businessAddress ||
+    businessAddress.length > 200 ||
+    !registrationNumber ||
+    registrationNumber.length > 200 ||
+    !businessType ||
+    businessType.length > 200 ||
+    !country ||
+    country.length > 200 ||
+    !ownerFullName ||
+    ownerFullName.length > 200 ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(ownerDateOfBirth) ||
+    Number.isNaN(Date.parse(`${ownerDateOfBirth}T00:00:00Z`)) ||
+    new Date(`${ownerDateOfBirth}T00:00:00Z`).toISOString().slice(0, 10) !==
+      ownerDateOfBirth ||
+    new Date(`${ownerDateOfBirth}T00:00:00Z`) >
+      new Date(Date.now() - 18 * 365.25 * 24 * 60 * 60 * 1000) ||
+    !ownerNationality ||
+    ownerNationality.length > 200 ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail) ||
+    ownerEmail.length > 200 ||
+    !/^\+?[0-9()\-\s]{7,40}$/.test(ownerPhone) ||
+    !bankName ||
+    bankName.length < 2 ||
+    bankName.length > 100 ||
+    !accountName ||
+    accountName.length < 2 ||
+    accountName.length > 120 ||
+    !/^[A-Za-z0-9-]{4,34}$/.test(accountNumber) ||
+    !/^\d{4}$/.test(pin)
+  ) {
+    return res.status(400).json({
+      error: "Complete each required business, owner, payout, and MPIN field.",
+    })
+  }
+  const client = await pool.connect()
+  try {
+    await client.query("BEGIN")
+    const challenge = await client.query(
+      `SELECT phone_number FROM merchant_registration_otps
+       WHERE id = $1 AND email = $2 AND verified_at IS NOT NULL
+         AND verified_at > NOW() - INTERVAL '24 hours'
+         AND consumed_at IS NULL
+       FOR UPDATE`,
+      [challengeId, email],
+    )
+    if (!challenge.rowCount) {
+      await client.query("ROLLBACK")
+      return res.status(401).json({
+        error: "Verify your email before submitting your application.",
+      })
+    }
+    const documents = await client.query(
+      `SELECT id, document_type, object_key, file_name, content_type, size_bytes
+       FROM merchant_registration_documents
+       WHERE challenge_id = $1 AND completed_at IS NOT NULL
+       FOR UPDATE`,
+      [challengeId],
+    )
+    const requiredDocuments = [
+      "business_registration",
+      "identity_front",
+      "identity_back",
+    ]
+    if (
+      requiredDocuments.some(
+        (type) => !documents.rows.some((document) => document.document_type === type),
+      )
+    ) {
+      await client.query("ROLLBACK")
+      return res.status(400).json({
+        error:
+          "Upload the business registration certificate and both sides of the owner’s identity document.",
+      })
+    }
+    await client.query(
+      `INSERT INTO merchant_accounts
+         (email, active, registration_pending, business_name, contact_person, phone_number, business_address)
+       VALUES ($1, FALSE, TRUE, $2, $3, $4, $5)`,
+      [
+        email,
+        businessName,
+        contactPerson,
+        challenge.rows[0].phone_number,
+        businessAddress,
+      ],
+    )
+    const pinSalt = randomBytes(16).toString("hex")
+    const pinHash = scryptSync(pin, pinSalt, 64).toString("hex")
+    await client.query(
+      `INSERT INTO merchant_security (email, pin_salt, pin_hash)
+       VALUES ($1, $2, $3)`,
+      [email, pinSalt, pinHash],
+    )
+    await client.query(
+      `INSERT INTO merchant_kyb_profiles (
+         merchant_email, legal_business_name, registration_number, business_type,
+         country, business_address, owner_full_name, owner_date_of_birth,
+         owner_nationality, owner_email, owner_phone
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [
+        email,
+        businessName,
+        registrationNumber,
+        businessType,
+        country,
+        businessAddress,
+        ownerFullName,
+        ownerDateOfBirth,
+        ownerNationality,
+        ownerEmail,
+        ownerPhone,
+      ],
+    )
+    await client.query(
+      `INSERT INTO merchant_payout_accounts
+         (merchant_email, bank_name, account_name, account_number)
+       VALUES ($1, $2, $3, $4)`,
+      [email, bankName, accountName, accountNumber],
+    )
+    await recordAdminAuditEvent(client, {
+      eventKey: `merchant-registration:${email}`,
+      category: "Merchant account",
+      action: "Merchant registration submitted",
+      target: email,
+      actor: null,
+      summary: "A verified merchant application was submitted for review.",
+    })
+    for (const document of documents.rows) {
+      await client.query(
+        `INSERT INTO merchant_kyb_documents
+           (id, merchant_email, document_type, object_key, file_name, content_type, size_bytes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          document.id,
+          email,
+          document.document_type,
+          document.object_key,
+          document.file_name,
+          document.content_type,
+          document.size_bytes,
+        ],
+      )
+    }
+    await client.query(
+      "UPDATE merchant_registration_otps SET consumed_at = NOW() WHERE id = $1",
+      [challengeId],
+    )
+    await client.query("COMMIT")
+    return res
+      .set("Cache-Control", "no-store")
+      .status(202)
+      .json({ email, status: "pending_review" })
+  } catch (error) {
+    await client.query("ROLLBACK")
+    if (error.code === "23505") {
+      return res.status(409).json({
+        error: "An account or registration already exists for this email.",
+      })
+    }
+    throw error
+  } finally {
+    client.release()
+  }
 })
 
 app.post("/v1/auth/device/otp/request", loginLimiter, async (req, res) => {
@@ -3837,10 +4497,13 @@ app.get("/v1/admin/merchants", async (_req, res) => {
        COALESCE(payout.account_number, '') AS "accountNumber",
        crypto.address AS "usdtAddress",
        merchant.invitation_accepted_at AS "invitationAcceptedAt",
+       merchant.registration_pending AS "registrationPending",
+       kyb.status AS "kybStatus",
        merchant.created_at AS "createdAt", merchant.updated_at AS "updatedAt"
      FROM merchant_accounts merchant
      LEFT JOIN merchant_payout_accounts payout ON payout.merchant_email = merchant.email
      LEFT JOIN merchant_usdt_wallets crypto ON crypto.merchant_email = merchant.email
+     LEFT JOIN merchant_kyb_profiles kyb ON kyb.merchant_email = merchant.email
      ORDER BY merchant.created_at DESC`,
   )
   return res.json(result.rows)
@@ -4487,6 +5150,7 @@ app.post("/v1/admin/merchants", async (req, res) => {
          phone_number AS "phoneNumber", business_address AS "businessAddress",
          '' AS "bankName", '' AS "accountName", '' AS "accountNumber",
          NULL AS "usdtAddress",
+         FALSE AS "registrationPending",
          created_at AS "createdAt", updated_at AS "updatedAt"`,
       [email, businessName, contactPerson, phoneNumber, businessAddress],
     )
@@ -4755,6 +5419,7 @@ app.patch("/v1/admin/merchants/:email", async (req, res) => {
          WHERE email = $1
          RETURNING email, active, business_name AS "businessName", contact_person AS "contactPerson",
            phone_number AS "phoneNumber", business_address AS "businessAddress",
+           registration_pending AS "registrationPending",
            created_at AS "createdAt", updated_at AS "updatedAt"`,
         [
           email,
@@ -4834,13 +5499,34 @@ app.patch("/v1/admin/merchants/:email", async (req, res) => {
         email,
       ])
     }
+    if (req.body.active === true) {
+      const registration = await client.query(
+        `SELECT account.registration_pending, profile.status AS kyb_status
+         FROM merchant_accounts account
+         LEFT JOIN merchant_kyb_profiles profile ON profile.merchant_email = account.email
+         WHERE account.email = $1`,
+        [email],
+      )
+      if (
+        registration.rows[0].registration_pending &&
+        registration.rows[0].kyb_status !== "APPROVED"
+      ) {
+        await client.query("ROLLBACK")
+        return res.status(409).json({
+          error:
+            "Review and approve the merchant KYB application before enabling registration access.",
+        })
+      }
+    }
     const result = await client.query(
       `UPDATE merchant_accounts SET
          active = $2,
+         registration_pending = CASE WHEN $2 THEN FALSE ELSE registration_pending END,
          updated_at = NOW()
        WHERE email = $1
        RETURNING email, active, business_name AS "businessName", contact_person AS "contactPerson",
          phone_number AS "phoneNumber", business_address AS "businessAddress",
+         registration_pending AS "registrationPending",
          created_at AS "createdAt", updated_at AS "updatedAt"`,
       [email, req.body.active],
     )

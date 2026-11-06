@@ -72,10 +72,11 @@ import PaymentAdminSection from "./super-admin/PaymentAdminSection"
 
 type AdminPage = "overview" | "payments" | "merchants" | "kyb" | "ledger" | "requests" | "audit" | "settings"
 
-const ADMIN_PAGE_METADATA: Record<
-  AdminPage,
-  { title: string; description: string; exportLabel: string }
-> = {
+const ADMIN_PAGE_METADATA: Record<AdminPage, {
+  title: string
+  description: string
+  exportLabel: string
+}> = {
   overview: {
     title: "Operations overview",
     description: "Prioritize reviews and monitor merchant operations.",
@@ -94,8 +95,7 @@ const ADMIN_PAGE_METADATA: Record<
   },
   kyb: {
     title: "KYB applications",
-    description:
-      "Review merchant business and beneficial-owner verification.",
+    description: "Review merchant business and beneficial-owner verification.",
     exportLabel: "KYB applications",
   },
   ledger: {
@@ -106,8 +106,7 @@ const ADMIN_PAGE_METADATA: Record<
   },
   requests: {
     title: "Withdrawal requests",
-    description:
-      "Review bank transfers and merchant USDT withdrawal requests.",
+    description: "Review bank transfers and merchant USDT withdrawal requests.",
     exportLabel: "withdrawal requests",
   },
   audit: {
@@ -183,7 +182,7 @@ export function SuperAdminConsole({
   )
   const [merchantSearch, setMerchantSearch] = useState("")
   const [merchantFilter, setMerchantFilter] =
-    useState<"all" | "active" | "disabled">("all")
+    useState<"all" | "pending" | "active" | "disabled">("all")
   const [paymentSearch, setPaymentSearch] = useState("")
   const [paymentStatus, setPaymentStatus] = useState("all")
   const [kybSearch, setKybSearch] = useState("")
@@ -244,7 +243,11 @@ export function SuperAdminConsole({
         !query || merchant.email.toLowerCase().includes(query)
       const matchesStatus =
         merchantFilter === "all" ||
-        (merchantFilter === "active" ? merchant.active : !merchant.active)
+        (merchantFilter === "pending"
+          ? merchant.registrationPending
+          : merchantFilter === "active"
+            ? merchant.active
+            : !merchant.active && !merchant.registrationPending)
       return matchesSearch && matchesStatus
     })
   }, [merchants, merchantSearch, merchantFilter])
@@ -834,7 +837,9 @@ export function SuperAdminConsole({
       setNewContactPerson("")
       setNewBusinessAddress("")
       setNewPhoneNumber("")
-      setNotice(`Merchant invitation and agreements emailed to ${invitedEmail}.`)
+      setNotice(
+        `Merchant invitation and agreements emailed to ${invitedEmail}.`,
+      )
       await loadConsole()
       await refreshAuditEvents()
     } catch (requestError) {
@@ -935,14 +940,22 @@ export function SuperAdminConsole({
       setMerchants((current) =>
         current.map((item) =>
           item.email === account.email
-            ? { ...item, active: !account.active }
+            ? {
+                ...item,
+                active: !account.active,
+                registrationPending: account.registrationPending
+                  ? false
+                  : item.registrationPending,
+              }
             : item,
         ),
       )
       setNotice(
-        account.active
-          ? "Merchant account disabled."
-          : `Merchant account enabled and API integration guide emailed to ${account.email}.`,
+        account.registrationPending
+          ? `Registration approved. Merchant access enabled for ${account.email}.`
+          : account.active
+            ? "Merchant account disabled."
+            : `Merchant account enabled and API integration guide emailed to ${account.email}.`,
       )
       await refreshAuditEvents()
     } catch (requestError) {
@@ -2838,6 +2851,7 @@ export function SuperAdminConsole({
                       }
                     >
                       <option value="all">All accounts</option>
+                      <option value="pending">Pending review</option>
                       <option value="active">Active</option>
                       <option value="disabled">Disabled</option>
                     </select>
@@ -2856,19 +2870,32 @@ export function SuperAdminConsole({
                             {new Date(account.updatedAt).toLocaleDateString()}
                           </small>
                           <small>
-                            {account.invitationAcceptedAt
-                              ? `Invitation accepted ${new Date(
-                                  account.invitationAcceptedAt,
-                                ).toLocaleDateString()}`
-                              : "Invitation not yet accepted"}
+                            {account.registrationPending
+                              ? `Registration submitted · KYB ${
+                                  account.kybStatus?.replace("_", " ") ||
+                                  "pending"
+                                }`
+                              : account.invitationAcceptedAt
+                                ? `Invitation accepted ${new Date(
+                                    account.invitationAcceptedAt,
+                                  ).toLocaleDateString()}`
+                                : "Invitation not yet accepted"}
                           </small>
                         </div>
                         <span
                           className={`admin-status-pill ${
-                            account.active ? "active" : "disabled"
+                            account.registrationPending
+                              ? "pending"
+                              : account.active
+                                ? "active"
+                                : "disabled"
                           }`}
                         >
-                          {account.active ? "Active" : "Disabled"}
+                          {account.registrationPending
+                            ? "Pending review"
+                            : account.active
+                              ? "Active"
+                              : "Disabled"}
                         </span>
                         <button
                           type="button"
@@ -2886,8 +2913,25 @@ export function SuperAdminConsole({
                           type="button"
                           className="admin-text-action"
                           onClick={() => void setMerchantActive(account)}
+                          disabled={
+                            account.registrationPending &&
+                            account.kybStatus !== "APPROVED"
+                          }
+                          title={
+                            account.registrationPending &&
+                            account.kybStatus !== "APPROVED"
+                              ? "Review and approve this merchant’s KYB application first."
+                              : undefined
+                          }
                         >
-                          {account.active ? "Disable access" : "Enable access"}
+                          {account.registrationPending &&
+                          account.kybStatus !== "APPROVED"
+                            ? "Review KYB to approve"
+                            : account.registrationPending
+                              ? "Approve registration"
+                              : account.active
+                                ? "Disable access"
+                                : "Enable access"}
                         </button>
                         <button
                           type="button"

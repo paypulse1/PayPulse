@@ -196,6 +196,7 @@ export type AdminAuditEvent = {
 export type AdminMerchantAccount = {
   email: string
   active: boolean
+  registrationPending: boolean
   businessName: string
   contactPerson: string
   phoneNumber: string
@@ -207,6 +208,7 @@ export type AdminMerchantAccount = {
   createdAt: string
   updatedAt: string
   invitationAcceptedAt?: string | null
+  kybStatus?: KybProfile["status"] | null
 }
 
 export type MerchantUsdtWallet = {
@@ -833,6 +835,116 @@ export async function requestDeviceOtp(email: string) {
     {
       method: "POST",
       body: JSON.stringify({ email, deviceToken: getDeviceToken(email) }),
+    },
+  )
+}
+
+export type MerchantRegistrationInput = {
+  email: string
+  phoneNumber: string
+}
+
+export type MerchantBusinessDetails = {
+  businessName: string
+  contactPerson: string
+  businessAddress: string
+  registrationNumber: string
+  businessType: string
+  country: string
+  ownerFullName: string
+  ownerDateOfBirth: string
+  ownerNationality: string
+  ownerEmail: string
+  ownerPhone: string
+  bankName: string
+  accountName: string
+  accountNumber: string
+}
+
+export type RegistrationDocumentType = "business_registration" | "identity_front" | "identity_back" | "proof_of_address"
+
+export async function requestMerchantRegistrationOtp(
+  input: MerchantRegistrationInput,
+) {
+  return publicRequest<{ challengeId: string; message: string }>(
+    "/v1/auth/registration/otp/request",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  )
+}
+
+export async function verifyMerchantRegistrationOtp(
+  email: string,
+  challengeId: string,
+  code: string,
+) {
+  return publicRequest<{ email: string; status: "verified" }>(
+    "/v1/auth/registration/otp/verify",
+    {
+      method: "POST",
+      body: JSON.stringify({ email, challengeId, code }),
+    },
+  )
+}
+
+export async function submitMerchantRegistration(
+  email: string,
+  challengeId: string,
+  details: MerchantBusinessDetails,
+  pin: string,
+) {
+  return publicRequest<{ email: string; status: "pending_review" }>(
+    "/v1/auth/registration/submit",
+    {
+      method: "POST",
+      body: JSON.stringify({ email, challengeId, ...details, pin }),
+    },
+  )
+}
+
+export async function uploadMerchantRegistrationDocument(
+  challengeId: string,
+  documentType: RegistrationDocumentType,
+  file: File,
+) {
+  const signed = await publicRequest<{
+    documentId: string
+    uploadUrl: string
+    objectKey: string
+    fileName: string
+    headers: Record<string, string>
+  }>("/v1/auth/registration/documents/presign", {
+    method: "POST",
+    body: JSON.stringify({
+      challengeId,
+      documentType,
+      fileName: file.name,
+      contentType: file.type,
+      sizeBytes: file.size,
+    }),
+  })
+  const upload = await fetch(signed.uploadUrl, {
+    method: "PUT",
+    headers: signed.headers,
+    body: file,
+  })
+  if (!upload.ok)
+    throw new Error(`Private document upload failed (${upload.status}).`)
+  return publicRequest<{ uploaded: true; documentType: string }>(
+    "/v1/auth/registration/documents/complete",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        challengeId,
+        documentId: signed.documentId,
+        objectKey: signed.objectKey,
+        documentType,
+        fileName: signed.fileName,
+        contentType: file.type,
+        sizeBytes: file.size,
+      }),
     },
   )
 }

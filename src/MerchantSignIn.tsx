@@ -22,6 +22,7 @@ import {
   supportsBiometricLogin,
 } from "./lib/biometric"
 import { Brand, Button, PoweredByFooter } from "./AppPrimitives"
+import MerchantRegistration from "./MerchantRegistration"
 
 export default function MerchantSignIn({
   onAuthenticated,
@@ -37,6 +38,7 @@ export default function MerchantSignIn({
   )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
+  const [registering, setRegistering] = useState(false)
 
   async function sendOtp() {
     const normalizedEmail = email.trim().toLowerCase()
@@ -116,6 +118,10 @@ export default function MerchantSignIn({
     event.preventDefault()
     if (hasTrustedDevice(email.trim().toLowerCase())) setStage("pin")
     else void sendOtp()
+  }
+
+  if (registering) {
+    return <MerchantRegistration onBack={() => setRegistering(false)} />
   }
 
   return (
@@ -381,6 +387,15 @@ export default function MerchantSignIn({
               Back
             </button>
           </form>
+        )}
+        {stage === "email" && (
+          <button
+            type="button"
+            className="auth-registration-link"
+            onClick={() => setRegistering(true)}
+          >
+            New to DRPAY? <strong>Create a merchant account</strong>
+          </button>
         )}
             <div className="auth-trust">
               <Lock size={15} />
