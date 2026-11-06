@@ -1287,7 +1287,7 @@ h1, h2, p { margin-top: 0; }
 .checkout-qr-frame img { width: 100%; height: 100%; object-fit: contain; }
 .checkout-instructions { margin-top: 17px; padding: 15px; border-radius: 14px; background: var(--surface-soft); }
 .checkout-instructions strong { font-size: 10px; }
-.checkout-instructions ol { margin: 10px 0; padding-left: 18px; color: var(--ink); font-size: 9px; line-height: 1.8; }
+.checkout-instructions ol { margin: 10px 0; padding-left: 18px; color: var(--ink); font-size: 9px; line-height: 1.8; list-style: decimal; }
 .checkout-instructions p { margin: 0; color: var(--muted); font-size: 8px; line-height: 1.5; }
 .checkout-reference { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
 .checkout-reference > span { display: block; margin-bottom: 7px; color: var(--muted); font-size: 8px; font-weight: 700; }

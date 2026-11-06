@@ -48,7 +48,7 @@ export function InstitutionLogo({ institution, className = "" }: { institution: 
   );
 }
 
-export default function QrPaymentDisplay({ value, institution, showBirLogo = false }: { value?: string; institution?: InstitutionBrand; showBirLogo?: boolean }) {
+export default function QrPaymentDisplay({ value, institution, showBirLogo = false, showBrandNotes = true }: { value?: string; institution?: InstitutionBrand; showBirLogo?: boolean; showBrandNotes?: boolean }) {
   const [image, setImage] = useState("");
   const [error, setError] = useState("");
 
@@ -94,12 +94,6 @@ export default function QrPaymentDisplay({ value, institution, showBirLogo = fal
           />
         )}
       </div>
-      {institution && (
-        <p className="qr-brand-note">
-          We will use your payment information. Please keep your reference
-          number.
-        </p>
-      )}
       {institution && getPaymentInstitutionDeepLink(institution) ? (
         <div className="qr-app-actions">
           <a
@@ -108,14 +102,12 @@ export default function QrPaymentDisplay({ value, institution, showBirLogo = fal
           >
             Open {getPaymentInstitutionAppName(institution)} to scan
           </a>
-          <p className="qr-brand-note">
-            If this link is unavailable, scan the QR with {getPaymentInstitutionAppName(institution)} on another device.
-          </p>
+          {showBrandNotes && (
+            <p className="qr-brand-note">
+              If this link is unavailable, scan the QR with {getPaymentInstitutionAppName(institution)} on another device.
+            </p>
+          )}
         </div>
-      ) : institution ? (
-        <p className="qr-brand-note">
-          To pay with this app, scan the QR from the app. An app link is not available for this institution.
-        </p>
       ) : null}
     </div>
   );
