@@ -28,7 +28,7 @@ describe("merchant API integration guide PDF", () => {
     const text = pages.join(" ")
 
     expect(pdf.getTitle()).toBe("DRPAY Merchant API Integration Guide")
-    expect(pdf.getPageCount()).toBe(3)
+    expect(pdf.getPageCount()).toBe(5)
     expect(bytes.toString("latin1")).toContain("/Subtype /Image")
     expect(text).toContain("Example Trading Co.")
     expect(text).toContain("SANDBOX")
@@ -47,6 +47,14 @@ describe("merchant API integration guide PDF", () => {
     expect(text).toContain("queued")
     expect(text).toContain("status")
     expect(text).toContain("EXECUTED")
+    expect(text).toContain("Receive verified webhooks")
+    expect(text).toContain("payment.succeeded")
+    expect(text).toContain("DRPAY-Signature")
+    expect(text).toContain("timingSafeEqual")
+    expect(text).toContain("exact raw request-body bytes")
+    expect(text).toContain("How webhook delivery works")
+    expect(text).toContain("Delivery is at least once")
+    expect(text).toContain("exponential backoff")
   })
 
   it("rejects insecure or invalid integration guide URLs", async () => {

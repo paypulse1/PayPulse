@@ -280,5 +280,46 @@ export async function createMerchantApiIntegrationGuidePdf({
     "A created link is not proof of payment. Treat EXECUTED as confirmed payment; verify status through this API or a correctly signed webhook. 400 indicates invalid input, 401 an invalid or revoked key, 403 a missing permission, 404 a missing or unowned checkout, 409 a conflicting retry, 429 a rate limit, and 503 a temporary or ambiguous outcome.",
   )
 
+  page = document.addPage([pageWidth, pageHeight])
+  drawHeader(page, 4)
+  y = pageHeight - 137
+  drawHeading("5. Receive verified webhooks")
+  drawParagraph(
+    "In Profile > Developer hub > API access, save a public HTTPS endpoint and select payment.succeeded, payment.failed, disbursement.succeeded, and/or disbursement.failed. An optional callback URL receives the same events. The signing secret is shown once when settings are saved; store it securely. Saving settings again rotates the secret.",
+  )
+  drawCode(
+    "EXAMPLE PAYMENT EVENT",
+    '{\n  "id": "event-uuid",\n  "type": "payment.succeeded",\n  "createdAt": "2026-11-07T05:30:00.000Z",\n  "data": {\n    "id": "payment-record-uuid",\n    "reference": "482731",\n    "amount": 125.5,\n    "currency": "PHP",\n    "status": "EXECUTED"\n  }\n}',
+    154,
+  )
+  drawParagraph(
+    "Requests include DRPAY-Event and DRPAY-Signature: sha256=<hex HMAC-SHA256>. Verify HMAC-SHA256 over the exact raw request-body bytes using the signing secret. Do not parse and re-serialize JSON before verification.",
+  )
+  drawCode(
+    "NODE.JS SIGNATURE VERIFICATION",
+    'import { createHmac, timingSafeEqual } from "node:crypto";\n\nfunction verifyWebhook(rawBody, signatureHeader, secret) {\n  if (!Buffer.isBuffer(rawBody) ||\n      typeof signatureHeader !== "string" ||\n      !signatureHeader.startsWith("sha256=")) return false;\n  const supplied = signatureHeader.slice(7);\n  if (!/^[a-f0-9]{64}$/.test(supplied)) return false;\n  const expected = createHmac("sha256", secret).update(rawBody).digest();\n  return timingSafeEqual(expected, Buffer.from(supplied, "hex"));\n}',
+    130,
+  )
+  drawParagraph(
+    "After verification, deduplicate by event id, durably record the event, and return a 2xx response. Successful payment statuses are EXECUTED or MANUALLY_PAID; successful disbursement statuses include EXECUTED, SUCCESS, and COMPLETED. Failed deliveries retry with exponential backoff up to eight attempts. Review delivery history in Profile > Developer hub > API access.",
+  )
+
+  page = document.addPage([pageWidth, pageHeight])
+  drawHeader(page, 5)
+  y = pageHeight - 137
+  drawHeading("6. How webhook delivery works")
+  drawParagraph(
+    "1. A payment or disbursement reaches a supported success or failure outcome. DRPAY creates an event only when its type is selected in your webhook settings.",
+  )
+  drawParagraph(
+    "2. DRPAY queues the event and sends an HTTPS POST containing the JSON event body and DRPAY-Event and DRPAY-Signature headers. If configured, your callback URL receives the same event too.",
+  )
+  drawParagraph(
+    "3. Your server verifies the signature against the raw body, deduplicates by event id, durably records the event, and responds with any 2xx status. Process slower business logic asynchronously after acknowledging.",
+  )
+  drawParagraph(
+    "4. A timeout or non-2xx response is treated as a failed delivery. DRPAY retries with exponential backoff for up to eight attempts. Delivery is at least once, so duplicate events are possible; make processing idempotent. Inspect delivery attempts in Profile > Developer hub > API access and retry exhausted deliveries there.",
+  )
+
   return Buffer.from(await document.save())
 }

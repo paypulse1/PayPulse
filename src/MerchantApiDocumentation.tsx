@@ -381,14 +381,96 @@ export async function createInvoiceCheckout({ amount, invoiceId, customerEmail }
 
       <DocsSection title="Payment webhooks">
         <p>
-          Configure a public HTTPS webhook in{" "}
-          <strong>Profile → Developer hub → API access</strong> to receive{" "}
-          <code>payment.succeeded</code> and <code>payment.failed</code> events.
-          Verify <code>DRPAY-Signature</code> using HMAC-SHA256 over the exact
-          raw request body and your webhook signing secret. Deduplicate by event{" "}
-          <code>id</code>; return a 2xx response after safely recording the
-          event. Failed deliveries retry with exponential backoff, up to eight
-          attempts.
+          In <strong>Profile → Developer hub → API access</strong>, save a
+          public HTTPS endpoint and select one or more events. Supported events
+          are <code>payment.succeeded</code>, <code>payment.failed</code>,{" "}
+          <code>disbursement.succeeded</code>, and{" "}
+          <code>disbursement.failed</code>. An optional callback URL receives
+          the same event. Saving settings generates a signing secret shown once;
+          copy it to your server&apos;s secret manager. Saving again rotates
+          the secret, so update your receiver at the same time.
+        </p>
+        <p>
+          Webhook settings are managed in the Developer hub with your merchant
+          session; they are not accessible using a merchant API key. A
+          successful payment event can have status <code>EXECUTED</code> or{" "}
+          <code>MANUALLY_PAID</code>. Successful disbursement statuses include{" "}
+          <code>EXECUTED</code>, <code>SUCCESS</code>, and{" "}
+          <code>COMPLETED</code>.
+        </p>
+        <p><strong>How delivery works</strong></p>
+        <ol>
+          <li>
+            When a payment or disbursement reaches a supported success or
+            failure outcome, DRPAY creates an event if you selected that event
+            type.
+          </li>
+          <li>
+            DRPAY queues the event and sends an HTTPS POST with the JSON event
+            body to your endpoint. If configured, the callback URL receives
+            the same event too.
+          </li>
+          <li>
+            Your server verifies the signature, deduplicates the event, stores
+            it, then quickly responds with any 2xx status.
+          </li>
+          <li>
+            A timeout or non-2xx response causes a retry with exponential
+            backoff, for up to eight attempts. Delivery is at least once, so
+            the same event may arrive more than once.
+          </li>
+        </ol>
+        <ApiCodeBlock
+          title="Example payment event"
+          code={`{
+  "id": "event-uuid",
+  "type": "payment.succeeded",
+  "createdAt": "2026-11-07T05:30:00.000Z",
+  "data": {
+    "id": "payment-record-uuid",
+    "reference": "482731",
+    "amount": 125.5,
+    "currency": "PHP",
+    "status": "EXECUTED"
+  }
+}`}
+        />
+        <p>
+          Every request includes <code>DRPAY-Event</code> and{" "}
+          <code>DRPAY-Signature</code> headers. The signature is{" "}
+          <code>sha256=&lt;hex HMAC-SHA256&gt;</code>, calculated over the exact
+          raw request-body bytes using the signing secret—not a parsed and
+          re-serialized JSON object. Verify it before parsing or acting on the
+          event. For example, in Node.js:
+        </p>
+        <ApiCodeBlock
+          title="Verify the raw request body (Node.js)"
+          code={`import { createHmac, timingSafeEqual } from "node:crypto";
+
+function verifyWebhook(rawBody, signatureHeader, secret) {
+  if (!Buffer.isBuffer(rawBody) ||
+      typeof signatureHeader !== "string" ||
+      !signatureHeader.startsWith("sha256=")) return false;
+  const supplied = signatureHeader.slice("sha256=".length);
+  if (!/^[a-f0-9]{64}$/.test(supplied)) return false;
+  const expected = createHmac("sha256", secret)
+    .update(rawBody)
+    .digest();
+  return timingSafeEqual(expected, Buffer.from(supplied, "hex"));
+}`}
+        />
+        <p>
+          Preserve the raw bytes in your HTTP framework before JSON parsing.
+          After verification, deduplicate using the event <code>id</code>,
+          durably record the event, and return any 2xx response. Acknowledge
+          before doing slower downstream work; process it asynchronously.
+          Check both the event <code>type</code> and{" "}
+          <code>data.status</code> before updating your records.
+          Failed deliveries retry with exponential backoff for up to eight
+          attempts. Review{" "}
+          <code>GET /v1/webhook/deliveries</code> for attempt history; exhausted
+          deliveries can be queued again with{" "}
+          <code>POST /v1/webhook/deliveries/:id/retry</code>.
         </p>
       </DocsSection>
 
