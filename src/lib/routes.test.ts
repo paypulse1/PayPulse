@@ -1,7 +1,11 @@
 import assert from "node:assert/strict"
 import { test } from "vitest"
 import { getLegalPage } from "../LegalPages"
-import { APP_ROUTES, shouldShowMarketingHome } from "./routes"
+import {
+  APP_ROUTES,
+  getPublicCheckoutOrigin,
+  shouldShowMarketingHome,
+} from "./routes"
 
 test("super-admin route uses the bossd path", () => {
   assert.equal(APP_ROUTES.admin, "/bossd")
@@ -9,6 +13,31 @@ test("super-admin route uses the bossd path", () => {
 
 test("marketing Android download serves the public APK asset", () => {
   assert.equal(APP_ROUTES.androidDownload, "/drpay.apk")
+})
+
+test("USDT payment links use the public checkout host for each environment", () => {
+  assert.equal(
+    getPublicCheckoutOrigin(
+      "merchant.sandbox.denpay.cc",
+      "https://merchant.sandbox.denpay.cc",
+    ),
+    "https://pay.sandbox.denpay.cc",
+  )
+  assert.equal(
+    getPublicCheckoutOrigin(
+      "merchant.denpay.cc",
+      "https://merchant.denpay.cc",
+    ),
+    "https://pay.live.denpay.cc",
+  )
+  assert.equal(
+    getPublicCheckoutOrigin("localhost", "http://localhost:8443"),
+    "http://localhost:8443",
+  )
+  assert.equal(
+    getPublicCheckoutOrigin("localhost", "capacitor://localhost", true),
+    "https://pay.live.denpay.cc",
+  )
 })
 
 test("legal routes resolve canonical paths and legacy aliases", () => {

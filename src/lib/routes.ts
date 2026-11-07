@@ -16,6 +16,28 @@ export const APP_ROUTES = {
   security: "#security",
 } as const
 
+export function getPublicCheckoutOrigin(
+  hostname: string,
+  origin: string,
+  isNativePlatform = false,
+) {
+  const normalizedHostname = hostname.toLowerCase()
+  if (
+    normalizedHostname === "merchant.sandbox.denpay.cc" ||
+    normalizedHostname === "pay.sandbox.denpay.cc"
+  ) {
+    return "https://pay.sandbox.denpay.cc"
+  }
+  if (
+    normalizedHostname === "merchant.denpay.cc" ||
+    normalizedHostname === "pay.live.denpay.cc" ||
+    normalizedHostname === "live.merchant.swiftpay.site"
+  ) {
+    return "https://pay.live.denpay.cc"
+  }
+  return isNativePlatform ? "https://pay.live.denpay.cc" : origin
+}
+
 export const LEGAL_ROUTE_ALIASES: Record<"privacy" | "terms" | "contact", readonly string[]> =
   {
     privacy: [APP_ROUTES.privacy, "/privacy-policy"],

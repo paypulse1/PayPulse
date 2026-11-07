@@ -1313,6 +1313,7 @@ h1, h2, p { margin-top: 0; }
 .checkout-error h1 { margin: 10px 0 6px; font-size: 17px; }
 .checkout-error p { color: var(--muted); font-size: 9px; line-height: 1.6; }
 .checkout-error button { min-height: 38px; padding: 0 14px; border: 0; border-radius: 9px; background: var(--ink); color: #fff; font-size: 9px; font-weight: 700; }
+.usdt-copy-message { margin: 10px 0 0; color: var(--success); font-size: 8px; }
 .checkout-loading { min-height: 230px; display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--muted); font-size: 10px; }
 .checkout-spinner { animation: spin 1s linear infinite; }
 .checkout-inline-error { margin: 10px 0 0; color: var(--danger); font-size: 8px; }

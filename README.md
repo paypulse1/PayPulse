@@ -100,7 +100,7 @@ Android push alerts use Capacitor Push Notifications and Firebase Cloud Messagin
 
 ## Payment behavior
 
-Merchant collection creates a self-hosted DRPAY checkout page with its own design, payment QR, and live status updates. The result includes a shareable payment URL and QR; merchants can copy or share the URL with customers. Production links use `pay.live.denpay.cc`, while sandbox links use `pay.sandbox.denpay.cc`. The customer-facing checkout is served by the DRPAY frontend, while its status and QR requests go to the matching environment API.
+PHP/KRW merchant collections create a self-hosted DRPAY checkout page with a payment QR and live status updates; merchants can copy or share its payment URL. USDT collection requests provide a shareable instruction page with the assigned TRON mainnet address, amount, and address QR. USDT transfers are not confirmed automatically; merchants must verify the deposit in their wallet. Production links use `pay.live.denpay.cc`, while sandbox links use `pay.sandbox.denpay.cc`. Customer-facing pages are served by the DRPAY frontend.
 
 The API submits InstaPay/PESONet disbursements using SwiftPay's HTTP Basic-authenticated `POST /api/disbursements/send` endpoint, with a unique `merchantReferenceNo`; accepted transfers remain pending until SwiftPay reports a terminal status. InstaPay is limited to PHP 50,000 per transfer, and transfer remarks are required and limited to 80 characters. Provider validation errors are returned to the merchant instead of being mislabeled as gateway failures. Payment and payout records are stored in PostgreSQL. The server never accepts card data.
 

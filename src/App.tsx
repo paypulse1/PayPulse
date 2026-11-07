@@ -130,9 +130,10 @@ import {
   wasBiometricOfferDismissed,
 } from "./lib/biometric"
 import Checkout from "./Checkout"
+import UsdtPaymentPage from "./UsdtPaymentPage"
 import MarketingHome from "./MarketingHome"
 import LegalPage, { getLegalPage, supportEmail } from "./LegalPages"
-import { APP_ROUTES } from "./lib/routes"
+import { APP_ROUTES, getPublicCheckoutOrigin } from "./lib/routes"
 import QrPaymentDisplay, { InstitutionLogo } from "./QrPaymentDisplay"
 import InstitutionSelectionScreen from "./InstitutionSelectionScreen"
 import { DeveloperCenter, KybSetupPanel } from "./MerchantSetup"
@@ -931,6 +932,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
     amount: string
     reference: string
     qr: string
+    paymentUrl: string
   } | null>(null)
   const [usdtCollectionLoading, setUsdtCollectionLoading] = useState(false)
   const [usdtCollectionCopyMessage, setUsdtCollectionCopyMessage] = useState("")
@@ -1003,6 +1005,11 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
     event.preventDefault()
     if (currency !== "USDT" && (brandingLoading || brandingLoadError)) return
     if (currency === "USDT") {
+      const amountInBaseUnits = parseUsdtAmount(amount)
+      if (amountInBaseUnits === null || amountInBaseUnits <= 0n) {
+        setError("Enter a valid USDT amount with up to 6 decimal places.")
+        return
+      }
       setUsdtCollectionLoading(true)
       setError("")
       try {
@@ -1020,11 +1027,23 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
           margin: 2,
           color: { dark: "#10233f", light: "#ffffff" },
         })
+        const paymentUrl = new URL(
+          `${APP_ROUTES.checkout}/usdt`,
+          getPublicCheckoutOrigin(
+            window.location.hostname,
+            window.location.origin,
+            Capacitor.isNativePlatform(),
+          ),
+        )
+        paymentUrl.searchParams.set("address", wallet.address)
+        paymentUrl.searchParams.set("amount", amount)
+        paymentUrl.searchParams.set("reference", name.trim())
         setUsdtCollection({
           address: wallet.address,
           amount,
           reference: name.trim(),
           qr: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+          paymentUrl: paymentUrl.toString(),
         })
       } catch (collectionError) {
         setError(
@@ -1156,6 +1175,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
                 <small role="status">{usdtCollectionCopyMessage}</small>
               )}
             </div>
+            <PaymentLinkActions url={usdtCollection.paymentUrl} />
             {usdtCollection.reference && (
               <p>Reference: {usdtCollection.reference}</p>
             )}
@@ -1262,6 +1282,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 placeholder="e.g. Invoice 1048"
+                maxLength={160}
                 required
               />
             </label>
@@ -5201,6 +5222,9 @@ function hasScrolledNestedContainer(
 }
 
 export default function App() {
+  const isUsdtPaymentPage =
+    window.location.pathname.replace(/\/+$/, "") ===
+    `${APP_ROUTES.checkout}/usdt`
   const pathCheckoutCode =
     new RegExp(`^${APP_ROUTES.checkout}/([A-Za-z0-9_-]{40,50})/?$`).exec(
       window.location.pathname,
@@ -5892,6 +5916,7 @@ export default function App() {
   }
 
   const legalPage = getLegalPage(window.location.pathname)
+  if (isUsdtPaymentPage) return <UsdtPaymentPage />
   if (checkoutCode) return <Checkout code={checkoutCode} />
   if (legalPage) return <LegalPage page={legalPage} />
   if (!isDashboard && !isAdminConsole) return <MarketingHome />
