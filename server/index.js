@@ -6080,6 +6080,7 @@ async function scanTelegramUsdtDeposits() {
        WHERE network = 'TRON_MAINNET' ORDER BY merchant_email`,
     )
     for (const wallet of wallets.rows) {
+      let scanStage = "recording wallet scan state"
       try {
         const state = await pool.query(
           `INSERT INTO admin_telegram_wallet_scans (merchant_email)
@@ -6091,10 +6092,12 @@ async function scanTelegramUsdtDeposits() {
         const firstScanAt = new Date(state.rows[0].first_scan_at)
         // Include recent confirmations while keeping older wallet history out of the first alert batch.
         const depositScanCutoff = firstScanAt.getTime() - 5 * 60_000
+        scanStage = "fetching confirmed TRON deposits"
         const deposits = await fetchConfirmedUsdtDeposits(wallet.address)
         for (const deposit of deposits) {
           if (new Date(deposit.blockTimestamp).getTime() < depositScanCutoff)
             continue
+          scanStage = "queuing Telegram deposit notification"
           await queueAdminMoneyNotification({
             eventType: "USDT_DEPOSIT",
             eventId: `${deposit.transactionId}:${deposit.from}:${deposit.amount}`,
@@ -6109,7 +6112,9 @@ async function scanTelegramUsdtDeposits() {
       } catch (error) {
         console.error("Telegram USDT deposit scan failed", {
           merchantEmail: wallet.merchant_email,
-          error: error.name || "provider error",
+          stage: scanStage,
+          error: error instanceof Error ? error.message : String(error),
+          errorCode: error?.code,
         })
       }
     }
