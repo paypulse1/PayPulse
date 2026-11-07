@@ -2040,3 +2040,7 @@ h1, h2, p { margin-top: 0; }
     border-bottom-color: #e8edf4;
   }
 }
+.usdt-collection-address { margin: 12px 0 16px; padding: 12px; display: grid; justify-items: start; gap: 8px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); text-align: left; }
+.usdt-collection-address > span, .usdt-collection-address > small { color: var(--muted); font-size: 8px; line-height: 1.5; }
+.usdt-collection-address > strong { overflow-wrap: anywhere; font: 9px var(--font-family); line-height: 1.5; }
+.usdt-collection-address > .button { width: 100%; }

@@ -926,6 +926,14 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
   const [krwPhpQuote, setKrwPhpQuote] = useState<CurrencyQuote | null>(null)
   const [quoteLoading, setQuoteLoading] = useState(false)
   const [result, setResult] = useState<PaymentLinkResult | "error" | null>(null)
+  const [usdtCollection, setUsdtCollection] = useState<{
+    address: string
+    amount: string
+    reference: string
+    qr: string
+  } | null>(null)
+  const [usdtCollectionLoading, setUsdtCollectionLoading] = useState(false)
+  const [usdtCollectionCopyMessage, setUsdtCollectionCopyMessage] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState("")
   const [idempotencyKey, setIdempotencyKey] = useState(() =>
@@ -993,7 +1001,43 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
 
   async function submit(event: FormEvent) {
     event.preventDefault()
-    if (brandingLoading || brandingLoadError) return
+    if (currency !== "USDT" && (brandingLoading || brandingLoadError)) return
+    if (currency === "USDT") {
+      setUsdtCollectionLoading(true)
+      setError("")
+      try {
+        const wallet = await getMerchantUsdtWallet()
+        if (!wallet.address || wallet.network !== "TRON_MAINNET") {
+          throw new Error(
+            wallet.address
+              ? "USDT collection requires an assigned TRON mainnet address."
+              : "No USDT address has been assigned to this merchant yet.",
+          )
+        }
+        const svg = await QRCode.toString(wallet.address, {
+          type: "svg",
+          errorCorrectionLevel: "M",
+          margin: 2,
+          color: { dark: "#10233f", light: "#ffffff" },
+        })
+        setUsdtCollection({
+          address: wallet.address,
+          amount,
+          reference: name.trim(),
+          qr: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+        })
+      } catch (collectionError) {
+        setError(
+          getUsdtServiceErrorMessage(
+            collectionError,
+            "Could not load the assigned USDT collection address.",
+          ),
+        )
+      } finally {
+        setUsdtCollectionLoading(false)
+      }
+      return
+    }
     setSelectingInstitution(true)
   }
 
@@ -1004,7 +1048,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
       currency === "KRW" && krwPhpQuote
         ? Math.round(enteredAmount * krwPhpQuote.rate * 100) / 100
         : enteredAmount
-    if (currency === "USDT" || (currency === "KRW" && !krwPhpQuote)) return
+    if (currency === "KRW" && !krwPhpQuote) return
     setSelectedInstitution(institution)
     setSubmitting(true)
     setError("")
@@ -1057,11 +1101,13 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
           <div>
             <span className="eyebrow">DRPAY · SELF-HOSTED CHECKOUT</span>
             <h2 id="sheet-title">
-              {result
-                ? "Collection ready"
-                : selectingInstitution
-                  ? "Choose payment app"
-                  : "Collect payment"}
+              {usdtCollection
+                ? "USDT collection"
+                : result
+                  ? "Collection ready"
+                  : selectingInstitution
+                    ? "Choose payment app"
+                    : "Collect payment"}
             </h2>
           </div>
           <IconButton label="Close" onClick={onClose}>
@@ -1069,7 +1115,53 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
           </IconButton>
         </header>
 
-        {result ? (
+        {usdtCollection ? (
+          <div className="link-result">
+            <div className="result-icon">
+              <Coins size={25} />
+            </div>
+            <strong>Request {usdtCollection.amount} USDT</strong>
+            <p>
+              Ask the customer to send exactly this amount using TRON (TRC20).
+              No collection fee is charged. Confirm the deposit in your USDT
+              wallet before treating the payment as complete.
+            </p>
+            <div className="qr-preview-frame">
+              <img
+                className="qr-preview"
+                src={usdtCollection.qr}
+                alt="QR code containing the assigned TRON USDT collection address"
+              />
+            </div>
+            <div className="usdt-collection-address">
+              <span>Assigned TRON mainnet address</span>
+              <strong>{usdtCollection.address}</strong>
+              <Button
+                variant="secondary"
+                icon={<Copy size={15} />}
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(usdtCollection.address)
+                    setUsdtCollectionCopyMessage("Address copied.")
+                  } catch {
+                    setUsdtCollectionCopyMessage(
+                      "Could not copy the address. Select and copy it manually.",
+                    )
+                  }
+                }}
+              >
+                Copy address
+              </Button>
+              {usdtCollectionCopyMessage && (
+                <small role="status">{usdtCollectionCopyMessage}</small>
+              )}
+            </div>
+            {usdtCollection.reference && (
+              <p>Reference: {usdtCollection.reference}</p>
+            )}
+            <Button onClick={onClose}>Done</Button>
+          </div>
+        ) : result ? (
           <div className="link-result">
             {result === "error" ? (
               <>
@@ -1157,12 +1249,11 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
               </button>
               <button
                 type="button"
-                className="currency-unavailable"
-                aria-disabled="true"
-                disabled
-                title="USDT collection is not configured"
+                className={currency === "USDT" ? "active" : ""}
+                aria-pressed={currency === "USDT"}
+                onClick={() => setCurrency("USDT")}
               >
-                USDT <small>Unavailable</small>
+                USDT
               </button>
             </div>
             <label>
@@ -1182,8 +1273,14 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
                 </span>
                 <input
                   type="number"
-                  min="1"
-                  step={currency === "KRW" ? "1" : "0.01"}
+                  min={currency === "USDT" ? "0.000001" : "1"}
+                  step={
+                    currency === "KRW"
+                      ? "1"
+                      : currency === "USDT"
+                        ? "0.000001"
+                        : "0.01"
+                  }
                   inputMode="decimal"
                   value={amount}
                   onChange={(event) => setAmount(event.target.value)}
@@ -1193,26 +1290,30 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
                 <small>{currency}</small>
               </div>
             </label>
-            <label>
-              <span>
-                Customer email <small>(optional)</small>
-              </span>
-              <input
-                type="email"
-                value={customerEmail}
-                onChange={(event) => setCustomerEmail(event.target.value)}
-                placeholder="customer@example.com"
-                autoComplete="email"
-                maxLength={254}
+            {currency !== "USDT" && (
+              <label>
+                <span>
+                  Customer email <small>(optional)</small>
+                </span>
+                <input
+                  type="email"
+                  value={customerEmail}
+                  onChange={(event) => setCustomerEmail(event.target.value)}
+                  placeholder="customer@example.com"
+                  autoComplete="email"
+                  maxLength={254}
+                />
+              </label>
+            )}
+            {currency !== "USDT" && (
+              <PaymentBrandingOverrides
+                branding={branding}
+                setBranding={setBranding}
+                brandingLoading={brandingLoading}
+                brandingLoadError={brandingLoadError}
+                retryBranding={retryBranding}
               />
-            </label>
-            <PaymentBrandingOverrides
-              branding={branding}
-              setBranding={setBranding}
-              brandingLoading={brandingLoading}
-              brandingLoadError={brandingLoadError}
-              retryBranding={retryBranding}
-            />
+            )}
             {currency === "KRW" && (
               <div className="currency-quote" aria-live="polite">
                 {quoteLoading ? (
@@ -1240,19 +1341,41 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
                 )}
               </div>
             )}
+            {currency === "USDT" && (
+              <p className="currency-quote">
+                The customer pays directly to your assigned TRON (TRC20)
+                address. No collection fee applies; verify the deposit in your
+                USDT wallet before marking it paid.
+              </p>
+            )}
+            {currency === "USDT" && error && (
+              <div className="inline-error" role="alert">
+                <AlertCircle size={15} />
+                {error}
+              </div>
+            )}
             <Button
               type="submit"
               className="sheet-submit"
               disabled={
                 submitting ||
-                brandingLoading ||
-                Boolean(brandingLoadError) ||
-                currency === "USDT" ||
-                (currency === "KRW" && (!krwPhpQuote || quoteLoading))
+                usdtCollectionLoading ||
+                (currency !== "USDT" &&
+                  (brandingLoading ||
+                    Boolean(brandingLoadError) ||
+                    (currency === "KRW" && (!krwPhpQuote || quoteLoading))))
               }
-              icon={<Link2 size={18} />}
+              icon={
+                currency === "USDT" ? <QrCode size={18} /> : <Link2 size={18} />
+              }
             >
-              {submitting ? "Creating checkout…" : "Create QR and payment link"}
+              {usdtCollectionLoading
+                ? "Loading assigned address…"
+                : currency === "USDT"
+                  ? "Show USDT payment details"
+                  : submitting
+                    ? "Creating checkout…"
+                    : "Create QR and payment link"}
             </Button>
           </form>
         )}
@@ -2524,9 +2647,7 @@ function ScannerSheet({
         <header className="sheet-header">
           <div>
             <span className="eyebrow">QR SCANNER</span>
-            <h2>
-              {mode === "scan" ? "Scan a QR" : "Merchant QR details"}
-            </h2>
+            <h2>{mode === "scan" ? "Scan a QR" : "Merchant QR details"}</h2>
           </div>
           <IconButton label="Close" onClick={onClose}>
             <X size={19} />
@@ -3918,7 +4039,9 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
                             setWithdrawalDestination(event.target.value)
                           }
                         />
-                        <small>Double-check the address before submitting.</small>
+                        <small>
+                          Double-check the address before submitting.
+                        </small>
                       </label>
                       <label>
                         <span>Amount (USDT)</span>
@@ -4022,8 +4145,7 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
                     </small>
                     {request.reviewedAt && request.status !== "PENDING" && (
                       <small>
-                        Reviewed{" "}
-                        {new Date(request.reviewedAt).toLocaleString()}
+                        Reviewed {new Date(request.reviewedAt).toLocaleString()}
                       </small>
                     )}
                     {request.rejectionReason && (
@@ -4065,7 +4187,8 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
             >
               <li>
                 <Coins size={14} style={{ verticalAlign: "text-bottom" }} />
-                &nbsp;Deposit USDT to your assigned TRON wallet to receive funds.
+                &nbsp;Deposit USDT to your assigned TRON wallet to receive
+                funds.
               </li>
               <li>
                 <ArrowLeftRight
@@ -6045,7 +6168,9 @@ export default function App() {
                 subscreen={walletSubscreen}
                 onOpenSubscreen={(subscreen) => setWalletSubscreen(subscreen)}
                 onCloseSubscreen={() => setWalletSubscreen("overview")}
-                renderBalancePanel={(props) => <WalletBalancePanel {...props} />}
+                renderBalancePanel={(props) => (
+                  <WalletBalancePanel {...props} />
+                )}
                 renderUsdtWallet={(version) => (
                   <MainnetUsdtWallet refreshVersion={version} />
                 )}
