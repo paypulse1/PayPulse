@@ -1941,3 +1941,102 @@ h1, h2, p { margin-top: 0; }
     font-size: 7px;
   }
 }
+
+.mobile-app {
+  border-color: #e4e9f1;
+  background: #f7f8fc;
+  box-shadow: 0 32px 90px rgb(25 39 67 / 14%);
+}
+
+.mobile-app :where(*) {
+  text-transform: none;
+}
+
+.mobile-app .app-header {
+  border-bottom-color: #edf0f5;
+  background: rgb(255 255 255 / 94%);
+}
+
+.mobile-app .app-header-title {
+  font-size: 18px;
+  letter-spacing: -.04em;
+}
+
+.mobile-app .balance-card {
+  border: 0;
+  border-radius: 26px;
+  background:
+    radial-gradient(circle at 92% 10%, rgb(114 153 226 / 28%), transparent 34%),
+    linear-gradient(140deg, #10243f, #183d70 68%, #285caa);
+  box-shadow: 0 18px 34px rgb(24 54 96 / 20%);
+}
+
+.mobile-app .quick-action > span {
+  width: 58px;
+  height: 58px;
+  border-color: #e8ecf3;
+  border-radius: 19px;
+  background: #fff;
+  box-shadow: 0 6px 16px rgb(25 39 67 / 6%);
+}
+
+.mobile-app .summary-card,
+.mobile-app .activity-section,
+.mobile-app .merchant-trend-card {
+  border-color: #e8ecf3;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgb(25 39 67 / 4%);
+}
+
+.mobile-app .bottom-nav {
+  border-top-color: #edf0f5;
+  background: rgb(255 255 255 / 96%);
+  box-shadow: 0 -8px 24px rgb(25 39 67 / 5%);
+}
+
+.admin-screen {
+  background: #f5f7fb;
+}
+
+.admin-screen :where(*) {
+  text-transform: none;
+}
+
+.admin-screen > .admin-header {
+  border-bottom-color: #e8edf4;
+  background: rgb(255 255 255 / 96%);
+}
+
+.admin-screen > .admin-content > .admin-nav {
+  border-right-color: #e8edf4;
+}
+
+.admin-screen > .admin-content > .admin-nav button {
+  border-radius: 11px;
+}
+
+.admin-screen > .admin-content > .admin-nav button.active {
+  background: #eaf0fb;
+  color: #2257a5;
+}
+
+.admin-screen > .admin-content > .admin-nav button:hover:not(.active) {
+  background: #edf1f7;
+}
+
+.admin-screen .admin-page-heading h1 {
+  letter-spacing: -.05em;
+}
+
+.admin-screen .admin-stat-grid article,
+.admin-screen > .admin-content > .admin-card {
+  border-radius: 18px;
+  box-shadow: 0 6px 22px rgb(22 40 63 / 4%);
+}
+
+@media (max-width: 760px) {
+  .admin-screen > .admin-content > .admin-nav {
+    border-bottom-color: #e8edf4;
+  }
+}
