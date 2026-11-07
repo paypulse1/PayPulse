@@ -4508,6 +4508,95 @@ app.get("/v1/admin/merchants", async (_req, res) => {
   return res.json(result.rows)
 })
 
+app.post("/v1/admin/merchants/activate", async (req, res) => {
+  const requestedEmails = req.body?.emails
+  if (
+    !Array.isArray(requestedEmails) ||
+    requestedEmails.length === 0 ||
+    requestedEmails.length > 100 ||
+    requestedEmails.some(
+      (email) =>
+        typeof email !== "string" ||
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ||
+        email.trim().length > 254,
+    )
+  ) {
+    return res.status(400).json({
+      error: "Select between 1 and 100 valid merchant email addresses.",
+    })
+  }
+  const emails = requestedEmails.map((email) => email.trim().toLowerCase())
+  if (new Set(emails).size !== emails.length) {
+    return res
+      .status(400)
+      .json({ error: "Each merchant account can only be selected once." })
+  }
+
+  const client = await pool.connect()
+  try {
+    await client.query("BEGIN")
+    await client.query("SELECT pg_advisory_xact_lock(84172031)")
+    const accounts = await client.query(
+      `SELECT account.email, account.active, account.registration_pending,
+         profile.status AS kyb_status
+       FROM merchant_accounts account
+       LEFT JOIN merchant_kyb_profiles profile
+         ON profile.merchant_email = account.email
+       WHERE account.email = ANY($1)
+       ORDER BY account.email
+       FOR UPDATE OF account`,
+      [emails],
+    )
+    if (accounts.rowCount !== emails.length) {
+      await client.query("ROLLBACK")
+      return res.status(404).json({
+        error: "One or more selected merchant accounts could not be found.",
+      })
+    }
+    if (
+      accounts.rows.some(
+        (account) =>
+          account.registration_pending && account.kyb_status !== "APPROVED",
+      )
+    ) {
+      await client.query("ROLLBACK")
+      return res.status(409).json({
+        error:
+          "Review and approve the selected merchant KYB applications before enabling registration access.",
+      })
+    }
+
+    const activated = await client.query(
+      `UPDATE merchant_accounts SET
+         active = TRUE,
+         registration_pending = FALSE,
+         updated_at = NOW()
+       WHERE email = ANY($1) AND active = FALSE
+       RETURNING email`,
+      [emails],
+    )
+    for (const account of activated.rows) {
+      await recordAdminAuditEvent(client, {
+        eventKey: `merchant-status:${randomUUID()}`,
+        category: "Merchant account",
+        action: "Merchant access enabled",
+        target: account.email,
+        actor: req.adminEmail,
+        summary: "Merchant account access was enabled.",
+      })
+    }
+    await client.query("COMMIT")
+    return res.json({
+      activatedEmails: activated.rows.map((account) => account.email),
+    })
+  } catch (error) {
+    await client.query("ROLLBACK")
+    throw error
+  } finally {
+    client.release()
+  }
+})
+
 async function sendMerchantInvitation(merchant) {
   const settingsResult = await pool.query(
     `SELECT setting_key, setting_value FROM system_settings
@@ -8488,7 +8577,11 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
         expiresAt: Date.now() + 6 * 60 * 60 * 1000,
       })
       selectedInstitution = data.find((item) => item.code === institutionCode)
-    } catch {
+    } catch (error) {
+      console.error(
+        "Transfer institution verification failed",
+        error.status || error.message || "network error",
+      )
       return res.status(503).json({
         error: "Could not verify the selected institution. Try again later.",
       })

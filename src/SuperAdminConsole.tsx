@@ -35,6 +35,7 @@ import {
   getAdminMerchantWallet,
   getAdminKybDocumentUrl,
   getAdminMerchantAccounts,
+  activateAdminMerchantAccounts,
   getAdminPaymentLinks,
   getAdminSettings,
   getAdminKybApplications,
@@ -141,6 +142,13 @@ function csvCell(value: string | number) {
   return `"${safeText.replace(/"/g, '""')}"`
 }
 
+function canActivateMerchant(account: AdminMerchantAccount) {
+  return (
+    !account.active &&
+    (!account.registrationPending || account.kybStatus === "APPROVED")
+  )
+}
+
 export function SuperAdminConsole({
   session,
   onSignOut,
@@ -181,6 +189,10 @@ export function SuperAdminConsole({
     {},
   )
   const [merchantSearch, setMerchantSearch] = useState("")
+  const [selectedMerchantEmails, setSelectedMerchantEmails] =
+    useState<string[]>([])
+  const [activatingSelectedMerchants, setActivatingSelectedMerchants] =
+    useState(false)
   const [merchantFilter, setMerchantFilter] =
     useState<"all" | "pending" | "active" | "disabled">("all")
   const [paymentSearch, setPaymentSearch] = useState("")
@@ -251,6 +263,13 @@ export function SuperAdminConsole({
       return matchesSearch && matchesStatus
     })
   }, [merchants, merchantSearch, merchantFilter])
+  const selectableFilteredMerchants =
+    filteredMerchants.filter(canActivateMerchant)
+  const selectedActivatableMerchants = merchants.filter(
+    (merchant) =>
+      selectedMerchantEmails.includes(merchant.email) &&
+      canActivateMerchant(merchant),
+  )
   const activeMerchantCount = merchants.filter(
     (merchant) => merchant.active,
   ).length
@@ -914,6 +933,9 @@ export function SuperAdminConsole({
         },
       )
       await loadConsole()
+      setSelectedMerchantEmails((current) =>
+        current.filter((email) => email !== editingMerchant.originalEmail),
+      )
       setEditingMerchant(null)
       setNotice(
         "Merchant profile updated. If the login email changed, the merchant must sign in again using the new email.",
@@ -937,6 +959,9 @@ export function SuperAdminConsole({
       await updateAdminMerchantAccount(account.email, {
         active: !account.active,
       })
+      setSelectedMerchantEmails((current) =>
+        current.filter((email) => email !== account.email),
+      )
       setMerchants((current) =>
         current.map((item) =>
           item.email === account.email
@@ -970,6 +995,65 @@ export function SuperAdminConsole({
       ) {
         await loadConsole()
       }
+    }
+  }
+
+  async function activateSelectedMerchants() {
+    const accounts = selectedActivatableMerchants
+    if (!accounts.length) return
+    const count = accounts.length
+    const description = accounts.map((account) => account.email).join("\n")
+    if (
+      !window.confirm(
+        `Enable merchant access for these ${count} selected account${
+          count === 1 ? "" : "s"
+        }?\n\n${description}`,
+      )
+    ) {
+      return
+    }
+
+    setActivatingSelectedMerchants(true)
+    setError("")
+    setNotice("")
+    try {
+      const { activatedEmails } = await activateAdminMerchantAccounts(
+        accounts.map((account) => account.email),
+      )
+      const activatedSet = new Set(activatedEmails)
+      setMerchants((current) =>
+        current.map((merchant) =>
+          activatedSet.has(merchant.email)
+            ? {
+                ...merchant,
+                active: true,
+                registrationPending: false,
+              }
+            : merchant,
+        ),
+      )
+      setSelectedMerchantEmails((current) =>
+        current.filter(
+          (email) => !accounts.some((account) => account.email === email),
+        ),
+      )
+      setNotice(
+        activatedEmails.length
+          ? `Merchant access enabled for ${activatedEmails.length} selected account${
+              activatedEmails.length === 1 ? "" : "s"
+            }.`
+          : "All selected merchant accounts already have access enabled.",
+      )
+      await refreshAuditEvents()
+    } catch (requestError) {
+      await loadConsole()
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not activate the selected merchant accounts.",
+      )
+    } finally {
+      setActivatingSelectedMerchants(false)
     }
   }
 
@@ -2857,10 +2941,77 @@ export function SuperAdminConsole({
                     </select>
                   </label>
                 </div>
+                <div className="admin-merchant-selection">
+                  <label>
+                    <input
+                      type="checkbox"
+                      aria-label="Select all eligible merchant accounts shown"
+                      checked={
+                        selectableFilteredMerchants.length > 0 &&
+                        selectableFilteredMerchants.every((account) =>
+                          selectedMerchantEmails.includes(account.email),
+                        )
+                      }
+                      onChange={(event) => {
+                        const visibleEmails = selectableFilteredMerchants.map(
+                          (account) => account.email,
+                        )
+                        setSelectedMerchantEmails((current) =>
+                          event.target.checked
+                            ? Array.from(
+                                new Set([...current, ...visibleEmails]),
+                              )
+                            : current.filter(
+                                (email) => !visibleEmails.includes(email),
+                              ),
+                        )
+                      }}
+                      disabled={
+                        activatingSelectedMerchants ||
+                        selectableFilteredMerchants.length === 0
+                      }
+                    />
+                    <span>Select all eligible accounts shown</span>
+                  </label>
+                  <Button
+                    type="button"
+                    onClick={() => void activateSelectedMerchants()}
+                    disabled={
+                      activatingSelectedMerchants ||
+                      selectedActivatableMerchants.length === 0
+                    }
+                  >
+                    {activatingSelectedMerchants
+                      ? "Activating…"
+                      : `Activate selected (${selectedActivatableMerchants.length})`}
+                  </Button>
+                </div>
                 <div className="admin-account-list">
                   {filteredMerchants.map((account) => (
                     <div className="admin-merchant-account" key={account.email}>
                       <div className="admin-account-row">
+                        <label className="admin-merchant-select">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${account.email} for activation`}
+                            checked={selectedMerchantEmails.includes(
+                              account.email,
+                            )}
+                            onChange={() =>
+                              setSelectedMerchantEmails((current) =>
+                                current.includes(account.email)
+                                  ? current.filter(
+                                      (email) => email !== account.email,
+                                    )
+                                  : [...current, account.email],
+                              )
+                            }
+                            disabled={
+                              activatingSelectedMerchants ||
+                              !canActivateMerchant(account)
+                            }
+                          />
+                        </label>
                         <div>
                           <strong>{account.email}</strong>
                           <small>

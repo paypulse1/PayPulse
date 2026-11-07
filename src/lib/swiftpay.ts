@@ -1402,6 +1402,32 @@ export async function getAdminMerchantAccounts(): Promise<AdminMerchantAccount[]
   return backendRequest<AdminMerchantAccount[]>("/v1/admin/merchants")
 }
 
+export async function activateAdminMerchantAccounts(
+  emails: string[],
+): Promise<{ activatedEmails: string[] }> {
+  const activatedEmails: string[] = []
+  for (let start = 0; start < emails.length; start += 100) {
+    try {
+      const result = await backendRequest<{ activatedEmails: string[] }>(
+        "/v1/admin/merchants/activate",
+        {
+          method: "POST",
+          body: JSON.stringify({ emails: emails.slice(start, start + 100) }),
+        },
+      )
+      activatedEmails.push(...result.activatedEmails)
+    } catch (error) {
+      if (activatedEmails.length && error instanceof Error) {
+        throw new Error(
+          `Activation completed for ${activatedEmails.length} accounts before the next batch failed: ${error.message}`,
+        )
+      }
+      throw error
+    }
+  }
+  return { activatedEmails }
+}
+
 export async function updateAdminMerchantUsdtWallet(
   email: string,
   address: string,

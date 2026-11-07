@@ -62,6 +62,99 @@ test("getSession accepts a valid verified session", () => {
   assert.deepEqual(getSession(), validSession)
 })
 
+test("admin merchant activation sends batches within the endpoint limit", async () => {
+  vi.stubEnv("VITE_DRPAY_BACKEND_URL", "https://api.example.test")
+  vi.stubGlobal("window", {
+    location: {
+      hostname: "localhost",
+      origin: "http://localhost",
+    },
+  })
+  installSessionStorage(new MockStorage())
+  saveSession({
+    accessToken: "test-token",
+    expiresAt: Date.now() + 60_000,
+    email: "admin@example.com",
+    role: "super_admin",
+  })
+  const requests: string[][] = []
+  vi.stubGlobal(
+    "fetch",
+    async (_input: RequestInfo | URL, options?: RequestInit) => {
+      const { emails } = JSON.parse(String(options?.body)) as {
+        emails: string[]
+      }
+      requests.push(emails)
+      return new Response(JSON.stringify({ activatedEmails: emails }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    },
+  )
+
+  const { activateAdminMerchantAccounts } = await import("./swiftpay.ts")
+  const emails = Array.from(
+    { length: 205 },
+    (_, index) => `merchant${index}@example.com`,
+  )
+
+  assert.deepEqual(await activateAdminMerchantAccounts(emails), {
+    activatedEmails: emails,
+  })
+  assert.deepEqual(
+    requests.map((batch) => batch.length),
+    [100, 100, 5],
+  )
+})
+
+test("admin merchant activation reports progress when a later batch fails", async () => {
+  vi.stubEnv("VITE_DRPAY_BACKEND_URL", "https://api.example.test")
+  vi.stubGlobal("window", {
+    location: {
+      hostname: "localhost",
+      origin: "http://localhost",
+    },
+  })
+  installSessionStorage(new MockStorage())
+  saveSession({
+    accessToken: "test-token",
+    expiresAt: Date.now() + 60_000,
+    email: "admin@example.com",
+    role: "super_admin",
+  })
+  let requestCount = 0
+  vi.stubGlobal("fetch", async () => {
+    requestCount += 1
+    if (requestCount === 1) {
+      return new Response(
+        JSON.stringify({
+          activatedEmails: Array.from(
+            { length: 100 },
+            (_, index) => `merchant${index}@example.com`,
+          ),
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )
+    }
+    return new Response(JSON.stringify({ error: "Batch failed." }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    })
+  })
+
+  const { activateAdminMerchantAccounts } = await import("./swiftpay.ts")
+  const emails = Array.from(
+    { length: 101 },
+    (_, index) => `merchant${index}@example.com`,
+  )
+
+  await assert.rejects(
+    activateAdminMerchantAccounts(emails),
+    /Activation completed for 100 accounts before the next batch failed: Batch failed\./,
+  )
+  assert.equal(requestCount, 2)
+})
+
 test("activation gate errors use the tax and support message", async () => {
   vi.stubEnv("VITE_DRPAY_LIVE_BACKEND_URL", "https://api.example.test")
   vi.stubGlobal("window", {
