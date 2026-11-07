@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { Landmark } from "lucide-react";
+import { AppLauncher } from "@capacitor/app-launcher";
+import { Capacitor } from "@capacitor/core";
 import type { InstitutionBrand } from "./lib/swiftpay";
 import { getInstitutionLogoAsset } from "./lib/institutionLogos";
 import {
@@ -51,9 +53,17 @@ export function InstitutionLogo({ institution, className = "" }: { institution: 
 export default function QrPaymentDisplay({ value, institution, showBirLogo = false, showBrandNotes = true }: { value?: string; institution?: InstitutionBrand; showBirLogo?: boolean; showBrandNotes?: boolean }) {
   const [image, setImage] = useState("");
   const [error, setError] = useState("");
+  const [launchError, setLaunchError] = useState("");
   const institutionDeepLink = institution
     ? getPaymentInstitutionDeepLink(institution, value)
     : undefined;
+  const launchFailureMessage = institution
+    ? `Could not open ${getPaymentInstitutionAppName(institution)}. Scan this QR code with the app on another device.`
+    : "";
+
+  useEffect(() => {
+    setLaunchError("");
+  }, [institutionDeepLink]);
 
   useEffect(() => {
     let active = true;
@@ -102,11 +112,22 @@ export default function QrPaymentDisplay({ value, institution, showBirLogo = fal
           <a
             className="button button-secondary"
             href={institutionDeepLink}
+            onClick={(event) => {
+              if (!Capacitor.isNativePlatform()) return;
+              event.preventDefault();
+              setLaunchError("");
+              void AppLauncher.openUrl({ url: institutionDeepLink })
+                .then(({ completed }) => {
+                  if (!completed) setLaunchError(launchFailureMessage);
+                })
+                .catch(() => setLaunchError(launchFailureMessage));
+            }}
           >
             {getPaymentInstitutionAppName(institution) === "GCash"
-              ? "Pay with Gcash"
+              ? "Pay with GCash"
               : `Open ${getPaymentInstitutionAppName(institution)} to scan`}
           </a>
+          {launchError && <p className="qr-brand-note" role="alert">{launchError}</p>}
           {showBrandNotes && (
             <p className="qr-brand-note">
               If this link is unavailable, scan the QR with {getPaymentInstitutionAppName(institution)} on another device.

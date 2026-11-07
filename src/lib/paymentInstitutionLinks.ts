@@ -1,5 +1,6 @@
 import type { InstitutionBrand } from "./swiftpay"
 
+const gcashAppDeepLink = "gcash://"
 const gcashQrPaymentUrl = "gcash://com.mynt.gcash/app/006300000800"
 
 function isGcashInstitution(institution: InstitutionBrand) {
@@ -7,6 +8,16 @@ function isGcashInstitution(institution: InstitutionBrand) {
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, "")
   return identity.includes("GCASH") || identity.includes("GXCHANGE")
+}
+
+function getGcashDeepLink(qrPayload?: string, providerLink?: string) {
+  if (qrPayload) {
+    return `${gcashQrPaymentUrl}?qrCode=${encodeURIComponent(qrPayload)}`
+  }
+  if (providerLink && isSafePaymentInstitutionDeepLink(providerLink)) {
+    return providerLink
+  }
+  return gcashAppDeepLink
 }
 
 export function getPaymentInstitutionAppName(institution: InstitutionBrand) {
@@ -21,18 +32,13 @@ export function getPaymentInstitutionDeepLink(
 ) {
   const providerLink = institution.deepLink?.trim()
 
-  if (isGcashInstitution(institution) && qrPayload) {
-    return `${gcashQrPaymentUrl}?qrCode=${encodeURIComponent(qrPayload)}`
+  if (isGcashInstitution(institution)) {
+    return getGcashDeepLink(qrPayload, providerLink)
   }
-
-  if (providerLink && isSafePaymentInstitutionDeepLink(providerLink)) {
-    return providerLink
-  }
-
+  if (providerLink && isSafePaymentInstitutionDeepLink(providerLink)) return providerLink
   if (institution.code.trim().toUpperCase() === "ALIPAY") {
     return "alipays://platformapi/startapp?appId=20000056"
   }
-  if (isGcashInstitution(institution)) return "gcash://"
   return undefined
 }
 
