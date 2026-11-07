@@ -502,6 +502,12 @@ function verifyWebhook(rawBody, signatureHeader, secret) {
         </a>{" "}
         for ready-to-run requests. Configure its base URL for the chosen API
         environment and use a matching merchant API key.
+        {" "}
+        You can also import the{" "}
+        <a href="/openapi.json" target="_blank" rel="noreferrer">
+          OpenAPI 3.1 specification
+        </a>{" "}
+        into Swagger UI or another OpenAPI-compatible tool.
       </p>
     </div>
   )
