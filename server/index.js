@@ -7671,14 +7671,22 @@ function startNotificationWorker() {
     void scanTelegramUsdtDeposits().catch((error) => {
       console.error(
         "Telegram USDT deposit scan failed",
-        error.name || "database error",
+        {
+          error: error instanceof Error ? error.message : String(error),
+          errorName: error?.name,
+          errorCode: error?.code,
+        },
       )
     })
     const telegramDepositTimer = setInterval(() => {
       void scanTelegramUsdtDeposits().catch((error) => {
         console.error(
           "Telegram USDT deposit scan failed",
-          error.name || "database error",
+          {
+            error: error instanceof Error ? error.message : String(error),
+            errorName: error?.name,
+            errorCode: error?.code,
+          },
         )
       })
     }, 5 * 60_000)
