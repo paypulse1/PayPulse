@@ -162,6 +162,23 @@ import {
   TransactionRow,
 } from "./MerchantDashboardPrimitives"
 
+function getPushReceivePermission(
+  status: { receive?: unknown } | null | undefined,
+) {
+  const receive = status?.receive
+  if (
+    receive === "granted" ||
+    receive === "denied" ||
+    receive === "prompt" ||
+    receive === "prompt-with-rationale"
+  ) {
+    return receive
+  }
+  throw new Error(
+    "Android did not return notification permission status. Update DRPAY and try again.",
+  )
+}
+
 function isTerminalPaymentStatus(status: string) {
   return [
     "PAID",
@@ -5432,8 +5449,15 @@ export default function App() {
     setPushError("")
     setPushRegistrationState("registering")
     try {
-      let permission = await PushNotifications.checkPermissions()
-      if (permission.receive === "denied") {
+      if (!Capacitor.isPluginAvailable("PushNotifications")) {
+        throw new Error(
+          "Push notifications are unavailable in this app build. Update DRPAY and try again.",
+        )
+      }
+      let permission = getPushReceivePermission(
+        await PushNotifications.checkPermissions(),
+      )
+      if (permission === "denied") {
         setPushPermission("denied")
         setPushRegistrationState("idle")
         setPushError(
@@ -5441,10 +5465,12 @@ export default function App() {
         )
         return
       }
-      if (permission.receive !== "granted")
-        permission = await PushNotifications.requestPermissions()
-      setPushPermission(permission.receive)
-      if (permission.receive !== "granted") {
+      if (permission !== "granted")
+        permission = getPushReceivePermission(
+          await PushNotifications.requestPermissions(),
+        )
+      setPushPermission(permission)
+      if (permission !== "granted") {
         setPushRegistrationState("idle")
         setPushError(
           "Allow notifications to receive transaction alerts on this device.",
@@ -5746,6 +5772,11 @@ export default function App() {
       setPushRegistrationState("idle")
       setPushError("")
       try {
+        if (!Capacitor.isPluginAvailable("PushNotifications")) {
+          throw new Error(
+            "Push notifications are unavailable in this app build. Update DRPAY and try again.",
+          )
+        }
         listeners.push(
           await PushNotifications.addListener("registration", ({ value }) => {
             if (!active || !getSession()) return
@@ -5784,10 +5815,12 @@ export default function App() {
             },
           ),
         )
-        const permission = await PushNotifications.checkPermissions()
+        const permission = getPushReceivePermission(
+          await PushNotifications.checkPermissions(),
+        )
         if (!active) return
-        setPushPermission(permission.receive)
-        if (permission.receive === "granted") await enablePushNotifications()
+        setPushPermission(permission)
+        if (permission === "granted") await enablePushNotifications()
       } catch (requestError) {
         if (active) {
           setPushRegistrationState("error")
