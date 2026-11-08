@@ -113,24 +113,30 @@ def main() -> None:
                 ]
             }
 
-        availability_url = (
-            f"{edit_url}/{quote(edit_id, safe='')}/countryAvailability"
-        )
-        availability_response = session.get(availability_url, timeout=60)
-        availability_response.raise_for_status()
-        availability = availability_response.json()
-        available_countries = sorted(
-            country.get("countryCode", "")
-            for country in availability.get("countries", [])
-            if country.get("countryCode")
-        )
+        track_availability = {}
+        for track in ("production", "internal"):
+            availability_url = (
+                f"{edit_url}/{quote(edit_id, safe='')}/countryAvailability/{track}"
+            )
+            availability_response = session.get(availability_url, timeout=60)
+            availability_response.raise_for_status()
+            availability = availability_response.json()
+            track_availability[track] = {
+                "syncWithProduction": availability.get("syncWithProduction"),
+                "restOfWorld": availability.get("restOfWorld"),
+                "countries": sorted(
+                    country.get("countryCode", "")
+                    for country in availability.get("countries", [])
+                    if country.get("countryCode")
+                ),
+            }
 
         listings_url = f"{edit_url}/{quote(edit_id, safe='')}/listings"
         listings_response = session.get(listings_url, timeout=60)
         listings_response.raise_for_status()
         listings = listings_response.json().get("listings", [])
         print(f"Track releases: {json.dumps(track_states, sort_keys=True)}")
-        print(f"Available countries: {json.dumps(available_countries)}")
+        print(f"Track availability: {json.dumps(track_availability, sort_keys=True)}")
         print(
             "Store listings: "
             + json.dumps(
