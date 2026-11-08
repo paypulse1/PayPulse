@@ -271,11 +271,9 @@ h1, h2, p { margin-top: 0; }
 .crypto-wallet-receive strong { display: block; font-size: 13px; }
 .crypto-wallet-receive p { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
 .crypto-wallet-receive > small { grid-column: 1 / -1; color: var(--warning); font-size: 10px; line-height: 1.5; }
-.crypto-wallet-unavailable { padding: 13px; border: 1px dashed #d7e0eb; border-radius: 13px; background: #fafbfd; }
 .crypto-wallet-unavailable-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .crypto-wallet-unavailable-heading strong { font-size: 12px; }
 .crypto-wallet-unavailable-heading span { color: var(--muted); font-size: 10px; font-weight: 700; }
-.crypto-wallet-unavailable p { margin: 6px 0 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
 .crypto-withdrawal { padding: 16px; border: 1px solid #e4eaf2; border-radius: 16px; background: linear-gradient(145deg, #fbfcfe, #f7f9fc); }
 .crypto-withdrawal > .button { min-height: 40px; margin-top: 5px; padding: 8px 12px; font-size: 10px; }
 .crypto-wallet-unavailable-heading h3 { margin: 0; font-size: 14px; }

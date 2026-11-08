@@ -1386,13 +1386,6 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
                 )}
               </div>
             )}
-            {currency === "USDT" && (
-              <p className="currency-quote">
-                The customer pays directly to your assigned TRON (TRC20)
-                address. No collection fee applies; verify the deposit in your
-                USDT wallet before marking it paid.
-              </p>
-            )}
             {currency === "USDT" && error && (
               <div className="inline-error" role="alert">
                 <AlertCircle size={15} />
@@ -4211,59 +4204,22 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
             ) : null}
           </section>
         )}
-        <div className="crypto-wallet-unavailable">
+        <section
+          className="crypto-withdrawal"
+          aria-labelledby="crypto-buy-sell-title"
+        >
           <div className="crypto-wallet-unavailable-heading">
-            <strong>Buy and sell USDT</strong>
-            <span>Guidance</span>
+            <div>
+              <span className="eyebrow">CRYPTO</span>
+              <h3 id="crypto-buy-sell-title">Buy and sell USDT</h3>
+            </div>
           </div>
-          <div style={{ display: "grid", gap: "0.75rem" }}>
-            <p>
-              Self-serve crypto trading is not active yet. Use the wallet flow
-              above for deposits, withdrawals, and transfer review, then contact
-              the DRPAY team for fiat or OTC assistance.
-            </p>
-            <ul
-              style={{
-                margin: 0,
-                paddingLeft: "1.2rem",
-                display: "grid",
-                gap: "0.4rem",
-              }}
-            >
-              <li>
-                <Coins size={14} style={{ verticalAlign: "text-bottom" }} />
-                &nbsp;Deposit USDT to your assigned TRON wallet to receive
-                funds.
-              </li>
-              <li>
-                <ArrowLeftRight
-                  size={14}
-                  style={{ verticalAlign: "text-bottom" }}
-                />
-                &nbsp;Request a verified transfer when you are ready to move
-                funds out.
-              </li>
-              <li>
-                <Bell size={14} style={{ verticalAlign: "text-bottom" }} />
-                &nbsp;For OTC pricing, conversion support, or manual settlement,
-                email the DRPAY team.
-              </li>
-            </ul>
-            <a
-              href={`mailto:${supportEmail}?subject=${encodeURIComponent("USDT buy/sell support")}`}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.5rem",
-                fontWeight: 600,
-                color: "inherit",
-              }}
-            >
-              <Mail size={14} />
-              Contact support
-            </a>
-          </div>
-        </div>
+          <p className="crypto-withdrawal-intro">
+            Self-serve crypto trading is not active yet. Use the wallet flow
+            above for deposits, withdrawals, and transfer review, then contact
+            the DRPAY team for fiat or OTC assistance.
+          </p>
+        </section>
       </section>
       <UsdtDepositHistory
         deposits={deposits}
