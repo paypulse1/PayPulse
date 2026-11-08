@@ -839,6 +839,46 @@
   margin: 0 auto 0 0;
 }
 
+.drpay-footer-play {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  column-gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid #d8e0e9;
+  border-radius: 6px;
+  color: #172b45;
+  text-decoration: none;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease;
+}
+
+.drpay-footer-play:hover {
+  border-color: #9eb4ca;
+  background: #f7f9fc;
+}
+
+.drpay-footer-play span {
+  grid-column: 1;
+  color: #66768a;
+  font-size: 7px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.drpay-footer-play strong {
+  grid-column: 1;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.drpay-footer-play svg {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  color: #0877df;
+}
+
 .drpay-footer nav {
   display: flex;
   align-items: center;

@@ -15,6 +15,8 @@ import "./marketing-navigation.css"
 import { APP_ROUTES } from "./lib/routes"
 
 const APK_DOWNLOAD_URL = APP_ROUTES.androidDownload
+const GOOGLE_PLAY_URL =
+  "https://play.google.com/store/apps/details?id=ph.drpays.merchant"
 
 const paymentChannels = [
   {
@@ -408,6 +410,17 @@ export default function MarketingHome() {
           <span>DRPAY</span>
         </a>
         <p>Merchant payments, made clearer.</p>
+        <a
+          className="drpay-footer-play"
+          href={GOOGLE_PLAY_URL}
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Get DRPAY on Google Play"
+        >
+          <span>GET IT ON</span>
+          <strong>Google Play</strong>
+          <ArrowRight size={14} aria-hidden="true" />
+        </a>
         <nav aria-label="Footer navigation">
           <a href={APP_ROUTES.privacy}>Privacy</a>
           <a href={APP_ROUTES.terms}>Terms</a>
