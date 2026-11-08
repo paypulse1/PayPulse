@@ -94,14 +94,43 @@ def main() -> None:
     edit_id = edit_response.json()["id"]
 
     if checking_production:
-        track_url = f"{edit_url}/{quote(edit_id, safe='')}/tracks/production"
-        track_response = session.get(track_url, timeout=60)
-        track_response.raise_for_status()
+        track_states = {}
+        for track in ("production", "internal"):
+            track_url = f"{edit_url}/{quote(edit_id, safe='')}/tracks/{track}"
+            track_response = session.get(track_url, timeout=60)
+            track_response.raise_for_status()
+            track_data = track_response.json()
+            track_states[track] = {
+                "releases": [
+                    {
+                        "name": release.get("name"),
+                        "status": release.get("status"),
+                        "versionCodes": release.get("versionCodes", []),
+                        "userFraction": release.get("userFraction"),
+                        "countryTargeting": release.get("countryTargeting"),
+                    }
+                    for release in track_data.get("releases", [])
+                ]
+            }
+
+        availability_url = (
+            f"{edit_url}/{quote(edit_id, safe='')}/countryAvailability"
+        )
+        availability_response = session.get(availability_url, timeout=60)
+        availability_response.raise_for_status()
+        availability = availability_response.json()
+        available_countries = sorted(
+            country.get("countryCode", "")
+            for country in availability.get("countries", [])
+            if country.get("countryCode")
+        )
+
         listings_url = f"{edit_url}/{quote(edit_id, safe='')}/listings"
         listings_response = session.get(listings_url, timeout=60)
         listings_response.raise_for_status()
         listings = listings_response.json().get("listings", [])
-        print(f"Production track: {json.dumps(track_response.json(), sort_keys=True)}")
+        print(f"Track releases: {json.dumps(track_states, sort_keys=True)}")
+        print(f"Available countries: {json.dumps(available_countries)}")
         print(
             "Store listings: "
             + json.dumps(
