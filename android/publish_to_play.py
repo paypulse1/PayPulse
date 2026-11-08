@@ -58,18 +58,22 @@ def publish_track_release(
 
 
 def main() -> None:
+    checking_production = len(sys.argv) == 2 and sys.argv[1] == "--check-production"
     promoting_existing_release = len(sys.argv) == 3 and sys.argv[1] == "--promote-existing"
-    if not promoting_existing_release and len(sys.argv) != 2:
+    if not checking_production and not promoting_existing_release and len(sys.argv) != 2:
         raise SystemExit(
             "Usage: publish_to_play.py <signed-app-bundle.aab>\n"
-            "   or: publish_to_play.py --promote-existing android-prod-vMAJOR.MINOR.PATCH"
+            "   or: publish_to_play.py --promote-existing android-prod-vMAJOR.MINOR.PATCH\n"
+            "   or: publish_to_play.py --check-production"
         )
 
     service_account_json = os.environ.get("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON")
     if not service_account_json:
         raise RuntimeError("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON is not configured")
 
-    if promoting_existing_release:
+    if checking_production:
+        version_name = ""
+    elif promoting_existing_release:
         version_name, version_code = parse_version(sys.argv[2], "android-prod-v")
     else:
         version_name = os.environ.get("ANDROID_VERSION_NAME", "")
@@ -89,7 +93,27 @@ def main() -> None:
     edit_response.raise_for_status()
     edit_id = edit_response.json()["id"]
 
-    if promoting_existing_release:
+    if checking_production:
+        track_url = f"{edit_url}/{quote(edit_id, safe='')}/tracks/production"
+        track_response = session.get(track_url, timeout=60)
+        track_response.raise_for_status()
+        listings_url = f"{edit_url}/{quote(edit_id, safe='')}/listings"
+        listings_response = session.get(listings_url, timeout=60)
+        listings_response.raise_for_status()
+        listings = listings_response.json().get("listings", [])
+        print(f"Production track: {json.dumps(track_response.json(), sort_keys=True)}")
+        print(
+            "Store listings: "
+            + json.dumps(
+                [
+                    {"language": listing.get("language"), "title": listing.get("title")}
+                    for listing in listings
+                ],
+                sort_keys=True,
+            )
+        )
+        return
+    elif promoting_existing_release:
         track = "production"
     else:
         bundle_path = Path(sys.argv[1])
