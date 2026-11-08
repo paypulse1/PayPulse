@@ -1,0 +1,6 @@
+{
+  "language": "en-US",
+  "title": "DRPAY: Merchant Payments",
+  "shortDescription": "Manage merchant payments, collections and transfers with DRPAY.",
+  "fullDescription": "DRPAY is a mobile workspace for registered merchants in the Philippines.\n\nUse the app to:\n\n- Review your PHP wallet balance and payment activity.\n- Create payment links and hosted checkouts for your customers.\n- Accept QRPH payments through the channels enabled for your merchant account.\n- Send supported bank or e-wallet transfers and review available networks before confirming.\n- Follow transaction status and receive merchant notifications.\n\nKeep access in your control with an MPIN, email verification when signing in on a new device, and biometric sign-in where supported.\n\nDRPAY is for registered merchants, not consumer banking. Available payment methods, transfer networks, fees, limits and settlement times depend on your account, selected institution and provider."
+}

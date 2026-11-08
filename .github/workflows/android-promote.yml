@@ -7,11 +7,12 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: Promote an existing release or inspect its Play Store state
+        description: Inspect Play Store state, promote a release, or update the listing
         type: choice
         options:
           - inspect
           - promote
+          - update-listing
         default: inspect
         required: true
 
@@ -47,3 +48,11 @@ jobs:
         run: |
           python3 -m pip install --disable-pip-version-check "google-auth[requests]>=2,<3"
           python3 android/publish_to_play.py --check-production
+
+      - name: Update Google Play store listing
+        if: github.event_name == 'workflow_dispatch' && inputs.action == 'update-listing'
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          python3 -m pip install --disable-pip-version-check "google-auth[requests]>=2,<3"
+          python3 android/publish_to_play.py --update-listing
