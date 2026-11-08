@@ -57,6 +57,37 @@ jobs:
           pnpm build
           pnpm exec cap sync android
 
+      - name: Verify Android and Firebase application IDs
+        run: |
+          python3 - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+
+          gradle_file = Path("android/app/build.gradle").read_text()
+          match = re.search(r'applicationId\s+"([^"]+)"', gradle_file)
+          if not match:
+              raise SystemExit("Could not read applicationId from android/app/build.gradle")
+          application_id = match.group(1)
+
+          firebase_file = Path("android/app/google-services.json")
+          if not firebase_file.is_file():
+              raise SystemExit(
+                  f"Missing {firebase_file}; add Firebase configuration for {application_id}."
+              )
+          firebase = json.loads(firebase_file.read_text())
+          firebase_ids = {
+              client.get("client_info", {}).get("android_client_info", {}).get("package_name")
+              for client in firebase.get("client", [])
+          }
+          if application_id not in firebase_ids:
+              raise SystemExit(
+                  f"Firebase config package IDs {sorted(filter(None, firebase_ids))} "
+                  f"do not include Android applicationId {application_id}."
+              )
+          print(f"Android and Firebase application IDs match: {application_id}")
+          PY
+
       - name: Prepare release signing key
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}

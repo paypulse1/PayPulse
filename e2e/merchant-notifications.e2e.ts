@@ -98,9 +98,7 @@ test("merchant can verify a device and read inbox notifications", async ({
     name: "Loading merchant dashboard",
   })
   await expect(loadingScreen).toBeVisible()
-  await expect(
-    loadingScreen.locator(".loading-emblem-spinner"),
-  ).toBeVisible()
+  await expect(loadingScreen.locator(".loading-emblem-spinner")).toBeVisible()
   await expect(loadingScreen.locator(".loading-emblem-spinner")).toHaveCSS(
     "animation-name",
     "spin",
@@ -127,7 +125,7 @@ test("merchant can verify a device and read inbox notifications", async ({
     .click()
   await page
     .locator(".balance-card")
-    .getByRole("button", { name: "Withdraw" })
+    .getByRole("button", { name: "Transfer PHP" })
     .click()
   await expect(page.getByRole("dialog")).toBeVisible()
   await expect(

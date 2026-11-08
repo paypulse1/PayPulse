@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  lazy,
   useMemo,
   useRef,
   useState,
@@ -129,9 +130,22 @@ import {
   supportsBiometricLogin,
   wasBiometricOfferDismissed,
 } from "./lib/biometric"
-import Checkout from "./Checkout"
-import UsdtPaymentPage from "./UsdtPaymentPage"
-import MarketingHome from "./MarketingHome"
+const Checkout = lazy(() => import("./Checkout"))
+const UsdtPaymentPage = lazy(() => import("./UsdtPaymentPage"))
+const MarketingHome = lazy(() => import("./MarketingHome"))
+const MerchantSignIn = lazy(() => import("./MerchantSignIn"))
+const OperationsSignIn = lazy(() => import("./OperationsSignIn"))
+const MerchantNotificationInbox = lazy(
+  () => import("./MerchantNotificationInbox"),
+)
+const WalletScreen = lazy(() => import("./WalletScreen"))
+const UsdtDepositHistory = lazy(() => import("./UsdtDepositHistory"))
+const UsdtStatus = lazy(() => import("./UsdtStatus"))
+const SuperAdminConsole = lazy(() =>
+  import("./SuperAdminConsole").then(({ SuperAdminConsole }) => ({
+    default: SuperAdminConsole,
+  })),
+)
 import LegalPage, { getLegalPage, supportEmail } from "./LegalPages"
 import { APP_ROUTES, getPublicCheckoutOrigin } from "./lib/routes"
 import QrPaymentDisplay, { InstitutionLogo } from "./QrPaymentDisplay"
@@ -140,14 +154,7 @@ import { DeveloperCenter, KybSetupPanel } from "./MerchantSetup"
 import { Brand, Button, IconButton } from "./AppPrimitives"
 import AppNavigation, { type AppTab } from "./AppNavigation"
 import AccessibleDialog from "./AccessibleDialog"
-import UsdtDepositHistory from "./UsdtDepositHistory"
-import UsdtStatus from "./UsdtStatus"
-import WalletScreen from "./WalletScreen"
 import useBalanceVisibility from "./useBalanceVisibility"
-import { SuperAdminConsole } from "./SuperAdminConsole"
-import MerchantSignIn from "./MerchantSignIn"
-import MerchantNotificationInbox from "./MerchantNotificationInbox"
-import OperationsSignIn from "./OperationsSignIn"
 import {
   DashboardLoading,
   formatWalletMovement,
