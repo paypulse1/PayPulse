@@ -158,7 +158,7 @@ def publish_store_listing(
 
     commit_response = session.post(
         f"{edit_url}/{quote(edit_id, safe='')}:commit",
-        json={},
+        params={"changesInReviewBehavior": "ERROR_IF_IN_REVIEW"},
         timeout=60,
     )
     if not commit_response.ok:
