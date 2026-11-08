@@ -54,11 +54,7 @@ def publish_track_release(
         json={},
         timeout=60,
     )
-    if not commit_response.ok:
-        raise RuntimeError(
-            "Google Play listing commit failed with HTTP "
-            f"{commit_response.status_code}: {commit_response.text[:2000]}"
-        )
+    commit_response.raise_for_status()
 
 
 def load_store_listing() -> tuple[dict, Path, list[Path]]:
@@ -165,7 +161,11 @@ def publish_store_listing(
         json={},
         timeout=60,
     )
-    commit_response.raise_for_status()
+    if not commit_response.ok:
+        raise RuntimeError(
+            "Google Play listing commit failed with HTTP "
+            f"{commit_response.status_code}: {commit_response.text[:2000]}"
+        )
 
 
 def main() -> None:
