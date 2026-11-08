@@ -6023,7 +6023,7 @@ export default function App() {
     )
   }
 
-  if (!data && loading) {
+  if (!data && session && (loading || !error)) {
     return (
       <>
         <DashboardLoading />

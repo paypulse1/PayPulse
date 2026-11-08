@@ -1,6 +1,6 @@
-import { ChevronRight, LoaderCircle, QrCode } from "lucide-react"
+import { ChevronRight, QrCode } from "lucide-react"
 import { InstitutionLogo } from "./QrPaymentDisplay"
-import { Brand } from "./AppPrimitives"
+import AppLoadingScreen from "./AppLoadingScreen"
 import type { Transaction } from "./lib/swiftpay"
 
 export function formatWalletMovement(amount: number) {
@@ -19,28 +19,10 @@ export function StatusBadge({ status }: { status: Transaction["status"] }) {
 
 export function DashboardLoading() {
   return (
-    <main
-      className="dashboard-loading-screen"
-      role="status"
-      aria-label="Loading merchant dashboard"
-      aria-busy="true"
-    >
-      <section className="dashboard-loading-shell">
-        <header className="dashboard-loading-brand">
-          <Brand />
-        </header>
-        <div className="dashboard-loading-intro">
-          <div className="loading-emblem" aria-hidden="true">
-            <LoaderCircle className="loading-emblem-spinner" size={66} />
-            <img src="/drpay-mark.png" alt="" />
-          </div>
-          <div className="dashboard-loading-copy">
-            <h1>Loading</h1>
-            <p>Preparing your merchant dashboard…</p>
-          </div>
-        </div>
-      </section>
-    </main>
+    <AppLoadingScreen
+      label="Loading your dashboard"
+      description="Preparing your merchant workspace…"
+    />
   )
 }
 

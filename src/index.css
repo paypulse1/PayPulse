@@ -39,7 +39,7 @@
 }
 
 * { box-sizing: border-box; font-family: var(--font-family); text-transform: uppercase; }
-html, body, #root { min-width: 320px; min-height: 100%; margin: 0; }
+html, body, #root { min-width: 320px; min-height: 100%; margin: 0; background: var(--page); }
 body { min-height: 100vh; min-height: 100dvh; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; text-transform: uppercase; }
@@ -939,24 +939,23 @@ h1, h2, p { margin-top: 0; }
 .page-transition > :where(.balance-card, .quick-actions, .summary-card, .merchant-trend-card, .activity-section):nth-child(3) { animation-delay: calc(var(--motion-stagger-step) + var(--motion-stagger-step)); }
 .page-transition > :where(.balance-card, .quick-actions, .summary-card, .merchant-trend-card, .activity-section):nth-child(4) { animation-delay: calc(var(--motion-stagger-step) + var(--motion-stagger-step) + var(--motion-stagger-step)); }
 .page-transition > :where(.balance-card, .quick-actions, .summary-card, .merchant-trend-card, .activity-section):nth-child(5) { animation-delay: calc(var(--motion-stagger-step) + var(--motion-stagger-step) + var(--motion-stagger-step) + var(--motion-stagger-step)); }
-.dashboard-loading-screen { min-height: 100vh; min-height: 100dvh; padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom)); display: grid; place-items: center; background: var(--paper); color: var(--ink); }
-.dashboard-loading-shell { width: min(100%, 360px); padding: 24px; display: grid; justify-items: center; gap: 25px; text-align: center; }
+.app-bootstrap { min-height: 100vh; min-height: 100dvh; padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom)); display: grid; place-items: center; overflow: hidden; background: radial-gradient(ellipse at 18% 5%, rgb(34 87 165 / 9%), transparent 34%), radial-gradient(ellipse at 92% 94%, rgb(217 184 102 / 12%), transparent 30%), var(--page); color: var(--ink); }
+.app-bootstrap-content { width: min(100%, 360px); padding: 24px; display: grid; justify-items: center; gap: 23px; text-align: center; }
+.app-bootstrap-brand { display: flex; align-items: center; gap: 9px; color: var(--brand-navy); }
+.app-bootstrap-brand img { width: 31px; height: 31px; object-fit: contain; }
+.app-bootstrap-brand strong { font-size: 15px; letter-spacing: .08em; }
+.app-bootstrap-spinner { width: 34px; height: 34px; border: 2px solid var(--line); border-top-color: var(--link); border-radius: 50%; animation: spin var(--motion-spin) linear infinite; }
+.app-bootstrap-copy h1 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -.025em; }
+.app-bootstrap-copy p { margin: 7px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .dashboard-error-screen { min-height: 100vh; padding: 24px; display: grid; place-content: center; justify-items: center; gap: 12px; background: var(--page); color: var(--ink); }
 .dashboard-error-screen > svg { color: var(--danger); }
 .dashboard-error-screen h1 { margin: 0; font-size: 22px; }
 .dashboard-error-screen p { max-width: 320px; margin: 0; color: var(--muted); font-size: 9px; line-height: 1.5; text-align: center; }
 .dashboard-error-screen .button { min-width: 150px; }
-.dashboard-loading-brand { display: flex; justify-content: center; }
-.loading-emblem { position: relative; width: 60px; height: 60px; display: grid; place-items: center; }
-.loading-emblem-spinner { position: absolute; inset: 0; width: 100%; height: 100%; color: var(--link); stroke-width: 1.5; animation: spin calc(var(--motion-spin) + var(--motion-spin)) linear infinite; }
-.loading-emblem img { width: 30px; height: 30px; object-fit: contain; }
-.dashboard-loading-intro { display: grid; justify-items: center; gap: 17px; }
-.dashboard-loading-copy h1 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -.035em; }
-.dashboard-loading-copy p { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .admin-loading { min-height: 180px; display: flex; align-items: center; justify-content: center; gap: 9px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); color: var(--muted); font-size: 10px; }
 
 @media (max-height: 700px) {
-  .dashboard-loading-screen { padding-block: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-bottom)); }
+  .app-bootstrap { padding-block: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-bottom)); }
 }
 
 .auth-screen { min-height: 100vh; padding: 28px 18px; display: flex; flex-direction: column; align-items: center; background: radial-gradient(circle at 50% 0%, #eaf3ff 0%, var(--paper) 42%); }

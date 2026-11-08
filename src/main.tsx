@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react"
 import ReactDOM from "react-dom/client"
 import "./index.css"
+import AppLoadingScreen from "./AppLoadingScreen"
 import { shouldShowMarketingHome } from "./lib/routes"
 
 const App = lazy(() => import("./App"))
@@ -15,13 +16,7 @@ const EntryScreen = shouldShowMarketingHome(
   : App
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  <Suspense
-    fallback={
-      <div className="app-bootstrap" role="status">
-        Loading DRPAY…
-      </div>
-    }
-  >
+  <Suspense fallback={<AppLoadingScreen />}>
     <EntryScreen />
   </Suspense>,
 )
