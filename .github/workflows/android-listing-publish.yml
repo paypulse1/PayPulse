@@ -1,0 +1,35 @@
+name: Publish DRPAY Google Play store listing
+
+on:
+  push:
+    branches:
+      - Production
+    paths:
+      - android/play-listing/**
+      - android/publish_to_play.py
+      - .github/workflows/android-listing-publish.yml
+
+permissions:
+  contents: read
+
+jobs:
+  publish-listing:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Publish store listing
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          python3 -m pip install --disable-pip-version-check "google-auth[requests]>=2,<3"
+          python3 android/publish_to_play.py --update-listing

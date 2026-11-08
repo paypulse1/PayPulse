@@ -113,6 +113,18 @@ def publish_store_listing(
     screenshots: list[Path],
 ) -> None:
     locale = listing["language"]
+    listings_url = f"{edit_url}/{quote(edit_id, safe='')}/listings"
+    listings_response = session.get(listings_url, timeout=60)
+    listings_response.raise_for_status()
+    available_locales = {
+        item.get("language")
+        for item in listings_response.json().get("listings", [])
+    }
+    if locale not in available_locales:
+        raise RuntimeError(
+            f"Google Play has no existing {locale} listing; refusing to publish"
+        )
+
     listing_url = (
         f"{edit_url}/{quote(edit_id, safe='')}/listings/{quote(locale, safe='')}"
     )
