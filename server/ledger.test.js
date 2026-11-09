@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import {
   calculateCollectionFee,
+  calculateDownlineCommission,
   calculateRefundLedgerReversal,
   calculateTransferDebit,
   calculateTransferRequestAvailableBalance,
@@ -33,6 +34,14 @@ function createClient(respond) {
 describe("ledger calculations", () => {
   it("calculates collection fees to whole cents", () => {
     expect(calculateCollectionFee("123.45", "2.5")).toBe(3.09)
+  })
+
+  it("calculates downline commissions from the post-platform-fee amount", () => {
+    expect(calculateDownlineCommission("120.36", "10")).toBe(12.04)
+    expect(calculateDownlineCommission("120.36", "0")).toBe(0)
+    expect(() => calculateDownlineCommission("120.36", "20.01")).toThrow(
+      /commission percentage is invalid/,
+    )
   })
 
   it("rejects invalid collection fee configuration", () => {
@@ -135,7 +144,9 @@ describe("collection settlement", () => {
       availableBalance: 4900,
     })
     expect(
-      calls.some(({ sql }) => sql.includes("INSERT INTO merchant_wallet_ledger")),
+      calls.some(({ sql }) =>
+        sql.includes("INSERT INTO merchant_wallet_ledger"),
+      ),
     ).toBe(false)
     expect(calls.map(({ sql }) => sql)).toContain("COMMIT")
   })
@@ -160,7 +171,9 @@ describe("collection settlement", () => {
       availableBalance: null,
     })
     expect(
-      calls.some(({ sql }) => sql.includes("INSERT INTO merchant_wallet_ledger")),
+      calls.some(({ sql }) =>
+        sql.includes("INSERT INTO merchant_wallet_ledger"),
+      ),
     ).toBe(false)
     expect(
       calls.some(({ sql }) => sql.includes("INSERT INTO platform_fee_ledger")),
@@ -215,6 +228,65 @@ describe("collection settlement", () => {
     expect(client.release).toHaveBeenCalledOnce()
   })
 
+  it("deducts the configured commission from a referred merchant and credits its referrer", async () => {
+    const { client, calls } = createClient((sql) => {
+      if (sql.includes("FROM payment_links")) {
+        return {
+          rows: [
+            {
+              id: "payment-1",
+              merchant_email: "downline@example.com",
+              reference_no: "DRP-1",
+              amount: "123.45",
+              status: "EXECUTED",
+            },
+          ],
+        }
+      }
+      if (sql.includes("FROM system_settings"))
+        return { rows: [{ setting_value: "2.5" }] }
+      if (sql.includes("SELECT amount FROM platform_fee_ledger"))
+        return { rows: [{ amount: "3.09" }] }
+      if (sql.includes("FROM downline_commissions")) return { rows: [] }
+      if (sql.includes("SELECT referred_by_email"))
+        return {
+          rows: [
+            {
+              referred_by_email: "referrer@example.com",
+              rate: "10.00",
+            },
+          ],
+        }
+      if (sql.includes("INSERT INTO downline_commissions"))
+        return {
+          rows: [
+            {
+              referrer_email: "referrer@example.com",
+              amount: "12.04",
+            },
+          ],
+        }
+      return { rows: [] }
+    })
+    const service = createLedgerService({
+      pool: { connect: vi.fn(async () => client) },
+    })
+
+    await service.settleSuccessfulCollection("payment-1")
+
+    const collectionCredit = calls.find(
+      ({ sql }) =>
+        sql.includes("INSERT INTO merchant_wallet_ledger") &&
+        sql.includes("'COLLECTION'"),
+    )
+    const commissionCredit = calls.find(({ sql }) =>
+      sql.includes("'DOWNLINE_COMMISSION'"),
+    )
+    expect(collectionCredit.parameters[3]).toBe("108.32")
+    expect(commissionCredit.parameters[1]).toBe("referrer@example.com")
+    expect(commissionCredit.parameters[3]).toBe("12.04")
+  })
+
   it("leaves an outer transaction in control when an existing client is provided", async () => {
     const { client, calls } = createClient(() => ({ rows: [] }))
     const service = createLedgerService({ pool: { connect: vi.fn() } })
@@ -259,7 +331,7 @@ describe("collection settlement", () => {
     expect(client.release).toHaveBeenCalledOnce()
   })
 
-  it("reverses the net collection ledger amount for a successful refund", async () => {
+  it("reverses the post-commission collection credit and referrer commission on refund", async () => {
     const { client, calls } = createClient((sql) => {
       if (sql.includes("UPDATE disbursements")) {
         return {
@@ -274,7 +346,7 @@ describe("collection settlement", () => {
           ],
         }
       }
-      if (sql.includes("SELECT GREATEST")) return { rows: [{ amount: "97.5" }] }
+      if (sql.includes("SELECT GREATEST")) return { rows: [{ amount: "87.5" }] }
       if (sql.includes("FOR UPDATE OF d")) {
         return {
           rows: [
@@ -282,6 +354,8 @@ describe("collection settlement", () => {
               reference_no: "DRP-1",
               amount: "100",
               fee_amount: "2.5",
+              commission_amount: "10",
+              referrer_email: "referrer@example.com",
               merchant_reference_no: "REF-1",
               refund_ledger_reversed_at: null,
             },
@@ -300,10 +374,17 @@ describe("collection settlement", () => {
 
     await service.updateDisbursementStatus("transfer-1", null, "SUCCESS", null)
 
-    const reversal = calls.find(({ sql }) =>
-      sql.includes("INSERT INTO merchant_wallet_ledger"),
+    const reversal = calls.find(
+      ({ sql }) =>
+        sql.includes("INSERT INTO merchant_wallet_ledger") &&
+        sql.includes("'DISBURSEMENT'"),
     )
-    expect(reversal.parameters[3]).toBe("-97.50")
+    const commissionReversal = calls.find(({ sql }) =>
+      sql.includes("'DOWNLINE_COMMISSION_REVERSAL'"),
+    )
+    expect(reversal.parameters[3]).toBe("-87.50")
+    expect(commissionReversal.parameters[1]).toBe("referrer@example.com")
+    expect(commissionReversal.parameters[3]).toBe("-10.00")
     expect(
       calls.some(({ sql }) => sql.includes("INSERT INTO platform_fee_ledger")),
     ).toBe(false)
@@ -402,7 +483,9 @@ describe("collection settlement", () => {
 
   it("reserves the fixed fee on pending transfers but not refunds", async () => {
     const { client, calls } = createClient(() => ({ rows: [{}] }))
-    const service = createLedgerService({ pool: { connect: async () => client } })
+    const service = createLedgerService({
+      pool: { connect: async () => client },
+    })
 
     await service.getMerchantWalletState(client, "merchant@example.com")
 

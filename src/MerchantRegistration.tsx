@@ -22,6 +22,7 @@ import { Brand, Button, PoweredByFooter } from "./AppPrimitives"
 const initialContact: MerchantRegistrationInput = {
   email: "",
   phoneNumber: "",
+  referralCode: "",
 }
 
 const initialApplication: MerchantBusinessDetails = {
@@ -109,7 +110,14 @@ export default function MerchantRegistration({
 }: {
   onBack: () => void
 }) {
-  const [contact, setContact] = useState(initialContact)
+  const [contact, setContact] = useState(() => ({
+    ...initialContact,
+    referralCode:
+      new URLSearchParams(window.location.search)
+        .get("ref")
+        ?.trim()
+        .toUpperCase() || "",
+  }))
   const [application, setApplication] = useState(initialApplication)
   const [stage, setStage] = useState<RegistrationStage>("contact")
   const [challengeId, setChallengeId] = useState("")
@@ -415,8 +423,24 @@ export default function MerchantRegistration({
                         required
                       />
                     </label>
+                    <label>
+                      <span>Merchant referral code (optional)</span>
+                      <input
+                        value={contact.referralCode}
+                        onChange={(event) =>
+                          updateContact(
+                            "referralCode",
+                            event.target.value.toUpperCase(),
+                          )
+                        }
+                        placeholder="16-character code"
+                        maxLength={16}
+                        autoComplete="off"
+                      />
+                    </label>
                     <small className="registration-step-hint">
-                      A verification code will be sent to your email.
+                      A verification code will be sent to your email. Referral
+                      codes connect your account to the referring merchant.
                     </small>
                     {error && (
                       <div className="inline-error" role="alert">

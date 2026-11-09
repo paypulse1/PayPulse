@@ -495,11 +495,47 @@ type CollectionInstitution = {
   logoUrl?: string
 }
 
+function readStorageItem(
+  storageName: "local" | "session",
+  key: string,
+): string | null {
+  try {
+    const storage =
+      storageName === "local" ? globalThis.localStorage : globalThis.sessionStorage
+    return storage ? storage.getItem(key) : null
+  } catch {
+    return null
+  }
+}
+
+function writeStorageItem(
+  storageName: "local" | "session",
+  key: string,
+  value: string,
+) {
+  try {
+    const storage =
+      storageName === "local" ? globalThis.localStorage : globalThis.sessionStorage
+    if (storage) storage.setItem(key, value)
+  } catch {
+    // Ignore unavailable browser storage in restricted or non-browser contexts.
+  }
+}
+
+function removeStorageItem(storageName: "local" | "session", key: string) {
+  try {
+    const storage =
+      storageName === "local" ? globalThis.localStorage : globalThis.sessionStorage
+    if (storage) storage.removeItem(key)
+  } catch {
+    // Ignore unavailable browser storage in restricted or non-browser contexts.
+  }
+}
+
 function getCachedCollectionInstitution(
   id: string,
 ): CollectionInstitution | undefined {
-  if (typeof localStorage === "undefined") return undefined
-  const serialized = localStorage.getItem(COLLECTION_INSTITUTION_CACHE_KEY)
+  const serialized = readStorageItem("local", COLLECTION_INSTITUTION_CACHE_KEY)
   if (!serialized) return undefined
   try {
     const entries: unknown = JSON.parse(serialized)
@@ -544,9 +580,8 @@ function cacheCollectionInstitution(
   id: string,
   institution: CollectionInstitution,
 ) {
-  if (typeof localStorage === "undefined") return
   try {
-    const serialized = localStorage.getItem(COLLECTION_INSTITUTION_CACHE_KEY)
+    const serialized = readStorageItem("local", COLLECTION_INSTITUTION_CACHE_KEY)
     const entries: unknown = serialized ? JSON.parse(serialized) : []
     const validEntries = Array.isArray(entries)
       ? entries.filter(
@@ -561,7 +596,8 @@ function cacheCollectionInstitution(
       { id, institution },
       ...validEntries.filter((entry) => entry.id !== id),
     ].slice(0, 100)
-    localStorage.setItem(
+    writeStorageItem(
+      "local",
       COLLECTION_INSTITUTION_CACHE_KEY,
       JSON.stringify(nextEntries),
     )
@@ -629,21 +665,21 @@ function isSession(value: unknown): value is Session {
 }
 
 export function getSession(): Session | null {
-  const stored = sessionStorage.getItem(SESSION_KEY)
+  const stored = readStorageItem("session", SESSION_KEY)
   if (!stored) return null
   try {
     const parsed = JSON.parse(stored) as unknown
     if (!isSession(parsed)) {
-      sessionStorage.removeItem(SESSION_KEY)
+      removeStorageItem("session", SESSION_KEY)
       return null
     }
     if (parsed.expiresAt <= Date.now()) {
-      sessionStorage.removeItem(SESSION_KEY)
+      removeStorageItem("session", SESSION_KEY)
       return null
     }
     return parsed
   } catch {
-    sessionStorage.removeItem(SESSION_KEY)
+    removeStorageItem("session", SESSION_KEY)
     return null
   }
 }
@@ -652,49 +688,49 @@ export function saveSession(session: Session) {
   if (!isSession(session)) {
     throw new Error("Invalid DRPAY session.")
   }
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify(session))
+  writeStorageItem("session", SESSION_KEY, JSON.stringify(session))
 }
 
 export function clearSession() {
-  sessionStorage.removeItem(SESSION_KEY)
+  removeStorageItem("session", SESSION_KEY)
 }
 
 function getDeviceToken(email: string) {
   const key = `${DEVICE_TOKEN_PREFIX}${email}`
-  const existing = localStorage.getItem(key)
+  const existing = readStorageItem("local", key)
   if (existing) return existing
   const bytes = crypto.getRandomValues(new Uint8Array(32))
   const token = btoa(String.fromCharCode(...bytes))
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "")
-  localStorage.setItem(key, token)
+  writeStorageItem("local", key, token)
   return token
 }
 
 export function hasTrustedDevice(email: string) {
-  return localStorage.getItem(`${VERIFIED_DEVICE_PREFIX}${email}`) === "true"
+  return readStorageItem("local", `${VERIFIED_DEVICE_PREFIX}${email}`) === "true"
 }
 
 export function getLastMerchantEmail() {
-  return localStorage.getItem(LAST_MERCHANT_EMAIL_KEY) || ""
+  return readStorageItem("local", LAST_MERCHANT_EMAIL_KEY) || ""
 }
 
 export function getPaymentLinkIdempotencyKey() {
-  const existing = sessionStorage.getItem(PAYMENT_LINK_KEY)
+  const existing = readStorageItem("session", PAYMENT_LINK_KEY)
   if (existing) return existing
   const key = crypto.randomUUID()
-  sessionStorage.setItem(PAYMENT_LINK_KEY, key)
+  writeStorageItem("session", PAYMENT_LINK_KEY, key)
   return key
 }
 
 export function resetPaymentLinkIdempotencyKey() {
-  sessionStorage.removeItem(PAYMENT_LINK_KEY)
+  removeStorageItem("session", PAYMENT_LINK_KEY)
   return getPaymentLinkIdempotencyKey()
 }
 
 export function clearPaymentLinkIdempotencyKey() {
-  sessionStorage.removeItem(PAYMENT_LINK_KEY)
+  removeStorageItem("session", PAYMENT_LINK_KEY)
 }
 
 export class ApiError extends Error {
@@ -846,7 +882,7 @@ function saveMerchantSession(
     role: response.role || "merchant",
   }
   saveSession(session)
-  localStorage.setItem(LAST_MERCHANT_EMAIL_KEY, merchantEmail)
+  writeStorageItem("local", LAST_MERCHANT_EMAIL_KEY, merchantEmail)
   return session
 }
 
@@ -863,6 +899,23 @@ export async function requestDeviceOtp(email: string) {
 export type MerchantRegistrationInput = {
   email: string
   phoneNumber: string
+  referralCode: string
+}
+
+export type MerchantDownlineReferral = {
+  email: string
+  businessName: string
+  active: boolean
+  registrationPending: boolean
+  commissionRate: number
+  createdAt: string
+}
+
+export type MerchantDownline = {
+  enabled: boolean
+  referralCode: string | null
+  referrals: MerchantDownlineReferral[]
+  message: string | null
 }
 
 export type MerchantBusinessDetails = {
@@ -989,7 +1042,7 @@ export async function verifyDeviceOtp(
       deviceToken: getDeviceToken(email),
     }),
   })
-  localStorage.setItem(`${VERIFIED_DEVICE_PREFIX}${email}`, "true")
+  writeStorageItem("local", `${VERIFIED_DEVICE_PREFIX}${email}`, "true")
   return saveMerchantSession(email, response)
 }
 
@@ -1384,6 +1437,8 @@ function toTransaction(
       ? "AD"
       : type.includes("ACTIVATION_FEE")
         ? "AF"
+        : type.includes("DOWNLINE_COMMISSION")
+          ? "DC"
         : type.includes("DISBURSEMENT")
           ? "TX"
           : type.includes("DEPOSIT")
@@ -1397,6 +1452,10 @@ function toTransaction(
     reference: item.referenceNo,
     channel: type.includes("ADMIN_ADJUSTMENT")
       ? "Admin adjustment"
+      : type === "DOWNLINE_COMMISSION"
+        ? "Downline commission"
+        : type === "DOWNLINE_COMMISSION_REVERSAL"
+          ? "Commission reversal"
       : type.includes("DISBURSEMENT")
         ? item.channel
         : type.includes("DEPOSIT")
@@ -1437,7 +1496,10 @@ export async function getMerchantDashboard(): Promise<DashboardData> {
   ])
   const transactions = activity.map(toTransaction)
   const settledCredits = transactions.filter(
-    (item) => item.status === "Completed" && item.numericAmount > 0,
+    (item) =>
+      item.status === "Completed" &&
+      item.numericAmount > 0 &&
+      item.channel !== "Downline commission",
   )
   const volume = settledCredits.reduce(
     (sum, item) => sum + item.numericAmount,
@@ -1464,6 +1526,23 @@ export async function getMerchantDashboard(): Promise<DashboardData> {
       wallet.paymentEnvironment === "production" ? "production" : "sandbox",
     transactions,
   }
+}
+
+export async function getMerchantDownline(): Promise<MerchantDownline> {
+  return backendRequest<MerchantDownline>("/v1/merchant/downline")
+}
+
+export async function setMerchantDownlineCommissionRate(
+  email: string,
+  rate: number,
+): Promise<{ email: string; commissionRate: number }> {
+  return backendRequest<{ email: string; commissionRate: number }>(
+    `/v1/merchant/downline/${encodeURIComponent(email)}/rate`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ rate }),
+    },
+  )
 }
 
 export async function getInstitutions(): Promise<Institution[]> {

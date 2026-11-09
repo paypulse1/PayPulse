@@ -50,6 +50,7 @@ import { createFloatingTransferRequest } from "./floating-transfers.js"
 import {
   calculateTransferDebit,
   createLedgerService,
+  MAX_DOWNLINE_COMMISSION_PERCENT,
   PLATFORM_FEE_LEDGER_SOURCE_TYPES,
 } from "./ledger.js"
 import {
@@ -58,6 +59,12 @@ import {
   parseUsdtAmount,
   tronAddressPayload,
 } from "./tron-usdt.js"
+import {
+  MERCHANT_USDT_BALANCE_MILESTONE,
+  getPostAssignmentUsdtBalance,
+  isMerchantFullyActivated,
+  meetsUsdtMinimumBalance,
+} from "./merchant-activation.js"
 import {
   createCustomerPaymentRequestEmail,
   createTaxInvoiceEmailCopy,
@@ -1045,6 +1052,31 @@ const {
   queueTransactionWebhook,
 })
 
+async function ensureMerchantReferralCode(email) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const existing = await pool.query(
+      "SELECT referral_code AS code FROM merchant_accounts WHERE email = $1",
+      [email],
+    )
+    if (!existing.rowCount) return null
+    if (existing.rows[0].code) return existing.rows[0].code
+
+    const code = randomBytes(8).toString("hex").toUpperCase()
+    try {
+      const updated = await pool.query(
+        `UPDATE merchant_accounts SET referral_code = $2
+         WHERE email = $1 AND referral_code IS NULL
+         RETURNING referral_code AS code`,
+        [email, code],
+      )
+      if (updated.rowCount) return updated.rows[0].code
+    } catch (error) {
+      if (error.code !== "23505") throw error
+    }
+  }
+  throw new Error("Could not assign a unique merchant referral code.")
+}
+
 const { updatePaymentLinkStatus } = createPaymentStateService({
   pool,
   settleSuccessfulCollection,
@@ -1400,6 +1432,8 @@ async function initializeDatabase() {
     CREATE TABLE IF NOT EXISTS merchant_accounts (
       email TEXT PRIMARY KEY,
       active BOOLEAN NOT NULL DEFAULT TRUE,
+      referral_code TEXT,
+      referred_by_email TEXT REFERENCES merchant_accounts(email) ON DELETE SET NULL,
       business_name TEXT NOT NULL DEFAULT '',
       contact_person TEXT NOT NULL DEFAULT '',
       phone_number TEXT NOT NULL DEFAULT '',
@@ -1412,14 +1446,36 @@ async function initializeDatabase() {
       ADD COLUMN IF NOT EXISTS invitation_accepted_at TIMESTAMPTZ;
     ALTER TABLE merchant_accounts
       ADD COLUMN IF NOT EXISTS registration_pending BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE merchant_accounts
+      ADD COLUMN IF NOT EXISTS referral_code TEXT;
+    ALTER TABLE merchant_accounts
+      ADD COLUMN IF NOT EXISTS referred_by_email TEXT REFERENCES merchant_accounts(email) ON DELETE SET NULL;
+    ALTER TABLE merchant_accounts
+      ADD COLUMN IF NOT EXISTS downline_commission_rate NUMERIC(5, 2) NOT NULL DEFAULT 0;
+    ALTER TABLE merchant_accounts
+      DROP CONSTRAINT IF EXISTS merchant_accounts_downline_commission_rate_check;
+    ALTER TABLE merchant_accounts
+      ADD CONSTRAINT merchant_accounts_downline_commission_rate_check
+      CHECK (downline_commission_rate >= 0 AND downline_commission_rate <= ${MAX_DOWNLINE_COMMISSION_PERCENT});
+    CREATE UNIQUE INDEX IF NOT EXISTS merchant_accounts_referral_code_idx
+      ON merchant_accounts (referral_code) WHERE referral_code IS NOT NULL;
+    UPDATE merchant_accounts
+      SET referral_code = UPPER(SUBSTRING(REPLACE(gen_random_uuid()::text, '-', ''), 1, 16))
+      WHERE referral_code IS NULL;
     CREATE TABLE IF NOT EXISTS merchant_usdt_wallets (
       merchant_email TEXT PRIMARY KEY REFERENCES merchant_accounts(email) ON DELETE CASCADE ON UPDATE CASCADE,
       address TEXT NOT NULL UNIQUE,
       network TEXT NOT NULL DEFAULT 'TRON_MAINNET' CHECK (network IN ('TRON_SHASTA', 'TRON_MAINNET')),
       assigned_by TEXT NOT NULL,
+      assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      starting_balance NUMERIC(24, 6),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    ALTER TABLE merchant_usdt_wallets
+      ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    ALTER TABLE merchant_usdt_wallets
+      ADD COLUMN IF NOT EXISTS starting_balance NUMERIC(24, 6);
     CREATE TABLE IF NOT EXISTS crypto_withdrawal_requests (
       id UUID PRIMARY KEY,
       merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
@@ -1476,6 +1532,7 @@ async function initializeDatabase() {
       attempts INTEGER NOT NULL DEFAULT 0,
       expires_at TIMESTAMPTZ NOT NULL,
       verified_at TIMESTAMPTZ,
+      referral_code TEXT,
       consumed_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -1485,6 +1542,8 @@ async function initializeDatabase() {
       DROP COLUMN IF EXISTS business_address;
     ALTER TABLE merchant_registration_otps
       ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ;
+    ALTER TABLE merchant_registration_otps
+      ADD COLUMN IF NOT EXISTS referral_code TEXT;
     CREATE INDEX IF NOT EXISTS merchant_registration_otps_email_created_idx
       ON merchant_registration_otps (email, created_at DESC);
     CREATE TABLE IF NOT EXISTS merchant_registration_documents (
@@ -1614,6 +1673,14 @@ async function initializeDatabase() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE (source_type, source_id)
     );
+    ALTER TABLE merchant_wallet_ledger
+      DROP CONSTRAINT IF EXISTS merchant_wallet_ledger_source_type_check;
+    ALTER TABLE merchant_wallet_ledger
+      ADD CONSTRAINT merchant_wallet_ledger_source_type_check
+      CHECK (source_type IN (
+        'COLLECTION', 'DISBURSEMENT', 'ACTIVATION_FEE',
+        'DOWNLINE_COMMISSION', 'DOWNLINE_COMMISSION_REVERSAL'
+      ));
     CREATE TABLE IF NOT EXISTS merchant_wallet_adjustments (
       id UUID PRIMARY KEY,
       merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
@@ -1812,6 +1879,18 @@ async function initializeDatabase() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS downline_commissions (
+      id UUID PRIMARY KEY,
+      payment_id UUID NOT NULL UNIQUE REFERENCES payment_links(id) ON DELETE CASCADE,
+      referrer_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      downline_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      rate NUMERIC(5, 2) NOT NULL CHECK (rate >= 0 AND rate <= ${MAX_DOWNLINE_COMMISSION_PERCENT}),
+      amount NUMERIC(18, 2) NOT NULL CHECK (amount >= 0),
+      reversed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS downline_commissions_referrer_created_idx
+      ON downline_commissions (referrer_email, created_at DESC);
     CREATE TABLE IF NOT EXISTS disbursements (
       id UUID PRIMARY KEY,
       idempotency_key TEXT NOT NULL UNIQUE,
@@ -2135,16 +2214,31 @@ async function initializeDatabase() {
     ON CONFLICT (source_type, source_id) DO NOTHING
   `)
   await pool.query(`
+    INSERT INTO downline_commissions
+      (id, payment_id, referrer_email, downline_email, rate, amount, created_at)
+    SELECT gen_random_uuid(), payment.id, merchant.referred_by_email,
+      payment.merchant_email, 0, 0, payment.created_at
+    FROM payment_links payment
+    JOIN merchant_wallet_ledger credit
+      ON credit.source_type = 'COLLECTION'
+      AND credit.source_id = payment.id
+      AND credit.merchant_email = payment.merchant_email
+    JOIN merchant_accounts merchant ON merchant.email = payment.merchant_email
+    WHERE merchant.referred_by_email IS NOT NULL
+    ON CONFLICT (payment_id) DO NOTHING
+  `)
+  await pool.query(`
     INSERT INTO merchant_wallet_ledger (id, merchant_email, source_type, source_id, amount, reference_no, created_at)
     SELECT gen_random_uuid(), d.merchant_email, 'DISBURSEMENT', d.id,
       CASE WHEN d.refund_payment_id IS NOT NULL
-        THEN -GREATEST(COALESCE(p.amount, d.amount) - COALESCE(f.amount, 0), 0)
+        THEN -GREATEST(COALESCE(p.amount, d.amount) - COALESCE(f.amount, 0) - COALESCE(commission.amount, 0), 0)
         ELSE -d.amount
       END,
       d.merchant_reference_no, d.created_at
     FROM disbursements d
     LEFT JOIN payment_links p ON p.id = d.refund_payment_id
     LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
+    LEFT JOIN downline_commissions commission ON commission.payment_id = p.id
     WHERE d.status IN ('EXECUTED', 'SUCCESS', 'COMPLETED') AND d.merchant_email IS NOT NULL
     ON CONFLICT (source_type, source_id) DO NOTHING
   `)
@@ -2751,6 +2845,10 @@ app.post(
     typeof req.body?.phoneNumber === "string"
       ? req.body.phoneNumber.trim()
       : ""
+  const referralCode =
+    typeof req.body?.referralCode === "string"
+      ? req.body.referralCode.trim().toUpperCase()
+      : ""
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
     return res.status(400).json({ error: "Enter a valid email address." })
   }
@@ -2758,6 +2856,20 @@ app.post(
     return res.status(400).json({
       error: "Enter a valid mobile number.",
     })
+  }
+  if (referralCode && !/^[A-Z0-9]{16}$/.test(referralCode)) {
+    return res.status(400).json({ error: "Enter a valid merchant referral code." })
+  }
+  if (referralCode) {
+    const referrer = await pool.query(
+      "SELECT email FROM merchant_accounts WHERE referral_code = $1 AND active = TRUE",
+      [referralCode],
+    )
+    if (!referrer.rowCount) {
+      return res.status(400).json({
+        error: "This merchant referral code is invalid or inactive.",
+      })
+    }
   }
   const account = await pool.query(
     "SELECT email FROM merchant_accounts WHERE email = $1",
@@ -2772,12 +2884,18 @@ app.post(
     "DELETE FROM merchant_registration_otps WHERE created_at < NOW() - INTERVAL '24 hours'",
   )
   const recentRequest = await pool.query(
-    `SELECT id FROM merchant_registration_otps
+    `SELECT id, referral_code FROM merchant_registration_otps
      WHERE email = $1 AND created_at > NOW() - INTERVAL '60 seconds'
      ORDER BY created_at DESC LIMIT 1`,
     [email],
   )
   if (recentRequest.rowCount) {
+    if ((recentRequest.rows[0].referral_code || "") !== referralCode) {
+      return res.status(409).json({
+        error:
+          "A verification code was already sent with a different referral code. Continue with that code or try again in one minute.",
+      })
+    }
     return res.set("Cache-Control", "no-store").json({
       challengeId: recentRequest.rows[0].id,
       message: "A verification code has already been sent. Check your email.",
@@ -2805,9 +2923,9 @@ app.post(
   )
   await pool.query(
     `INSERT INTO merchant_registration_otps
-       (id, email, phone_number, code_hash, expires_at)
-     VALUES ($1, $2, $3, $4, NOW() + INTERVAL '10 minutes')`,
-    [challengeId, email, phoneNumber, codeHash],
+       (id, email, phone_number, code_hash, referral_code, expires_at)
+     VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '10 minutes')`,
+    [challengeId, email, phoneNumber, codeHash, referralCode || null],
   )
   try {
     await sendMerchantOtp(email, code)
@@ -3229,7 +3347,7 @@ app.post(
   try {
     await client.query("BEGIN")
     const challenge = await client.query(
-      `SELECT phone_number FROM merchant_registration_otps
+      `SELECT phone_number, referral_code FROM merchant_registration_otps
        WHERE id = $1 AND email = $2 AND verified_at IS NOT NULL
          AND verified_at > NOW() - INTERVAL '24 hours'
          AND consumed_at IS NULL
@@ -3241,6 +3359,21 @@ app.post(
       return res.status(401).json({
         error: "Verify your email before submitting your application.",
       })
+    }
+    let referredByEmail = null
+    if (challenge.rows[0].referral_code) {
+      const referrer = await client.query(
+        `SELECT email FROM merchant_accounts
+         WHERE referral_code = $1 AND active = TRUE`,
+        [challenge.rows[0].referral_code],
+      )
+      if (!referrer.rowCount) {
+        await client.query("ROLLBACK")
+        return res.status(400).json({
+          error: "This merchant referral code is no longer active.",
+        })
+      }
+      referredByEmail = referrer.rows[0].email
     }
     const documents = await client.query(
       `SELECT id, document_type, object_key, file_name, content_type, size_bytes
@@ -3267,14 +3400,16 @@ app.post(
     }
     await client.query(
       `INSERT INTO merchant_accounts
-         (email, active, registration_pending, business_name, contact_person, phone_number, business_address)
-       VALUES ($1, FALSE, TRUE, $2, $3, $4, $5)`,
+         (email, active, registration_pending, business_name, contact_person,
+          phone_number, business_address, referred_by_email)
+       VALUES ($1, FALSE, TRUE, $2, $3, $4, $5, $6)`,
       [
         email,
         businessName,
         contactPerson,
         challenge.rows[0].phone_number,
         businessAddress,
+        referredByEmail,
       ],
     )
     const pinSalt = randomBytes(16).toString("hex")
@@ -5261,7 +5396,7 @@ app.post("/v1/admin/merchants/:email/wallet/adjustments", async (req, res) => {
          ), reservations AS (
            SELECT COALESCE(SUM(
              CASE WHEN d.refund_payment_id IS NOT NULL
-               THEN GREATEST(COALESCE(p.amount, d.amount) - COALESCE(f.amount, 0), 0)
+               THEN GREATEST(COALESCE(p.amount, d.amount) - COALESCE(f.amount, 0) - COALESCE(commission.amount, 0), 0)
                ELSE d.amount + d.transfer_fee
              END
            ), 0) AS amount
@@ -5269,6 +5404,7 @@ app.post("/v1/admin/merchants/:email/wallet/adjustments", async (req, res) => {
            LEFT JOIN payment_links p ON p.id = d.refund_payment_id
            LEFT JOIN platform_fee_ledger f
              ON f.source_type = 'COLLECTION' AND f.source_id = p.id
+           LEFT JOIN downline_commissions commission ON commission.payment_id = p.id
            WHERE d.merchant_email = $1
              AND d.status NOT IN ('EXECUTED', 'SUCCESS', 'COMPLETED', 'REJECTED',
                'ERROR', 'FAILED', 'CANCELED', 'CANCELLED', 'EXPIRED', 'REVERSED')
@@ -5775,10 +5911,14 @@ app.put("/v1/admin/merchants/:email/usdt-wallet", async (req, res) => {
       wallet = { address: null, network: "TRON_MAINNET" }
     } else {
       const result = await client.query(
-        `INSERT INTO merchant_usdt_wallets (merchant_email, address, network, assigned_by)
-         SELECT email, $2, 'TRON_MAINNET', $3 FROM merchant_accounts WHERE email = $1
+        `INSERT INTO merchant_usdt_wallets
+           (merchant_email, address, network, assigned_by, assigned_at, starting_balance)
+           SELECT email, $2, 'TRON_MAINNET', $3, NOW(), NULL
+         FROM merchant_accounts WHERE email = $1
          ON CONFLICT (merchant_email) DO UPDATE SET address = EXCLUDED.address,
-           network = EXCLUDED.network, assigned_by = EXCLUDED.assigned_by, updated_at = NOW()
+           network = EXCLUDED.network, assigned_by = EXCLUDED.assigned_by,
+           assigned_at = EXCLUDED.assigned_at,
+           starting_balance = EXCLUDED.starting_balance, updated_at = NOW()
          RETURNING address, network`,
         [email, address, req.adminEmail],
       )
@@ -6669,109 +6809,270 @@ app.post("/v1/crypto/usdt-withdrawals", pinAttemptLimiter, async (req, res) => {
   return res.status(201).set("Cache-Control", "no-store").json(result.rows[0])
 })
 
-app.get("/v1/crypto/usdt-wallet", cryptoWalletLimiter, async (req, res) => {
-  const wallet = await pool.query(
-    "SELECT address, network FROM merchant_usdt_wallets WHERE merchant_email = $1",
-    [req.merchantEmail],
-  )
-  const assigned = wallet.rows[0]
-  const mainnetEnabled = tronUsdtNetwork === "mainnet"
-  const ready = Boolean(mainnetEnabled && tatumApiKey)
-  if (!assigned) {
-    return res.set("Cache-Control", "no-store").json({
-      address: null,
-      network: "TRON_MAINNET",
-      balance: null,
-      configured: ready,
-      message: "We're working on assigning your USDT address.",
-    })
-  }
-  if (assigned.network !== "TRON_MAINNET") {
-    return res.set("Cache-Control", "no-store").json({
-      address: assigned.address,
-      network: assigned.network,
-      balance: null,
-      configured: false,
-      message:
-        "This address is marked as a Shasta testnet address. The DRPAY team must confirm and reassign a production address before mainnet balance lookup.",
-    })
-  }
-  if (!ready) {
-    return res.set("Cache-Control", "no-store").json({
-      address: assigned.address,
-      network: "TRON_MAINNET",
-      balance: null,
-      configured: false,
-      message:
-        "Mainnet USDT balance lookup is disabled or Tatum is not configured on this API service.",
-    })
-  }
-  const addressPayload = tronAddressPayload(assigned.address)
+async function fetchMainnetUsdtBalance(address) {
+  const addressPayload = tronAddressPayload(address)
   const contractPayload = tronAddressPayload(tronMainnetUsdtContract)
   if (!addressPayload || !contractPayload) {
-    return res.status(503).set("Cache-Control", "no-store").json({
-      address: assigned.address,
-      network: "TRON_MAINNET",
-      balance: null,
-      configured: false,
-      message:
-        "The assigned wallet address or official TRON USDT contract is invalid.",
-    })
+    throw new Error("The assigned wallet address or USDT contract is invalid.")
   }
-  try {
-    const response = await fetch(
-      "https://tron-mainnet.gateway.tatum.io/wallet/triggerconstantcontract",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": tatumApiKey,
-        },
-        body: JSON.stringify({
-          owner_address: assigned.address,
-          contract_address: tronMainnetUsdtContract,
-          function_selector: "balanceOf(address)",
-          parameter: addressPayload
-            .subarray(1)
-            .toString("hex")
-            .padStart(64, "0"),
-          visible: true,
-        }),
-        signal: AbortSignal.timeout(10_000),
+  const response = await fetch(
+    "https://tron-mainnet.gateway.tatum.io/wallet/triggerconstantcontract",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": tatumApiKey,
       },
-    )
-    if (!response.ok) throw new Error(`Tatum returned HTTP ${response.status}`)
-    const result = await response.json()
-    const rawBalance = result?.constant_result?.[0]
-    if (
-      result?.Error ||
-      result?.result?.result !== true ||
-      typeof rawBalance !== "string"
-    ) {
-      throw new Error("Tatum did not return a valid TRC20 contract result")
+      body: JSON.stringify({
+        owner_address: address,
+        contract_address: tronMainnetUsdtContract,
+        function_selector: "balanceOf(address)",
+        parameter: addressPayload.subarray(1).toString("hex").padStart(64, "0"),
+        visible: true,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    },
+  )
+  if (!response.ok) throw new Error(`Tatum returned HTTP ${response.status}`)
+  const result = await response.json()
+  const rawBalance = result?.constant_result?.[0]
+  if (
+    result?.Error ||
+    result?.result?.result !== true ||
+    typeof rawBalance !== "string"
+  ) {
+    throw new Error("Tatum did not return a valid TRC20 contract result.")
+  }
+  const balance = formatTokenBalance(rawBalance, tronMainnetUsdtDecimals)
+  if (balance === null) throw new Error("Tatum returned an invalid token balance.")
+  return balance
+}
+
+async function getMerchantActivation(email) {
+  const [walletResult, feeResult, settingResult, walletState] =
+    await Promise.all([
+      pool.query(
+        `SELECT address, network, assigned_at, starting_balance
+         FROM merchant_usdt_wallets WHERE merchant_email = $1`,
+        [email],
+      ),
+      pool.query(
+        `SELECT amount FROM merchant_wallet_ledger
+         WHERE merchant_email = $1 AND source_type = 'ACTIVATION_FEE'
+         LIMIT 1`,
+        [email],
+      ),
+      pool.query(
+        "SELECT setting_value FROM system_settings WHERE setting_key = 'agreement_activation_fee'",
+      ),
+      getMerchantWalletState(pool, email),
+    ])
+  const assigned = walletResult.rows[0] || null
+  const requiredAmount = Number(settingResult.rows[0]?.setting_value ?? 5000)
+  if (
+    !Number.isFinite(requiredAmount) ||
+    requiredAmount < 0 ||
+    Math.abs(requiredAmount * 100 - Math.round(requiredAmount * 100)) > 1e-7
+  ) {
+    throw new Error("The configured merchant activation fee is invalid.")
+  }
+  let currentBalance = null
+  let configured = Boolean(tronUsdtNetwork === "mainnet" && tatumApiKey)
+  let message = assigned
+    ? null
+    : "We're working on assigning your USDT address."
+  if (assigned?.network !== "TRON_MAINNET" && assigned) {
+    configured = false
+    message =
+      "A TRON mainnet wallet is required to complete merchant service activation."
+  } else if (assigned && !configured) {
+    message =
+      "Mainnet USDT balance lookup is disabled or Tatum is not configured on this API service."
+  } else if (assigned) {
+    currentBalance = await fetchMainnetUsdtBalance(assigned.address)
+    if (assigned.starting_balance === null) {
+      const baseline = await pool.query(
+        `UPDATE merchant_usdt_wallets SET starting_balance = $2
+         WHERE merchant_email = $1 AND starting_balance IS NULL
+         RETURNING starting_balance, assigned_at`,
+        [email, currentBalance],
+      )
+      if (baseline.rowCount) {
+        assigned.starting_balance = baseline.rows[0].starting_balance
+        assigned.assigned_at = baseline.rows[0].assigned_at
+      } else {
+        const latest = await pool.query(
+          `SELECT starting_balance, assigned_at FROM merchant_usdt_wallets
+           WHERE merchant_email = $1`,
+          [email],
+        )
+        assigned.starting_balance = latest.rows[0]?.starting_balance ?? null
+        assigned.assigned_at = latest.rows[0]?.assigned_at ?? assigned.assigned_at
+      }
     }
-    const balance = formatTokenBalance(rawBalance, tronMainnetUsdtDecimals)
-    if (balance === null)
-      throw new Error("Tatum returned an invalid token balance")
-    return res.set("Cache-Control", "no-store").json({
-      address: assigned.address,
-      network: "TRON_MAINNET",
-      balance,
-      configured: true,
-      message: null,
-    })
+  }
+  const qualifyingBalance = getPostAssignmentUsdtBalance(
+    currentBalance,
+    assigned?.starting_balance === null || assigned?.starting_balance === undefined
+      ? null
+      : String(assigned.starting_balance),
+  )
+  const activationFeePaid = feeResult.rowCount > 0
+  const availableWalletBalance = Math.max(
+    0,
+    Number(walletState.balance) - Number(walletState.reserved),
+  )
+  const fullyActivated = isMerchantFullyActivated({
+    activationFeePaid,
+    qualifyingUsdtBalance: qualifyingBalance,
+  })
+  return {
+    activation: {
+      activationFee: {
+        requiredAmount,
+        chargedAmount: activationFeePaid
+          ? Math.abs(Number(feeResult.rows[0].amount))
+          : 0,
+        availableWalletBalance: activationFeePaid
+          ? null
+          : availableWalletBalance,
+        complete: activationFeePaid,
+      },
+      usdtBalance: {
+        requiredAmount: MERCHANT_USDT_BALANCE_MILESTONE,
+        currentBalance,
+        qualifyingBalance,
+        assignedAt: assigned?.assigned_at || null,
+        complete: meetsUsdtMinimumBalance(qualifyingBalance),
+        message,
+      },
+      fullyActivated,
+    },
+    address: assigned?.address || null,
+    network: assigned?.network || "TRON_MAINNET",
+    balance: currentBalance,
+    qualifyingBalance,
+    configured,
+    message,
+  }
+}
+
+app.get("/v1/crypto/usdt-wallet", cryptoWalletLimiter, async (req, res) => {
+  try {
+    const wallet = await getMerchantActivation(req.merchantEmail)
+    return res.set("Cache-Control", "no-store").json(wallet)
   } catch (error) {
     console.error(
       "TRON mainnet USDT balance lookup failed",
       error.name || "RPC error",
     )
     return res.status(503).set("Cache-Control", "no-store").json({
-      address: assigned.address,
-      network: "TRON_MAINNET",
-      balance: null,
-      configured: true,
-      message:
-        "Could not retrieve the mainnet USDT balance. Try again shortly.",
+      error: "Could not retrieve your wallet activation status. Try again shortly.",
+    })
+  }
+})
+
+app.get("/v1/merchant/downline", cryptoWalletLimiter, async (req, res) => {
+  if (req.apiKey) {
+    return res.status(403).json({
+      error: "Sign in with your merchant account to access your downline.",
+    })
+  }
+  try {
+    const wallet = await getMerchantActivation(req.merchantEmail)
+    if (!wallet.activation.fullyActivated) {
+      return res.set("Cache-Control", "no-store").json({
+        enabled: false,
+        referralCode: null,
+        referrals: [],
+        message:
+          wallet.activation.usdtBalance.message ||
+          "Merchant downline unlocks after the activation fee is paid and 100 qualifying USDT is held in your assigned wallet.",
+      })
+    }
+    const referralCode = await ensureMerchantReferralCode(req.merchantEmail)
+    const result = await pool.query(
+      `SELECT email, business_name AS "businessName", active,
+         registration_pending AS "registrationPending",
+         downline_commission_rate::float8 AS "commissionRate",
+         created_at AS "createdAt"
+       FROM merchant_accounts
+       WHERE referred_by_email = $1
+       ORDER BY created_at DESC`,
+      [req.merchantEmail],
+    )
+    return res.set("Cache-Control", "no-store").json({
+      enabled: true,
+      referralCode,
+      referrals: result.rows,
+      message: null,
+    })
+  } catch (error) {
+    console.error(
+      "Merchant downline lookup failed",
+      error.code || error.name || "unknown error",
+    )
+    return res.status(503).json({
+      error: "Could not load your downline. Try again shortly.",
+    })
+  }
+})
+
+app.put("/v1/merchant/downline/:email/rate", async (req, res) => {
+  if (req.apiKey) {
+    return res.status(403).json({
+      error: "Sign in with your merchant account to manage commission rates.",
+    })
+  }
+  const email =
+    typeof req.params.email === "string"
+      ? req.params.email.trim().toLowerCase()
+      : ""
+  const rate = req.body?.rate
+  if (
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+    email.length > 254 ||
+    typeof rate !== "number" ||
+    !Number.isFinite(rate) ||
+    rate < 0 ||
+    rate > MAX_DOWNLINE_COMMISSION_PERCENT ||
+    Math.abs(rate * 100 - Math.round(rate * 100)) > 1e-7
+  ) {
+    return res.status(400).json({
+      error: `Enter a commission rate from 0 to ${MAX_DOWNLINE_COMMISSION_PERCENT}% with no more than two decimal places.`,
+    })
+  }
+  try {
+    const wallet = await getMerchantActivation(req.merchantEmail)
+    if (!wallet.activation.fullyActivated) {
+      return res.status(403).json({
+        error: "Complete merchant wallet activation to manage downline rates.",
+      })
+    }
+    const updated = await pool.query(
+      `UPDATE merchant_accounts downline
+       SET downline_commission_rate = $3, updated_at = NOW()
+       FROM merchant_accounts referrer
+       WHERE downline.email = $1
+         AND downline.referred_by_email = referrer.email
+         AND referrer.email = $2
+       RETURNING downline.email,
+         downline.downline_commission_rate::float8 AS "commissionRate"`,
+      [email, req.merchantEmail, rate.toFixed(2)],
+    )
+    if (!updated.rowCount) {
+      return res.status(404).json({
+        error: "That merchant is not in your downline.",
+      })
+    }
+    return res.set("Cache-Control", "no-store").json(updated.rows[0])
+  } catch (error) {
+    console.error(
+      "Merchant downline commission update failed",
+      error.code || error.name || "unknown error",
+    )
+    return res.status(503).json({
+      error: "Could not save this commission rate. Try again shortly.",
     })
   }
 })
@@ -8623,6 +8924,30 @@ app.get("/v1/wallet/activity", async (req, res) => {
         AND adjustment.created_at >= (SELECT created_at FROM merchant_accounts WHERE email = $3)
         AND ($5::date IS NULL OR adjustment.created_at >= $5::date)
         AND ($6::date IS NULL OR adjustment.created_at < $6::date + INTERVAL '1 day')
+      UNION ALL
+      SELECT wallet.id::text, wallet.reference_no AS "referenceNo",
+        NULL::text AS "institutionCode",
+        CASE wallet.source_type
+          WHEN 'DOWNLINE_COMMISSION' THEN 'Commission from referred merchant collection'
+          ELSE 'Reversal of downline collection commission'
+        END AS description,
+        NULL::text AS "institutionName", NULL::text AS "institutionLogoUrl",
+        NULL::text AS "recipientName", NULL::text AS "recipientAccountNumber",
+        NULL::text AS remarks, FALSE AS "isRefund",
+        CASE wallet.source_type
+          WHEN 'DOWNLINE_COMMISSION' THEN 'Downline commission'
+          ELSE 'Commission reversal'
+        END AS channel,
+        'SUCCESS' AS status, wallet.amount::float8 AS amount,
+        wallet.amount::float8 AS "walletAmount", wallet.created_at AS "createdAt",
+        wallet.source_type AS "transactionType",
+        FALSE AS "canRefund", NULL::text AS "refundStatus"
+      FROM merchant_wallet_ledger wallet
+      WHERE wallet.merchant_email = $3
+        AND wallet.source_type IN ('DOWNLINE_COMMISSION', 'DOWNLINE_COMMISSION_REVERSAL')
+        AND wallet.created_at >= (SELECT created_at FROM merchant_accounts WHERE email = $3)
+        AND ($5::date IS NULL OR wallet.created_at >= $5::date)
+        AND ($6::date IS NULL OR wallet.created_at < $6::date + INTERVAL '1 day')
       ORDER BY "createdAt" DESC LIMIT $1 OFFSET $2
     `,
       [limit, offset, req.merchantEmail, maxTransferAmount, fromDate, toDate],
@@ -9355,9 +9680,10 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
     let transferFee = 0
     if (refundPaymentId) {
       const collection = await client.query(
-        `SELECT p.status, GREATEST(p.amount - COALESCE(f.amount, 0), 0)::numeric AS net_amount
+        `SELECT p.status, GREATEST(p.amount - COALESCE(f.amount, 0) - COALESCE(commission.amount, 0), 0)::numeric AS net_amount
          FROM payment_links p
          LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
+         LEFT JOIN downline_commissions commission ON commission.payment_id = p.id
          WHERE p.id = $1 AND p.merchant_email = $2
          FOR UPDATE OF p`,
         [refundPaymentId, req.merchantEmail],

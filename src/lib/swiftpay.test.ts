@@ -62,6 +62,25 @@ test("getSession accepts a valid verified session", () => {
   assert.deepEqual(getSession(), validSession)
 })
 
+test("session helpers tolerate unavailable browser storage", () => {
+  Object.defineProperty(globalThis, "sessionStorage", {
+    value: undefined,
+    configurable: true,
+    writable: true,
+    enumerable: true,
+  })
+
+  const validSession = {
+    accessToken: "abc123",
+    expiresAt: Date.now() + 60_000,
+    email: "merchant@example.com",
+    role: "merchant",
+  } as const
+
+  assert.equal(getSession(), null)
+  assert.doesNotThrow(() => saveSession(validSession))
+})
+
 test("admin merchant activation sends batches within the endpoint limit", async () => {
   vi.stubEnv("VITE_DRPAY_BACKEND_URL", "https://api.example.test")
   vi.stubGlobal("window", {

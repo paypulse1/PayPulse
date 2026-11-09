@@ -6,6 +6,7 @@ export const PLATFORM_FEE_LEDGER_SOURCE_TYPES = [
   "DISBURSEMENT",
   "ACTIVATION_FEE",
 ]
+export const MAX_DOWNLINE_COMMISSION_PERCENT = 20
 
 const successfulPaymentStatuses = new Set(["EXECUTED", "MANUALLY_PAID"])
 const successfulDisbursementStatuses = new Set([
@@ -32,6 +33,22 @@ export function calculateCollectionFee(amount, feePercent) {
     throw new Error("The configured collection fee percentage is invalid.")
   }
   return Math.round(grossAmount * percent) / 100
+}
+
+export function calculateDownlineCommission(netAmount, commissionPercent) {
+  const amount = Number(netAmount)
+  const percent = Number(commissionPercent)
+  if (!Number.isFinite(amount) || amount < 0) {
+    throw new Error("The downline collection amount is invalid.")
+  }
+  if (
+    !Number.isFinite(percent) ||
+    percent < 0 ||
+    percent > MAX_DOWNLINE_COMMISSION_PERCENT
+  ) {
+    throw new Error("The configured downline commission percentage is invalid.")
+  }
+  return Math.round(amount * percent) / 100
 }
 
 export function calculateTransferDebit(amount, feeAmount) {
@@ -91,13 +108,14 @@ export function createLedgerService({
        ), reservations AS (
          SELECT COALESCE(SUM(
            CASE WHEN d.refund_payment_id IS NOT NULL
-             THEN GREATEST(COALESCE(p.amount, d.amount) - COALESCE(f.amount, 0), 0)
+             THEN GREATEST(COALESCE(p.amount, d.amount) - COALESCE(f.amount, 0) - COALESCE(commission.amount, 0), 0)
              ELSE d.amount + d.transfer_fee
            END
          ), 0)::numeric AS reserved
          FROM disbursements d
          LEFT JOIN payment_links p ON p.id = d.refund_payment_id
          LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
+         LEFT JOIN downline_commissions commission ON commission.payment_id = p.id
          WHERE d.merchant_email = $1
            AND d.status NOT IN ('EXECUTED', 'SUCCESS', 'COMPLETED', 'REJECTED', 'ERROR', 'FAILED', 'CANCELED', 'CANCELLED', 'EXPIRED', 'REVERSED')
        )
@@ -161,7 +179,7 @@ export function createLedgerService({
         ), reservations AS (
            SELECT COALESCE(SUM(
              CASE WHEN d.refund_payment_id IS NOT NULL
-               THEN GREATEST(COALESCE(p.amount, d.amount) - COALESCE(f.amount, 0), 0)
+               THEN GREATEST(COALESCE(p.amount, d.amount) - COALESCE(f.amount, 0) - COALESCE(commission.amount, 0), 0)
                ELSE d.amount + d.transfer_fee
              END
            ), 0)::numeric AS reserved
@@ -169,6 +187,7 @@ export function createLedgerService({
            LEFT JOIN payment_links p ON p.id = d.refund_payment_id
            LEFT JOIN platform_fee_ledger f
              ON f.source_type = 'COLLECTION' AND f.source_id = p.id
+           LEFT JOIN downline_commissions commission ON commission.payment_id = p.id
            WHERE d.merchant_email = $1
              AND d.status NOT IN ('EXECUTED', 'SUCCESS', 'COMPLETED', 'REJECTED',
                'ERROR', 'FAILED', 'CANCELED', 'CANCELLED', 'EXPIRED', 'REVERSED')
@@ -263,6 +282,56 @@ export function createLedgerService({
         Math.round((Number(row.amount) - Number(fee.rows[0].amount)) * 100) /
           100,
       )
+      const commissionResult = await client.query(
+        `SELECT referrer_email, amount::numeric AS amount
+         FROM downline_commissions WHERE payment_id = $1 FOR UPDATE`,
+        [paymentId],
+      )
+      let commissionAmount = 0
+      let referral = commissionResult.rows[0]
+      if (!referral) {
+        const account = await client.query(
+          `SELECT referred_by_email, downline_commission_rate::float8 AS rate
+           FROM merchant_accounts WHERE email = $1 FOR UPDATE`,
+          [row.merchant_email],
+        )
+        const rate = Number(account.rows[0]?.rate || 0)
+        const referrerEmail = account.rows[0]?.referred_by_email
+        commissionAmount = referrerEmail
+          ? calculateDownlineCommission(netAmount, rate)
+          : 0
+        if (referrerEmail) {
+          const inserted = await client.query(
+            `INSERT INTO downline_commissions
+               (id, payment_id, referrer_email, downline_email, rate, amount)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (payment_id) DO NOTHING
+             RETURNING referrer_email, amount::numeric AS amount`,
+            [
+              randomUUID(),
+              paymentId,
+              referrerEmail,
+              row.merchant_email,
+              rate.toFixed(2),
+              commissionAmount.toFixed(2),
+            ],
+          )
+          referral =
+            inserted.rows[0] ||
+            (
+              await client.query(
+                `SELECT referrer_email, amount::numeric AS amount
+                 FROM downline_commissions WHERE payment_id = $1 FOR UPDATE`,
+                [paymentId],
+              )
+            ).rows[0]
+        }
+      }
+      if (referral) commissionAmount = Number(referral.amount)
+      const merchantCredit = Math.max(
+        0,
+        Math.round((netAmount - commissionAmount) * 100) / 100,
+      )
       await client.query(
         `INSERT INTO merchant_wallet_ledger (id, merchant_email, source_type, source_id, amount, reference_no)
          VALUES ($1, $2, 'COLLECTION', $3, $4, $5)
@@ -271,10 +340,25 @@ export function createLedgerService({
           randomUUID(),
           row.merchant_email,
           paymentId,
-          netAmount.toFixed(2),
+          merchantCredit.toFixed(2),
           row.reference_no,
         ],
       )
+      if (referral && commissionAmount > 0) {
+        await client.query(
+          `INSERT INTO merchant_wallet_ledger
+             (id, merchant_email, source_type, source_id, amount, reference_no)
+           VALUES ($1, $2, 'DOWNLINE_COMMISSION', $3, $4, $5)
+           ON CONFLICT (source_type, source_id) DO NOTHING`,
+          [
+            randomUUID(),
+            referral.referrer_email,
+            paymentId,
+            commissionAmount.toFixed(2),
+            row.reference_no,
+          ],
+        )
+      }
       await chargeMerchantActivationFee(row.merchant_email, client)
       if (ownsClient) await client.query("COMMIT")
     } catch (error) {
@@ -306,9 +390,10 @@ export function createLedgerService({
       if (successful && updated.rows[0]?.merchant_email) {
         const walletAmount = refundPaymentId
           ? await client.query(
-              `SELECT GREATEST(p.amount - COALESCE(f.amount, 0), 0)::numeric AS amount
+              `SELECT GREATEST(p.amount - COALESCE(f.amount, 0) - COALESCE(commission.amount, 0), 0)::numeric AS amount
              FROM payment_links p
              LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
+             LEFT JOIN downline_commissions commission ON commission.payment_id = p.id
              WHERE p.id = $1`,
               [refundPaymentId],
             )
@@ -350,7 +435,11 @@ export function createLedgerService({
         const payment = await client.query(
           `SELECT p.reference_no, p.amount::numeric AS amount,
              COALESCE(f.amount, 0)::numeric AS fee_amount,
-             d.merchant_reference_no, d.refund_ledger_reversed_at
+               d.merchant_reference_no, d.refund_ledger_reversed_at,
+               COALESCE((SELECT commission.amount FROM downline_commissions commission
+                 WHERE commission.payment_id = p.id), 0)::numeric AS commission_amount,
+               (SELECT commission.referrer_email FROM downline_commissions commission
+                 WHERE commission.payment_id = p.id) AS referrer_email
            FROM payment_links p
            JOIN disbursements d ON d.id = $2
            LEFT JOIN platform_fee_ledger f ON f.source_type = 'COLLECTION' AND f.source_id = p.id
@@ -362,11 +451,34 @@ export function createLedgerService({
         if (!row)
           throw new Error("Refund settlement references a missing collection.")
         if (!row.refund_ledger_reversed_at) {
-          calculateRefundLedgerReversal(row.amount, row.fee_amount)
+          calculateRefundLedgerReversal(
+            row.amount,
+            Number(row.fee_amount) + Number(row.commission_amount),
+          )
           await client.query(
             "UPDATE disbursements SET refund_ledger_reversed_at = NOW() WHERE id = $1",
             [id],
           )
+          if (Number(row.commission_amount) > 0 && row.referrer_email) {
+            await client.query(
+              `INSERT INTO merchant_wallet_ledger
+                 (id, merchant_email, source_type, source_id, amount, reference_no)
+               VALUES ($1, $2, 'DOWNLINE_COMMISSION_REVERSAL', $3, $4, $5)
+               ON CONFLICT (source_type, source_id) DO NOTHING`,
+              [
+                randomUUID(),
+                row.referrer_email,
+                id,
+                (-Number(row.commission_amount)).toFixed(2),
+                row.merchant_reference_no,
+              ],
+            )
+            await client.query(
+              `UPDATE downline_commissions SET reversed_at = NOW()
+               WHERE payment_id = $1 AND reversed_at IS NULL`,
+              [refundPaymentId],
+            )
+          }
         }
       }
       await client.query("COMMIT")
