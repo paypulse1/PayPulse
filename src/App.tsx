@@ -4517,6 +4517,12 @@ function AllAccessView({
       action: () => onInfo("Notifications"),
     },
     {
+      label: "Social accounts",
+      description: "Link Google or Telegram sign-in to your merchant account.",
+      icon: Link2,
+      action: () => onInfo("Social accounts"),
+    },
+    {
       label: "Security",
       description: "Manage session and device protection.",
       icon: ShieldCheck,
@@ -4840,6 +4846,8 @@ function ProfileInfoPage({
           balanceVisible={balanceVisible}
         />
       )}
+
+      {title === "Social accounts" && <MerchantAuthMethods />}
 
       {title === "Transfer banks" && (
         <>

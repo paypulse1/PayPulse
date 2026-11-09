@@ -227,6 +227,9 @@ const jwtSecret = jwtSecretValue
   : null
 const resendApiKey = process.env.RESEND_API_KEY
 const resendFromEmail = process.env.RESEND_FROM_EMAIL
+const resendOtpFromEmail =
+  process.env.RESEND_OTP_FROM_EMAIL?.trim() ||
+  "DRPAY <support@merchant.denpay.cc>"
 const fcmProjectId = process.env.FCM_PROJECT_ID
 const fcmServiceAccountEmail = process.env.FCM_SERVICE_ACCOUNT_EMAIL
 const fcmServiceAccountPrivateKey =
@@ -674,7 +677,7 @@ async function sendMerchantOtp(email, code) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: resendFromEmail,
+      from: resendOtpFromEmail,
       to: [email],
       subject,
       text,
