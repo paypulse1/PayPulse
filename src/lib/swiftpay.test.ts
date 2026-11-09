@@ -277,6 +277,7 @@ test("merchant registration verifies contact before submitting business details"
   const registration = {
     email: "merchant@example.com",
     phoneNumber: "+639123456789",
+    referralCode: "",
   }
   const businessDetails = {
     businessName: "Example Store",
