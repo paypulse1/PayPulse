@@ -34,11 +34,18 @@ await mkdir(dirname(destination), { recursive: true })
 
 try {
   const releaseResponse = await request(
-    `https://api.github.com/repos/${repository}/releases/latest`,
+    `https://api.github.com/repos/${repository}/releases?per_page=100`,
     apiHeaders,
   )
-  const release = await releaseResponse.json()
-  const asset = release.assets?.find(({ name }) => name === "drpay.apk")
+  const releases = await releaseResponse.json()
+  const release = releases.find(
+    ({ tag_name: tag, draft, prerelease, assets }) =>
+      !draft &&
+      !prerelease &&
+      /^android-v\d+\.\d+\.\d+$/.test(tag || "") &&
+      assets?.some(({ name }) => name === "drpay.apk"),
+  )
+  const asset = release?.assets?.find(({ name }) => name === "drpay.apk")
   if (!asset?.url || !Number.isSafeInteger(asset.size)) {
     throw new Error("The latest private GitHub release has no valid drpay.apk.")
   }

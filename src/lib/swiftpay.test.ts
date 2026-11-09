@@ -62,6 +62,44 @@ test("getSession accepts a valid verified session", () => {
   assert.deepEqual(getSession(), validSession)
 })
 
+test("push device registration identifies the app's Firebase project", async () => {
+  vi.stubEnv("VITE_DRPAY_BACKEND_URL", "https://api.example.test")
+  vi.stubGlobal("window", {
+    location: {
+      hostname: "localhost",
+      origin: "http://localhost",
+    },
+  })
+  installSessionStorage(new MockStorage())
+  saveSession({
+    accessToken: "merchant-token",
+    expiresAt: Date.now() + 60_000,
+    email: "merchant@example.com",
+    role: "merchant",
+  })
+  vi.resetModules()
+
+  let requestOptions: RequestInit | undefined
+  vi.stubGlobal(
+    "fetch",
+    async (_input: RequestInfo | URL, options?: RequestInit) => {
+      requestOptions = options
+      return new Response(JSON.stringify({ registered: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    },
+  )
+
+  const { registerPushDevice } = await import("./swiftpay.ts")
+  await registerPushDevice("device-push-token", "ph.drpays.merchant.public")
+
+  assert.deepEqual(JSON.parse(String(requestOptions?.body)), {
+    token: "device-push-token",
+    appId: "ph.drpays.merchant.public",
+  })
+})
+
 test("session helpers tolerate unavailable browser storage", () => {
   Object.defineProperty(globalThis, "sessionStorage", {
     value: undefined,

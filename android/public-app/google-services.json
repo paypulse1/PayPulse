@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "59057389105",
+    "project_id": "drpay-merchant",
+    "storage_bucket": "drpay-merchant.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:59057389105:android:336f84bd0d79258f5fdf10",
+        "android_client_info": {
+          "package_name": "ph.drpays.merchant.public"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDiTtobXGJMyJ77HVRmlZWCPBW7fdpmERo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "android-prod-v*"
+      - "android-public-prod-v*"
   workflow_dispatch:
     inputs:
       action:
@@ -38,6 +39,7 @@ jobs:
         if: github.event_name == 'push' || inputs.action == 'promote'
         env:
           GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          ANDROID_APPLICATION_ID: ${{ startsWith(github.ref_name, 'android-public-prod-v') && 'ph.drpays.merchant.public' || 'ph.drpays.merchant' }}
           ANDROID_RELEASE_TAG: ${{ github.ref_name }}
         run: |
           python3 -m pip install --disable-pip-version-check "google-auth[requests]>=2,<3"

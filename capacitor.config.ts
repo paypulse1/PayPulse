@@ -1,7 +1,7 @@
-import type { CapacitorConfig } from "@capacitor/cli";
+import type { CapacitorConfig } from "@capacitor/cli"
 
 const config: CapacitorConfig = {
-  appId: "ph.drpays.merchant",
+  appId: process.env.DRPAY_ANDROID_APP_ID || "ph.drpays.merchant",
   appName: "DRPAY",
   webDir: "dist",
   plugins: {
@@ -12,6 +12,6 @@ const config: CapacitorConfig = {
   server: {
     androidScheme: "https",
   },
-};
+}
 
-export default config;
+export default config

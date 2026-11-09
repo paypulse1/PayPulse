@@ -61,14 +61,15 @@ jobs:
         run: |
           python3 - <<'PY'
           import json
-          import re
+          import os
           from pathlib import Path
 
           gradle_file = Path("android/app/build.gradle").read_text()
-          match = re.search(r'applicationId\s+"([^"]+)"', gradle_file)
-          if not match:
-              raise SystemExit("Could not read applicationId from android/app/build.gradle")
-          application_id = match.group(1)
+          application_id = os.environ.get(
+              "ANDROID_APPLICATION_ID", "ph.drpays.merchant"
+          )
+          if 'applicationId System.getenv("ANDROID_APPLICATION_ID")' not in gradle_file:
+              raise SystemExit("Android application ID is not environment-configurable.")
 
           firebase_file = Path("android/app/google-services.json")
           if not firebase_file.is_file():
@@ -105,6 +106,7 @@ jobs:
 
       - name: Build signed release APK and app bundle
         env:
+          ANDROID_APPLICATION_ID: ph.drpays.merchant
           ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/android/app/release.keystore
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}

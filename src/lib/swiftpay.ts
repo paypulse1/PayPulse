@@ -519,7 +519,7 @@ function writeStorageItem(
       storageName === "local" ? globalThis.localStorage : globalThis.sessionStorage
     if (storage) storage.setItem(key, value)
   } catch {
-    // Ignore unavailable browser storage in restricted or non-browser contexts.
+    return
   }
 }
 
@@ -529,14 +529,15 @@ function removeStorageItem(storageName: "local" | "session", key: string) {
       storageName === "local" ? globalThis.localStorage : globalThis.sessionStorage
     if (storage) storage.removeItem(key)
   } catch {
-    // Ignore unavailable browser storage in restricted or non-browser contexts.
+    return
   }
 }
 
 function getCachedCollectionInstitution(
   id: string,
 ): CollectionInstitution | undefined {
-  const serialized = readStorageItem("local", COLLECTION_INSTITUTION_CACHE_KEY)
+  if (typeof localStorage === "undefined") return undefined
+  const serialized = localStorage.getItem(COLLECTION_INSTITUTION_CACHE_KEY)
   if (!serialized) return undefined
   try {
     const entries: unknown = JSON.parse(serialized)
@@ -581,8 +582,9 @@ function cacheCollectionInstitution(
   id: string,
   institution: CollectionInstitution,
 ) {
+  if (typeof localStorage === "undefined") return
   try {
-    const serialized = readStorageItem("local", COLLECTION_INSTITUTION_CACHE_KEY)
+    const serialized = localStorage.getItem(COLLECTION_INSTITUTION_CACHE_KEY)
     const entries: unknown = serialized ? JSON.parse(serialized) : []
     const validEntries = Array.isArray(entries)
       ? entries.filter(
@@ -597,8 +599,7 @@ function cacheCollectionInstitution(
       { id, institution },
       ...validEntries.filter((entry) => entry.id !== id),
     ].slice(0, 100)
-    writeStorageItem(
-      "local",
+    localStorage.setItem(
       COLLECTION_INSTITUTION_CACHE_KEY,
       JSON.stringify(nextEntries),
     )
@@ -900,7 +901,7 @@ export async function requestDeviceOtp(email: string) {
 export type MerchantRegistrationInput = {
   email: string
   phoneNumber: string
-  referralCode: string
+  referralCode?: string
 }
 
 export type MerchantDownlineReferral = {
@@ -1285,10 +1286,10 @@ export async function getMerchantActivityPage(
   return rows.map(toTransaction)
 }
 
-export async function registerPushDevice(token: string) {
+export async function registerPushDevice(token: string, appId: string) {
   return backendRequest<{ registered: true }>("/v1/notifications/push-token", {
     method: "POST",
-    body: JSON.stringify({ token }),
+    body: JSON.stringify({ token, appId }),
   })
 }
 
@@ -1457,11 +1458,11 @@ function toTransaction(
         ? "Downline commission"
         : type === "DOWNLINE_COMMISSION_REVERSAL"
           ? "Commission reversal"
-      : type.includes("DISBURSEMENT")
-        ? item.channel
-        : type.includes("DEPOSIT")
-          ? "Bank"
-          : item.channel,
+          : type.includes("DISBURSEMENT")
+            ? item.channel
+            : type.includes("DEPOSIT")
+              ? "Bank"
+              : item.channel,
     institutionCode: item.institutionCode || cachedInstitution?.code,
     institutionName: item.institutionName || cachedInstitution?.name,
     institutionLogoUrl: item.institutionLogoUrl || cachedInstitution?.logoUrl,

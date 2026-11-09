@@ -9,7 +9,11 @@ from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.service_account import Credentials
 
 
-PACKAGE_NAME = "ph.drpays.merchant"
+PACKAGE_NAME = os.environ.get("ANDROID_APPLICATION_ID", "ph.drpays.merchant")
+SUPPORTED_PACKAGE_NAMES = {
+    "ph.drpays.merchant",
+    "ph.drpays.merchant.public",
+}
 TRACK = "internal"
 API_ROOT = "https://androidpublisher.googleapis.com/androidpublisher/v3"
 UPLOAD_ROOT = "https://androidpublisher.googleapis.com/upload/androidpublisher/v3"
@@ -173,6 +177,9 @@ def publish_store_listing(
 
 
 def main() -> None:
+    if PACKAGE_NAME not in SUPPORTED_PACKAGE_NAMES:
+        raise RuntimeError(f"Unsupported Android application ID: {PACKAGE_NAME}")
+
     checking_production = len(sys.argv) == 2 and sys.argv[1] == "--check-production"
     promoting_existing_release = len(sys.argv) == 3 and sys.argv[1] == "--promote-existing"
     updating_listing = len(sys.argv) == 2 and sys.argv[1] == "--update-listing"
@@ -199,11 +206,18 @@ def main() -> None:
     if checking_production or updating_listing:
         version_name = ""
     elif promoting_existing_release:
-        version_name, version_code = parse_version(sys.argv[2], "android-prod-v")
+        version_prefix = (
+            "android-public-prod-v"
+            if PACKAGE_NAME == "ph.drpays.merchant.public"
+            else "android-prod-v"
+        )
+        version_name, version_code = parse_version(sys.argv[2], version_prefix)
     else:
         version_name = os.environ.get("ANDROID_VERSION_NAME", "")
-        if version_name.startswith("android-v"):
-            version_name = version_name.removeprefix("android-v")
+        for prefix in ("android-public-v", "android-v"):
+            if version_name.startswith(prefix):
+                version_name = version_name.removeprefix(prefix)
+                break
         if not version_name:
             raise RuntimeError("ANDROID_VERSION_NAME must contain the release version")
 

@@ -237,10 +237,20 @@ const resendFromEmail = process.env.RESEND_FROM_EMAIL
 const resendOtpFromEmail =
   process.env.RESEND_OTP_FROM_EMAIL?.trim() ||
   "DRPAY <support@merchant.denpay.cc>"
-const fcmProjectId = process.env.FCM_PROJECT_ID
-const fcmServiceAccountEmail = process.env.FCM_SERVICE_ACCOUNT_EMAIL
-const fcmServiceAccountPrivateKey =
-  process.env.FCM_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, "\n")
+const privateFcmConfig = {
+  projectId: process.env.FCM_PROJECT_ID,
+  serviceAccountEmail: process.env.FCM_SERVICE_ACCOUNT_EMAIL,
+  serviceAccountPrivateKey:
+    process.env.FCM_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+}
+const publicFcmConfig = {
+  projectId: process.env.FCM_PUBLIC_PROJECT_ID || "drpay-merchant",
+  serviceAccountEmail:
+    process.env.FCM_PUBLIC_SERVICE_ACCOUNT_EMAIL ||
+    "firebase-adminsdk-fbsvc@drpay-merchant.iam.gserviceaccount.com",
+  serviceAccountPrivateKey:
+    process.env.FCM_PUBLIC_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+}
 const googleClientId = process.env.DRPAY_GOOGLE_CLIENT_ID?.trim() || ""
 const googleAuthClient = googleClientId
   ? new OAuth2Client(googleClientId)
@@ -452,8 +462,7 @@ function getInstitutionLogoUrl(institution) {
 }
 
 let liveKrwPhpRateCache = null
-let fcmAccessToken
-let fcmAccessTokenExpiresAt = 0
+const fcmAccessTokens = new Map()
 let reconcilingPending = false
 let scanningTelegramUsdtDeposits = false
 
@@ -873,22 +882,38 @@ async function sendCustomerPaymentEmail(payment) {
   }
 }
 
-function fcmConfigured() {
+function getFcmConfig(appId) {
+  return appId === "ph.drpays.merchant.public"
+    ? publicFcmConfig
+    : privateFcmConfig
+}
+
+function fcmConfigIsComplete(config) {
   return Boolean(
-    fcmProjectId && fcmServiceAccountEmail && fcmServiceAccountPrivateKey,
+    config.projectId &&
+      config.serviceAccountEmail &&
+      config.serviceAccountPrivateKey,
   )
 }
 
-async function getFcmAccessToken() {
-  if (fcmAccessToken && fcmAccessTokenExpiresAt > Date.now() + 60_000)
-    return fcmAccessToken
-  const key = await importPKCS8(fcmServiceAccountPrivateKey, "RS256")
+function fcmConfigured() {
+  return (
+    fcmConfigIsComplete(privateFcmConfig) ||
+    fcmConfigIsComplete(publicFcmConfig)
+  )
+}
+
+async function getFcmAccessToken(config, appId) {
+  const cachedToken = fcmAccessTokens.get(appId)
+  if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000)
+    return cachedToken.value
+  const key = await importPKCS8(config.serviceAccountPrivateKey, "RS256")
   const assertion = await new SignJWT({
     scope: "https://www.googleapis.com/auth/firebase.messaging",
   })
     .setProtectedHeader({ alg: "RS256", typ: "JWT" })
-    .setIssuer(fcmServiceAccountEmail)
-    .setSubject(fcmServiceAccountEmail)
+    .setIssuer(config.serviceAccountEmail)
+    .setSubject(config.serviceAccountEmail)
     .setAudience("https://oauth2.googleapis.com/token")
     .setIssuedAt()
     .setExpirationTime("1h")
@@ -915,28 +940,33 @@ async function getFcmAccessToken() {
   ) {
     throw new Error("Firebase returned an invalid access token.")
   }
-  fcmAccessToken = token.access_token
-  fcmAccessTokenExpiresAt = Date.now() + token.expires_in * 1000
-  return fcmAccessToken
+  fcmAccessTokens.set(appId, {
+    value: token.access_token,
+    expiresAt: Date.now() + token.expires_in * 1000,
+  })
+  return token.access_token
 }
 
-async function sendTransactionPush(notification, deviceToken) {
+async function sendTransactionPush(notification, device) {
+  const config = getFcmConfig(device.app_id)
+  if (!fcmConfigIsComplete(config)) return null
   const incoming = notification.transaction_type === "PAYMENT"
   const type = incoming
     ? "Incoming payment received"
     : "Outgoing transfer completed"
   const amount = `PHP ${Number(notification.amount).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   const response = await fetch(
-    `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(fcmProjectId)}/messages:send`,
+    `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(config.projectId)}/messages:send`,
     {
       method: "POST",
       headers: {
-        Authorization: "Bearer " + (await getFcmAccessToken()),
+        Authorization:
+          "Bearer " + (await getFcmAccessToken(config, device.app_id)),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
         message: {
-          token: deviceToken,
+          token: device.token,
           notification: {
             title: type,
             body: `${amount} · ${notification.reference_no}`,
@@ -1149,7 +1179,7 @@ async function dispatchTransactionNotifications() {
     ) {
       try {
         const devices = await pool.query(
-          "SELECT token FROM merchant_push_devices WHERE merchant_email = $1",
+          "SELECT token, app_id FROM merchant_push_devices WHERE merchant_email = $1",
           [notification.merchant_email],
         )
         for (const device of devices.rows) {
@@ -1158,7 +1188,8 @@ async function dispatchTransactionNotifications() {
             [notification.id, device.token],
           )
           if (priorDelivery.rowCount) continue
-          const sent = await sendTransactionPush(notification, device.token)
+          const sent = await sendTransactionPush(notification, device)
+          if (sent === null) continue
           if (!sent) {
             await pool.query(
               "DELETE FROM merchant_push_devices WHERE token = $1",
@@ -1927,9 +1958,25 @@ async function initializeDatabase() {
     CREATE TABLE IF NOT EXISTS merchant_push_devices (
       token TEXT PRIMARY KEY,
       merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
+      app_id TEXT NOT NULL DEFAULT 'ph.drpays.merchant'
+        CHECK (app_id IN ('ph.drpays.merchant', 'ph.drpays.merchant.public')),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    ALTER TABLE merchant_push_devices
+      ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT 'ph.drpays.merchant';
+    DO $migration$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'merchant_push_devices_app_id_check'
+      ) THEN
+        ALTER TABLE merchant_push_devices
+          ADD CONSTRAINT merchant_push_devices_app_id_check
+          CHECK (app_id IN ('ph.drpays.merchant', 'ph.drpays.merchant.public'));
+      END IF;
+    END
+    $migration$;
     CREATE TABLE IF NOT EXISTS merchant_notification_preferences (
       merchant_email TEXT PRIMARY KEY REFERENCES merchant_accounts(email) ON DELETE CASCADE,
       email_enabled BOOLEAN NOT NULL DEFAULT TRUE,
@@ -7934,11 +7981,20 @@ app.post("/v1/notifications/push-token", async (req, res) => {
   const token = typeof req.body?.token === "string" ? req.body.token.trim() : ""
   if (token.length < 32 || token.length > 4096)
     return res.status(400).json({ error: "A valid push token is required." })
+  const appId =
+    typeof req.body?.appId === "string"
+      ? req.body.appId
+      : "ph.drpays.merchant"
+  if (!["ph.drpays.merchant", "ph.drpays.merchant.public"].includes(appId))
+    return res.status(400).json({ error: "A valid app ID is required." })
   await pool.query(
-    `INSERT INTO merchant_push_devices (token, merchant_email)
-     VALUES ($1, $2)
-     ON CONFLICT (token) DO UPDATE SET merchant_email = EXCLUDED.merchant_email, updated_at = NOW()`,
-    [token, req.merchantEmail],
+    `INSERT INTO merchant_push_devices (token, merchant_email, app_id)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (token) DO UPDATE SET
+       merchant_email = EXCLUDED.merchant_email,
+       app_id = EXCLUDED.app_id,
+       updated_at = NOW()`,
+    [token, req.merchantEmail, appId],
   )
   return res.json({ registered: true })
 })
@@ -8695,9 +8751,14 @@ async function reconcilePending() {
 }
 
 function startNotificationWorker() {
-  if (!fcmConfigured()) {
+  if (!fcmConfigIsComplete(privateFcmConfig)) {
     console.warn(
-      "Firebase push delivery is disabled until FCM_PROJECT_ID, FCM_SERVICE_ACCOUNT_EMAIL, and FCM_SERVICE_ACCOUNT_PRIVATE_KEY are configured.",
+      "Private Android push delivery is disabled until FCM_PROJECT_ID, FCM_SERVICE_ACCOUNT_EMAIL, and FCM_SERVICE_ACCOUNT_PRIVATE_KEY are configured.",
+    )
+  }
+  if (!fcmConfigIsComplete(publicFcmConfig)) {
+    console.warn(
+      "Public Android push delivery is disabled until FCM_PUBLIC_SERVICE_ACCOUNT_PRIVATE_KEY is configured.",
     )
   }
   if (!telegramBotToken || !telegramChatId) {

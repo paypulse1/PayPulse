@@ -2,10 +2,19 @@ import { useState, type FormEvent } from "react"
 import { useEffect } from "react"
 import { Capacitor } from "@capacitor/core"
 import { browserSupportsPasskeys } from "@simplewebauthn/browser"
-import { Lock, ShieldCheck } from "lucide-react"
+import {
+  AlertCircle,
+  Fingerprint,
+  KeyRound,
+  LoaderCircle,
+  Lock,
+  ShieldCheck,
+} from "lucide-react"
 import {
   getLastMerchantEmail,
   hasTrustedDevice,
+  createGoogleLoginChallenge,
+  createTelegramLoginChallenge,
   getAuthProviderConfig,
   loginWithGoogleCredential,
   loginWithPasskey,
@@ -17,14 +26,17 @@ import {
   type AuthProviderConfig,
   type Session,
 } from "./lib/swiftpay"
-import { readBiometricSecret } from "./lib/biometric"
-import { Brand, PoweredByFooter } from "./AppPrimitives"
+import {
+  hasBiometricLogin,
+  readBiometricSecret,
+  supportsBiometricLogin,
+} from "./lib/biometric"
+import { Brand, Button, PoweredByFooter } from "./AppPrimitives"
 import MerchantRegistration from "./MerchantRegistration"
 import {
-  EmailSignInStage,
-  OtpSignInStage,
-  PinSignInStage,
-} from "./MerchantSignInStages"
+  GoogleIdentityButton,
+  TelegramIdentityButton,
+} from "./AuthProviderButtons"
 
 export default function MerchantSignIn({
   onAuthenticated,
@@ -283,61 +295,241 @@ export default function MerchantSignIn({
               </span>
             </div>
             {stage === "email" && (
-              <EmailSignInStage
-                busy={busy}
-                email={email}
-                error={error}
-                onEmailChange={setEmail}
-                onBiometric={() => void submitBiometric()}
-                onContinue={continueWithEmail}
-                authProviderConfig={authProviderConfig}
-                authProviderConfigError={authProviderConfigError}
-                passkeysSupported={passkeysSupported}
-                onPasskey={() => void submitPasskey()}
-                onGoogleCredential={submitGoogleCredential}
-                onTelegramToken={submitTelegramToken}
-                onError={setError}
-              />
+              <form onSubmit={continueWithEmail}>
+                <label>
+                  <span>Merchant email</span>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="merchant@company.ph"
+                    required
+                    autoComplete="username"
+                    autoFocus
+                  />
+                </label>
+                {error && (
+                  <div className="inline-error">
+                    <AlertCircle size={15} />
+                    {error}
+                  </div>
+                )}
+                {authProviderConfigError && (
+                  <p className="profile-info-note" role="status">
+                    {authProviderConfigError}
+                  </p>
+                )}
+                {!Capacitor.isNativePlatform() &&
+                  authProviderConfig?.google &&
+                  authProviderConfig.googleClientId && (
+                    <GoogleIdentityButton
+                      clientId={authProviderConfig.googleClientId}
+                      disabled={busy}
+                      createChallenge={createGoogleLoginChallenge}
+                      onCredential={submitGoogleCredential}
+                      onError={setError}
+                    />
+                  )}
+                {!Capacitor.isNativePlatform() &&
+                  authProviderConfig?.telegram &&
+                  authProviderConfig.telegramClientId && (
+                    <TelegramIdentityButton
+                      clientId={authProviderConfig.telegramClientId}
+                      disabled={busy}
+                      createChallenge={createTelegramLoginChallenge}
+                      onToken={submitTelegramToken}
+                      onError={setError}
+                    />
+                  )}
+                {!Capacitor.isNativePlatform() &&
+                  authProviderConfig?.passkeys &&
+                  passkeysSupported && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={busy}
+                      onClick={() => void submitPasskey()}
+                      icon={<Fingerprint size={17} />}
+                    >
+                      Sign in with passkey
+                    </Button>
+                  )}
+                <Button
+                  type="submit"
+                  disabled={busy || !email}
+                  icon={
+                    busy ? (
+                      <LoaderCircle className="spin" size={17} />
+                    ) : (
+                      <Lock size={17} />
+                    )
+                  }
+                >
+                  {busy
+                    ? "Continuing…"
+                    : hasTrustedDevice(email.trim().toLowerCase())
+                      ? "Continue with MPIN"
+                      : "Verify device by email"}
+                </Button>
+                {supportsBiometricLogin() &&
+                  email.trim() &&
+                  hasBiometricLogin(email) && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={busy}
+                      onClick={() => void submitBiometric()}
+                      icon={<Fingerprint size={17} />}
+                    >
+                      Sign in with biometrics
+                    </Button>
+                  )}
+              </form>
             )}
             {stage === "pin" && (
-              <PinSignInStage
-                busy={busy}
-                email={email}
-                error={error}
-                onEmailChange={setEmail}
-                onBiometric={() => void submitBiometric()}
-                showPasskey={
-                  !Capacitor.isNativePlatform() &&
-                  Boolean(authProviderConfig?.passkeys && passkeysSupported)
-                }
-                onPasskey={() => void submitPasskey()}
-                pin={pin}
-                onPinChange={setPin}
-                onSubmit={(event) => void submitPin(event)}
-                onForgotPin={() => void sendOtp()}
-                onUseDifferentEmail={() => {
-                  setStage("email")
-                  setEmail("")
-                  setPin("")
-                  setError("")
-                }}
-              />
+              <form onSubmit={(event) => void submitPin(event)}>
+                <label>
+                  <span>Merchant email</span>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    required
+                    autoComplete="username"
+                  />
+                </label>
+                <label>
+                  <span>Four-digit MPIN</span>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    pattern="[0-9]{4}"
+                    maxLength={4}
+                    autoComplete="one-time-code"
+                    value={pin}
+                    onChange={(event) =>
+                      setPin(event.target.value.replace(/\D/g, "").slice(0, 4))
+                    }
+                    required
+                    autoFocus
+                    aria-describedby={error ? "signin-error" : undefined}
+                  />
+                </label>
+                {error && (
+                  <div className="inline-error" id="signin-error" role="alert">
+                    <AlertCircle size={15} />
+                    {error}
+                  </div>
+                )}
+                <Button
+                  type="submit"
+                  disabled={busy || pin.length !== 4}
+                  icon={
+                    busy ? (
+                      <LoaderCircle className="spin" size={17} />
+                    ) : (
+                      <KeyRound size={17} />
+                    )
+                  }
+                >
+                  {busy ? "Signing in…" : "Sign in with MPIN"}
+                </Button>
+                {supportsBiometricLogin() && hasBiometricLogin(email) && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() => void submitBiometric()}
+                    icon={<Fingerprint size={17} />}
+                  >
+                    Use biometrics instead
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => void sendOtp()}
+                >
+                  Forgot MPIN? Verify with email code
+                </Button>
+                <button
+                  type="button"
+                  className="authorization-back"
+                  disabled={busy}
+                  onClick={() => {
+                    setStage("email")
+                    setEmail("")
+                    setPin("")
+                    setError("")
+                  }}
+                >
+                  Use a different email
+                </button>
+              </form>
             )}
             {stage === "otp" && (
-              <OtpSignInStage
-                busy={busy}
-                email={email}
-                error={error}
-                otp={otp}
-                onOtpChange={setOtp}
-                onSubmit={(event) => void submitOtp(event)}
-                onResend={() => void sendOtp()}
-                onBack={() => {
-                  setStage("email")
-                  setOtp("")
-                  setError("")
-                }}
-              />
+              <form onSubmit={(event) => void submitOtp(event)}>
+                <label>
+                  <span>Merchant email</span>
+                  <input type="email" value={email} readOnly />
+                </label>
+                <label>
+                  <span>Six-digit email code</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]{6}"
+                    maxLength={6}
+                    autoComplete="one-time-code"
+                    value={otp}
+                    onChange={(event) =>
+                      setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))
+                    }
+                    required
+                    autoFocus
+                  />
+                </label>
+                {error && (
+                  <div className="inline-error">
+                    <AlertCircle size={15} />
+                    {error}
+                  </div>
+                )}
+                <Button
+                  type="submit"
+                  disabled={busy || otp.length !== 6}
+                  icon={
+                    busy ? (
+                      <LoaderCircle className="spin" size={17} />
+                    ) : (
+                      <ShieldCheck size={17} />
+                    )
+                  }
+                >
+                  {busy ? "Verifying…" : "Verify device"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => void sendOtp()}
+                >
+                  Send a new code
+                </Button>
+                <button
+                  type="button"
+                  className="authorization-back"
+                  disabled={busy}
+                  onClick={() => {
+                    setStage("email")
+                    setOtp("")
+                    setError("")
+                  }}
+                >
+                  Back
+                </button>
+              </form>
             )}
             {stage === "email" && (
               <button

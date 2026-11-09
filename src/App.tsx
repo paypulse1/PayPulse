@@ -5667,20 +5667,19 @@ export default function App() {
       lastCheckAt = Date.now()
       requestController = new AbortController()
       try {
-        const [appInfo, response] = await Promise.all([
-          CapacitorApp.getInfo(),
-          fetch(
-            "https://api.github.com/repos/blackhorsecn/drpay-merchant/releases/latest",
-            {
-              headers: { Accept: "application/vnd.github+json" },
-              cache: "no-store",
-              signal: requestController.signal,
-            },
-          ),
-        ])
+        const appInfo = await CapacitorApp.getInfo()
+        if (appInfo.id !== "ph.drpays.merchant") return
+        const response = await fetch(
+          "https://api.github.com/repos/blackhorsecn/drpay-merchant/releases?per_page=100",
+          {
+            headers: { Accept: "application/vnd.github+json" },
+            cache: "no-store",
+            signal: requestController.signal,
+          },
+        )
         if (!response.ok)
           throw new Error(`Release check failed (${response.status}).`)
-        const release = (await response.json()) as {
+        const releases = (await response.json()) as {
           tag_name?: string
           draft?: boolean
           prerelease?: boolean
@@ -5688,19 +5687,19 @@ export default function App() {
             name?: string
             browser_download_url?: string
           }[]
-        }
+        }[]
+        const release = releases.find(
+          (candidate) =>
+            !candidate.draft &&
+            !candidate.prerelease &&
+            /^android-v\d+\.\d+\.\d+$/.test(candidate.tag_name || "") &&
+            candidate.assets?.some((asset) => asset.name === "drpay.apk"),
+        )
         const versionMatch = /^android-v(\d+\.\d+\.\d+)$/.exec(
-          release.tag_name || "",
+          release?.tag_name || "",
         )
-        const apk = release.assets?.find((asset) => asset.name === "drpay.apk")
-        if (
-          !active ||
-          release.draft ||
-          release.prerelease ||
-          !versionMatch ||
-          !apk?.browser_download_url
-        )
-          return
+        const apk = release?.assets?.find((asset) => asset.name === "drpay.apk")
+        if (!active || !versionMatch || !apk?.browser_download_url) return
         const downloadUrl = new URL(apk.browser_download_url)
         if (
           downloadUrl.protocol !== "https:" ||
@@ -6093,7 +6092,8 @@ export default function App() {
             if (!active || !getSession()) return
             pushTokenRef.current = value
             setPushRegistrationState("registering")
-            void registerPushDevice(value)
+            void CapacitorApp.getInfo()
+              .then(({ id }) => registerPushDevice(value, id))
               .then(() => {
                 if (active) {
                   setPushRegistrationState("registered")
