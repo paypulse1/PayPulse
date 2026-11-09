@@ -1,4 +1,5 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
+import { Button } from "./AppPrimitives";
 import {
   createMerchantApiKey,
   deleteMerchantWebhook,
@@ -21,22 +22,6 @@ import {
 import MerchantApiDocumentation, {
   type PaymentEnvironment,
 } from "./MerchantApiDocumentation";
-
-function Button({
-  children,
-  type = "button",
-  variant = "primary",
-  disabled,
-  onClick,
-}: {
-  children: ReactNode;
-  type?: "button" | "submit";
-  variant?: "primary" | "secondary";
-  disabled?: boolean;
-  onClick?: () => void;
-}) {
-  return <button className={`button button-${variant}`} type={type} disabled={disabled} onClick={onClick}>{children}</button>;
-}
 
 const initialKyb = {
   legalBusinessName: "",

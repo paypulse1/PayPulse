@@ -126,6 +126,53 @@ test("admin merchant activation sends batches within the endpoint limit", async 
   )
 })
 
+test("admin can manually enable a merchant downline", async () => {
+  vi.stubEnv("VITE_DRPAY_BACKEND_URL", "https://api.example.test")
+  vi.stubGlobal("window", {
+    location: {
+      hostname: "localhost",
+      origin: "http://localhost",
+    },
+  })
+  installSessionStorage(new MockStorage())
+  saveSession({
+    accessToken: "test-token",
+    expiresAt: Date.now() + 60_000,
+    email: "admin@example.com",
+    role: "super_admin",
+  })
+  let requestUrl = ""
+  let requestMethod = ""
+  vi.stubGlobal(
+    "fetch",
+    async (input: RequestInfo | URL, options?: RequestInit) => {
+      requestUrl = String(input)
+      requestMethod = options?.method || ""
+      return new Response(
+        JSON.stringify({
+          email: "merchant@example.com",
+          downlineManuallyEnabled: true,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )
+    },
+  )
+
+  const { activateAdminMerchantDownline } = await import("./swiftpay.ts")
+  assert.deepEqual(
+    await activateAdminMerchantDownline("merchant@example.com"),
+    {
+      email: "merchant@example.com",
+      downlineManuallyEnabled: true,
+    },
+  )
+  assert.equal(
+    requestUrl,
+    "https://api.example.test/v1/admin/merchants/merchant%40example.com/downline/activate",
+  )
+  assert.equal(requestMethod, "POST")
+})
+
 test("admin merchant activation reports progress when a later batch fails", async () => {
   vi.stubEnv("VITE_DRPAY_BACKEND_URL", "https://api.example.test")
   vi.stubGlobal("window", {

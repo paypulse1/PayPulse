@@ -217,6 +217,7 @@ export type AdminAuditEvent = {
 export type AdminMerchantAccount = {
   email: string
   active: boolean
+  downlineManuallyEnabled?: boolean
   registrationPending: boolean
   businessName: string
   contactPerson: string
@@ -1681,6 +1682,15 @@ export async function activateAdminMerchantAccounts(
     }
   }
   return { activatedEmails }
+}
+
+export async function activateAdminMerchantDownline(
+  email: string,
+): Promise<{ email: string; downlineManuallyEnabled: boolean }> {
+  return backendRequest(
+    `/v1/admin/merchants/${encodeURIComponent(email)}/downline/activate`,
+    { method: "POST" },
+  )
 }
 
 export async function updateAdminMerchantUsdtWallet(

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { AlertCircle, Fingerprint, KeyRound, LoaderCircle } from "lucide-react"
+import { AlertCircle, Fingerprint, LoaderCircle } from "lucide-react"
 import { Capacitor } from "@capacitor/core"
 import { browserSupportsPasskeys } from "@simplewebauthn/browser"
 import { Button } from "./AppPrimitives"
@@ -17,7 +17,9 @@ import {
   type MerchantAuthMethods as MerchantAuthMethodsState,
 } from "./lib/swiftpay"
 import {
+  GoogleProviderIcon,
   GoogleIdentityButton,
+  TelegramProviderIcon,
   TelegramIdentityButton,
 } from "./AuthProviderButtons"
 
@@ -126,8 +128,8 @@ export default function MerchantAuthMethods() {
         <>
           {config?.google && config.googleClientId ? (
             <div className="merchant-auth-method-row">
-              <span className="merchant-auth-method-icon">
-                <KeyRound size={17} />
+              <span className="merchant-auth-method-icon merchant-auth-method-google">
+                <GoogleProviderIcon size={20} />
               </span>
               <div>
                 <strong>Google</strong>
@@ -171,7 +173,7 @@ export default function MerchantAuthMethods() {
           {config?.telegram && config.telegramClientId ? (
             <div className="merchant-auth-method-row">
               <span className="merchant-auth-method-icon merchant-auth-method-telegram">
-                <KeyRound size={17} />
+                <TelegramProviderIcon size={20} />
               </span>
               <div>
                 <strong>Telegram</strong>

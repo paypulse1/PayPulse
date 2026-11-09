@@ -1434,6 +1434,7 @@ async function initializeDatabase() {
       active BOOLEAN NOT NULL DEFAULT TRUE,
       referral_code TEXT,
       referred_by_email TEXT REFERENCES merchant_accounts(email) ON DELETE SET NULL,
+      downline_manually_enabled BOOLEAN NOT NULL DEFAULT FALSE,
       business_name TEXT NOT NULL DEFAULT '',
       contact_person TEXT NOT NULL DEFAULT '',
       phone_number TEXT NOT NULL DEFAULT '',
@@ -1452,6 +1453,8 @@ async function initializeDatabase() {
       ADD COLUMN IF NOT EXISTS referred_by_email TEXT REFERENCES merchant_accounts(email) ON DELETE SET NULL;
     ALTER TABLE merchant_accounts
       ADD COLUMN IF NOT EXISTS downline_commission_rate NUMERIC(5, 2) NOT NULL DEFAULT 0;
+    ALTER TABLE merchant_accounts
+      ADD COLUMN IF NOT EXISTS downline_manually_enabled BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE merchant_accounts
       DROP CONSTRAINT IF EXISTS merchant_accounts_downline_commission_rate_check;
     ALTER TABLE merchant_accounts
@@ -5010,6 +5013,7 @@ app.put("/v1/admin/settings", async (req, res) => {
 app.get("/v1/admin/merchants", async (_req, res) => {
   const result = await pool.query(
     `SELECT merchant.email, merchant.active, merchant.business_name AS "businessName",
+       merchant.downline_manually_enabled AS "downlineManuallyEnabled",
        merchant.contact_person AS "contactPerson", merchant.phone_number AS "phoneNumber",
        merchant.business_address AS "businessAddress",
        COALESCE(payout.bank_name, '') AS "bankName",
@@ -5027,6 +5031,56 @@ app.get("/v1/admin/merchants", async (_req, res) => {
      ORDER BY merchant.created_at DESC`,
   )
   return res.json(result.rows)
+})
+
+app.post("/v1/admin/merchants/:email/downline/activate", async (req, res) => {
+  const email =
+    typeof req.params.email === "string"
+      ? req.params.email.trim().toLowerCase()
+      : ""
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+    return res
+      .status(400)
+      .json({ error: "Enter a valid merchant email address." })
+  }
+
+  const client = await pool.connect()
+  try {
+    await client.query("BEGIN")
+    const account = await client.query(
+      `SELECT downline_manually_enabled
+       FROM merchant_accounts WHERE email = $1 FOR UPDATE`,
+      [email],
+    )
+    if (!account.rowCount) {
+      await client.query("ROLLBACK")
+      return res.status(404).json({ error: "Merchant account not found." })
+    }
+    if (!account.rows[0].downline_manually_enabled) {
+      await client.query(
+        `UPDATE merchant_accounts
+         SET downline_manually_enabled = TRUE, updated_at = NOW()
+         WHERE email = $1`,
+        [email],
+      )
+      await recordAdminAuditEvent(client, {
+        eventKey: `merchant-downline:${randomUUID()}`,
+        category: "Merchant account",
+        action: "Merchant downline manually enabled",
+        target: email,
+        actor: req.adminEmail,
+        summary:
+          "Merchant downline access was enabled manually, bypassing downline eligibility requirements only.",
+      })
+    }
+    await client.query("COMMIT")
+    return res.json({ email, downlineManuallyEnabled: true })
+  } catch (error) {
+    await client.query("ROLLBACK")
+    throw error
+  } finally {
+    client.release()
+  }
 })
 
 app.post("/v1/admin/merchants/activate", async (req, res) => {
@@ -6957,6 +7011,24 @@ async function getMerchantActivation(email) {
   }
 }
 
+async function getMerchantDownlineStatus(email) {
+  const account = await pool.query(
+    `SELECT downline_manually_enabled
+     FROM merchant_accounts WHERE email = $1`,
+    [email],
+  )
+  if (account.rows[0]?.downline_manually_enabled) {
+    return { enabled: true, message: null }
+  }
+  const wallet = await getMerchantActivation(email)
+  return {
+    enabled: wallet.activation.fullyActivated,
+    message:
+      wallet.activation.usdtBalance.message ||
+      "Merchant downline unlocks after the activation fee is paid and 100 qualifying USDT is held in your assigned wallet.",
+  }
+}
+
 app.get("/v1/crypto/usdt-wallet", cryptoWalletLimiter, async (req, res) => {
   try {
     const wallet = await getMerchantActivation(req.merchantEmail)
@@ -6979,15 +7051,13 @@ app.get("/v1/merchant/downline", cryptoWalletLimiter, async (req, res) => {
     })
   }
   try {
-    const wallet = await getMerchantActivation(req.merchantEmail)
-    if (!wallet.activation.fullyActivated) {
+    const downlineStatus = await getMerchantDownlineStatus(req.merchantEmail)
+    if (!downlineStatus.enabled) {
       return res.set("Cache-Control", "no-store").json({
         enabled: false,
         referralCode: null,
         referrals: [],
-        message:
-          wallet.activation.usdtBalance.message ||
-          "Merchant downline unlocks after the activation fee is paid and 100 qualifying USDT is held in your assigned wallet.",
+        message: downlineStatus.message,
       })
     }
     const referralCode = await ensureMerchantReferralCode(req.merchantEmail)
@@ -7043,8 +7113,8 @@ app.put("/v1/merchant/downline/:email/rate", async (req, res) => {
     })
   }
   try {
-    const wallet = await getMerchantActivation(req.merchantEmail)
-    if (!wallet.activation.fullyActivated) {
+    const downlineStatus = await getMerchantDownlineStatus(req.merchantEmail)
+    if (!downlineStatus.enabled) {
       return res.status(403).json({
         error: "Complete merchant wallet activation to manage downline rates.",
       })

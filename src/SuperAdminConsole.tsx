@@ -1,6 +1,5 @@
 import {
   useEffect,
-  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -8,9 +7,7 @@ import {
 } from "react"
 import {
   AlertCircle,
-  Activity,
   Download,
-  Home,
   LoaderCircle,
   Lock,
   LogOut,
@@ -22,7 +19,6 @@ import {
   Users,
   UserPlus,
   WalletCards,
-  type LucideIcon,
 } from "lucide-react"
 import {
   getAdminAuditEvents,
@@ -36,6 +32,7 @@ import {
   getAdminKybDocumentUrl,
   getAdminMerchantAccounts,
   activateAdminMerchantAccounts,
+  activateAdminMerchantDownline,
   getAdminPaymentLinks,
   getAdminSettings,
   getAdminKybApplications,
@@ -70,58 +67,13 @@ import MerchantAccountProfileForm, {
 } from "./super-admin/MerchantAccountProfileForm"
 import OverviewAdminSection from "./super-admin/OverviewAdminSection"
 import PaymentAdminSection from "./super-admin/PaymentAdminSection"
-
-type AdminPage = "overview" | "payments" | "merchants" | "kyb" | "ledger" | "requests" | "audit" | "settings"
-
-const ADMIN_PAGE_METADATA: Record<AdminPage, {
-  title: string
-  description: string
-  exportLabel: string
-}> = {
-  overview: {
-    title: "Operations overview",
-    description: "Prioritize reviews and monitor merchant operations.",
-    exportLabel: "workspace",
-  },
-  payments: {
-    title: "QRPH payments",
-    description:
-      "Review QR checkouts and record independently verified payments.",
-    exportLabel: "payments",
-  },
-  merchants: {
-    title: "Merchant accounts",
-    description: "Create merchant access and manage account status.",
-    exportLabel: "merchants",
-  },
-  kyb: {
-    title: "KYB applications",
-    description: "Review merchant business and beneficial-owner verification.",
-    exportLabel: "KYB applications",
-  },
-  ledger: {
-    title: "Merchant balances",
-    description:
-      "Manage merchant floating and wallet balances with audited adjustments.",
-    exportLabel: "balances",
-  },
-  requests: {
-    title: "Withdrawal requests",
-    description: "Review bank transfers and merchant USDT withdrawal requests.",
-    exportLabel: "withdrawal requests",
-  },
-  audit: {
-    title: "Audit history",
-    description:
-      "Review recorded balance adjustments, transfer decisions, and KYB reviews.",
-    exportLabel: "audit history",
-  },
-  settings: {
-    title: "Collection settings",
-    description: "Configure collection references used by the merchant app.",
-    exportLabel: "workspace",
-  },
-}
+import MerchantAccountRow from "./super-admin/MerchantAccountRow"
+import {
+  canActivateMerchant,
+  useAdminConsoleViewModel,
+  type AdminPage,
+  type MerchantFilter,
+} from "./super-admin/useAdminConsoleViewModel"
 
 type AdminExportRow = {
   section: string
@@ -140,13 +92,6 @@ function csvCell(value: string | number) {
   const text = String(value)
   const safeText = /^[\s]*[=+\-@]/.test(text) ? `'${text}` : text
   return `"${safeText.replace(/"/g, '""')}"`
-}
-
-function canActivateMerchant(account: AdminMerchantAccount) {
-  return (
-    !account.active &&
-    (!account.registrationPending || account.kybStatus === "APPROVED")
-  )
 }
 
 export function SuperAdminConsole({
@@ -193,8 +138,8 @@ export function SuperAdminConsole({
     useState<string[]>([])
   const [activatingSelectedMerchants, setActivatingSelectedMerchants] =
     useState(false)
-  const [merchantFilter, setMerchantFilter] =
-    useState<"all" | "pending" | "active" | "disabled">("all")
+  const [activatingDownlineEmail, setActivatingDownlineEmail] = useState("")
+  const [merchantFilter, setMerchantFilter] = useState<MerchantFilter>("all")
   const [paymentSearch, setPaymentSearch] = useState("")
   const [paymentStatus, setPaymentStatus] = useState("all")
   const [kybSearch, setKybSearch] = useState("")
@@ -248,204 +193,45 @@ export function SuperAdminConsole({
   const touchStartYRef = useRef<number | null>(null)
   const touchStartXRef = useRef<number | null>(null)
   const pullDistanceRef = useRef(0)
-  const filteredMerchants = useMemo(() => {
-    const query = merchantSearch.trim().toLowerCase()
-    return merchants.filter((merchant) => {
-      const matchesSearch =
-        !query || merchant.email.toLowerCase().includes(query)
-      const matchesStatus =
-        merchantFilter === "all" ||
-        (merchantFilter === "pending"
-          ? merchant.registrationPending
-          : merchantFilter === "active"
-            ? merchant.active
-            : !merchant.active && !merchant.registrationPending)
-      return matchesSearch && matchesStatus
-    })
-  }, [merchants, merchantSearch, merchantFilter])
-  const selectableFilteredMerchants =
-    filteredMerchants.filter(canActivateMerchant)
-  const selectedActivatableMerchants = merchants.filter(
-    (merchant) =>
-      selectedMerchantEmails.includes(merchant.email) &&
-      canActivateMerchant(merchant),
-  )
-  const activeMerchantCount = merchants.filter(
-    (merchant) => merchant.active,
-  ).length
-  const totalLedgerBalance = internalWallets.reduce(
-    (total, wallet) => total + wallet.balance,
-    0,
-  )
-  const pendingTransferRequests = transferRequests.filter(
-    (request) => request.status === "PENDING",
-  )
-  const pendingCryptoWithdrawalRequests = cryptoWithdrawalRequests.filter(
-    (request) => request.status === "PENDING",
-  )
-  const reservedTransferBalance = pendingTransferRequests.reduce(
-    (total, request) => total + request.amount + request.transferFee,
-    0,
-  )
-  const pendingKybCount = kybApplications.filter(
-    (application) =>
-      application.status === "PENDING" || application.status === "IN_REVIEW",
-  ).length
-  const pendingPaymentCount = paymentLinks.filter(
-    (payment) => payment.status === "PENDING",
-  ).length
-  const pendingWithdrawalCount =
-    pendingTransferRequests.length + pendingCryptoWithdrawalRequests.length
-  const activePageMetadata = ADMIN_PAGE_METADATA[activePage]
-  const adminNavigationGroups: {
-    label: string
-    items: {
-      page: AdminPage
-      label: string
-      icon: LucideIcon
-      pendingCount?: number
-    }[]
-  }[] = [
-    {
-      label: "Workspace",
-      items: [{ page: "overview", label: "Overview", icon: Home }],
-    },
-    {
-      label: "Operations",
-      items: [
-        {
-          page: "payments",
-          label: "Payments",
-          icon: ReceiptText,
-          pendingCount: pendingPaymentCount,
-        },
-        {
-          page: "requests",
-          label: "Withdrawal requests",
-          icon: Send,
-          pendingCount: pendingWithdrawalCount,
-        },
-        { page: "ledger", label: "Floating balance", icon: WalletCards },
-      ],
-    },
-    {
-      label: "Merchants",
-      items: [
-        { page: "merchants", label: "Accounts", icon: Users },
-        {
-          page: "kyb",
-          label: "KYB review",
-          icon: ShieldCheck,
-          pendingCount: pendingKybCount,
-        },
-      ],
-    },
-    {
-      label: "Oversight",
-      items: [{ page: "audit", label: "Audit history", icon: Activity }],
-    },
-    {
-      label: "Configuration",
-      items: [{ page: "settings", label: "Settings", icon: Settings }],
-    },
-  ]
-  const filteredPayments = useMemo(() => {
-    const query = paymentSearch.trim().toLowerCase()
-    return paymentLinks.filter((payment) => {
-      const matchesQuery =
-        !query ||
-        [
-          payment.merchantEmail,
-          payment.referenceNo,
-          payment.title,
-          payment.customerEmail,
-        ]
-          .filter(Boolean)
-          .some((value) => value!.toLowerCase().includes(query))
-      return (
-        matchesQuery &&
-        (paymentStatus === "all" ||
-          payment.status.toLowerCase() === paymentStatus)
-      )
-    })
-  }, [paymentLinks, paymentSearch, paymentStatus])
-  const filteredKybApplications = useMemo(() => {
-    const query = kybSearch.trim().toLowerCase()
-    return kybApplications.filter((application) => {
-      const matchesQuery =
-        !query ||
-        [
-          application.merchantEmail,
-          application.legalBusinessName,
-          application.registrationNumber,
-          application.ownerFullName,
-        ].some((value) => value.toLowerCase().includes(query))
-      return (
-        matchesQuery &&
-        (kybStatus === "all" || application.status.toLowerCase() === kybStatus)
-      )
-    })
-  }, [kybApplications, kybSearch, kybStatus])
-  const filteredTransferRequests = useMemo(() => {
-    const query = requestSearch.trim().toLowerCase()
-    return transferRequests.filter((request) => {
-      const matchesQuery =
-        !query ||
-        [
-          request.merchantEmail,
-          request.bankName,
-          request.accountName,
-          request.id,
-          request.failureReason,
-        ]
-          .filter(Boolean)
-          .some((value) => value!.toLowerCase().includes(query))
-      return (
-        matchesQuery &&
-        (requestStatus === "all" ||
-          request.status.toLowerCase() === requestStatus)
-      )
-    })
-  }, [transferRequests, requestSearch, requestStatus])
-  const filteredCryptoWithdrawalRequests = useMemo(() => {
-    const query = requestSearch.trim().toLowerCase()
-    return cryptoWithdrawalRequests.filter((request) => {
-      const matchesQuery =
-        !query ||
-        [
-          request.merchantEmail,
-          request.destination,
-          request.id,
-          request.rejectionReason,
-          request.amount,
-        ]
-          .filter(Boolean)
-          .some((value) => value!.toLowerCase().includes(query))
-      const status =
-        request.status === "COMPLETED"
-          ? "successful"
-          : request.status === "REJECTED"
-            ? "failed"
-            : "pending"
-      return (
-        matchesQuery && (requestStatus === "all" || status === requestStatus)
-      )
-    })
-  }, [cryptoWithdrawalRequests, requestSearch, requestStatus])
-  const filteredAuditEvents = useMemo(() => {
-    const query = auditSearch.trim().toLowerCase()
-    return auditEvents.filter(
-      (event) =>
-        !query ||
-        [
-          event.category,
-          event.action,
-          event.target,
-          event.actor || "",
-          event.summary,
-        ].some((value) => value.toLowerCase().includes(query)),
-    )
-  }, [auditEvents, auditSearch])
+  const {
+    activePageMetadata,
+    activeMerchantCount,
+    adminNavigationGroups,
+    filteredAuditEvents,
+    filteredCryptoWithdrawalRequests,
+    filteredKybApplications,
+    filteredMerchants,
+    filteredPayments,
+    filteredTransferRequests,
+    pendingCryptoWithdrawalRequests,
+    pendingKybCount,
+    pendingPaymentCount,
+    pendingTransferRequests,
+    pendingWithdrawalCount,
+    reservedTransferBalance,
+    selectableFilteredMerchants,
+    selectedActivatableMerchants,
+    totalLedgerBalance,
+  } = useAdminConsoleViewModel({
+    activePage,
+    merchants,
+    internalWallets,
+    transferRequests,
+    cryptoWithdrawalRequests,
+    paymentLinks,
+    kybApplications,
+    auditEvents,
+    merchantSearch,
+    merchantFilter,
+    selectedMerchantEmails,
+    paymentSearch,
+    paymentStatus,
+    kybSearch,
+    kybStatus,
+    requestSearch,
+    requestStatus,
+    auditSearch,
+  })
 
   async function refreshAuditEvents() {
     try {
@@ -995,6 +781,40 @@ export function SuperAdminConsole({
       ) {
         await loadConsole()
       }
+    }
+  }
+
+  async function activateMerchantDownline(account: AdminMerchantAccount) {
+    if (
+      !window.confirm(
+        `Manually enable merchant downline for ${account.email}?\n\nThis bypasses downline eligibility requirements only; it does not waive wallet activation.`,
+      )
+    ) {
+      return
+    }
+
+    setActivatingDownlineEmail(account.email)
+    setError("")
+    setNotice("")
+    try {
+      await activateAdminMerchantDownline(account.email)
+      setMerchants((current) =>
+        current.map((item) =>
+          item.email === account.email
+            ? { ...item, downlineManuallyEnabled: true }
+            : item,
+        ),
+      )
+      setNotice(`Merchant downline manually enabled for ${account.email}.`)
+      await refreshAuditEvents()
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not manually enable merchant downline.",
+      )
+    } finally {
+      setActivatingDownlineEmail("")
     }
   }
 
@@ -2988,180 +2808,53 @@ export function SuperAdminConsole({
                 </div>
                 <div className="admin-account-list">
                   {filteredMerchants.map((account) => (
-                    <div className="admin-merchant-account" key={account.email}>
-                      <div className="admin-account-row">
-                        <label className="admin-merchant-select">
-                          <input
-                            type="checkbox"
-                            aria-label={`Select ${account.email} for activation`}
-                            checked={selectedMerchantEmails.includes(
-                              account.email,
-                            )}
-                            onChange={() =>
-                              setSelectedMerchantEmails((current) =>
-                                current.includes(account.email)
-                                  ? current.filter(
-                                      (email) => email !== account.email,
-                                    )
-                                  : [...current, account.email],
-                              )
-                            }
-                            disabled={
-                              activatingSelectedMerchants ||
-                              !canActivateMerchant(account)
-                            }
-                          />
-                        </label>
-                        <div>
-                          <strong>{account.email}</strong>
-                          <small>
-                            Added{" "}
-                            {new Date(account.createdAt).toLocaleDateString()} ·
-                            Updated{" "}
-                            {new Date(account.updatedAt).toLocaleDateString()}
-                          </small>
-                          <small>
-                            {account.registrationPending
-                              ? `Registration submitted · KYB ${
-                                  account.kybStatus?.replace("_", " ") ||
-                                  "pending"
-                                }`
-                              : account.invitationAcceptedAt
-                                ? `Invitation accepted ${new Date(
-                                    account.invitationAcceptedAt,
-                                  ).toLocaleDateString()}`
-                                : "Invitation not yet accepted"}
-                          </small>
-                        </div>
-                        <span
-                          className={`admin-status-pill ${
-                            account.registrationPending
-                              ? "pending"
-                              : account.active
-                                ? "active"
-                                : "disabled"
-                          }`}
-                        >
-                          {account.registrationPending
-                            ? "Pending review"
-                            : account.active
-                              ? "Active"
-                              : "Disabled"}
-                        </span>
-                        <button
-                          type="button"
-                          className="admin-text-action"
-                          onClick={() =>
-                            setEditingMerchant({
-                              ...account,
-                              originalEmail: account.email,
-                            })
-                          }
-                        >
-                          Edit profile
-                        </button>
-                        <button
-                          type="button"
-                          className="admin-text-action"
-                          onClick={() => void setMerchantActive(account)}
-                          disabled={
-                            account.registrationPending &&
-                            account.kybStatus !== "APPROVED"
-                          }
-                          title={
-                            account.registrationPending &&
-                            account.kybStatus !== "APPROVED"
-                              ? "Review and approve this merchant’s KYB application first."
-                              : undefined
-                          }
-                        >
-                          {account.registrationPending &&
-                          account.kybStatus !== "APPROVED"
-                            ? "Review KYB to approve"
-                            : account.registrationPending
-                              ? "Approve registration"
-                              : account.active
-                                ? "Disable access"
-                                : "Enable access"}
-                        </button>
-                        <button
-                          type="button"
-                          className="admin-text-action"
-                          onClick={() => void resendMerchantInvitation(account)}
-                          disabled={
-                            !account.active ||
-                            Boolean(account.invitationAcceptedAt) ||
-                            sendingInvitationEmail === account.email
-                          }
-                        >
-                          {sendingInvitationEmail === account.email
-                            ? "Sending…"
-                            : account.invitationAcceptedAt
-                              ? "Invitation accepted"
-                              : "Resend invitation"}
-                        </button>
-                        <button
-                          type="button"
-                          className="admin-text-action"
-                          onClick={() =>
-                            void resendMerchantIntegrationGuide(account)
-                          }
-                          disabled={
-                            !account.active ||
-                            sendingIntegrationGuide === account.email
-                          }
-                        >
-                          {sendingIntegrationGuide === account.email
-                            ? "Sending…"
-                            : "Resend API guide"}
-                        </button>
-                      </div>
-                      <form
-                        className="admin-usdt-address-form"
-                        onSubmit={(event) =>
-                          void saveMerchantUsdtAddress(event, account)
-                        }
-                      >
-                        <label>
-                          <span>Merchant USDT address · TRON mainnet</span>
-                          <input
-                            value={
-                              usdtAddressDrafts[account.email] ??
-                              account.usdtAddress ??
-                              ""
-                            }
-                            onChange={(event) =>
-                              setUsdtAddressDrafts((current) => ({
-                                ...current,
-                                [account.email]: event.target.value,
-                              }))
-                            }
-                            placeholder="Assign a TRON mainnet address"
-                            autoComplete="off"
-                            maxLength={64}
-                          />
-                          <small>
-                            Confirm the address belongs to this merchant and is
-                            for TRON mainnet. TRON address format alone cannot
-                            distinguish mainnet from testnet. Assignment records
-                            its starting balance; changing the address resets
-                            the merchant&apos;s USDT qualification and
-                            deposit-history window.
-                          </small>
-                        </label>
-                        <Button
-                          type="submit"
-                          variant="secondary"
-                          disabled={savingUsdtAddress === account.email}
-                        >
-                          {savingUsdtAddress === account.email
-                            ? "Saving…"
-                            : account.usdtAddress
-                              ? "Update address"
-                              : "Assign address"}
-                        </Button>
-                      </form>
-                    </div>
+                    <MerchantAccountRow
+                      key={account.email}
+                      account={account}
+                      selected={selectedMerchantEmails.includes(account.email)}
+                      selectionDisabled={
+                        activatingSelectedMerchants ||
+                        !canActivateMerchant(account)
+                      }
+                      downlineBusy={activatingDownlineEmail !== ""}
+                      invitationBusy={sendingInvitationEmail === account.email}
+                      integrationGuideBusy={
+                        sendingIntegrationGuide === account.email
+                      }
+                      addressSaving={savingUsdtAddress === account.email}
+                      addressDraft={
+                        usdtAddressDrafts[account.email] ??
+                        account.usdtAddress ??
+                        ""
+                      }
+                      onSelect={() =>
+                        setSelectedMerchantEmails((current) =>
+                          current.includes(account.email)
+                            ? current.filter((email) => email !== account.email)
+                            : [...current, account.email],
+                        )
+                      }
+                      onEdit={setEditingMerchant}
+                      onToggleActive={() => void setMerchantActive(account)}
+                      onEnableDownline={() =>
+                        void activateMerchantDownline(account)
+                      }
+                      onResendInvitation={() =>
+                        void resendMerchantInvitation(account)
+                      }
+                      onResendIntegrationGuide={() =>
+                        void resendMerchantIntegrationGuide(account)
+                      }
+                      onAddressDraftChange={(value) =>
+                        setUsdtAddressDrafts((current) => ({
+                          ...current,
+                          [account.email]: value,
+                        }))
+                      }
+                      onSaveAddress={(event) =>
+                        void saveMerchantUsdtAddress(event, account)
+                      }
+                    />
                   ))}
                   {filteredMerchants.length === 0 && (
                     <p className="admin-empty">

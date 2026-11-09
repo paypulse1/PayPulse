@@ -3,6 +3,11 @@ import { AlertCircle, LoaderCircle } from "lucide-react"
 import { Button } from "./AppPrimitives"
 import type { GoogleAuthChallenge, TelegramAuthChallenge } from "./lib/swiftpay"
 
+type TelegramAuthResponse = {
+  id_token?: string
+  error?: string
+}
+
 declare global {
   interface Window {
     google?: {
@@ -35,7 +40,7 @@ declare global {
             nonce: string
             lang: string
           },
-          callback: (response: { id_token?: string; error?: string }) => void,
+          callback: (response: TelegramAuthResponse) => void,
         ) => void
       }
     }
@@ -61,6 +66,55 @@ function loadProviderScript(url: string) {
   })
   scriptLoads.set(url, promise)
   return promise
+}
+
+export function GoogleProviderIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg
+      aria-hidden="true"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+    >
+      <circle cx="12" cy="12" r="10.5" stroke="currentColor" />
+      <path
+        fill="#4285F4"
+        d="M21.6 12.23c0-.68-.06-1.33-.17-1.96H12v3.71h5.38a4.6 4.6 0 0 1-2 3.02v2.42h3.24c1.9-1.75 2.98-4.33 2.98-7.19Z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 22c2.7 0 4.97-.9 6.62-2.44l-3.24-2.42c-.9.6-2.05.96-3.38.96-2.6 0-4.8-1.75-5.59-4.1H3.06v2.5A10 10 0 0 0 12 22Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M6.41 14a6.02 6.02 0 0 1 0-4V7.5H3.06a10 10 0 0 0 0 9L6.4 14Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 5.9c1.47 0 2.8.5 3.84 1.5l2.88-2.88A9.64 9.64 0 0 0 12 2a10 10 0 0 0-8.94 5.5l3.35 2.5C7.2 7.65 9.4 5.9 12 5.9Z"
+      />
+    </svg>
+  )
+}
+
+export function TelegramProviderIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      aria-hidden="true"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="10.5" />
+      <path d="m5.5 11.6 12.8-5-3.7 11.1-3.2-4.1-2.5 2 .3-3.4 6.1-3.8-7.1 3.1-2.7.1Z" />
+    </svg>
+  )
 }
 
 export function GoogleIdentityButton({
@@ -266,7 +320,9 @@ export function TelegramIdentityButton({
         icon={
           busy || loadingScript ? (
             <LoaderCircle className="spin" size={17} />
-          ) : undefined
+          ) : (
+            <TelegramProviderIcon />
+          )
         }
       >
         {busy ? "Waiting for Telegram…" : "Continue with Telegram"}
