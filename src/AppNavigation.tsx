@@ -1,16 +1,16 @@
 import {
   ArrowLeftRight,
   CirclePlus,
-  LayoutDashboard,
+  House,
   UserRound,
-  Wallet,
+  WalletCards,
 } from "lucide-react"
 
 export type AppTab = "Home" | "Wallet" | "Transfer" | "Profile"
 
 const tabs = [
-  { label: "Home", icon: LayoutDashboard },
-  { label: "Wallet", icon: Wallet },
+  { label: "Home", icon: House },
+  { label: "Wallet", icon: WalletCards },
   { label: "Collect", icon: CirclePlus },
   { label: "Transfer", icon: ArrowLeftRight },
   { label: "Profile", icon: UserRound },
@@ -43,8 +43,8 @@ export default function AppNavigation({
           >
             <span className="nav-icon">
               <Icon
-                size={isPay ? 24 : 20}
-                strokeWidth={isPay ? 2.2 : 1.8}
+                size={isPay ? 25 : 21}
+                strokeWidth={isPay ? 2.4 : 2}
                 aria-hidden="true"
               />
             </span>

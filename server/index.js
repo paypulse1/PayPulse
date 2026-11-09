@@ -27,7 +27,14 @@ import cors from "cors"
 import express from "express"
 import { rateLimit } from "express-rate-limit"
 import helmet from "helmet"
-import { importPKCS8, SignJWT, jwtVerify } from "jose"
+import { createRemoteJWKSet, importPKCS8, SignJWT, jwtVerify } from "jose"
+import { OAuth2Client } from "google-auth-library"
+import {
+  generateAuthenticationOptions,
+  generateRegistrationOptions,
+  verifyAuthenticationResponse,
+  verifyRegistrationResponse,
+} from "@simplewebauthn/server"
 import pg from "pg"
 import {
   createPaymentInvoicePdf,
@@ -103,10 +110,23 @@ app.get("/", (req, res, next) => {
 
 app.use(
   helmet({
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
     contentSecurityPolicy: {
       directives: {
+        scriptSrc: [
+          "'self'",
+          "https://accounts.google.com",
+          "https://oauth.telegram.org",
+        ],
+        frameSrc: [
+          "'self'",
+          "https://accounts.google.com",
+          "https://oauth.telegram.org",
+        ],
         connectSrc: [
           "'self'",
+          "https://accounts.google.com",
+          "https://oauth.telegram.org",
           "https://drpay-merchant-production.up.railway.app",
           "https://api.live.denpay.cc",
           "https://api.sandbox.denpay.cc",
@@ -211,6 +231,29 @@ const fcmProjectId = process.env.FCM_PROJECT_ID
 const fcmServiceAccountEmail = process.env.FCM_SERVICE_ACCOUNT_EMAIL
 const fcmServiceAccountPrivateKey =
   process.env.FCM_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, "\n")
+const googleClientId = process.env.DRPAY_GOOGLE_CLIENT_ID?.trim() || ""
+const googleAuthClient = googleClientId
+  ? new OAuth2Client(googleClientId)
+  : null
+const configuredTelegramLoginClientId =
+  process.env.DRPAY_TELEGRAM_LOGIN_CLIENT_ID?.trim() || ""
+const telegramLoginClientId = /^\d{1,20}$/.test(
+  configuredTelegramLoginClientId,
+)
+  ? configuredTelegramLoginClientId
+  : ""
+if (configuredTelegramLoginClientId && !telegramLoginClientId) {
+  console.error("DRPAY_TELEGRAM_LOGIN_CLIENT_ID must be a numeric BotFather client ID.")
+}
+const telegramJwks = createRemoteJWKSet(
+  new URL("https://oauth.telegram.org/.well-known/jwks.json"),
+)
+const passkeyRpId =
+  process.env.DRPAY_PASSKEY_RP_ID?.trim() ||
+  (frontendOrigin ? new URL(frontendOrigin).hostname : "")
+const passkeyExpectedOrigin = frontendOrigin
+  ? new URL(frontendOrigin).origin
+  : ""
 const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN
 const telegramChatId = process.env.TELEGRAM_CHAT_ID
 const swiftPayAccessKey = process.env.SWIFTPAY_ACCESS_KEY
@@ -481,6 +524,105 @@ async function issueMerchantSession(email) {
     .setExpirationTime("8h")
     .sign(jwtSecret)
   return { accessToken, expiresInSeconds: 8 * 60 * 60, email, role: "merchant" }
+}
+
+async function createMerchantAuthChallenge(
+  provider,
+  purpose,
+  merchantEmail,
+  challenge,
+) {
+  const id = randomUUID()
+  await pool.query(
+    "DELETE FROM merchant_auth_challenges WHERE expires_at <= NOW()",
+  )
+  await pool.query(
+    `INSERT INTO merchant_auth_challenges
+       (id, provider, purpose, merchant_email, challenge, expires_at)
+     VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '5 minutes')`,
+    [id, provider, purpose, merchantEmail || null, challenge],
+  )
+  return id
+}
+
+async function consumeMerchantAuthChallenge(id, provider, purpose) {
+  if (typeof id !== "string" || !/^[0-9a-f-]{36}$/i.test(id)) return null
+  const result = await pool.query(
+    `DELETE FROM merchant_auth_challenges
+     WHERE id = $1 AND provider = $2 AND purpose = $3 AND expires_at > NOW()
+     RETURNING merchant_email AS "merchantEmail", challenge`,
+    [id, provider, purpose],
+  )
+  return result.rows[0] || null
+}
+
+async function verifyGoogleIdentityToken(idToken, expectedNonce) {
+  if (!googleAuthClient)
+    throw new Error("Google sign-in is not configured for this service.")
+  if (typeof idToken !== "string" || idToken.length > 12_000)
+    throw new Error("Google sign-in could not be verified.")
+  const ticket = await googleAuthClient.verifyIdToken({
+    idToken,
+    audience: googleClientId,
+  })
+  const payload = ticket.getPayload()
+  if (
+    !payload?.sub ||
+    !payload.email ||
+    payload.email_verified !== true ||
+    payload.nonce !== expectedNonce ||
+    !["https://accounts.google.com", "accounts.google.com"].includes(
+      payload.iss,
+    )
+  ) {
+    throw new Error("Use a verified Google account to continue.")
+  }
+  return { subject: payload.sub, email: payload.email.toLowerCase() }
+}
+
+async function verifyTelegramIdentityToken(idToken, expectedNonce) {
+  if (!telegramLoginClientId)
+    throw new Error("Telegram sign-in is not configured for this service.")
+  if (typeof idToken !== "string" || idToken.length > 12_000)
+    throw new Error("Telegram sign-in could not be verified.")
+  const { payload } = await jwtVerify(idToken, telegramJwks, {
+    algorithms: ["RS256", "ES256", "EdDSA", "ES256K"],
+    issuer: "https://oauth.telegram.org",
+    audience: telegramLoginClientId,
+  })
+  if (
+    typeof payload.sub !== "string" ||
+    payload.sub.length > 128 ||
+    payload.nonce !== expectedNonce
+  ) {
+    throw new Error("Telegram sign-in could not be verified.")
+  }
+  return { subject: payload.sub }
+}
+
+async function linkMerchantAuthIdentity(merchantEmail, provider, subject) {
+  const inserted = await pool.query(
+    `INSERT INTO merchant_auth_identities (provider, provider_subject, merchant_email)
+     VALUES ($1, $2, $3)
+     ON CONFLICT DO NOTHING
+     RETURNING merchant_email`,
+    [provider, subject, merchantEmail],
+  )
+  if (inserted.rowCount) return { linked: true }
+  const existing = await pool.query(
+    `SELECT merchant_email FROM merchant_auth_identities
+     WHERE provider = $1 AND provider_subject = $2`,
+    [provider, subject],
+  )
+  if (existing.rows[0]?.merchant_email === merchantEmail)
+    return { linked: true, alreadyLinked: true }
+  if (existing.rowCount)
+    throw new Error(
+      "This sign-in method is already linked to another merchant account.",
+    )
+  throw new Error(
+    `A different ${provider} account is already linked to this merchant account.`,
+  )
 }
 
 function deviceTokenHash(deviceToken) {
@@ -1380,6 +1522,51 @@ async function initializeDatabase() {
       FOREIGN KEY (email, device_token_hash)
         REFERENCES merchant_devices (email, device_token_hash) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS merchant_auth_identities (
+      provider TEXT NOT NULL CHECK (provider IN ('google', 'telegram')),
+      provider_subject TEXT NOT NULL,
+      merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE ON UPDATE CASCADE,
+      linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (provider, provider_subject),
+      UNIQUE (merchant_email, provider)
+    );
+    CREATE TABLE IF NOT EXISTS merchant_passkeys (
+      credential_id TEXT PRIMARY KEY,
+      merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE ON UPDATE CASCADE,
+      public_key BYTEA NOT NULL,
+      counter BIGINT NOT NULL DEFAULT 0,
+      transports JSONB NOT NULL DEFAULT '[]'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_used_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS merchant_passkeys_email_idx
+      ON merchant_passkeys (merchant_email);
+    CREATE TABLE IF NOT EXISTS merchant_auth_challenges (
+      id UUID PRIMARY KEY,
+      provider TEXT NOT NULL CHECK (provider IN ('google', 'passkey', 'telegram')),
+      purpose TEXT NOT NULL CHECK (purpose IN ('register', 'login', 'link')),
+      merchant_email TEXT REFERENCES merchant_accounts(email) ON DELETE CASCADE ON UPDATE CASCADE,
+      challenge TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ NOT NULL
+    );
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'merchant_auth_challenges'::regclass
+          AND conname = 'merchant_auth_challenges_provider_check'
+          AND pg_get_constraintdef(oid) LIKE '%google%'
+      ) THEN
+        ALTER TABLE merchant_auth_challenges
+          DROP CONSTRAINT IF EXISTS merchant_auth_challenges_provider_check;
+        ALTER TABLE merchant_auth_challenges
+          ADD CONSTRAINT merchant_auth_challenges_provider_check
+          CHECK (provider IN ('google', 'passkey', 'telegram'));
+      END IF;
+    END $$;
+    CREATE INDEX IF NOT EXISTS merchant_auth_challenges_expiry_idx
+      ON merchant_auth_challenges (expires_at);
     CREATE TABLE IF NOT EXISTS used_step_up_tokens (
       jti TEXT PRIMARY KEY,
       merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
@@ -3164,6 +3351,202 @@ app.post(
   } finally {
     client.release()
   }
+  },
+)
+
+app.get("/v1/auth/providers", (_req, res) =>
+  res.set("Cache-Control", "no-store").json({
+    google: Boolean(googleAuthClient),
+    googleClientId: googleClientId || null,
+    telegram: Boolean(telegramLoginClientId),
+    telegramClientId: telegramLoginClientId || null,
+    passkeys: Boolean(passkeyRpId && passkeyExpectedOrigin),
+  }),
+)
+
+app.post("/v1/auth/google/challenge", loginLimiter, async (_req, res) => {
+  if (!googleAuthClient)
+    return res
+      .status(503)
+      .json({ error: "Google sign-in is not configured for this service." })
+  const nonce = randomBytes(32).toString("base64url")
+  const challengeId = await createMerchantAuthChallenge(
+    "google",
+    "login",
+    null,
+    nonce,
+  )
+  return res.set("Cache-Control", "no-store").json({ challengeId, nonce })
+})
+
+app.post("/v1/auth/google/login", loginLimiter, async (req, res) => {
+  const challenge = await consumeMerchantAuthChallenge(
+    req.body?.challengeId,
+    "google",
+    "login",
+  )
+  if (!challenge)
+    return res.status(401).json({ error: "Google sign-in expired. Try again." })
+  let identity
+  try {
+    identity = await verifyGoogleIdentityToken(
+      req.body?.credential,
+      challenge.challenge,
+    )
+  } catch {
+    return res.status(401).json({
+      error: "Google sign-in could not be verified. Try again or use email.",
+    })
+  }
+  const result = await pool.query(
+    `SELECT account.email FROM merchant_auth_identities identity
+     JOIN merchant_accounts account ON account.email = identity.merchant_email
+     WHERE identity.provider = 'google' AND identity.provider_subject = $1
+       AND account.active = TRUE`,
+    [identity.subject],
+  )
+  const merchantEmail = result.rows[0]?.email
+  if (!merchantEmail) return res.status(401).json({
+      error: "This Google account is not linked to a merchant account.",
+    })
+  return res
+    .set("Cache-Control", "no-store")
+    .json(await issueMerchantSession(merchantEmail))
+})
+
+app.post("/v1/auth/telegram/challenge", loginLimiter, async (_req, res) => {
+  if (!telegramLoginClientId)
+    return res
+      .status(503)
+      .json({ error: "Telegram sign-in is not configured for this service." })
+  const nonce = randomBytes(32).toString("base64url")
+  const challengeId = await createMerchantAuthChallenge(
+    "telegram",
+    "login",
+    null,
+    nonce,
+  )
+  return res.set("Cache-Control", "no-store").json({
+    challengeId,
+    nonce,
+    clientId: telegramLoginClientId,
+  })
+})
+
+app.post("/v1/auth/telegram/login", loginLimiter, async (req, res) => {
+  const challenge = await consumeMerchantAuthChallenge(
+    req.body?.challengeId,
+    "telegram",
+    "login",
+  )
+  if (!challenge)
+    return res
+      .status(401)
+      .json({ error: "Telegram sign-in expired. Try again." })
+  let identity
+  try {
+    identity = await verifyTelegramIdentityToken(
+      req.body?.idToken,
+      challenge.challenge,
+    )
+  } catch {
+    return res.status(401).json({
+      error: "Telegram sign-in could not be verified. Try again or use email.",
+    })
+  }
+  const result = await pool.query(
+    `SELECT account.email FROM merchant_auth_identities identity
+     JOIN merchant_accounts account ON account.email = identity.merchant_email
+     WHERE identity.provider = 'telegram' AND identity.provider_subject = $1
+       AND account.active = TRUE`,
+    [identity.subject],
+  )
+  const merchantEmail = result.rows[0]?.email
+  if (!merchantEmail) return res.status(401).json({
+      error: "This Telegram account is not linked to a merchant account.",
+    })
+  return res
+    .set("Cache-Control", "no-store")
+    .json(await issueMerchantSession(merchantEmail))
+})
+
+app.post("/v1/auth/passkey/options", loginLimiter, async (_req, res) => {
+  if (!passkeyRpId || !passkeyExpectedOrigin)
+    return res
+      .status(503)
+      .json({ error: "Passkey sign-in is not configured for this service." })
+  const options = await generateAuthenticationOptions({
+    rpID: passkeyRpId,
+    userVerification: "required",
+  })
+  const challengeId = await createMerchantAuthChallenge(
+    "passkey",
+    "login",
+    null,
+    options.challenge,
+  )
+  return res.set("Cache-Control", "no-store").json({ challengeId, options })
+})
+
+app.post("/v1/auth/passkey/verify", loginLimiter, async (req, res) => {
+  const challenge = await consumeMerchantAuthChallenge(
+    req.body?.challengeId,
+    "passkey",
+    "login",
+  )
+  const credentialId =
+    typeof req.body?.credential?.id === "string" ? req.body.credential.id : ""
+  if (!challenge || !credentialId || credentialId.length > 1024)
+    return res
+      .status(401)
+      .json({ error: "Passkey sign-in expired. Try again." })
+  const result = await pool.query(
+    `SELECT passkey.credential_id, passkey.public_key, passkey.counter,
+       passkey.transports, account.email
+     FROM merchant_passkeys passkey
+     JOIN merchant_accounts account ON account.email = passkey.merchant_email
+     WHERE passkey.credential_id = $1 AND account.active = TRUE`,
+    [credentialId],
+  )
+  const storedCredential = result.rows[0]
+  if (!storedCredential) return res.status(401).json({
+      error: "This passkey is not linked to an active merchant account.",
+    })
+  let verification
+  try {
+    verification = await verifyAuthenticationResponse({
+      response: req.body.credential,
+      expectedChallenge: challenge.challenge,
+      expectedOrigin: passkeyExpectedOrigin,
+      expectedRPID: passkeyRpId,
+      requireUserVerification: true,
+      credential: {
+        id: storedCredential.credential_id,
+        publicKey: new Uint8Array(storedCredential.public_key),
+        counter: Number(storedCredential.counter),
+        transports: storedCredential.transports,
+      },
+    })
+  } catch {
+    return res
+      .status(401)
+      .json({ error: "Passkey sign-in could not be verified." })
+  }
+  if (!verification.verified)
+    return res
+      .status(401)
+      .json({ error: "Passkey sign-in could not be verified." })
+  await pool.query(
+    `UPDATE merchant_passkeys SET counter = GREATEST(counter, $2), last_used_at = NOW()
+     WHERE credential_id = $1`,
+    [
+      storedCredential.credential_id,
+      verification.authenticationInfo.newCounter,
+    ],
+  )
+  return res
+    .set("Cache-Control", "no-store")
+    .json(await issueMerchantSession(storedCredential.email))
 })
 
 app.post("/v1/auth/device/otp/request", loginLimiter, async (req, res) => {
@@ -5908,6 +6291,286 @@ app.get(
 )
 
 app.use("/v1", requireMerchant)
+
+function requireInteractiveMerchantSession(req, res, next) {
+  if (req.apiKey) return res.status(403).json({
+      error:
+        "Sign in with a merchant session to manage linked sign-in methods.",
+    })
+  return next()
+}
+
+app.use("/v1/security/auth-methods", requireInteractiveMerchantSession)
+app.use("/v1/security/passkeys", requireInteractiveMerchantSession)
+
+app.get("/v1/security/auth-methods", async (req, res) => {
+  const [identities, passkeys] = await Promise.all([
+    pool.query(
+      `SELECT provider FROM merchant_auth_identities
+       WHERE merchant_email = $1`,
+      [req.merchantEmail],
+    ),
+    pool.query(
+      `SELECT credential_id AS id, created_at AS "createdAt"
+       FROM merchant_passkeys WHERE merchant_email = $1
+       ORDER BY created_at ASC`,
+      [req.merchantEmail],
+    ),
+  ])
+  return res.set("Cache-Control", "no-store").json({
+    google: identities.rows.some((row) => row.provider === "google"),
+    telegram: identities.rows.some((row) => row.provider === "telegram"),
+    passkeys: passkeys.rows,
+  })
+})
+
+app.post(
+  "/v1/security/auth-methods/google/challenge",
+  loginLimiter,
+  async (req, res) => {
+    if (!googleAuthClient)
+      return res.status(503).json({
+        error: "Google sign-in is not configured for this service.",
+      })
+    const nonce = randomBytes(32).toString("base64url")
+    const challengeId = await createMerchantAuthChallenge(
+      "google",
+      "link",
+      req.merchantEmail,
+      nonce,
+    )
+    return res.set("Cache-Control", "no-store").json({ challengeId, nonce })
+  },
+)
+
+app.post(
+  "/v1/security/auth-methods/google",
+  loginLimiter,
+  async (req, res) => {
+  const challenge = await consumeMerchantAuthChallenge(
+    req.body?.challengeId,
+    "google",
+    "link",
+  )
+  if (!challenge || challenge.merchantEmail !== req.merchantEmail)
+    return res.status(401).json({ error: "Google linking expired. Try again." })
+  let identity
+  try {
+    identity = await verifyGoogleIdentityToken(
+      req.body?.credential,
+      challenge.challenge,
+    )
+  } catch {
+    return res.status(401).json({
+      error: "Google sign-in could not be verified. Try again.",
+      },
+    )
+  }
+  try {
+    return res
+      .set("Cache-Control", "no-store")
+      .json(
+        await linkMerchantAuthIdentity(
+          req.merchantEmail,
+          "google",
+          identity.subject,
+        ),
+      )
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("already linked"))
+      return res.status(409).json({ error: error.message })
+    throw error
+  }
+})
+
+app.delete("/v1/security/auth-methods/:provider", async (req, res) => {
+  const provider = req.params.provider
+  if (!["google", "telegram"].includes(provider))
+    return res.status(400).json({ error: "Choose a valid sign-in method." })
+  await pool.query(
+    `DELETE FROM merchant_auth_identities
+     WHERE merchant_email = $1 AND provider = $2`,
+    [req.merchantEmail, provider],
+  )
+  return res.set("Cache-Control", "no-store").json({ linked: false })
+})
+
+app.post(
+  "/v1/security/auth-methods/telegram/challenge",
+  loginLimiter,
+  async (req, res) => {
+  if (!telegramLoginClientId)
+    return res
+      .status(503)
+      .json({ error: "Telegram sign-in is not configured for this service." })
+  const nonce = randomBytes(32).toString("base64url")
+  const challengeId = await createMerchantAuthChallenge(
+    "telegram",
+    "link",
+    req.merchantEmail,
+    nonce,
+  )
+  return res.set("Cache-Control", "no-store").json({
+    challengeId,
+    nonce,
+    clientId: telegramLoginClientId,
+  })
+  },
+)
+
+app.post(
+  "/v1/security/auth-methods/telegram",
+  loginLimiter,
+  async (req, res) => {
+  const challenge = await consumeMerchantAuthChallenge(
+    req.body?.challengeId,
+    "telegram",
+    "link",
+  )
+  if (!challenge || challenge.merchantEmail !== req.merchantEmail)
+    return res
+      .status(401)
+      .json({ error: "Telegram linking expired. Try again." })
+  let identity
+  try {
+    identity = await verifyTelegramIdentityToken(
+      req.body?.idToken,
+      challenge.challenge,
+    )
+  } catch {
+    return res.status(401).json({
+      error: "Telegram sign-in could not be verified. Try again.",
+    })
+  }
+  try {
+    return res
+      .set("Cache-Control", "no-store")
+      .json(
+        await linkMerchantAuthIdentity(
+          req.merchantEmail,
+          "telegram",
+          identity.subject,
+        ),
+      )
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("already linked"))
+      return res.status(409).json({ error: error.message })
+    throw error
+  }
+  },
+)
+
+app.post(
+  "/v1/security/passkeys/register/options",
+  loginLimiter,
+  async (req, res) => {
+  if (!passkeyRpId || !passkeyExpectedOrigin)
+    return res
+      .status(503)
+      .json({ error: "Passkey linking is not configured for this service." })
+  const existing = await pool.query(
+    `SELECT credential_id AS id, transports FROM merchant_passkeys
+     WHERE merchant_email = $1`,
+    [req.merchantEmail],
+  )
+  const options = await generateRegistrationOptions({
+    rpName: "DRPAY Merchant",
+    rpID: passkeyRpId,
+    userName: req.merchantEmail,
+    userDisplayName: req.merchantEmail,
+    userID: createHash("sha256").update(req.merchantEmail).digest(),
+    attestationType: "none",
+    authenticatorSelection: {
+      residentKey: "required",
+      userVerification: "required",
+    },
+    excludeCredentials: existing.rows.map((row) => ({
+      id: row.id,
+      transports: row.transports,
+    })),
+  })
+  const challengeId = await createMerchantAuthChallenge(
+    "passkey",
+    "register",
+    req.merchantEmail,
+    options.challenge,
+  )
+  return res.set("Cache-Control", "no-store").json({ challengeId, options })
+  },
+)
+
+app.post(
+  "/v1/security/passkeys/register/verify",
+  loginLimiter,
+  async (req, res) => {
+  const challenge = await consumeMerchantAuthChallenge(
+    req.body?.challengeId,
+    "passkey",
+    "register",
+  )
+  if (!challenge || challenge.merchantEmail !== req.merchantEmail)
+    return res.status(401).json({ error: "Passkey setup expired. Try again." })
+  if (!passkeyRpId || !passkeyExpectedOrigin)
+    return res
+      .status(503)
+      .json({ error: "Passkey linking is not configured for this service." })
+  let verification
+  try {
+    verification = await verifyRegistrationResponse({
+      response: req.body?.credential,
+      expectedChallenge: challenge.challenge,
+      expectedOrigin: passkeyExpectedOrigin,
+      expectedRPID: passkeyRpId,
+      requireUserVerification: true,
+    })
+  } catch {
+    return res
+      .status(400)
+      .json({ error: "Passkey setup could not be verified." })
+  }
+  if (!verification.verified)
+    return res
+      .status(400)
+      .json({ error: "Passkey setup could not be verified." })
+  const { credential } = verification.registrationInfo
+  try {
+    await pool.query(
+      `INSERT INTO merchant_passkeys
+         (credential_id, merchant_email, public_key, counter, transports)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        credential.id,
+        req.merchantEmail,
+        Buffer.from(credential.publicKey),
+        credential.counter,
+        JSON.stringify(credential.transports || []),
+      ],
+    )
+  } catch (error) {
+    if (error.code === "23505")
+      return res
+        .status(409)
+        .json({ error: "This passkey is already registered." })
+    throw error
+  }
+  return res.set("Cache-Control", "no-store").json({ registered: true })
+})
+
+app.delete("/v1/security/passkeys/:credentialId", async (req, res) => {
+  const credentialId = req.params.credentialId
+  if (
+    typeof credentialId !== "string" ||
+    credentialId.length < 1 ||
+    credentialId.length > 1024
+  )
+    return res.status(400).json({ error: "Choose a valid passkey." })
+  await pool.query(
+    `DELETE FROM merchant_passkeys
+     WHERE merchant_email = $1 AND credential_id = $2`,
+    [req.merchantEmail, credentialId],
+  )
+  return res.set("Cache-Control", "no-store").json({ removed: true })
+})
 
 async function getAssignedMainnetUsdtAddress(email) {
   const { rows } = await pool.query(

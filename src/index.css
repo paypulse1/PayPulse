@@ -195,7 +195,26 @@ h1, h2, p { margin-top: 0; }
   .bottom-nav button:not(.pay-tab):hover { color: var(--ink); }
 }
 
-.activity-page, .more-page { padding-top: 4px; }
+.activity-page, .all-access-page, .merchant-profile-page { padding-top: 4px; }
+.merchant-profile-page .profile-menu-heading { margin-top: 7px; }
+.all-access-header { margin: 0 3px 14px; }
+.all-access-header h2 { margin: 12px 0 4px; font-size: 15px; }
+.all-access-header p { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.all-access-page .profile-menu-heading { margin: 16px 3px 9px; }
+.all-access-page .profile-menu-heading h3 { margin: 0; font-size: 10px; }
+.all-access-list { padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; border: 0; background: transparent; box-shadow: none; }
+.all-access-list > button, .all-access-list > button:last-child { min-height: 125px; padding: 12px; grid-template-columns: minmax(0, 1fr) 16px; grid-template-rows: 40px auto; align-items: start; gap: 10px 6px; border: 1px solid var(--line); border-radius: 15px; background: var(--surface); box-shadow: 0 6px 16px rgb(16 35 61 / 4%); }
+.all-access-list > button > .setting-icon { grid-column: 1; grid-row: 1; width: 40px; height: 40px; border-radius: 13px; background: #eaf1fb; color: #2257a5; }
+.all-access-list > button:nth-child(4n + 2) > .setting-icon { background: #e8f5ee; color: #16724a; }
+.all-access-list > button:nth-child(4n + 3) > .setting-icon { background: #f8f1df; color: #8c6617; }
+.all-access-list > button:nth-child(4n + 4) > .setting-icon { background: #f0ebfb; color: #6a50a3; }
+.all-access-list > button > span:nth-child(2) { grid-column: 1 / -1; grid-row: 2; align-self: start; }
+.all-access-list > button > svg { grid-column: 2; grid-row: 1; margin-top: 12px; color: var(--muted); }
+.all-access-list button > span strong { font-size: 9px; }
+.all-access-list button > span small { font-size: 7px; }
+.all-access-list > button:hover { padding: 12px; transform: translateY(-2px); border-color: #bdcbe0; box-shadow: 0 10px 20px rgb(16 35 61 / 9%); }
+.all-access-list > button:focus-visible, .all-access-header .profile-back-button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.all-access-button { width: 100%; margin-top: 18px; }
 .wallet-page, .transfers-page { padding-top: 4px; }
 .wallet-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
 .wallet-card { min-width: 0; min-height: 152px; padding: 12px; display: flex; flex-direction: column; align-items: stretch; gap: 10px; border: 1px solid #e0e7f0; border-radius: 15px; background: var(--surface); box-shadow: 0 6px 16px rgb(16 35 61 / 4%); }
@@ -756,6 +775,30 @@ h1, h2, p { margin-top: 0; }
 .profile-info-page-header { margin-bottom: 18px; }
 .profile-back-button { padding: 5px 8px 5px 0; display: inline-flex; align-items: center; gap: 3px; border: 0; background: transparent; color: var(--muted); font-size: 9px; font-weight: 700; }
 .profile-back-button:hover { color: var(--ink); }
+.merchant-auth-methods { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); display: grid; gap: 11px; }
+.merchant-auth-methods .profile-info-intro { margin-bottom: 0; }
+.merchant-auth-method-row { min-width: 0; padding: 10px; display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.merchant-auth-method-icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; background: #eaf1fb; color: #2257a5; }
+.merchant-auth-method-telegram { background: #e5f3fc; color: #1687c9; }
+.merchant-auth-method-passkey { background: #e8f5ee; color: #16724a; }
+.merchant-auth-method-row > div:nth-child(2) { min-width: 0; }
+.merchant-auth-method-row strong, .merchant-auth-method-row small { display: block; }
+.merchant-auth-method-row strong { font-size: 9px; }
+.merchant-auth-method-row small { margin-top: 3px; color: var(--muted); font-size: 8px; }
+.merchant-auth-method-row > :nth-child(3) { grid-column: 2; justify-self: start; max-width: 100%; }
+.merchant-auth-method-row .button { min-height: 34px; padding: 7px 10px; font-size: 8px; }
+.merchant-auth-method-row .auth-provider-control { max-width: 100%; overflow: hidden; }
+.merchant-auth-method-row .auth-provider-control > div { max-width: 100%; }
+.merchant-auth-method-row .auth-provider-control iframe { max-width: 100%; }
+.merchant-auth-method-row .auth-provider-control.is-disabled { opacity: .55; pointer-events: none; }
+.merchant-passkeys { display: grid; gap: 6px; }
+.merchant-passkey-item { min-width: 0; padding: 5px 3px 5px 43px; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 8px; }
+.merchant-passkey-item button { padding: 5px; border: 0; background: transparent; color: var(--danger); font-size: 8px; font-weight: 700; }
+.merchant-passkey-item button:disabled { opacity: .5; }
+.auth-provider-control { min-width: 0; }
+.auth-provider-control > div { max-width: 100%; }
+.auth-provider-error { margin: 0; display: flex; align-items: center; gap: 5px; color: var(--danger); font-size: 8px; }
+.auth-provider-control.is-disabled { opacity: .55; pointer-events: none; }
 .profile-detail-hero, .profile-security-status { min-height: 64px; padding: 12px; display: flex; align-items: center; gap: 11px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-soft); }
 .profile-detail-hero .profile-avatar { flex: 0 0 44px; display: grid; place-items: center; color: #1b4f9c; }
 .profile-detail-hero > div, .profile-security-status > div { min-width: 0; }
@@ -932,7 +975,7 @@ h1, h2, p { margin-top: 0; }
 .kyb-status.status-approved { background: var(--success-soft); color: var(--success); }
 .kyb-status.status-rejected { background: var(--danger-soft); color: var(--danger); }
 .spin { animation: spin var(--motion-spin) linear infinite; }
-.page-transition > :where(.balance-card, .quick-actions, .summary-card, .merchant-trend-card, .activity-section, .wallet-page, .transfers-page, .more-page, .profile-info-page) { animation: content-reveal var(--motion-enter-duration) var(--motion-enter) both; }
+.page-transition > :where(.balance-card, .quick-actions, .summary-card, .merchant-trend-card, .activity-section, .wallet-page, .transfers-page, .all-access-page, .merchant-profile-page, .profile-info-page) { animation: content-reveal var(--motion-enter-duration) var(--motion-enter) both; }
 .page-transition > :where(.balance-card, .quick-actions, .summary-card, .merchant-trend-card, .activity-section):nth-child(2) { animation-delay: var(--motion-stagger-step); }
 .page-transition > :where(.balance-card, .quick-actions, .summary-card, .merchant-trend-card, .activity-section):nth-child(3) { animation-delay: calc(var(--motion-stagger-step) + var(--motion-stagger-step)); }
 .page-transition > :where(.balance-card, .quick-actions, .summary-card, .merchant-trend-card, .activity-section):nth-child(4) { animation-delay: calc(var(--motion-stagger-step) + var(--motion-stagger-step) + var(--motion-stagger-step)); }

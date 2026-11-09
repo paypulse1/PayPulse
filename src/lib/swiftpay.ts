@@ -1,8 +1,29 @@
+import {
+  startAuthentication,
+  startRegistration,
+  type PublicKeyCredentialCreationOptionsJSON,
+  type PublicKeyCredentialRequestOptionsJSON,
+} from "@simplewebauthn/browser"
+
 export type Session = {
   accessToken: string
   expiresAt: number
   email: string
   role: "customer" | "merchant" | "super_admin"
+}
+
+export type AuthProviderConfig = {
+  google: boolean
+  googleClientId: string | null
+  telegram: boolean
+  telegramClientId: string | null
+  passkeys: boolean
+}
+
+export type MerchantAuthMethods = {
+  google: boolean
+  telegram: boolean
+  passkeys: { id: string; createdAt: string }[]
 }
 
 export type Transaction = {
@@ -1002,6 +1023,161 @@ export async function loginWithBiometric(
     body: JSON.stringify({ email, secret, deviceToken: getDeviceToken(email) }),
   })
   return saveMerchantSession(email, response)
+}
+
+export function getAuthProviderConfig() {
+  return publicRequest<AuthProviderConfig>("/v1/auth/providers", {
+    cache: "no-store",
+  })
+}
+
+export async function loginWithGoogleCredential(
+  challengeId: string,
+  credential: string,
+) {
+  const response = await publicRequest<{
+    accessToken: string
+    expiresInSeconds: number
+    email: string
+    role: Session["role"]
+  }>("/v1/auth/google/login", {
+    method: "POST",
+    body: JSON.stringify({ challengeId, credential }),
+  })
+  return saveMerchantSession(response.email, response)
+}
+
+export type TelegramAuthChallenge = {
+  challengeId: string
+  nonce: string
+  clientId: string
+}
+
+export type GoogleAuthChallenge = {
+  challengeId: string
+  nonce: string
+}
+
+export function createGoogleLoginChallenge() {
+  return publicRequest<GoogleAuthChallenge>("/v1/auth/google/challenge", {
+    method: "POST",
+  })
+}
+
+export function createTelegramLoginChallenge() {
+  return publicRequest<TelegramAuthChallenge>("/v1/auth/telegram/challenge", {
+    method: "POST",
+  })
+}
+
+export async function loginWithTelegramToken(
+  challengeId: string,
+  idToken: string,
+) {
+  const response = await publicRequest<{
+    accessToken: string
+    expiresInSeconds: number
+    email: string
+    role: Session["role"]
+  }>("/v1/auth/telegram/login", {
+    method: "POST",
+    body: JSON.stringify({ challengeId, idToken }),
+  })
+  return saveMerchantSession(response.email, response)
+}
+
+export async function loginWithPasskey() {
+  const challenge = await publicRequest<{
+    challengeId: string
+    options: PublicKeyCredentialRequestOptionsJSON
+  }>("/v1/auth/passkey/options", { method: "POST" })
+  const credential = await startAuthentication({
+    optionsJSON: challenge.options,
+  })
+  const response = await publicRequest<{
+    accessToken: string
+    expiresInSeconds: number
+    email: string
+    role: Session["role"]
+  }>("/v1/auth/passkey/verify", {
+    method: "POST",
+    body: JSON.stringify({
+      challengeId: challenge.challengeId,
+      credential,
+    }),
+  })
+  return saveMerchantSession(response.email, response)
+}
+
+export function getMerchantAuthMethods() {
+  return backendRequest<MerchantAuthMethods>("/v1/security/auth-methods", {
+    cache: "no-store",
+  })
+}
+
+export async function createGoogleLinkChallenge() {
+  return backendRequest<GoogleAuthChallenge>(
+    "/v1/security/auth-methods/google/challenge",
+    { method: "POST" },
+  )
+}
+
+export async function linkGoogleIdentity(
+  challengeId: string,
+  credential: string,
+) {
+  return backendRequest<{ linked: true; alreadyLinked?: boolean }>(
+    "/v1/security/auth-methods/google",
+    { method: "POST", body: JSON.stringify({ challengeId, credential }) },
+  )
+}
+
+export function createTelegramLinkChallenge() {
+  return backendRequest<TelegramAuthChallenge>(
+    "/v1/security/auth-methods/telegram/challenge",
+    { method: "POST" },
+  )
+}
+
+export function linkTelegramIdentity(challengeId: string, idToken: string) {
+  return backendRequest<{ linked: true; alreadyLinked?: boolean }>(
+    "/v1/security/auth-methods/telegram",
+    { method: "POST", body: JSON.stringify({ challengeId, idToken }) },
+  )
+}
+
+export async function registerMerchantPasskey() {
+  const challenge = await backendRequest<{
+    challengeId: string
+    options: PublicKeyCredentialCreationOptionsJSON
+  }>("/v1/security/passkeys/register/options", { method: "POST" })
+  const credential = await startRegistration({
+    optionsJSON: challenge.options,
+  })
+  return backendRequest<{ registered: true }>(
+    "/v1/security/passkeys/register/verify",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        challengeId: challenge.challengeId,
+        credential,
+      }),
+    },
+  )
+}
+
+export function removeMerchantPasskey(credentialId: string) {
+  return backendRequest<{ removed: true }>(
+    `/v1/security/passkeys/${encodeURIComponent(credentialId)}`,
+    { method: "DELETE" },
+  )
+}
+
+export function unlinkMerchantAuthMethod(provider: "google" | "telegram") {
+  return backendRequest<{ linked: false }>(
+    `/v1/security/auth-methods/${provider}`,
+    { method: "DELETE" },
+  )
 }
 
 export async function registerBiometricCredential(secret: string) {

@@ -37,6 +37,12 @@ services:
         sync: false
       - key: DRPAY_JWT_SECRET
         sync: false
+      - key: DRPAY_GOOGLE_CLIENT_ID
+        sync: false
+      - key: DRPAY_TELEGRAM_LOGIN_CLIENT_ID
+        sync: false
+      - key: DRPAY_PASSKEY_RP_ID
+        value: merchant.sandbox.denpay.cc
       - key: RESEND_API_KEY
         sync: false
       - key: RESEND_FROM_EMAIL
@@ -107,6 +113,12 @@ services:
         sync: false
       - key: DRPAY_JWT_SECRET
         sync: false
+      - key: DRPAY_GOOGLE_CLIENT_ID
+        sync: false
+      - key: DRPAY_TELEGRAM_LOGIN_CLIENT_ID
+        sync: false
+      - key: DRPAY_PASSKEY_RP_ID
+        value: merchant.denpay.cc
       - key: RESEND_API_KEY
         sync: false
       - key: RESEND_FROM_EMAIL

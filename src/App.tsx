@@ -31,6 +31,7 @@ import {
   Download,
   Eye,
   Fingerprint,
+  Grid2X2,
   HandCoins,
   Home,
   KeyRound,
@@ -51,7 +52,6 @@ import {
   Settings,
   ShieldCheck,
   Store,
-  UserRound,
   Users,
   WalletCards,
   X,
@@ -117,6 +117,7 @@ import {
 import type { MerchantQrDetails, TransferQrDetails } from "./lib/transferQr"
 import { parseScannedQr } from "./lib/transferQr"
 import { parseUsdtAmount } from "./lib/tronLink"
+import MerchantAuthMethods from "./MerchantAuthMethods"
 import TransferReceiptActions from "./TransferReceiptActions"
 import {
   createBiometricSecret,
@@ -4352,20 +4353,127 @@ function TransfersView({
   )
 }
 
-function MoreView({
+function MerchantProfileView({
   session,
+  data,
+  onAllAccess,
+}: {
+  session: Session
+  data: DashboardData
+  onAllAccess: () => void
+}) {
+  const { balanceVisible } = useBalanceVisibility()
+
+  return (
+    <section className="merchant-profile-page" aria-label="Merchant profile">
+      <div className="profile-menu-heading">
+        <h2>Merchant profile</h2>
+        <p>Your merchant account information.</p>
+      </div>
+      <MerchantProfileDetails
+        session={session}
+        data={data}
+        balanceVisible={balanceVisible}
+      />
+      <Button
+        className="all-access-button"
+        icon={<Grid2X2 size={18} />}
+        onClick={onAllAccess}
+      >
+        All access
+      </Button>
+    </section>
+  )
+}
+
+function MerchantProfileDetails({
+  session,
+  data,
+  balanceVisible,
+}: {
+  session: Session
+  data: DashboardData
+  balanceVisible: boolean
+}) {
+  return (
+    <>
+      <div className="profile-detail-hero">
+        <span className="profile-avatar">
+          <Store size={20} aria-hidden="true" />
+        </span>
+        <div>
+          <strong>{session.email}</strong>
+          <span className="profile-account-badge">
+            <Store size={12} aria-hidden="true" /> Merchant account
+          </span>
+        </div>
+      </div>
+      <dl className="detail-list">
+        <div>
+          <dt>Account role</dt>
+          <dd>{session.role.replace("_", " ")}</dd>
+        </div>
+        <div>
+          <dt>Wallet type</dt>
+          <dd>Merchant</dd>
+        </div>
+        <div>
+          <dt>Available Balance</dt>
+          <dd>{balanceVisible ? data.availableBalance : "₱ ••••••"}</dd>
+        </div>
+        <div>
+          <dt>Environment</dt>
+          <dd>
+            {data.paymentEnvironment === "production" ? "Live" : "Sandbox"}
+          </dd>
+        </div>
+      </dl>
+    </>
+  )
+}
+
+function AllAccessView({
   data,
   onPaymentLink,
   onInfo,
   onSignOut,
+  onClose,
+  onNavigate,
+  onCollect,
 }: {
-  session: Session
   data: DashboardData
   onPaymentLink: () => void
   onInfo: (title: string) => void
   onSignOut: () => void
+  onClose: () => void
+  onNavigate: (tab: AppTab) => void
+  onCollect: () => void
 }) {
   const items = [
+    {
+      label: "Dashboard",
+      description: "View your balance and recent activity.",
+      icon: Home,
+      action: () => onNavigate("Home"),
+    },
+    {
+      label: "Wallet",
+      description: "Review balances and wallet activity.",
+      icon: WalletCards,
+      action: () => onNavigate("Wallet"),
+    },
+    {
+      label: "Collect payment",
+      description: "Create a payment request for a customer.",
+      icon: Plus,
+      action: onCollect,
+    },
+    {
+      label: "Transfers",
+      description: "Review outgoing transfers.",
+      icon: ArrowLeftRight,
+      action: () => onNavigate("Transfer"),
+    },
     {
       label: "Merchant profile",
       description: "View your business and account details.",
@@ -4435,25 +4543,25 @@ function MoreView({
   ]
 
   return (
-    <section className="more-page" aria-label="Profile and account settings">
-      <div className="profile-card">
-        <span className="profile-avatar">
-          <UserRound size={20} aria-hidden="true" />
-        </span>
-        <div className="profile-card-info">
-          <strong>{session.email}</strong>
-          <span>Merchant account</span>
-        </div>
-      </div>
+    <section className="all-access-page" aria-label="All access">
+      <header className="all-access-header">
+        <button type="button" className="profile-back-button" onClick={onClose}>
+          <ChevronLeft size={16} /> Profile
+        </button>
+        <h2>All access</h2>
+        <p>Shortcuts to your merchant tools and account settings.</p>
+      </header>
       <div className="profile-menu-heading">
-        <h2>Account settings</h2>
-        <p>Manage your profile, preferences, and security.</p>
+        <h3>Merchant tools</h3>
       </div>
-      <nav className="settings-list" aria-label="Account settings">
+      <nav
+        className="settings-list all-access-list"
+        aria-label="Merchant tools"
+      >
         {items.map(({ label, description, icon: Icon, action }) => (
-          <button key={label} onClick={action}>
+          <button type="button" key={label} onClick={action}>
             <span className="setting-icon">
-              <Icon size={19} />
+              <Icon size={20} strokeWidth={2} />
             </span>
             <span>
               <strong>{label}</strong>
@@ -4581,6 +4689,7 @@ function CheckoutEmailBrandingSettings({
 
 function ProfileInfoPage({
   title,
+  backLabel,
   session,
   data,
   refreshVersion,
@@ -4599,6 +4708,7 @@ function ProfileInfoPage({
   onDisableBiometric,
 }: {
   title: string
+  backLabel: string
   session: Session
   data: DashboardData
   refreshVersion: number
@@ -4714,8 +4824,8 @@ function ProfileInfoPage({
   return (
     <section className="profile-info-page" aria-label={title}>
       <header className="profile-info-page-header">
-        <button className="profile-back-button" onClick={onClose}>
-          <ChevronLeft size={16} /> Profile
+        <button type="button" className="profile-back-button" onClick={onClose}>
+          <ChevronLeft size={16} /> {backLabel}
         </button>
       </header>
 
@@ -4724,39 +4834,11 @@ function ProfileInfoPage({
       )}
 
       {title === "Merchant profile" && (
-        <>
-          <div className="profile-detail-hero">
-            <span className="profile-avatar">
-              <Store size={20} />
-            </span>
-            <div>
-              <strong>{session.email}</strong>
-              <span className="profile-account-badge">
-                <Store size={12} aria-hidden="true" /> Merchant account
-              </span>
-            </div>
-          </div>
-          <dl className="detail-list">
-            <div>
-              <dt>Account role</dt>
-              <dd>{session.role.replace("_", " ")}</dd>
-            </div>
-            <div>
-              <dt>Wallet type</dt>
-              <dd>Merchant</dd>
-            </div>
-            <div>
-              <dt>Available Balance</dt>
-              <dd>{balanceVisible ? data.availableBalance : "₱ ••••••"}</dd>
-            </div>
-            <div>
-              <dt>Environment</dt>
-              <dd>
-                {data.paymentEnvironment === "production" ? "Live" : "Sandbox"}
-              </dd>
-            </div>
-          </dl>
-        </>
+        <MerchantProfileDetails
+          session={session}
+          data={data}
+          balanceVisible={balanceVisible}
+        />
       )}
 
       {title === "Transfer banks" && (
@@ -4896,6 +4978,7 @@ function ProfileInfoPage({
               <dd>{new Date(session.expiresAt).toLocaleString()}</dd>
             </div>
           </dl>
+          <MerchantAuthMethods />
           {biometricError && (
             <div className="inline-error" role="alert">
               <AlertCircle size={15} />
@@ -5239,6 +5322,7 @@ export default function App() {
   const [walletSubscreen, setWalletSubscreen] =
     useState<"overview" | "usdt" | "unsettled-balance">("overview")
   const [profileSection, setProfileSection] = useState("")
+  const [allAccessPage, setAllAccessPage] = useState(false)
   const [pushPermission, setPushPermission] = useState("prompt")
   const [pushRegistrationState, setPushRegistrationState] =
     useState<"idle" | "registering" | "registered" | "error">("idle")
@@ -6070,7 +6154,7 @@ export default function App() {
               : activeTab === "Transfer"
                 ? "Transfers"
                 : activeTab === "Profile"
-                  ? profileSection || "Profile"
+                  ? profileSection || (allAccessPage ? "All access" : "Profile")
                   : activeTab === "Wallet" && walletSubscreen === "usdt"
                     ? "USDT"
                     : activeTab === "Wallet" &&
@@ -6211,6 +6295,7 @@ export default function App() {
               (profileSection ? (
                 <ProfileInfoPage
                   title={profileSection}
+                  backLabel={allAccessPage ? "All access" : "Profile"}
                   session={session}
                   data={data}
                   refreshVersion={refreshVersion}
@@ -6228,13 +6313,25 @@ export default function App() {
                   onEnableBiometric={() => void enableBiometricSignIn()}
                   onDisableBiometric={() => void disableBiometricSignIn()}
                 />
-              ) : (
-                <MoreView
-                  session={session}
+              ) : allAccessPage ? (
+                <AllAccessView
                   data={data}
                   onPaymentLink={() => setShowPaymentLink(true)}
                   onInfo={setProfileSection}
                   onSignOut={signOut}
+                  onClose={() => setAllAccessPage(false)}
+                  onNavigate={(tab) => {
+                    setWalletSubscreen("overview")
+                    setAllAccessPage(false)
+                    setActiveTab(tab)
+                  }}
+                  onCollect={() => setShowPayment(true)}
+                />
+              ) : (
+                <MerchantProfileView
+                  session={session}
+                  data={data}
+                  onAllAccess={() => setAllAccessPage(true)}
                 />
               ))}
           </div>
@@ -6244,6 +6341,8 @@ export default function App() {
           activeTab={activeTab}
           onNavigate={(tab) => {
             setWalletSubscreen("overview")
+            setProfileSection("")
+            setAllAccessPage(false)
             setActiveTab(tab)
           }}
           onCollect={() => setShowPayment(true)}
