@@ -1,0 +1,62 @@
+name: Promote DRPAY Android release to production
+
+on:
+  push:
+    tags:
+      - "android-prod-v*"
+      - "android-public-prod-v*"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Inspect Play Store state, promote a release, or update the listing
+        type: choice
+        options:
+          - inspect
+          - promote
+          - update-listing
+        default: inspect
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  promote-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Promote existing release to Google Play production
+        if: github.event_name == 'push' || inputs.action == 'promote'
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          ANDROID_APPLICATION_ID: ${{ startsWith(github.ref_name, 'android-public-prod-v') && 'ph.drpays.merchant.public' || 'ph.drpays.merchant' }}
+          ANDROID_RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 -m pip install --disable-pip-version-check "google-auth[requests]>=2,<3"
+          python3 android/publish_to_play.py --promote-existing "$ANDROID_RELEASE_TAG"
+
+      - name: Inspect Google Play production track and store listings
+        if: github.event_name == 'workflow_dispatch' && inputs.action == 'inspect'
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          python3 -m pip install --disable-pip-version-check "google-auth[requests]>=2,<3"
+          python3 android/publish_to_play.py --check-production
+
+      - name: Update Google Play store listing
+        if: github.event_name == 'workflow_dispatch' && inputs.action == 'update-listing'
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          python3 -m pip install --disable-pip-version-check "google-auth[requests]>=2,<3"
+          python3 android/publish_to_play.py --update-listing
