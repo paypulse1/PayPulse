@@ -65,7 +65,7 @@ def publish_track_release(
         )
 
 
-def load_store_listings() -> list[tuple[dict, Path, list[Path]]]:
+def load_store_listings() -> list[tuple[dict, Path, Path, list[Path]]]:
     listing_root = Path(__file__).parent / "play-listing"
     english_assets = listing_root / "en-US" / "assets"
     listing_dirs = sorted(
@@ -97,13 +97,16 @@ def load_store_listings() -> list[tuple[dict, Path, list[Path]]]:
         assets_dir = listing_dir / "assets"
         if not assets_dir.is_dir():
             assets_dir = english_assets
+        app_icon = assets_dir / "icon.png"
         feature_graphic = assets_dir / "feature-graphic.png"
         screenshots = sorted(assets_dir.glob("phone-screenshot-*.png"))
+        if not app_icon.is_file():
+            raise FileNotFoundError(f"Missing Play app icon: {app_icon}")
         if not feature_graphic.is_file():
             raise FileNotFoundError(f"Missing Play feature graphic: {feature_graphic}")
         if not 2 <= len(screenshots) <= 8:
             raise ValueError("Google Play requires 2-8 phone screenshots")
-        listings.append((listing, feature_graphic, screenshots))
+        listings.append((listing, app_icon, feature_graphic, screenshots))
     return listings
 
 
@@ -133,7 +136,7 @@ def publish_store_listing(
     session: AuthorizedSession,
     edit_url: str,
     edit_id: str,
-    localized_listings: list[tuple[dict, Path, list[Path]]],
+    localized_listings: list[tuple[dict, Path, Path, list[Path]]],
 ) -> None:
     listings_url = f"{edit_url}/{quote(edit_id, safe='')}/listings"
     listings_response = session.get(listings_url, timeout=60)
@@ -143,7 +146,7 @@ def publish_store_listing(
         for item in listings_response.json().get("listings", [])
     }
 
-    for listing, feature_graphic, screenshots in localized_listings:
+    for listing, app_icon, feature_graphic, screenshots in localized_listings:
         locale = listing["language"]
         listing_url = (
             f"{edit_url}/{quote(edit_id, safe='')}/listings/{quote(locale, safe='')}"
@@ -162,6 +165,7 @@ def publish_store_listing(
 
         image_root = f"{listing_url}/{{image_type}}"
         for image_type, image_paths in (
+            ("icon", [app_icon]),
             ("featureGraphic", [feature_graphic]),
             ("phoneScreenshots", screenshots),
         ):
@@ -352,7 +356,9 @@ def main() -> None:
         )
         print(
             "Updated Google Play store listings for "
-            + ", ".join(listing["language"] for listing, _, _ in localized_listings)
+            + ", ".join(
+                listing["language"] for listing, _, _, _ in localized_listings
+            )
             + "."
         )
         return

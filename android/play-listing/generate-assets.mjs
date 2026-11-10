@@ -67,8 +67,16 @@ async function featureGraphic(logo, image) {
 </svg>`
 }
 
+async function appIcon(logo) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<rect width="512" height="512" fill="#f4f7fb"/>
+<image x="56" y="70" width="400" height="371" href="${logo}"/>
+</svg>`
+}
+
 await mkdir(assetsDir, { recursive: true })
 const logo = await dataUri(path.join(publicDir, "drpay-mark.png"), "image/png")
+await renderPng(await appIcon(logo), path.join(assetsDir, "icon.png"))
 for (const [index, source] of sources.entries()) {
   const image = await dataUri(path.join(publicDir, source.file), "image/jpeg")
   await renderPng(
