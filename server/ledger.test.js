@@ -333,8 +333,11 @@ describe("collection settlement", () => {
 
   it("reverses the post-commission collection credit and referrer commission on refund", async () => {
     const { client, calls } = createClient((sql) => {
+      if (sql.includes("FROM disbursements") && sql.includes("FOR UPDATE"))
+        return { rowCount: 1, rows: [{ status: "PENDING" }] }
       if (sql.includes("UPDATE disbursements")) {
         return {
+          rowCount: 1,
           rows: [
             {
               refund_payment_id: "payment-1",
@@ -401,8 +404,11 @@ describe("collection settlement", () => {
 
   it("does not debit the merchant ledger when a transfer fails", async () => {
     const { client, calls } = createClient((sql) => {
+      if (sql.includes("FROM disbursements") && sql.includes("FOR UPDATE"))
+        return { rowCount: 1, rows: [{ status: "PENDING" }] }
       if (sql.includes("UPDATE disbursements")) {
         return {
+          rowCount: 1,
           rows: [
             {
               refund_payment_id: null,
@@ -442,8 +448,11 @@ describe("collection settlement", () => {
 
   it("debits and records transfer fees only after successful settlement", async () => {
     const { client, calls } = createClient((sql) => {
+      if (sql.includes("FROM disbursements") && sql.includes("FOR UPDATE"))
+        return { rowCount: 1, rows: [{ status: "PENDING" }] }
       if (sql.includes("UPDATE disbursements")) {
         return {
+          rowCount: 1,
           rows: [
             {
               refund_payment_id: null,
@@ -479,6 +488,161 @@ describe("collection settlement", () => {
       "2.50",
     ])
     expect(fee.sql).toContain("'DISBURSEMENT'")
+  })
+
+  it("ignores stale pending updates after a disbursement reaches a terminal state", async () => {
+    const { client, calls } = createClient((sql) => {
+      if (sql.includes("FROM disbursements") && sql.includes("FOR UPDATE"))
+        return { rowCount: 1, rows: [{ status: "SUCCESS" }] }
+      return { rows: [] }
+    })
+    const service = createLedgerService({ pool: { connect: async () => client } })
+
+    await service.updateDisbursementStatus(
+      "transfer-1",
+      null,
+      "PENDING",
+      null,
+    )
+
+    expect(calls.some(({ sql }) => sql.includes("UPDATE disbursements"))).toBe(
+      false,
+    )
+    expect(calls.map(({ sql }) => sql)).toContain("COMMIT")
+  })
+
+  it("restores a settled transfer and its platform fee when the provider reverses it", async () => {
+    const { client, calls } = createClient((sql) => {
+      if (sql.includes("FROM disbursements") && sql.includes("FOR UPDATE"))
+        return { rowCount: 1, rows: [{ status: "SUCCESS" }] }
+      if (sql.includes("UPDATE disbursements")) {
+        return {
+          rowCount: 1,
+          rows: [
+            {
+              refund_payment_id: null,
+              merchant_email: "merchant@example.com",
+              amount: "50",
+              transfer_fee: "2.50",
+              merchant_reference_no: "TRANSFER-1",
+            },
+          ],
+        }
+      }
+      return { rows: [] }
+    })
+    const service = createLedgerService({
+      pool: { connect: async () => client },
+      queueSuccessfulTransaction: vi.fn(),
+      queueTransactionWebhook: vi.fn(),
+    })
+
+    await service.updateDisbursementStatus("transfer-1", null, "REVERSED", null)
+
+    const restoration = calls.find(({ sql }) =>
+      sql.includes("'DISBURSEMENT_REVERSAL'"),
+    )
+    const feeReversal = calls.find(
+      ({ sql }) =>
+        sql.includes("INSERT INTO platform_fee_ledger") &&
+        sql.includes("'DISBURSEMENT_REVERSAL'"),
+    )
+    expect(restoration.parameters[3]).toBe("52.50")
+    expect(feeReversal.parameters[3]).toBe("-2.50")
+    expect(calls.map(({ sql }) => sql)).toContain("COMMIT")
+  })
+
+  it("repairs an older reversed transfer once when its original debit exists", async () => {
+    const { client, calls } = createClient((sql) => {
+      if (sql.includes("FROM disbursements") && sql.includes("FOR UPDATE"))
+        return { rowCount: 1, rows: [{ status: "REVERSED", merchant_email: "merchant@example.com" }] }
+      if (sql.includes("SELECT id FROM merchant_wallet_ledger"))
+        return { rowCount: 1, rows: [{ id: "debit-1" }] }
+      if (sql.includes("UPDATE disbursements")) {
+        return {
+          rowCount: 1,
+          rows: [
+            {
+              refund_payment_id: null,
+              merchant_email: "merchant@example.com",
+              amount: "50",
+              transfer_fee: "2.50",
+              merchant_reference_no: "TRANSFER-1",
+            },
+          ],
+        }
+      }
+      return { rows: [] }
+    })
+    const queueSuccessfulTransaction = vi.fn()
+    const queueTransactionWebhook = vi.fn()
+    const service = createLedgerService({
+      pool: { connect: async () => client },
+      queueSuccessfulTransaction,
+      queueTransactionWebhook,
+    })
+
+    await service.updateDisbursementStatus("transfer-1", null, "REVERSED", null)
+
+    expect(
+      calls.some(({ sql }) => sql.includes("'DISBURSEMENT_REVERSAL'")),
+    ).toBe(true)
+    expect(queueSuccessfulTransaction).not.toHaveBeenCalled()
+    expect(queueTransactionWebhook).not.toHaveBeenCalled()
+  })
+
+  it("restores merchant and referral credits when a successful refund is reversed", async () => {
+    const { client, calls } = createClient((sql) => {
+      if (sql.includes("FROM disbursements") && sql.includes("FOR UPDATE"))
+        return { rowCount: 1, rows: [{ status: "SUCCESS" }] }
+      if (sql.includes("UPDATE disbursements")) {
+        return {
+          rowCount: 1,
+          rows: [
+            {
+              refund_payment_id: "payment-1",
+              merchant_email: "merchant@example.com",
+              amount: "100",
+              transfer_fee: "0",
+              merchant_reference_no: "REFUND-1",
+            },
+          ],
+        }
+      }
+      if (sql.includes("AS net_amount"))
+        return {
+          rows: [
+            {
+              net_amount: "87.50",
+              commission_amount: "10.00",
+              referrer_email: "referrer@example.com",
+            },
+          ],
+        }
+      return { rows: [] }
+    })
+    const service = createLedgerService({
+      pool: { connect: async () => client },
+      queueSuccessfulTransaction: vi.fn(),
+      queueTransactionWebhook: vi.fn(),
+    })
+
+    await service.updateDisbursementStatus("refund-1", null, "REVERSED", null)
+
+    const merchantRestoration = calls.find(
+      ({ sql }) =>
+        sql.includes("INSERT INTO merchant_wallet_ledger") &&
+        sql.includes("'DISBURSEMENT_REVERSAL'"),
+    )
+    const referralRestoration = calls.find(({ sql }) =>
+      sql.includes("'DOWNLINE_COMMISSION_RESTORATION'"),
+    )
+    expect(merchantRestoration.parameters[3]).toBe("87.50")
+    expect(referralRestoration.parameters[1]).toBe("referrer@example.com")
+    expect(referralRestoration.parameters[3]).toBe("10.00")
+    expect(
+      calls.some(({ sql }) => sql.includes("SET reversed_at = NULL")),
+    ).toBe(true)
   })
 
   it("reserves the fixed fee on pending transfers but not refunds", async () => {
@@ -638,7 +802,7 @@ describe("authorization boundaries", () => {
     expect(canManuallyConfirmPayment("MANUALLY_PAID")).toBe(false)
   })
 
-  it("prevents provider updates from overwriting manual confirmations", async () => {
+  it("prevents provider updates from overwriting terminal payment states", async () => {
     const pool = {
       query: vi.fn(async () => ({ rowCount: 0, rows: [] })),
     }
@@ -656,11 +820,40 @@ describe("authorization boundaries", () => {
       updatePaymentLinkStatus("payment-1", "EXECUTED"),
     ).resolves.toBe(false)
 
-    expect(pool.query.mock.calls[0][0]).toContain("status <> 'MANUALLY_PAID'")
+    expect(pool.query.mock.calls[0][0]).toContain(
+      "'MANUALLY_PAID', 'EXECUTED', 'CANCELED', 'REJECTED', 'EXPIRED', 'FAILED'",
+    )
     expect(settleSuccessfulCollection).not.toHaveBeenCalled()
     expect(queueSuccessfulTransaction).not.toHaveBeenCalled()
     expect(queueTransactionWebhook).not.toHaveBeenCalled()
   })
+
+  it.each(["EXECUTED", "CANCELED", "REJECTED", "EXPIRED"])(
+    "does not allow a stale provider response to replace %s payment status",
+    async (currentStatus) => {
+      const pool = {
+        query: vi.fn(async () => ({ rowCount: 0, rows: [] })),
+      }
+      const settleSuccessfulCollection = vi.fn()
+      const queueSuccessfulTransaction = vi.fn()
+      const queueTransactionWebhook = vi.fn()
+      const { updatePaymentLinkStatus } = createPaymentStateService({
+        pool,
+        settleSuccessfulCollection,
+        queueSuccessfulTransaction,
+        queueTransactionWebhook,
+      })
+
+      await expect(
+        updatePaymentLinkStatus("payment-1", "PENDING"),
+      ).resolves.toBe(false)
+
+      expect(pool.query.mock.calls[0][0]).toContain(`'${currentStatus}'`)
+      expect(settleSuccessfulCollection).not.toHaveBeenCalled()
+      expect(queueSuccessfulTransaction).not.toHaveBeenCalled()
+      expect(queueTransactionWebhook).not.toHaveBeenCalled()
+    },
+  )
 
   it("accepts only merchant-role sessions with an email subject", () => {
     expect(

@@ -4,6 +4,7 @@ export const PLATFORM_FEE_LEDGER_SOURCE_TYPES = [
   "COLLECTION",
   "FLOATING_TRANSFER",
   "DISBURSEMENT",
+  "DISBURSEMENT_REVERSAL",
   "ACTIVATION_FEE",
 ]
 export const MAX_DOWNLINE_COMMISSION_PERCENT = 20
@@ -14,6 +15,16 @@ const successfulDisbursementStatuses = new Set([
   "SUCCESS",
   "COMPLETED",
 ])
+const terminalDisbursementStatuses = new Set([
+  ...successfulDisbursementStatuses,
+  "REJECTED",
+  "ERROR",
+  "FAILED",
+  "CANCELED",
+  "CANCELLED",
+  "EXPIRED",
+  "REVERSED",
+])
 
 export function isSuccessfulPaymentStatus(status) {
   return successfulPaymentStatuses.has(String(status || "").toUpperCase())
@@ -21,6 +32,10 @@ export function isSuccessfulPaymentStatus(status) {
 
 export function isSuccessfulDisbursementStatus(status) {
   return successfulDisbursementStatuses.has(String(status || "").toUpperCase())
+}
+
+export function isTerminalDisbursementStatus(status) {
+  return terminalDisbursementStatuses.has(String(status || "").toUpperCase())
 }
 
 export function calculateCollectionFee(amount, feePercent) {
@@ -375,17 +390,57 @@ export function createLedgerService({
     status,
     errorMessage,
   ) {
+    const nextStatus = String(status || "").toUpperCase()
     const client = await pool.connect()
+    let shouldDispatch = false
     try {
       await client.query("BEGIN")
+      const current = await client.query(
+        "SELECT status, merchant_email FROM disbursements WHERE id = $1 FOR UPDATE",
+        [id],
+      )
+      const currentStatus = String(current.rows[0]?.status || "").toUpperCase()
+      if (!current.rowCount) {
+        await client.query("COMMIT")
+        return
+      }
+      const wasSuccessful = isSuccessfulDisbursementStatus(currentStatus)
+      const isRetryingReversal =
+        currentStatus === "REVERSED" && nextStatus === "REVERSED"
+      let hadSettledDebit = wasSuccessful
+      if (isRetryingReversal) {
+        const settledDebit = await client.query(
+          `SELECT id FROM merchant_wallet_ledger
+           WHERE source_type = 'DISBURSEMENT' AND source_id = $1
+             AND merchant_email = $2`,
+          [id, current.rows[0].merchant_email],
+        )
+        hadSettledDebit = settledDebit.rowCount > 0
+      }
+      const isReversingSettlement =
+        nextStatus === "REVERSED" && hadSettledDebit
+      if (
+        (currentStatus === "REVERSED" && !isRetryingReversal) ||
+        (isTerminalDisbursementStatus(currentStatus) &&
+          currentStatus !== nextStatus &&
+          !isReversingSettlement)
+      ) {
+        await client.query("COMMIT")
+        return
+      }
       const updated = await client.query(
         `UPDATE disbursements
          SET swiftpay_id = COALESCE($1, swiftpay_id), status = $2, error_message = $3, updated_at = NOW()
          WHERE id = $4
          RETURNING refund_payment_id, merchant_email, amount, transfer_fee, merchant_reference_no`,
-        [swiftpayId, status, errorMessage, id],
+        [swiftpayId, nextStatus, errorMessage, id],
       )
-      const successful = isSuccessfulDisbursementStatus(status)
+      if (!updated.rowCount) {
+        await client.query("COMMIT")
+        return
+      }
+      shouldDispatch = currentStatus !== nextStatus
+      const successful = isSuccessfulDisbursementStatus(nextStatus)
       const refundPaymentId = updated.rows[0]?.refund_payment_id
       if (successful && updated.rows[0]?.merchant_email) {
         const walletAmount = refundPaymentId
@@ -481,6 +536,94 @@ export function createLedgerService({
           }
         }
       }
+      if (isReversingSettlement && updated.rows[0]?.merchant_email) {
+        if (refundPaymentId) {
+          const refund = await client.query(
+            `SELECT GREATEST(p.amount - COALESCE(f.amount, 0) - COALESCE(commission.amount, 0), 0)::numeric AS net_amount,
+               COALESCE(commission.amount, 0)::numeric AS commission_amount,
+               commission.referrer_email
+             FROM payment_links p
+             LEFT JOIN platform_fee_ledger f
+               ON f.source_type = 'COLLECTION' AND f.source_id = p.id
+             LEFT JOIN downline_commissions commission
+               ON commission.payment_id = p.id
+             WHERE p.id = $1`,
+            [refundPaymentId],
+          )
+          const refundRow = refund.rows[0]
+          if (!refundRow)
+            throw new Error("Refund reversal references a missing collection.")
+          await client.query(
+            `INSERT INTO merchant_wallet_ledger
+               (id, merchant_email, source_type, source_id, amount, reference_no)
+             VALUES ($1, $2, 'DISBURSEMENT_REVERSAL', $3, $4, $5)
+             ON CONFLICT (source_type, source_id) DO NOTHING`,
+            [
+              randomUUID(),
+              updated.rows[0].merchant_email,
+              id,
+              Number(refundRow.net_amount).toFixed(2),
+              updated.rows[0].merchant_reference_no,
+            ],
+          )
+          if (
+            Number(refundRow.commission_amount) > 0 &&
+            refundRow.referrer_email
+          ) {
+            await client.query(
+              `INSERT INTO merchant_wallet_ledger
+                 (id, merchant_email, source_type, source_id, amount, reference_no)
+               VALUES ($1, $2, 'DOWNLINE_COMMISSION_RESTORATION', $3, $4, $5)
+               ON CONFLICT (source_type, source_id) DO NOTHING`,
+              [
+                randomUUID(),
+                refundRow.referrer_email,
+                id,
+                Number(refundRow.commission_amount).toFixed(2),
+                updated.rows[0].merchant_reference_no,
+              ],
+            )
+            await client.query(
+              `UPDATE downline_commissions SET reversed_at = NULL
+               WHERE payment_id = $1`,
+              [refundPaymentId],
+            )
+          }
+        } else {
+          const transferFee = Number(updated.rows[0].transfer_fee || 0)
+          const restoredAmount = calculateTransferDebit(
+            updated.rows[0].amount,
+            transferFee,
+          )
+          await client.query(
+            `INSERT INTO merchant_wallet_ledger
+               (id, merchant_email, source_type, source_id, amount, reference_no)
+             VALUES ($1, $2, 'DISBURSEMENT_REVERSAL', $3, $4, $5)
+             ON CONFLICT (source_type, source_id) DO NOTHING`,
+            [
+              randomUUID(),
+              updated.rows[0].merchant_email,
+              id,
+              restoredAmount.toFixed(2),
+              updated.rows[0].merchant_reference_no,
+            ],
+          )
+          if (transferFee > 0) {
+            await client.query(
+              `INSERT INTO platform_fee_ledger
+                 (id, source_type, source_id, merchant_email, amount)
+               VALUES ($1, 'DISBURSEMENT_REVERSAL', $2, $3, $4)
+               ON CONFLICT (source_type, source_id) DO NOTHING`,
+              [
+                randomUUID(),
+                id,
+                updated.rows[0].merchant_email,
+                (-transferFee).toFixed(2),
+              ],
+            )
+          }
+        }
+      }
       await client.query("COMMIT")
     } catch (error) {
       await client.query("ROLLBACK")
@@ -488,6 +631,7 @@ export function createLedgerService({
     } finally {
       client.release()
     }
+    if (!shouldDispatch) return
     await queueSuccessfulTransaction("DISBURSEMENT", id)
     await queueTransactionWebhook("DISBURSEMENT", id)
   }

@@ -47,6 +47,7 @@ import {
   isOperationsSession,
 } from "./access.js"
 import { createFloatingTransferRequest } from "./floating-transfers.js"
+import { disbursementReplayMatches } from "./disbursement-idempotency.js"
 import {
   calculateTransferDebit,
   createLedgerService,
@@ -124,16 +125,20 @@ app.use(
         scriptSrc: [
           "'self'",
           "https://accounts.google.com",
+          "https://apis.google.com",
           "https://oauth.telegram.org",
         ],
         frameSrc: [
           "'self'",
           "https://accounts.google.com",
+          "https://www.google.com",
           "https://oauth.telegram.org",
         ],
+        imgSrc: ["'self'", "data:", "https:"],
         connectSrc: [
           "'self'",
           "https://accounts.google.com",
+          "https://apis.google.com",
           "https://oauth.telegram.org",
           "https://drpay-merchant-production.up.railway.app",
           "https://api.live.denpay.cc",
@@ -1696,7 +1701,7 @@ async function initializeDatabase() {
       source_type TEXT NOT NULL CHECK (source_type IN (${platformFeeLedgerSourceTypesSql})),
       source_id UUID NOT NULL,
       merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email),
-      amount NUMERIC(18, 2) NOT NULL CHECK (amount >= 0),
+      amount NUMERIC(18, 2) NOT NULL CHECK (amount >= 0 OR source_type = 'DISBURSEMENT_REVERSAL'),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE (source_type, source_id)
     );
@@ -1716,7 +1721,8 @@ async function initializeDatabase() {
       ADD CONSTRAINT merchant_wallet_ledger_source_type_check
       CHECK (source_type IN (
         'COLLECTION', 'DISBURSEMENT', 'ACTIVATION_FEE',
-        'DOWNLINE_COMMISSION', 'DOWNLINE_COMMISSION_REVERSAL'
+        'DISBURSEMENT_REVERSAL', 'DOWNLINE_COMMISSION',
+        'DOWNLINE_COMMISSION_REVERSAL', 'DOWNLINE_COMMISSION_RESTORATION'
       ));
     CREATE TABLE IF NOT EXISTS merchant_wallet_adjustments (
       id UUID PRIMARY KEY,
@@ -2162,6 +2168,9 @@ async function initializeDatabase() {
     ALTER TABLE platform_fee_ledger DROP CONSTRAINT IF EXISTS platform_fee_ledger_source_type_check;
     ALTER TABLE platform_fee_ledger ADD CONSTRAINT platform_fee_ledger_source_type_check
       CHECK (source_type IN (${platformFeeLedgerSourceTypesSql}));
+    ALTER TABLE platform_fee_ledger DROP CONSTRAINT IF EXISTS platform_fee_ledger_amount_check;
+    ALTER TABLE platform_fee_ledger ADD CONSTRAINT platform_fee_ledger_amount_check
+      CHECK (amount >= 0 OR source_type = 'DISBURSEMENT_REVERSAL');
     CREATE INDEX IF NOT EXISTS disbursements_refund_payment_created_idx
       ON disbursements (refund_payment_id, created_at DESC)
       WHERE refund_payment_id IS NOT NULL;
@@ -8709,7 +8718,21 @@ async function reconcilePending() {
         "SELECT id, code, payment_token FROM payment_links WHERE status IN ('CREATING', 'ACTIVE', 'PENDING') AND code IS NOT NULL ORDER BY created_at DESC LIMIT 50",
       ),
       pool.query(
-        "SELECT id, swiftpay_id, merchant_reference_no FROM disbursements WHERE status IN ('REQUESTING', 'PENDING', 'OUTCOME_UNKNOWN') ORDER BY created_at DESC LIMIT 50",
+        `SELECT d.id, d.swiftpay_id, d.merchant_reference_no, d.status
+         FROM disbursements d
+         WHERE d.status IN ('REQUESTING', 'PENDING', 'OUTCOME_UNKNOWN')
+           OR (d.status = 'REVERSED'
+             AND EXISTS (
+               SELECT 1 FROM merchant_wallet_ledger debit
+               WHERE debit.source_type = 'DISBURSEMENT'
+                 AND debit.source_id = d.id
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM merchant_wallet_ledger reversal
+               WHERE reversal.source_type = 'DISBURSEMENT_REVERSAL'
+                 AND reversal.source_id = d.id
+             ))
+         ORDER BY d.created_at DESC LIMIT 50`,
       ),
     ])
     await Promise.allSettled([
@@ -8730,6 +8753,10 @@ async function reconcilePending() {
         await updatePaymentLinkStatus(row.id, status)
       }),
       ...transfers.rows.map(async (row) => {
+        if (row.status === "REVERSED") {
+          await updateDisbursementStatus(row.id, row.swiftpay_id, "REVERSED", null)
+          return
+        }
         let data
         if (row.swiftpay_id) {
           ;({ data } = await swiftPayRequest(
@@ -8886,7 +8913,14 @@ async function getRefundTransferDetails(paymentId, merchantEmail) {
   const previousStatus = previousRefund.rows[0]?.status
   if (
     previousStatus &&
-    !["REJECTED", "ERROR", "FAILED", "CANCELED", "CANCELLED"].includes(
+      ![
+        "REJECTED",
+        "ERROR",
+        "FAILED",
+        "CANCELED",
+        "CANCELLED",
+        "REVERSED",
+      ].includes(
       previousStatus.toUpperCase(),
     )
   ) {
@@ -9030,7 +9064,7 @@ app.get("/v1/wallet/activity", async (req, res) => {
         p.created_at AS "createdAt", 'PAYMENT_LINK' AS "transactionType",
         (p.status = 'EXECUTED' AND p.payment_token IS NOT NULL AND p.amount <= $4
           AND EXISTS (SELECT 1 FROM platform_fee_ledger f WHERE f.source_type = 'COLLECTION' AND f.source_id = p.id)
-          AND (refund.status IS NULL OR refund.status IN ('REJECTED', 'ERROR', 'FAILED', 'CANCELED', 'CANCELLED'))) AS "canRefund",
+          AND (refund.status IS NULL OR refund.status IN ('REJECTED', 'ERROR', 'FAILED', 'CANCELED', 'CANCELLED', 'REVERSED'))) AS "canRefund",
         refund.status AS "refundStatus"
       FROM payment_links p
       LEFT JOIN merchant_wallet_ledger wallet
@@ -9050,12 +9084,15 @@ app.get("/v1/wallet/activity", async (req, res) => {
         NULL::text AS "institutionName", NULL::text AS "institutionLogoUrl",
         d.recipient_name AS "recipientName", d.recipient_account_number AS "recipientAccountNumber",
         d.remarks, (d.refund_payment_id IS NOT NULL) AS "isRefund",
-        d.channel, d.status, -d.amount::float8 AS amount, wallet.amount::float8 AS "walletAmount",
+        d.channel, d.status, -d.amount::float8 AS amount,
+        (COALESCE(wallet.amount, 0) + COALESCE(reversal.amount, 0))::float8 AS "walletAmount",
         d.created_at AS "createdAt", 'DISBURSEMENT' AS "transactionType",
         FALSE AS "canRefund", NULL::text AS "refundStatus"
       FROM disbursements d
       LEFT JOIN merchant_wallet_ledger wallet
         ON wallet.source_type = 'DISBURSEMENT' AND wallet.source_id = d.id AND wallet.merchant_email = d.merchant_email
+      LEFT JOIN merchant_wallet_ledger reversal
+        ON reversal.source_type = 'DISBURSEMENT_REVERSAL' AND reversal.source_id = d.id AND reversal.merchant_email = d.merchant_email
       LEFT JOIN payment_links p ON p.id = d.refund_payment_id
       WHERE d.merchant_email = $3
         AND d.created_at >= (SELECT created_at FROM merchant_accounts WHERE email = $3)
@@ -9081,14 +9118,16 @@ app.get("/v1/wallet/activity", async (req, res) => {
         NULL::text AS "institutionCode",
         CASE wallet.source_type
           WHEN 'DOWNLINE_COMMISSION' THEN 'Commission from referred merchant collection'
-          ELSE 'Reversal of downline collection commission'
+          WHEN 'DOWNLINE_COMMISSION_REVERSAL' THEN 'Reversal of downline collection commission'
+          ELSE 'Restored downline commission after reversed refund'
         END AS description,
         NULL::text AS "institutionName", NULL::text AS "institutionLogoUrl",
         NULL::text AS "recipientName", NULL::text AS "recipientAccountNumber",
         NULL::text AS remarks, FALSE AS "isRefund",
         CASE wallet.source_type
           WHEN 'DOWNLINE_COMMISSION' THEN 'Downline commission'
-          ELSE 'Commission reversal'
+          WHEN 'DOWNLINE_COMMISSION_REVERSAL' THEN 'Commission reversal'
+          ELSE 'Commission restored'
         END AS channel,
         'SUCCESS' AS status, wallet.amount::float8 AS amount,
         wallet.amount::float8 AS "walletAmount", wallet.created_at AS "createdAt",
@@ -9096,7 +9135,10 @@ app.get("/v1/wallet/activity", async (req, res) => {
         FALSE AS "canRefund", NULL::text AS "refundStatus"
       FROM merchant_wallet_ledger wallet
       WHERE wallet.merchant_email = $3
-        AND wallet.source_type IN ('DOWNLINE_COMMISSION', 'DOWNLINE_COMMISSION_REVERSAL')
+        AND wallet.source_type IN (
+          'DOWNLINE_COMMISSION', 'DOWNLINE_COMMISSION_REVERSAL',
+          'DOWNLINE_COMMISSION_RESTORATION'
+        )
         AND wallet.created_at >= (SELECT created_at FROM merchant_accounts WHERE email = $3)
         AND ($5::date IS NULL OR wallet.created_at >= $5::date)
         AND ($6::date IS NULL OR wallet.created_at < $6::date + INTERVAL '1 day')
@@ -9681,10 +9723,20 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
   )
   if (existing.rowCount) {
     const row = existing.rows[0]
-    if ((row.refund_payment_id || "") !== refundPaymentId) {
+    if (
+      !disbursementReplayMatches(row, {
+        amount,
+        channel,
+        institutionCode,
+        accountNumber,
+        fullName,
+        remarks,
+        refundPaymentId,
+      })
+    ) {
       return res.status(409).json({
         error:
-          "This idempotency key was already used for a different transfer.",
+          "This idempotency key was already used with different transfer details.",
       })
     }
     const outcomeUnknown = ["REQUESTING", "OUTCOME_UNKNOWN"].includes(
@@ -9804,6 +9856,7 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
     institutionCode,
     accountNumber,
     fullName.toLowerCase(),
+    remarks,
   ]
   if (refundPaymentId) requestFingerprintFields.push(refundPaymentId)
   const requestFingerprint = createHmac("sha256", jwtSecretValue)
@@ -9876,7 +9929,14 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
       const previousStatus = previousRefund.rows[0]?.status
       if (
         previousStatus &&
-        !["REJECTED", "ERROR", "FAILED", "CANCELED", "CANCELLED"].includes(
+        ![
+          "REJECTED",
+          "ERROR",
+          "FAILED",
+          "CANCELED",
+          "CANCELLED",
+          "REVERSED",
+        ].includes(
           previousStatus.toUpperCase(),
         )
       ) {
