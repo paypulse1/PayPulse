@@ -1195,6 +1195,18 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .registration-review-note small { color: #786642; font-size: 9px; line-height: 1.5; }
 .auth-login-card .auth-trust { margin-top: 21px; font-size: 10px; line-height: 1.6; }
 .auth-login-panel .auth-powered-by { width: min(100%, 430px); margin-top: 17px; padding-block: 11px 9px; }
+.auth-simple-screen { padding: 24px; background: var(--paper); }
+.auth-simple-screen::before, .auth-simple-screen::after { display: none; }
+.auth-simple-screen .auth-login-layout { width: min(100%, 460px); min-height: auto; grid-template-columns: minmax(0, 1fr); overflow: visible; border: 0; border-radius: 0; background: transparent; box-shadow: none; animation: none; }
+.auth-simple-screen .auth-login-panel { padding: 0; background: transparent; }
+.auth-simple-screen .auth-login-panel .auth-brand { margin-bottom: 20px; }
+.auth-simple-screen .auth-login-card { padding: 28px; border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 8px 24px rgb(11 31 58 / 5%); }
+.auth-simple-screen .auth-login-card::before { display: none; }
+.auth-simple-screen .auth-login-card > .eyebrow { margin-bottom: 10px; }
+.auth-simple-screen .auth-login-card h1 { margin-bottom: 6px; font-size: 27px; }
+.auth-simple-screen .auth-login-card > p { margin-bottom: 18px; font-size: 12px; }
+.auth-simple-screen .auth-login-card .auth-trust { margin-top: 16px; padding-top: 13px; font-size: 9px; }
+.auth-simple-screen .auth-login-panel .auth-powered-by { margin-top: 12px; }
 @media (max-width: 760px) {
   .auth-login-screen { padding: 12px; }
   .auth-login-layout { width: min(100%, 520px); min-height: auto; grid-template-columns: minmax(0, 1fr); border-radius: 23px; }
@@ -1205,11 +1217,15 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   .auth-login-card h1 { font-size: 27px; }
   .auth-login-assurance { margin-bottom: 16px; }
   .auth-login-panel .auth-powered-by { margin-top: 14px; }
+  .auth-simple-screen { padding: 16px; }
+  .auth-simple-screen .auth-login-panel { padding: 0; }
 }
 @media (max-width: 380px) {
   .auth-login-screen { padding: 8px; }
   .auth-login-panel { padding-inline: 12px; }
   .auth-login-card { padding: 18px; }
+  .auth-simple-screen { padding: 12px; }
+  .auth-simple-screen .auth-login-card { padding: 20px; }
   .registration-progress { gap: 2px; }
   .registration-progress b { width: 19px; height: 19px; font-size: 8px; }
   .registration-progress small { font-size: 7px; }

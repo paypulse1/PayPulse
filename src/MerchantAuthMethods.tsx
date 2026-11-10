@@ -146,12 +146,13 @@ export default function MerchantAuthMethods() {
           {configError}
         </p>
       )}
-      {nativePlatform ? (
+      {nativePlatform && (
         <p className="profile-info-note">
-          Google, Telegram, and passkey linking are available on the DRPAY
-          merchant web portal. Device biometrics remain available in this app.
+          Google and Telegram linking are available on the DRPAY merchant web
+          portal. Passkeys can be linked here when supported by this device.
         </p>
-      ) : (
+      )}
+      {!nativePlatform && (
         <>
           {config?.google && config.googleClientId && methods ? (
             <div className="merchant-auth-method-row">
@@ -247,71 +248,72 @@ export default function MerchantAuthMethods() {
               </p>
             )
           )}
-          {config?.passkeys && methods && passkeysSupported && (
-            <div className="merchant-passkeys">
-              <div className="merchant-auth-method-row">
-                <span className="merchant-auth-method-icon merchant-auth-method-passkey">
-                  <Fingerprint size={18} />
-                </span>
-                <div>
-                  <strong>Passkeys</strong>
-                  <small>
-                    {methods?.passkeys.length
-                      ? `${methods.passkeys.length} passkey${
-                          methods.passkeys.length === 1 ? "" : "s"
-                        } linked`
-                      : "No passkeys linked"}
-                  </small>
-                </div>
-                <Button
-                  variant="secondary"
-                  disabled={busy}
-                  onClick={() =>
-                    void runAction(
-                      registerMerchantPasskey,
-                      "Passkey linked to this account.",
-                    )
-                  }
-                  icon={
-                    busy ? (
-                      <LoaderCircle className="spin" size={15} />
-                    ) : (
-                      <Fingerprint size={15} />
-                    )
-                  }
-                >
-                  Add passkey
-                </Button>
-              </div>
-              {methods?.passkeys.map((passkey, index) => (
-                <div className="merchant-passkey-item" key={passkey.id}>
-                  <span>
-                    Passkey {index + 1} ·{" "}
-                    {new Date(passkey.createdAt).toLocaleDateString()}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() =>
-                      void runAction(
-                        () => removeMerchantPasskey(passkey.id),
-                        "Passkey removed.",
-                      )
-                    }
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          {config?.passkeys && methods && !passkeysSupported && (
-            <p className="profile-info-note">
-              Passkeys are not supported by this browser. Use an up-to-date
-              browser on a secure connection to add or sign in with a passkey.
-            </p>
-          )}
         </>
+      )}
+      {config?.passkeys && methods && passkeysSupported && (
+        <div className="merchant-passkeys">
+          <div className="merchant-auth-method-row">
+            <span className="merchant-auth-method-icon merchant-auth-method-passkey">
+              <Fingerprint size={18} />
+            </span>
+            <div>
+              <strong>Passkeys</strong>
+              <small>
+                {methods.passkeys.length
+                  ? `${methods.passkeys.length} passkey${
+                      methods.passkeys.length === 1 ? "" : "s"
+                    } linked`
+                  : "No passkeys linked"}
+              </small>
+            </div>
+            <Button
+              variant="secondary"
+              disabled={busy}
+              onClick={() =>
+                void runAction(
+                  registerMerchantPasskey,
+                  "Passkey linked to this account.",
+                )
+              }
+              icon={
+                busy ? (
+                  <LoaderCircle className="spin" size={15} />
+                ) : (
+                  <Fingerprint size={15} />
+                )
+              }
+            >
+              Add passkey
+            </Button>
+          </div>
+          {methods.passkeys.map((passkey, index) => (
+            <div className="merchant-passkey-item" key={passkey.id}>
+              <span>
+                Passkey {index + 1} ·{" "}
+                {new Date(passkey.createdAt).toLocaleDateString()}
+              </span>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() =>
+                  void runAction(
+                    () => removeMerchantPasskey(passkey.id),
+                    "Passkey removed.",
+                  )
+                }
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {config?.passkeys && methods && !passkeysSupported && (
+        <p className="profile-info-note">
+          Passkeys are not supported by this device or browser. Use an
+          up-to-date browser on a secure connection to add or sign in with a
+          passkey.
+        </p>
       )}
     </section>
   )
