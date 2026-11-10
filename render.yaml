@@ -47,8 +47,6 @@ services:
         sync: false
       - key: RESEND_FROM_EMAIL
         sync: false
-      - key: RESEND_OTP_FROM_EMAIL
-        value: "DRPAY <support@merchant.denpay.cc>"
       - key: FCM_PROJECT_ID
         sync: false
       - key: FCM_SERVICE_ACCOUNT_EMAIL
@@ -125,8 +123,6 @@ services:
         sync: false
       - key: RESEND_FROM_EMAIL
         sync: false
-      - key: RESEND_OTP_FROM_EMAIL
-        value: "DRPAY <support@merchant.denpay.cc>"
       - key: FCM_PROJECT_ID
         sync: false
       - key: FCM_SERVICE_ACCOUNT_EMAIL

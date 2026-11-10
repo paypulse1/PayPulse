@@ -41,8 +41,7 @@ Set these secrets directly in Render when prompted:
 - `DRPAY_TELEGRAM_LOGIN_CLIENT_ID`: Telegram Login client ID from BotFather. Register the matching merchant portal origin in BotFather. This is separate from the super-admin notification bot token.
 - `DRPAY_PASSKEY_RP_ID`: the merchant portal's hostname without scheme or path (`merchant.denpay.cc` for production; `merchant.sandbox.denpay.cc` for sandbox). Passkey registration and login are web-only and require HTTPS (localhost is allowed for development).
 - `RESEND_API_KEY`: API key for sending first-device verification codes, customer payment requests, and payment confirmations through Resend.
-- `RESEND_FROM_EMAIL`: sender address on a domain verified with Resend, used for transactional email other than merchant OTPs.
-- `RESEND_OTP_FROM_EMAIL` (optional): sender for merchant one-time verification codes. Defaults to `DRPAY <support@merchant.denpay.cc>`; verify the sender domain with Resend before using it.
+- `RESEND_FROM_EMAIL`: sender address on a domain verified with Resend, used for all outgoing email, including merchant verification codes.
 - `DRPAY_EMAIL_LOGO_URL` (optional): public HTTPS URL for the DRPAY logo shown in all outgoing email templates. Defaults to `https://merchant.denpay.cc/drpay-mark.png`.
 - `FCM_PROJECT_ID`, `FCM_SERVICE_ACCOUNT_EMAIL`, and `FCM_SERVICE_ACCOUNT_PRIVATE_KEY`: Firebase Cloud Messaging server credentials for the organization-restricted Android app. Store the private key as a Railway secret; convert escaped `\n` sequences to newlines at runtime.
 - `FCM_PUBLIC_PROJECT_ID` (defaults to `drpay-merchant`), `FCM_PUBLIC_SERVICE_ACCOUNT_EMAIL` (defaults to `firebase-adminsdk-fbsvc@drpay-merchant.iam.gserviceaccount.com`), and `FCM_PUBLIC_SERVICE_ACCOUNT_PRIVATE_KEY`: Firebase Cloud Messaging credentials for the public Android app. Add the private key directly as a Railway secret; never paste it into chat or commit it.

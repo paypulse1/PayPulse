@@ -234,9 +234,6 @@ const jwtSecret = jwtSecretValue
   : null
 const resendApiKey = process.env.RESEND_API_KEY
 const resendFromEmail = process.env.RESEND_FROM_EMAIL
-const resendOtpFromEmail =
-  process.env.RESEND_OTP_FROM_EMAIL?.trim() ||
-  "DRPAY <support@merchant.denpay.cc>"
 const privateFcmConfig = {
   projectId: process.env.FCM_PROJECT_ID,
   serviceAccountEmail: process.env.FCM_SERVICE_ACCOUNT_EMAIL,
@@ -686,6 +683,11 @@ async function sendMerchantOtp(email, code) {
       </div>
     </div>
   `
+  if (!resendFromEmail) {
+    throw new Error(
+      "A verified sender address is required to send verification codes.",
+    )
+  }
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -693,7 +695,7 @@ async function sendMerchantOtp(email, code) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: resendOtpFromEmail,
+      from: resendFromEmail,
       to: [email],
       subject,
       text,
