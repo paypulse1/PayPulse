@@ -12,6 +12,7 @@ import { Button, IconButton } from "./AppPrimitives"
 import {
   createGoogleLoginChallenge,
   createTelegramLoginChallenge,
+  hasTrustedDevice,
   type AuthProviderConfig,
 } from "./lib/swiftpay"
 import { hasBiometricLogin, supportsBiometricLogin } from "./lib/biometric"
@@ -49,10 +50,10 @@ function SocialSignInOptions({
   onTelegramToken,
   onError,
 }: SocialSignInProps) {
-  const nativePlatform = Capacitor.isNativePlatform()
+  if (Capacitor.isNativePlatform()) return null
   const showOptions = Boolean(
-    (!nativePlatform &&
-      (authProviderConfig?.google || authProviderConfig?.telegram)) ||
+    authProviderConfig?.google ||
+      authProviderConfig?.telegram ||
       (authProviderConfig?.passkeys && passkeysSupported),
   )
 
@@ -71,8 +72,7 @@ function SocialSignInOptions({
             <span>or continue with</span>
           </div>
           <div className="auth-social-options">
-            {!nativePlatform &&
-              authProviderConfig?.google &&
+            {authProviderConfig?.google &&
               authProviderConfig.googleClientId && (
                 <GoogleIdentityButton
                   clientId={authProviderConfig.googleClientId}
@@ -83,8 +83,7 @@ function SocialSignInOptions({
                   onError={onError}
                 />
               )}
-            {!nativePlatform &&
-              authProviderConfig?.telegram &&
+            {authProviderConfig?.telegram &&
               authProviderConfig.telegramClientId && (
                 <TelegramIdentityButton
                   clientId={authProviderConfig.telegramClientId}
@@ -164,7 +163,11 @@ export function EmailSignInStage({
             )
           }
         >
-          {busy ? "Continuing…" : "Continue"}
+          {busy
+            ? "Continuing…"
+            : hasTrustedDevice(email.trim().toLowerCase())
+              ? "Continue with MPIN"
+              : "Verify device by email"}
         </Button>
         {supportsBiometricLogin() &&
           email.trim() &&

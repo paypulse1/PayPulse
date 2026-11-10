@@ -2,11 +2,11 @@ import type { ReactNode } from "react"
 import { Brand, PoweredByFooter } from "./AppPrimitives"
 
 type MerchantAuthLayoutProps = {
-  kicker?: string
-  kickerIcon?: ReactNode
-  headline?: ReactNode
-  description?: string
-  benefits?: Array<{
+  kicker: string
+  kickerIcon: ReactNode
+  headline: ReactNode
+  description: string
+  benefits: Array<{
     icon: ReactNode
     title: string
     description: string
@@ -29,42 +29,34 @@ export default function MerchantAuthLayout({
   children,
 }: MerchantAuthLayoutProps) {
   return (
-    <main
-      className={`auth-screen auth-screen-with-footer auth-login-screen ${
-        registration ? "auth-registration-screen" : "auth-simple-screen"
-      }`}
-    >
+    <main className="auth-screen auth-screen-with-footer auth-login-screen">
       <div
         className={`auth-login-layout${
           registration ? " merchant-registration-layout" : ""
         }`}
       >
-        {registration && (
-          <aside className="auth-login-aside">
-            <span className="auth-login-kicker">
-              {kickerIcon}
-              {kicker}
-            </span>
-            <div className="auth-login-aside-copy">
-              <h2>{headline}</h2>
-              <p>{description}</p>
-            </div>
-            <div className="auth-login-benefits">
-              {benefits?.map((benefit) => (
-                <div key={benefit.title}>
-                  <span className="auth-login-benefit-icon">
-                    {benefit.icon}
-                  </span>
-                  <span>
-                    <strong>{benefit.title}</strong>
-                    <small>{benefit.description}</small>
-                  </span>
-                </div>
-              ))}
-            </div>
-            <span className="auth-login-glow" aria-hidden="true" />
-          </aside>
-        )}
+        <aside className="auth-login-aside">
+          <span className="auth-login-kicker">
+            {kickerIcon}
+            {kicker}
+          </span>
+          <div className="auth-login-aside-copy">
+            <h2>{headline}</h2>
+            <p>{description}</p>
+          </div>
+          <div className="auth-login-benefits">
+            {benefits.map((benefit) => (
+              <div key={benefit.title}>
+                <span className="auth-login-benefit-icon">{benefit.icon}</span>
+                <span>
+                  <strong>{benefit.title}</strong>
+                  <small>{benefit.description}</small>
+                </span>
+              </div>
+            ))}
+          </div>
+          <span className="auth-login-glow" aria-hidden="true" />
+        </aside>
         <div className="auth-login-panel">
           <div className="auth-brand">
             <Brand />

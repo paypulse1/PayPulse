@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react"
 import { Capacitor } from "@capacitor/core"
 import { browserSupportsPasskeys } from "@simplewebauthn/browser"
-import { Lock } from "lucide-react"
+import { Lock, ShieldCheck } from "lucide-react"
 import {
   getLastMerchantEmail,
   hasTrustedDevice,
@@ -220,21 +220,51 @@ export default function MerchantSignIn({
   }
 
   return (
-    <MerchantAuthLayout eyebrow="MERCHANT SIGN IN">
+    <MerchantAuthLayout
+      kicker="SECURE MERCHANT ACCESS"
+      kickerIcon={<ShieldCheck size={15} />}
+      headline={
+        <>
+          Your payments,
+          <br />
+          <span>in good hands.</span>
+        </>
+      }
+      description="A secure workspace to manage your merchant account and stay on top of every transaction."
+      benefits={[
+        {
+          icon: <Lock size={16} />,
+          title: "Protected sign-in",
+          description: "MPIN on your verified devices",
+        },
+        {
+          icon: <ShieldCheck size={16} />,
+          title: "Device verification",
+          description: "Email code for new devices",
+        },
+      ]}
+      eyebrow="MERCHANT PORTAL"
+    >
       <h1>
         {stage === "otp"
           ? "Verify your device"
           : stage === "pin"
-            ? "Enter your MPIN"
-            : "Sign in"}
+            ? "Welcome back"
+            : "Sign in to DRPAY"}
       </h1>
       <p>
         {stage === "otp"
           ? "Enter the six-digit code sent to your merchant email."
           : stage === "pin"
-            ? "Use your MPIN to continue."
-            : "Continue with your merchant email."}
+            ? "Enter your MPIN to continue to your account."
+            : "Use your verified device or confirm your identity by email."}
       </p>
+      <div className="auth-login-assurance">
+        <ShieldCheck size={17} />
+        <span>
+          <strong>Your account, protected</strong>
+        </span>
+      </div>
       {stage === "email" && (
         <EmailSignInStage
           busy={busy}
