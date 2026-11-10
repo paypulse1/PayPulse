@@ -61,4 +61,18 @@ describe("merchant registration document schema compatibility", () => {
 
     expect(calls.join("\n")).toContain("ADD COLUMN IF NOT EXISTS document_type")
   })
+
+  it("adds the missing object_key column for legacy registration records", async () => {
+    const calls = []
+    const pool = {
+      query: async (sql) => {
+        calls.push(sql)
+        return { rows: [] }
+      },
+    }
+
+    await ensureMerchantRegistrationDocumentSchema(pool)
+
+    expect(calls.join("\n")).toContain("ADD COLUMN IF NOT EXISTS object_key")
+  })
 })
