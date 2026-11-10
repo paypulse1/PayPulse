@@ -51,10 +51,10 @@ def publish_track_release(
         },
         timeout=60,
     )
-    if track_response.status_code == 404 and track == "public-closed-test":
+    if track_response.status_code == 404 and track == "alpha":
         raise RuntimeError(
-            "The public-closed-test track does not exist yet. Create the closed "
-            "testing track in Google Play Console, then retry."
+            "The alpha closed-testing track is unavailable for this app. "
+            "Create a closed-testing track in Google Play Console, then retry."
         )
     track_response.raise_for_status()
 
@@ -399,7 +399,7 @@ def main() -> None:
         )
         version_code = max(release["versionCodes"], key=int)
         version_name = release.get("name") or version_code
-        closed_track = "public-closed-test"
+        closed_track = "alpha"
         closed_track_url = (
             f"{edit_url}/{quote(edit_id, safe='')}/tracks/"
             f"{quote(closed_track, safe='')}"
@@ -434,7 +434,7 @@ def main() -> None:
         )
         print(
             f"Published public app version {version_name} ({version_code}) "
-            f"to the {closed_track} closed-testing track."
+            "to the alpha closed-testing track."
         )
         return
     elif updating_listing:
