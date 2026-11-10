@@ -200,17 +200,20 @@ def main() -> None:
     checking_production = len(sys.argv) == 2 and sys.argv[1] == "--check-production"
     promoting_existing_release = len(sys.argv) == 3 and sys.argv[1] == "--promote-existing"
     updating_listing = len(sys.argv) == 2 and sys.argv[1] == "--update-listing"
+    publishing_closed_test = len(sys.argv) == 2 and sys.argv[1] == "--publish-closed-test"
     if (
         not checking_production
         and not promoting_existing_release
         and not updating_listing
+        and not publishing_closed_test
         and len(sys.argv) != 2
     ):
         raise SystemExit(
             "Usage: publish_to_play.py <signed-app-bundle.aab>\n"
             "   or: publish_to_play.py --promote-existing android-prod-vMAJOR.MINOR.PATCH\n"
             "   or: publish_to_play.py --check-production\n"
-            "   or: publish_to_play.py --update-listing"
+            "   or: publish_to_play.py --update-listing\n"
+            "   or: publish_to_play.py --publish-closed-test"
         )
 
     if updating_listing:
@@ -220,7 +223,7 @@ def main() -> None:
     if not service_account_json:
         raise RuntimeError("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON is not configured")
 
-    if checking_production or updating_listing:
+    if checking_production or updating_listing or publishing_closed_test:
         version_name = ""
     elif promoting_existing_release:
         version_prefix = (
@@ -348,6 +351,67 @@ def main() -> None:
         )
         print(
             "Store listings: " + json.dumps(listing_states, sort_keys=True)
+        )
+        return
+    elif publishing_closed_test:
+        if PACKAGE_NAME != "ph.drpays.merchant.public":
+            raise RuntimeError("Closed-test setup is only enabled for the public app")
+
+        internal_track_url = (
+            f"{edit_url}/{quote(edit_id, safe='')}/tracks/internal"
+        )
+        internal_response = session.get(internal_track_url, timeout=60)
+        internal_response.raise_for_status()
+        completed_releases = [
+            release
+            for release in internal_response.json().get("releases", [])
+            if release.get("status") == "completed"
+            and release.get("versionCodes")
+        ]
+        if not completed_releases:
+            raise RuntimeError("The public app has no completed internal release")
+        release = max(
+            completed_releases,
+            key=lambda item: max(int(code) for code in item["versionCodes"]),
+        )
+        version_code = max(release["versionCodes"], key=int)
+        version_name = release.get("name") or version_code
+        closed_track = "public-closed-test"
+        closed_track_url = (
+            f"{edit_url}/{quote(edit_id, safe='')}/tracks/"
+            f"{quote(closed_track, safe='')}"
+        )
+        existing_track_response = session.get(closed_track_url, timeout=60)
+        if existing_track_response.status_code == 200:
+            existing_releases = existing_track_response.json().get("releases", [])
+            if any(
+                version_code in existing.get("versionCodes", [])
+                for existing in existing_releases
+            ):
+                print(
+                    f"Public app version {version_name} is already on "
+                    f"the {closed_track} track."
+                )
+                return
+            if existing_releases:
+                raise RuntimeError(
+                    f"The {closed_track} track already contains a different release; "
+                    "refusing to replace it."
+                )
+        elif existing_track_response.status_code != 404:
+            existing_track_response.raise_for_status()
+
+        publish_track_release(
+            session,
+            edit_url,
+            edit_id,
+            closed_track,
+            version_name,
+            version_code,
+        )
+        print(
+            f"Published public app version {version_name} ({version_code}) "
+            f"to the {closed_track} closed-testing track."
         )
         return
     elif updating_listing:
