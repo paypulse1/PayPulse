@@ -29,17 +29,29 @@ export default function MerchantAuthMethods() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
+  const [configError, setConfigError] = useState("")
   const [notice, setNotice] = useState("")
   const [passkeysSupported, setPasskeysSupported] = useState(false)
 
   const refresh = useCallback(async () => {
-    setError("")
-    const [providerConfig, authMethods] = await Promise.all([
+    setMethods(null)
+    const [providerConfigResult, authMethodsResult] = await Promise.allSettled([
       getAuthProviderConfig(),
       getMerchantAuthMethods(),
     ])
-    setConfig(providerConfig)
-    setMethods(authMethods)
+    if (providerConfigResult.status === "fulfilled") {
+      setConfig(providerConfigResult.value)
+      setConfigError("")
+    } else {
+      setConfig(null)
+      setConfigError(
+        providerConfigResult.reason instanceof Error
+          ? providerConfigResult.reason.message
+          : "Provider settings are temporarily unavailable.",
+      )
+    }
+    if (authMethodsResult.status === "rejected") throw authMethodsResult.reason
+    setMethods(authMethodsResult.value)
   }, [])
 
   useEffect(() => {
@@ -74,13 +86,23 @@ export default function MerchantAuthMethods() {
     setNotice("")
     try {
       await action()
-      await refresh()
       setNotice(message)
     } catch (requestError) {
       setError(
         requestError instanceof Error
           ? requestError.message
           : "Could not update linked sign-in methods.",
+      )
+      setBusy(false)
+      return
+    }
+    try {
+      await refresh()
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? `Change saved, but sign-in methods could not be refreshed: ${requestError.message}`
+          : "Change saved, but sign-in methods could not be refreshed.",
       )
     } finally {
       setBusy(false)
@@ -119,6 +141,11 @@ export default function MerchantAuthMethods() {
           {notice}
         </p>
       )}
+      {configError && (
+        <p className="profile-info-note" role="status">
+          {configError}
+        </p>
+      )}
       {nativePlatform ? (
         <p className="profile-info-note">
           Google, Telegram, and passkey linking are available on the DRPAY
@@ -126,7 +153,7 @@ export default function MerchantAuthMethods() {
         </p>
       ) : (
         <>
-          {config?.google && config.googleClientId ? (
+          {config?.google && config.googleClientId && methods ? (
             <div className="merchant-auth-method-row">
               <span className="merchant-auth-method-icon merchant-auth-method-google">
                 <GoogleProviderIcon size={20} />
@@ -166,11 +193,14 @@ export default function MerchantAuthMethods() {
               )}
             </div>
           ) : (
-            <p className="profile-info-note">
-              Google linking will be available when the provider is configured.
-            </p>
+            config && (
+              <p className="profile-info-note">
+                Google linking will be available when the provider is
+                configured.
+              </p>
+            )
           )}
-          {config?.telegram && config.telegramClientId ? (
+          {config?.telegram && config.telegramClientId && methods ? (
             <div className="merchant-auth-method-row">
               <span className="merchant-auth-method-icon merchant-auth-method-telegram">
                 <TelegramProviderIcon size={20} />
@@ -210,12 +240,14 @@ export default function MerchantAuthMethods() {
               )}
             </div>
           ) : (
-            <p className="profile-info-note">
-              Telegram linking will be available when the provider is
-              configured.
-            </p>
+            config && (
+              <p className="profile-info-note">
+                Telegram linking will be available when the provider is
+                configured.
+              </p>
+            )
           )}
-          {config?.passkeys && passkeysSupported && (
+          {config?.passkeys && methods && passkeysSupported && (
             <div className="merchant-passkeys">
               <div className="merchant-auth-method-row">
                 <span className="merchant-auth-method-icon merchant-auth-method-passkey">
@@ -273,7 +305,7 @@ export default function MerchantAuthMethods() {
               ))}
             </div>
           )}
-          {config?.passkeys && !passkeysSupported && (
+          {config?.passkeys && methods && !passkeysSupported && (
             <p className="profile-info-note">
               Passkeys are not supported by this browser. Use an up-to-date
               browser on a secure connection to add or sign in with a passkey.

@@ -191,7 +191,7 @@ export function GoogleIdentityButton({
         size: "large",
         text: "continue_with",
         shape: "rectangular",
-        width: 300,
+        width: Math.min(300, buttonRef.current.clientWidth || 300),
       })
     }
 

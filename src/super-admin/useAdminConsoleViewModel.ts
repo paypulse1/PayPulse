@@ -81,6 +81,21 @@ export function canActivateMerchant(account: AdminMerchantAccount) {
   )
 }
 
+export function hasRequiredKybDocuments(
+  application: Pick<AdminKybApplication, "documents">,
+) {
+  const requiredTypes = [
+    "business_registration",
+    "identity_front",
+    "identity_back",
+  ]
+  return requiredTypes.every((requiredType) =>
+    application.documents.some(
+      (document) => document.documentType === requiredType,
+    ),
+  )
+}
+
 export function useAdminConsoleViewModel({
   activePage,
   merchants,

@@ -29,6 +29,87 @@ type StageProps = {
   onBiometric: () => void
 }
 
+type SocialSignInProps = {
+  busy: boolean
+  authProviderConfig: AuthProviderConfig | null
+  authProviderConfigError: string
+  passkeysSupported: boolean
+  onPasskey: () => void
+  onGoogleCredential: (challengeId: string, credential: string) => Promise<void>
+  onTelegramToken: (challengeId: string, idToken: string) => Promise<void>
+  onError: (message: string) => void
+}
+
+function SocialSignInOptions({
+  busy,
+  authProviderConfig,
+  authProviderConfigError,
+  passkeysSupported,
+  onPasskey,
+  onGoogleCredential,
+  onTelegramToken,
+  onError,
+}: SocialSignInProps) {
+  if (Capacitor.isNativePlatform()) return null
+  const showOptions = Boolean(
+    authProviderConfig?.google ||
+      authProviderConfig?.telegram ||
+      (authProviderConfig?.passkeys && passkeysSupported),
+  )
+
+  if (!showOptions && !authProviderConfigError) return null
+
+  return (
+    <div className="auth-social-signin">
+      {authProviderConfigError && (
+        <p className="profile-info-note" role="status">
+          {authProviderConfigError}
+        </p>
+      )}
+      {showOptions && (
+        <>
+          <div className="auth-social-divider">
+            <span>or continue with</span>
+          </div>
+          <div className="auth-social-options">
+            {authProviderConfig?.google &&
+              authProviderConfig.googleClientId && (
+                <GoogleIdentityButton
+                  clientId={authProviderConfig.googleClientId}
+                  disabled={busy}
+                  createChallenge={createGoogleLoginChallenge}
+                  onCredential={onGoogleCredential}
+                  onError={onError}
+                />
+              )}
+            {authProviderConfig?.telegram &&
+              authProviderConfig.telegramClientId && (
+                <TelegramIdentityButton
+                  clientId={authProviderConfig.telegramClientId}
+                  disabled={busy}
+                  createChallenge={createTelegramLoginChallenge}
+                  onToken={onTelegramToken}
+                  onError={onError}
+                />
+              )}
+            {authProviderConfig?.passkeys && passkeysSupported && (
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={busy}
+                onClick={onPasskey}
+                icon={<Fingerprint size={17} />}
+              >
+                Sign in with passkey
+              </Button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 export function EmailSignInStage({
   busy,
   email,
@@ -54,89 +135,63 @@ export function EmailSignInStage({
   onError: (message: string) => void
 }) {
   return (
-    <form onSubmit={onContinue}>
-      <label>
-        <span>Merchant email</span>
-        <input
-          type="email"
-          value={email}
-          onChange={(event) => onEmailChange(event.target.value)}
-          placeholder="merchant@company.ph"
-          required
-          autoComplete="username"
-          autoFocus
-        />
-      </label>
+    <div className="auth-email-stage">
       {error && <InlineError message={error} />}
-      {authProviderConfigError && (
-        <p className="profile-info-note" role="status">
-          {authProviderConfigError}
-        </p>
-      )}
-      {!Capacitor.isNativePlatform() &&
-        authProviderConfig?.google &&
-        authProviderConfig.googleClientId && (
-          <GoogleIdentityButton
-            clientId={authProviderConfig.googleClientId}
-            disabled={busy}
-            createChallenge={createGoogleLoginChallenge}
-            onCredential={onGoogleCredential}
-            onError={onError}
+      <form className="auth-email-form" onSubmit={onContinue}>
+        <label>
+          <span>Merchant email</span>
+          <input
+            type="email"
+            value={email}
+            onChange={(event) => onEmailChange(event.target.value)}
+            placeholder="merchant@company.ph"
+            required
+            autoComplete="username"
+            autoFocus
           />
-        )}
-      {!Capacitor.isNativePlatform() &&
-        authProviderConfig?.telegram &&
-        authProviderConfig.telegramClientId && (
-          <TelegramIdentityButton
-            clientId={authProviderConfig.telegramClientId}
-            disabled={busy}
-            createChallenge={createTelegramLoginChallenge}
-            onToken={onTelegramToken}
-            onError={onError}
-          />
-        )}
-      {!Capacitor.isNativePlatform() &&
-        authProviderConfig?.passkeys &&
-        passkeysSupported && (
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={busy}
-            onClick={onPasskey}
-            icon={<Fingerprint size={17} />}
-          >
-            Sign in with passkey
-          </Button>
-        )}
-      <Button
-        type="submit"
-        disabled={busy || !email}
-        icon={
-          busy ? (
-            <LoaderCircle className="spin" size={17} />
-          ) : (
-            <Lock size={17} />
-          )
-        }
-      >
-        {busy
-          ? "Continuing…"
-          : hasTrustedDevice(email.trim().toLowerCase())
-            ? "Continue with MPIN"
-            : "Verify device by email"}
-      </Button>
-      {supportsBiometricLogin() && email.trim() && hasBiometricLogin(email) && (
+        </label>
         <Button
-          type="button"
-          variant="secondary"
-          disabled={busy}
-          onClick={onBiometric}
-          icon={<Fingerprint size={17} />}
+          type="submit"
+          disabled={busy || !email}
+          icon={
+            busy ? (
+              <LoaderCircle className="spin" size={17} />
+            ) : (
+              <Lock size={17} />
+            )
+          }
         >
-          Sign in with biometrics
+          {busy
+            ? "Continuing…"
+            : hasTrustedDevice(email.trim().toLowerCase())
+              ? "Continue with MPIN"
+              : "Verify device by email"}
         </Button>
-      )}
-    </form>
+        {supportsBiometricLogin() &&
+          email.trim() &&
+          hasBiometricLogin(email) && (
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={busy}
+              onClick={onBiometric}
+              icon={<Fingerprint size={17} />}
+            >
+              Sign in with biometrics
+            </Button>
+          )}
+      </form>
+      <SocialSignInOptions
+        busy={busy}
+        authProviderConfig={authProviderConfig}
+        authProviderConfigError={authProviderConfigError}
+        passkeysSupported={passkeysSupported}
+        onPasskey={onPasskey}
+        onGoogleCredential={onGoogleCredential}
+        onTelegramToken={onTelegramToken}
+        onError={onError}
+      />
+    </div>
   )
 }
 
@@ -146,8 +201,13 @@ export function PinSignInStage({
   error,
   onEmailChange,
   onBiometric,
-  showPasskey,
+  authProviderConfig,
+  authProviderConfigError,
+  passkeysSupported,
   onPasskey,
+  onGoogleCredential,
+  onTelegramToken,
+  onError,
   pin,
   onPinChange,
   onSubmit,
@@ -155,95 +215,101 @@ export function PinSignInStage({
   onUseDifferentEmail,
 }: StageProps & {
   pin: string
-  showPasskey: boolean
+  authProviderConfig: AuthProviderConfig | null
+  authProviderConfigError: string
+  passkeysSupported: boolean
   onPasskey: () => void
+  onGoogleCredential: (challengeId: string, credential: string) => Promise<void>
+  onTelegramToken: (challengeId: string, idToken: string) => Promise<void>
+  onError: (message: string) => void
   onPinChange: (pin: string) => void
   onSubmit: (event: FormEvent) => void
   onForgotPin: () => void
   onUseDifferentEmail: () => void
 }) {
   return (
-    <form onSubmit={onSubmit}>
-      <label>
-        <span>Merchant email</span>
-        <input
-          type="email"
-          value={email}
-          onChange={(event) => onEmailChange(event.target.value)}
-          required
-          autoComplete="username"
-        />
-      </label>
-      <label>
-        <span>Four-digit MPIN</span>
-        <input
-          type="password"
-          inputMode="numeric"
-          pattern="[0-9]{4}"
-          maxLength={4}
-          autoComplete="one-time-code"
-          value={pin}
-          onChange={(event) =>
-            onPinChange(event.target.value.replace(/\D/g, "").slice(0, 4))
+    <div className="auth-pin-stage">
+      <form onSubmit={onSubmit}>
+        <label>
+          <span>Merchant email</span>
+          <input
+            type="email"
+            value={email}
+            onChange={(event) => onEmailChange(event.target.value)}
+            required
+            autoComplete="username"
+          />
+        </label>
+        <label>
+          <span>Four-digit MPIN</span>
+          <input
+            type="password"
+            inputMode="numeric"
+            pattern="[0-9]{4}"
+            maxLength={4}
+            autoComplete="one-time-code"
+            value={pin}
+            onChange={(event) =>
+              onPinChange(event.target.value.replace(/\D/g, "").slice(0, 4))
+            }
+            required
+            autoFocus
+            aria-describedby={error ? "signin-error" : undefined}
+          />
+        </label>
+        {error && <InlineError id="signin-error" message={error} />}
+        <Button
+          type="submit"
+          disabled={busy || pin.length !== 4}
+          icon={
+            busy ? (
+              <LoaderCircle className="spin" size={17} />
+            ) : (
+              <KeyRound size={17} />
+            )
           }
-          required
-          autoFocus
-          aria-describedby={error ? "signin-error" : undefined}
-        />
-      </label>
-      {error && <InlineError id="signin-error" message={error} />}
-      <Button
-        type="submit"
-        disabled={busy || pin.length !== 4}
-        icon={
-          busy ? (
-            <LoaderCircle className="spin" size={17} />
-          ) : (
-            <KeyRound size={17} />
-          )
-        }
-      >
-        {busy ? "Signing in…" : "Sign in with MPIN"}
-      </Button>
-      {showPasskey && (
+        >
+          {busy ? "Signing in…" : "Sign in with MPIN"}
+        </Button>
+        {supportsBiometricLogin() && hasBiometricLogin(email) && (
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={busy}
+            onClick={onBiometric}
+            icon={<Fingerprint size={17} />}
+          >
+            Use biometrics instead
+          </Button>
+        )}
         <Button
           type="button"
           variant="secondary"
           disabled={busy}
-          onClick={onPasskey}
-          icon={<Fingerprint size={17} />}
+          onClick={onForgotPin}
         >
-          Sign in with passkey
+          Forgot MPIN? Verify with email code
         </Button>
-      )}
-      {supportsBiometricLogin() && hasBiometricLogin(email) && (
-        <Button
+        <button
           type="button"
-          variant="secondary"
+          className="authorization-back"
           disabled={busy}
-          onClick={onBiometric}
-          icon={<Fingerprint size={17} />}
+          onClick={onUseDifferentEmail}
         >
-          Use biometrics instead
-        </Button>
-      )}
-      <Button
-        type="button"
-        variant="secondary"
-        disabled={busy}
-        onClick={onForgotPin}
-      >
-        Forgot MPIN? Verify with email code
-      </Button>
-      <button
-        type="button"
-        className="authorization-back"
-        disabled={busy}
-        onClick={onUseDifferentEmail}
-      >
-        Use a different email
-      </button>
-    </form>
+          Use a different email
+        </button>
+      </form>
+      <SocialSignInOptions
+        busy={busy}
+        authProviderConfig={authProviderConfig}
+        authProviderConfigError={authProviderConfigError}
+        passkeysSupported={passkeysSupported}
+        onPasskey={onPasskey}
+        onGoogleCredential={onGoogleCredential}
+        onTelegramToken={onTelegramToken}
+        onError={onError}
+      />
+    </div>
   )
 }
 

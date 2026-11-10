@@ -67,6 +67,9 @@ import MerchantAccountProfileForm, {
 } from "./super-admin/MerchantAccountProfileForm"
 import OverviewAdminSection from "./super-admin/OverviewAdminSection"
 import PaymentAdminSection from "./super-admin/PaymentAdminSection"
+import KybApplicationCard, {
+  type KybReviewStatus,
+} from "./super-admin/KybApplicationCard"
 import MerchantAccountRow from "./super-admin/MerchantAccountRow"
 import {
   canActivateMerchant,
@@ -1209,9 +1212,13 @@ export function SuperAdminConsole({
 
   async function reviewKyb(
     application: AdminKybApplication,
-    status: "IN_REVIEW" | "APPROVED" | "REJECTED",
+    status: KybReviewStatus,
   ) {
-    const reviewNotes = kybReviewNotes[application.merchantEmail]?.trim() || ""
+    const reviewNotes = (
+      kybReviewNotes[application.merchantEmail] ??
+      application.reviewNotes ??
+      ""
+    ).trim()
     if (status === "REJECTED" && !reviewNotes) {
       setError("Add review notes before rejecting a KYB application.")
       return
@@ -2283,137 +2290,30 @@ export function SuperAdminConsole({
                       </p>
                     ) : (
                       filteredKybApplications.map((application) => (
-                        <article
-                          className="admin-kyb-application"
+                        <KybApplicationCard
                           key={application.merchantEmail}
-                        >
-                          <div className="admin-kyb-heading">
-                            <div>
-                              <strong>{application.legalBusinessName}</strong>
-                              <small>
-                                {application.merchantEmail} ·{" "}
-                                {application.status.replace("_", " ")}
-                              </small>
-                            </div>
-                          </div>
-                          <dl>
-                            <div>
-                              <dt>Registration</dt>
-                              <dd>
-                                {application.registrationNumber} ·{" "}
-                                {application.businessType}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt>Business address</dt>
-                              <dd>
-                                {application.businessAddress},{" "}
-                                {application.country}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt>Beneficial owner</dt>
-                              <dd>
-                                {application.ownerFullName} · Born{" "}
-                                {application.ownerDateOfBirth} ·{" "}
-                                {application.ownerNationality}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt>Owner contact</dt>
-                              <dd>
-                                {application.ownerEmail} ·{" "}
-                                {application.ownerPhone}
-                              </dd>
-                            </div>
-                          </dl>
-                          <div className="admin-kyb-documents">
-                            {application.documents.map((document) => (
-                              <button
-                                key={document.id}
-                                type="button"
-                                className="admin-text-action"
-                                onClick={() =>
-                                  void openKybDocument(
-                                    application,
-                                    document.documentType,
-                                  )
-                                }
-                              >
-                                {document.documentType.replace(/_/g, " ")} ·{" "}
-                                {document.fileName}
-                              </button>
-                            ))}
-                            {application.documents.length === 0 && (
-                              <span>No documents submitted</span>
-                            )}
-                          </div>
-                          <label className="admin-kyb-notes">
-                            <span>Review notes (required when rejecting)</span>
-                            <textarea
-                              value={
-                                kybReviewNotes[application.merchantEmail] ??
-                                application.reviewNotes ??
-                                ""
-                              }
-                              onChange={(event) =>
-                                setKybReviewNotes((current) => ({
-                                  ...current,
-                                  [application.merchantEmail]:
-                                    event.target.value,
-                                }))
-                              }
-                              maxLength={1000}
-                              rows={2}
-                            />
-                          </label>
-                          <div className="admin-kyb-actions">
-                            <Button
-                              variant="secondary"
-                              disabled={
-                                reviewingRequestId === application.merchantEmail
-                              }
-                              onClick={() =>
-                                void reviewKyb(application, "IN_REVIEW")
-                              }
-                            >
-                              Mark in review
-                            </Button>
-                            <Button
-                              disabled={
-                                reviewingRequestId ===
-                                  application.merchantEmail ||
-                                application.documents.length < 3
-                              }
-                              onClick={() =>
-                                void reviewKyb(application, "APPROVED")
-                              }
-                            >
-                              Approve
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              disabled={
-                                reviewingRequestId ===
-                                  application.merchantEmail ||
-                                !kybReviewNotes[
-                                  application.merchantEmail
-                                ]?.trim()
-                              }
-                              onClick={() =>
-                                void reviewKyb(application, "REJECTED")
-                              }
-                            >
-                              Reject
-                            </Button>
-                          </div>
-                          {application.documents.length < 3 && (
-                            <small className="admin-kyb-missing">
-                              Approval requires the registration certificate and
-                              both identity images.
-                            </small>
-                          )}
-                        </article>
+                          application={application}
+                          reviewNotes={
+                            kybReviewNotes[application.merchantEmail] ??
+                            application.reviewNotes ??
+                            ""
+                          }
+                          reviewing={
+                            reviewingRequestId === application.merchantEmail
+                          }
+                          onReviewNotesChange={(notes) =>
+                            setKybReviewNotes((current) => ({
+                              ...current,
+                              [application.merchantEmail]: notes,
+                            }))
+                          }
+                          onOpenDocument={(documentType) =>
+                            void openKybDocument(application, documentType)
+                          }
+                          onReview={(status) =>
+                            void reviewKyb(application, status)
+                          }
+                        />
                       ))
                     )}
                   </div>
