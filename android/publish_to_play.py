@@ -412,19 +412,23 @@ def main() -> None:
         existing_track_response = session.get(closed_track_url, timeout=60)
         if existing_track_response.status_code == 200:
             existing_releases = existing_track_response.json().get("releases", [])
-            if any(
-                version_code in existing.get("versionCodes", [])
+            existing_version_codes = [
+                int(existing_code)
                 for existing in existing_releases
-            ):
+                for existing_code in existing.get("versionCodes", [])
+            ]
+            if int(version_code) in existing_version_codes:
                 print(
                     f"Public app version {version_name} is already on "
                     f"the {closed_track} track."
                 )
                 return
-            if existing_releases:
+            if existing_version_codes and int(version_code) <= max(
+                existing_version_codes
+            ):
                 raise RuntimeError(
-                    f"The {closed_track} track already contains a different release; "
-                    "refusing to replace it."
+                    f"Public app version {version_name} is not newer than the "
+                    f"existing {closed_track} release; refusing to replace it."
                 )
         elif existing_track_response.status_code != 404:
             existing_track_response.raise_for_status()
@@ -436,11 +440,11 @@ def main() -> None:
             closed_track,
             version_name,
             version_code,
-            status="draft",
+            status="completed",
         )
         print(
-            f"Created draft public app version {version_name} ({version_code}) "
-            "on the alpha closed-testing track."
+            f"Published public app version {version_name} ({version_code}) "
+            "to the alpha closed-testing track."
         )
         return
     elif updating_listing:
