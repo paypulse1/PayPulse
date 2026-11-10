@@ -268,37 +268,82 @@ def main() -> None:
         availability_url = (
             f"{edit_url}/{quote(edit_id, safe='')}/countryAvailability/production"
         )
-        availability_response = session.get(availability_url, timeout=60)
-        availability_response.raise_for_status()
-        availability = availability_response.json()
-        production_availability = {
-            "syncWithProduction": availability.get("syncWithProduction"),
-            "restOfWorld": availability.get("restOfWorld"),
-            "countries": sorted(
-                country.get("countryCode", "")
-                for country in availability.get("countries", [])
-                if country.get("countryCode")
-            ),
-        }
-
         listings_url = f"{edit_url}/{quote(edit_id, safe='')}/listings"
         listings_response = session.get(listings_url, timeout=60)
         listings_response.raise_for_status()
         listings = listings_response.json().get("listings", [])
+        listing_states = []
+        for listing in listings:
+            locale = listing["language"]
+            locale_url = f"{listings_url}/{quote(locale, safe='')}"
+            image_counts = {}
+            for image_type in ("icon", "featureGraphic", "phoneScreenshots"):
+                image_url = f"{locale_url}/{image_type}"
+                image_response = session.get(image_url, timeout=60)
+                image_response.raise_for_status()
+                image_counts[image_type] = len(
+                    image_response.json().get("images", [])
+                )
+            listing_states.append(
+                {
+                    "language": locale,
+                    "title": listing.get("title"),
+                    "shortDescriptionCharacters": len(
+                        listing.get("shortDescription", "")
+                    ),
+                    "fullDescriptionCharacters": len(
+                        listing.get("fullDescription", "")
+                    ),
+                    "imageCounts": image_counts,
+                }
+            )
+
+        details_url = f"{edit_url}/{quote(edit_id, safe='')}/details"
+        details_response = session.get(details_url, timeout=60)
+        details_response.raise_for_status()
+        details = details_response.json()
+
+        availability_response = session.get(availability_url, timeout=60)
+        availability_response.raise_for_status()
+        if availability_response.text.strip():
+            availability = availability_response.json()
+            production_availability = {
+                "syncWithProduction": availability.get("syncWithProduction"),
+                "restOfWorld": availability.get("restOfWorld"),
+                "countries": sorted(
+                    country.get("countryCode", "")
+                    for country in availability.get("countries", [])
+                    if country.get("countryCode")
+                ),
+            }
+        else:
+            production_availability = {
+                "status": "unavailable",
+                "httpStatus": availability_response.status_code,
+                "reason": "Google Play returned an empty response",
+            }
         print(f"Track releases: {json.dumps(track_states, sort_keys=True)}")
         print(
             "Production availability: "
             + json.dumps(production_availability, sort_keys=True)
         )
         print(
-            "Store listings: "
+            "App details: "
             + json.dumps(
-                [
-                    {"language": listing.get("language"), "title": listing.get("title")}
-                    for listing in listings
-                ],
+                {
+                    key: details.get(key)
+                    for key in (
+                        "defaultLanguage",
+                        "contactEmail",
+                        "contactPhone",
+                        "contactWebsite",
+                    )
+                },
                 sort_keys=True,
             )
+        )
+        print(
+            "Store listings: " + json.dumps(listing_states, sort_keys=True)
         )
         return
     elif updating_listing:
