@@ -21,6 +21,11 @@ export async function ensureMerchantRegistrationDocumentSchema(pool) {
 
   await pool.query(`
     ALTER TABLE merchant_registration_documents
+      ADD COLUMN IF NOT EXISTS document_type TEXT;
+  `)
+
+  await pool.query(`
+    ALTER TABLE merchant_registration_documents
       ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
   `)
 
