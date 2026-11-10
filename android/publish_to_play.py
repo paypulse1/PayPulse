@@ -35,6 +35,7 @@ def publish_track_release(
     track: str,
     version_name: str,
     version_code: str,
+    status: str = "completed",
 ) -> None:
     track_url = f"{edit_url}/{quote(edit_id, safe='')}/tracks/{track}"
     track_response = session.put(
@@ -45,7 +46,7 @@ def publish_track_release(
                 {
                     "name": version_name,
                     "versionCodes": [version_code],
-                    "status": "completed",
+                    "status": status,
                 }
             ],
         },
@@ -431,10 +432,11 @@ def main() -> None:
             closed_track,
             version_name,
             version_code,
+            status="draft",
         )
         print(
-            f"Published public app version {version_name} ({version_code}) "
-            "to the alpha closed-testing track."
+            f"Created draft public app version {version_name} ({version_code}) "
+            "on the alpha closed-testing track."
         )
         return
     elif updating_listing:
