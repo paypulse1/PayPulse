@@ -58,6 +58,10 @@ test("merchant root and the explicit marketing route show the marketing homepage
     shouldShowMarketingHome("/", "merchant.denpay.cc", "?signin=1"),
     false,
   )
+  assert.equal(
+    shouldShowMarketingHome("/", "merchant.denpay.cc", "?ref=A1B2C3D4E5F6G7H8"),
+    false,
+  )
   assert.equal(shouldShowMarketingHome("/", "merchant.sandbox.denpay.cc"), false)
   assert.equal(shouldShowMarketingHome("/app", "merchant.denpay.cc"), false)
   assert.equal(shouldShowMarketingHome("/login", "merchant.denpay.cc"), false)

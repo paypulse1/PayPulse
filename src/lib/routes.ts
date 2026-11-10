@@ -1,6 +1,7 @@
 export const APP_ROUTES = {
   home: "https://denpay.cc",
   marketing: "/marketing",
+  merchantLogin: "/login",
   app: "/app",
   admin: "/bossd",
   checkout: "/checkout",
@@ -59,5 +60,9 @@ export function shouldShowMarketingHome(
     return false
   }
   const query = new URLSearchParams(search)
-  return !query.has("checkout") && query.get("signin") !== "1"
+  return (
+    !query.has("checkout") &&
+    query.get("signin") !== "1" &&
+    !query.has("ref")
+  )
 }

@@ -14,7 +14,93 @@ import {
   registrationStageCopy,
   requiredDocumentTypes,
   useMerchantRegistration,
+  type RegistrationStage,
 } from "./useMerchantRegistration"
+
+const registrationStageTitles: Record<Exclude<RegistrationStage, "submitted">, string> =
+  {
+    contact: "Create your account",
+    verify: "Verify your email",
+    owner: "Owner information",
+    business: "Business information",
+    payout: "Payout account",
+    security: "Create your MPIN",
+    documents: "Upload documents",
+  }
+
+type RegistrationProgressStep = {
+  id: string
+  label: string
+}
+
+function RegistrationProgress({
+  stages,
+  progressIndex,
+}: {
+  stages: RegistrationProgressStep[]
+  progressIndex: number
+}) {
+  return (
+    <div
+      className="registration-progress"
+      aria-label={`Step ${progressIndex + 1} of ${stages.length}`}
+    >
+      {stages.map((item, index) => (
+        <span
+          key={item.id}
+          className={
+            index === progressIndex
+              ? "current"
+              : index < progressIndex
+                ? "complete"
+                : ""
+          }
+          aria-current={index === progressIndex ? "step" : undefined}
+          title={item.label}
+        >
+          <b>{index < progressIndex ? "✓" : index + 1}</b>
+          <small>{item.label}</small>
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function RegistrationComplete({
+  email,
+  onBack,
+}: {
+  email: string
+  onBack: () => void
+}) {
+  return (
+    <div className="registration-complete">
+      <span className="registration-complete-icon">
+        <CheckCircle2 size={26} />
+      </span>
+      <h1>Application received</h1>
+      <p>
+        Your registration is with our review team. We’ll contact you at{" "}
+        <strong>{email}</strong> when the review is complete.
+      </p>
+      <div className="registration-review-note">
+        <ShieldCheck size={17} />
+        <span>
+          <strong>Pending review</strong>
+          <small>Your DRPAY account will be available after approval.</small>
+        </span>
+      </div>
+      <Button
+        type="button"
+        variant="secondary"
+        onClick={onBack}
+        icon={<ArrowLeft size={17} />}
+      >
+        Back to sign in
+      </Button>
+    </div>
+  )
+}
 
 export default function MerchantRegistration({
   onBack,
@@ -80,73 +166,12 @@ export default function MerchantRegistration({
       cardClassName="merchant-registration-card"
     >
       {stage === "submitted" ? (
-        <div className="registration-complete">
-          <span className="registration-complete-icon">
-            <CheckCircle2 size={26} />
-          </span>
-          <h1>Application received</h1>
-          <p>
-            Your registration is with our review team. We’ll contact you at{" "}
-            <strong>{contact.email}</strong> when the review is complete.
-          </p>
-          <div className="registration-review-note">
-            <ShieldCheck size={17} />
-            <span>
-              <strong>Pending review</strong>
-              <small>
-                Your DRPAY account will be available after approval.
-              </small>
-            </span>
-          </div>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={onBack}
-            icon={<ArrowLeft size={17} />}
-          >
-            Back to sign in
-          </Button>
-        </div>
+        <RegistrationComplete email={contact.email} onBack={onBack} />
       ) : (
         <>
-          <h1>
-            {stage === "contact"
-              ? "Create your account"
-              : stage === "verify"
-                ? "Verify your email"
-                : stage === "owner"
-                  ? "Owner information"
-                  : stage === "business"
-                    ? "Business information"
-                    : stage === "payout"
-                      ? "Payout account"
-                      : stage === "security"
-                        ? "Create your MPIN"
-                        : "Upload documents"}
-          </h1>
+          <h1>{registrationStageTitles[stage]}</h1>
           <p>{registrationStageCopy[stage]}</p>
-          <div
-            className="registration-progress"
-            aria-label={`Step ${progressIndex + 1} of ${stages.length}`}
-          >
-            {stages.map((item, index) => (
-              <span
-                key={item.id}
-                className={
-                  index === progressIndex
-                    ? "current"
-                    : index < progressIndex
-                      ? "complete"
-                      : ""
-                }
-                aria-current={index === progressIndex ? "step" : undefined}
-                title={item.label}
-              >
-                <b>{index < progressIndex ? "✓" : index + 1}</b>
-                <small>{item.label}</small>
-              </span>
-            ))}
-          </div>
+          <RegistrationProgress stages={stages} progressIndex={progressIndex} />
 
           {stage === "contact" && (
             <form onSubmit={(event) => void requestCode(event)}>

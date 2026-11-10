@@ -1,20 +1,26 @@
 import {
   ArrowLeftRight,
-  CirclePlus,
-  House,
+  HandCoins,
+  LayoutDashboard,
   UserRound,
   WalletCards,
+  type LucideIcon,
 } from "lucide-react"
 
 export type AppTab = "Home" | "Wallet" | "Transfer" | "Profile"
 
-const tabs = [
-  { label: "Home", icon: House },
-  { label: "Wallet", icon: WalletCards },
-  { label: "Collect", icon: CirclePlus },
-  { label: "Transfer", icon: ArrowLeftRight },
-  { label: "Profile", icon: UserRound },
-] as const
+const tabs: {
+  label: string
+  tab: AppTab | null
+  icon: LucideIcon
+  featured?: boolean
+}[] = [
+  { label: "Home", tab: "Home", icon: LayoutDashboard },
+  { label: "Wallet", tab: "Wallet", icon: WalletCards },
+  { label: "Collect", tab: null, icon: HandCoins, featured: true },
+  { label: "Transfer", tab: "Transfer", icon: ArrowLeftRight },
+  { label: "Profile", tab: "Profile", icon: UserRound },
+]
 
 export default function AppNavigation({
   activeTab,
@@ -27,26 +33,23 @@ export default function AppNavigation({
 }) {
   return (
     <nav className="bottom-nav" aria-label="App navigation">
-      {tabs.map(({ label, icon: Icon }) => {
-        const isPay = label === "Collect"
-        const isActive = !isPay && activeTab === label
+      {tabs.map(({ label, tab, icon: Icon, featured }) => {
+        const isActive = tab !== null && activeTab === tab
         return (
           <button
             type="button"
             key={label}
-            className={`${isActive ? "active" : ""} ${isPay ? "pay-tab" : ""}`}
+            className={`${isActive ? "active" : ""} ${
+              featured ? "pay-tab" : ""
+            }`}
             aria-current={isActive ? "page" : undefined}
             onClick={() => {
-              if (isPay) onCollect()
-              else onNavigate(label)
+              if (tab === null) onCollect()
+              else onNavigate(tab)
             }}
           >
             <span className="nav-icon">
-              <Icon
-                size={isPay ? 25 : 21}
-                strokeWidth={isPay ? 2.4 : 2}
-                aria-hidden="true"
-              />
+              <Icon size={20} strokeWidth={2} aria-hidden="true" />
             </span>
             <small>{label}</small>
           </button>

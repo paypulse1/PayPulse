@@ -44,7 +44,9 @@ export default function MerchantSignIn({
   )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
-  const [registering, setRegistering] = useState(false)
+  const [registering, setRegistering] = useState(() =>
+    Boolean(new URLSearchParams(window.location.search).get("ref")),
+  )
   const [authProviderConfig, setAuthProviderConfig] =
     useState<AuthProviderConfig | null>(null)
   const [authProviderConfigError, setAuthProviderConfigError] = useState("")
