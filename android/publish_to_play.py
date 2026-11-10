@@ -57,7 +57,11 @@ def publish_track_release(
             "The alpha closed-testing track is unavailable for this app. "
             "Create a closed-testing track in Google Play Console, then retry."
         )
-    track_response.raise_for_status()
+    if not track_response.ok:
+        raise RuntimeError(
+            "Google Play track update failed with HTTP "
+            f"{track_response.status_code}: {track_response.text[:2000]}"
+        )
 
     commit_response = session.post(
         f"{edit_url}/{quote(edit_id, safe='')}:commit",
