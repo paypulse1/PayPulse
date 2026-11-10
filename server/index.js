@@ -79,6 +79,7 @@ import { createMerchantAgreementPdf } from "./merchant-agreement.js"
 import { sendMerchantInvitationEmail } from "./merchant-invitation-email.js"
 import {
   isSupportedPaymentLinkCurrency,
+  isValidEstimatedDeliveryDate,
   paymentLinkRequestFingerprint,
 } from "./payment-link-idempotency.js"
 import {
@@ -2085,6 +2086,7 @@ async function initializeDatabase() {
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_institution_deep_link TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS merchant_email TEXT REFERENCES merchant_accounts(email) ON DELETE CASCADE;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS customer_email TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS estimated_delivery_date DATE;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS bir_payee_name TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS bir_payee_tin TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS bir_payee_address TEXT;
@@ -6484,7 +6486,8 @@ app.get(
       `SELECT code, title, reference_no, amount::float8 AS amount, currency, status, payment_token, qr_payload,
         payment_institution_code, payment_institution_name, payment_institution_logo_url,
         payment_institution_deep_link, checkout_instructions, email_subject,
-        email_brand_color, email_logo_url
+        email_brand_color, email_logo_url, customer_email,
+        to_char(estimated_delivery_date, 'YYYY-MM-DD') AS estimated_delivery_date
      FROM payment_links WHERE code = $1 AND checkout_type = 'DIRECT_QRPH'`,
       [code],
     )
@@ -6494,7 +6497,11 @@ app.get(
 
     let status = row.status
     let statusCheckUnavailable = false
-    if (!["EXECUTED", "CANCELED", "REJECTED", "EXPIRED"].includes(status)) {
+    if (
+      !["EXECUTED", "MANUALLY_PAID", "CANCELED", "REJECTED", "EXPIRED"].includes(
+        status,
+      )
+    ) {
       try {
         const { data } = await swiftPayPaymentRequest(
           "/payments/status",
@@ -6514,6 +6521,18 @@ app.get(
     return res.set("Cache-Control", "no-store").json({
       title: row.title,
       referenceNo: row.reference_no,
+      customerEmail:
+        ["EXECUTED", "MANUALLY_PAID"].includes(status) &&
+        row.estimated_delivery_date &&
+        row.customer_email
+          ? row.customer_email
+          : undefined,
+      estimatedDeliveryDate:
+        ["EXECUTED", "MANUALLY_PAID"].includes(status) &&
+        row.estimated_delivery_date &&
+        row.customer_email
+          ? row.estimated_delivery_date
+          : undefined,
       amount: row.amount,
       currency: row.currency,
       status,
@@ -9172,6 +9191,10 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
     typeof req.body?.customerEmail === "string"
       ? req.body.customerEmail.trim().toLowerCase()
       : ""
+  const estimatedDeliveryDate =
+    typeof req.body?.estimatedDeliveryDate === "string"
+      ? req.body.estimatedDeliveryDate.trim()
+      : ""
   const institutionCode =
     typeof req.body?.institutionCode === "string"
       ? req.body.institutionCode.trim().toUpperCase()
@@ -9236,6 +9259,19 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
       .status(400)
       .json({ error: "Enter a valid customer email address." })
   }
+  if (
+    estimatedDeliveryDate &&
+    !isValidEstimatedDeliveryDate(estimatedDeliveryDate)
+  ) {
+    return res
+      .status(400)
+      .json({ error: "Enter a valid delivery date that is today or later." })
+  }
+  if (estimatedDeliveryDate && !customerEmail) {
+    return res.status(400).json({
+      error: "Enter a customer email to use the delivery-date review opt-in.",
+    })
+  }
   const savedBranding = await pool.query(
     `SELECT checkout_instructions AS "checkoutInstructions",
        email_subject AS "emailSubject", email_message AS "emailMessage",
@@ -9295,6 +9331,7 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
       collectionAmountKrw,
       description: title,
       customerEmail,
+      estimatedDeliveryDate,
       paymentInstitutionCode: institutionCode,
       paymentInstitutionName: institutionName,
       paymentInstitutionLogoUrl: institutionLogoUrl,
@@ -9306,6 +9343,9 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
       collectionAmountKrw: row.collection_amount_krw,
       description: row.title,
       customerEmail: row.customer_email,
+      estimatedDeliveryDate: row.estimated_delivery_date
+        ? new Date(row.estimated_delivery_date).toISOString().slice(0, 10)
+        : null,
       paymentInstitutionCode: row.payment_institution_code,
       paymentInstitutionName: row.payment_institution_name,
       paymentInstitutionLogoUrl: row.payment_institution_logo_url,
@@ -9394,8 +9434,8 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
       payment_institution_code, payment_institution_name, payment_institution_logo_url,
       payment_institution_deep_link, checkout_instructions, email_subject,
       email_message, email_brand_color, email_logo_url,
-      checkout_type, status, merchant_email, customer_email
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'DIRECT_QRPH', 'CREATING', $17, $18)`,
+      checkout_type, status, merchant_email, customer_email, estimated_delivery_date
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'DIRECT_QRPH', 'CREATING', $17, $18, $19)`,
       [
         id,
         idempotencyKey,
@@ -9415,6 +9455,7 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
         branding.emailLogoUrl,
         req.merchantEmail,
         customerEmail || null,
+        estimatedDeliveryDate || null,
       ],
     )
     await client.query("COMMIT")

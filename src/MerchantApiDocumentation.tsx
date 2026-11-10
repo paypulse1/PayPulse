@@ -225,6 +225,12 @@ DRPAY_API_KEY=your_environment_specific_key`}
           <code>{checkoutHost}</code>.
         </p>
         <p>
+          For physical orders, optionally include{" "}
+          <code>estimatedDeliveryDate</code> in <code>YYYY-MM-DD</code> format.
+          When both it and <code>customerEmail</code> are provided, the checkout
+          offers the Google Customer Reviews opt-in after payment is confirmed.
+        </p>
+        <p>
           Generate a new, unique idempotency key for each intended payment (at
           least 16 characters). If the request times out, retry the same payment
           with the same key; do not create another payment with a new key until
@@ -240,7 +246,8 @@ DRPAY_API_KEY=your_environment_specific_key`}
     "amount": 125.50,
     "currency": "PHP",
     "description": "Invoice 1048",
-    "customerEmail": "customer@example.com"
+    "customerEmail": "customer@example.com",
+    "estimatedDeliveryDate": "2026-11-15"
   }'`}
         />
         <ApiCodeBlock

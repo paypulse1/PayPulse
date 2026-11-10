@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
   CheckCircle2,
   Clock3,
@@ -10,6 +10,52 @@ import {
 import { getPublicCheckout, type PublicCheckout } from "./lib/swiftpay"
 import { APP_ROUTES } from "./lib/routes"
 import QrPaymentDisplay from "./QrPaymentDisplay"
+
+type GoogleSurveyOptInApi = {
+  load: (api: string, callback: () => void) => void
+  surveyoptin?: {
+    render: (options: {
+      merchant_id: number
+      order_id: string
+      email: string
+      delivery_country: string
+      estimated_delivery_date: string
+    }) => void
+  }
+}
+
+declare global {
+  interface Window {
+    gapi?: GoogleSurveyOptInApi
+  }
+}
+
+let googleSurveyScript: Promise<GoogleSurveyOptInApi> | null = null
+
+function loadGoogleSurveyScript() {
+  if (window.gapi) return Promise.resolve(window.gapi)
+  if (googleSurveyScript) return googleSurveyScript
+
+  googleSurveyScript = new Promise<GoogleSurveyOptInApi>((resolve, reject) => {
+    const script = document.createElement("script")
+    script.id = "google-customer-reviews-script"
+    script.src = "https://apis.google.com/js/platform.js"
+    script.async = true
+    script.defer = true
+    script.onload = () => {
+      if (window.gapi) resolve(window.gapi)
+      else reject(new Error("Google Customer Reviews did not initialize."))
+    }
+    script.onerror = () =>
+      reject(new Error("Google Customer Reviews could not be loaded."))
+    document.head.append(script)
+  }).catch((error: unknown) => {
+    googleSurveyScript = null
+    throw error
+  })
+
+  return googleSurveyScript
+}
 
 function statusPresentation(checkout: PublicCheckout) {
   if (checkout.status === "MANUALLY_PAID") {
@@ -58,6 +104,7 @@ export default function Checkout({ code }: { code: string }) {
   const [checkout, setCheckout] = useState<PublicCheckout | null>(null)
   const [error, setError] = useState("")
   const [referenceCopied, setReferenceCopied] = useState(false)
+  const surveyOptInRenderedFor = useRef("")
 
   useEffect(() => {
     let active = true
@@ -84,6 +131,71 @@ export default function Checkout({ code }: { code: string }) {
       window.clearInterval(timer)
     }
   }, [code])
+
+  useEffect(() => {
+    const status = checkout?.status
+    const customerEmail = checkout?.customerEmail
+    const estimatedDeliveryDate = checkout?.estimatedDeliveryDate
+    const referenceNo = checkout?.referenceNo
+    if (
+      !status ||
+      !["EXECUTED", "MANUALLY_PAID"].includes(status) ||
+      !customerEmail ||
+      !estimatedDeliveryDate ||
+      !referenceNo ||
+      surveyOptInRenderedFor.current === code
+    ) {
+      return
+    }
+
+    surveyOptInRenderedFor.current = code
+    let active = true
+    void loadGoogleSurveyScript()
+      .then((gapi) => {
+        gapi.load("surveyoptin", () => {
+          if (!active) return
+          try {
+            const render = gapi.surveyoptin?.render
+            if (!render) {
+              console.error(
+                "Google Customer Reviews survey opt-in API is unavailable.",
+              )
+              return
+            }
+            render({
+              merchant_id: 5899979224,
+              order_id: referenceNo,
+              email: customerEmail,
+              delivery_country: "PH",
+              estimated_delivery_date: estimatedDeliveryDate,
+            })
+          } catch (requestError) {
+            console.error(
+              "Google Customer Reviews opt-in could not be rendered.",
+              requestError,
+            )
+          }
+        })
+      })
+      .catch((requestError: unknown) => {
+        if (active) {
+          console.error(
+            "Google Customer Reviews opt-in could not be loaded.",
+            requestError,
+          )
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [
+    checkout?.status,
+    checkout?.customerEmail,
+    checkout?.estimatedDeliveryDate,
+    checkout?.referenceNo,
+    code,
+  ])
 
   async function copyReference() {
     if (!checkout) return

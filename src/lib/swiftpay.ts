@@ -172,6 +172,8 @@ export type PublicCheckout = {
   status: string
   statusCheckUnavailable: boolean
   qrCode: string
+  customerEmail?: string | null
+  estimatedDeliveryDate?: string | null
   isTaxInvoice: boolean
   institutionCode?: string | null
   institutionName?: string | null
@@ -2089,6 +2091,7 @@ export async function createPaymentLink(
     amount: number
     description: string
     customerEmail?: string
+    estimatedDeliveryDate?: string
     institution?: PaymentInstitution
     collectionAmountKrw?: number
     branding?: MerchantCheckoutPreferences
@@ -2103,6 +2106,7 @@ export async function createPaymentLink(
       currency: "PHP",
       description: input.description,
       customerEmail: input.customerEmail?.trim() || undefined,
+      estimatedDeliveryDate: input.estimatedDeliveryDate || undefined,
       collectionAmountKrw: input.collectionAmountKrw,
       referenceNo: `LINK-${Date.now()}`,
       institutionCode: input.institution?.code,

@@ -951,6 +951,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("")
   const [amount, setAmount] = useState("")
   const [customerEmail, setCustomerEmail] = useState("")
+  const [estimatedDeliveryDate, setEstimatedDeliveryDate] = useState("")
   const [currency, setCurrency] = useState<"PHP" | "KRW" | "USDT">("PHP")
   const [krwPhpQuote, setKrwPhpQuote] = useState<CurrencyQuote | null>(null)
   const [quoteLoading, setQuoteLoading] = useState(false)
@@ -1109,6 +1110,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
           amount: phpAmount,
           description,
           customerEmail,
+          estimatedDeliveryDate,
           institution,
           collectionAmountKrw: currency === "KRW" ? enteredAmount : undefined,
           branding,
@@ -1347,10 +1349,31 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
                 <input
                   type="email"
                   value={customerEmail}
-                  onChange={(event) => setCustomerEmail(event.target.value)}
+                  onChange={(event) => {
+                    const nextEmail = event.target.value
+                    setCustomerEmail(nextEmail)
+                    if (!nextEmail.trim()) setEstimatedDeliveryDate("")
+                  }}
                   placeholder="customer@example.com"
                   autoComplete="email"
                   maxLength={254}
+                />
+              </label>
+            )}
+            {currency !== "USDT" && (
+              <label>
+                <span>
+                  Estimated delivery date{" "}
+                  <small>(optional, for physical orders)</small>
+                </span>
+                <input
+                  type="date"
+                  value={estimatedDeliveryDate}
+                  min={new Date().toISOString().slice(0, 10)}
+                  disabled={!customerEmail.trim()}
+                  onChange={(event) =>
+                    setEstimatedDeliveryDate(event.target.value)
+                  }
                 />
               </label>
             )}
@@ -2833,6 +2856,7 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
   const [amount, setAmount] = useState("")
   const [description, setDescription] = useState("")
   const [customerEmail, setCustomerEmail] = useState("")
+  const [estimatedDeliveryDate, setEstimatedDeliveryDate] = useState("")
   const [url, setUrl] = useState("")
   const [qrCode, setQrCode] = useState("")
   const [busy, setBusy] = useState(false)
@@ -2885,6 +2909,7 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
           amount: Number(amount),
           description,
           customerEmail,
+          estimatedDeliveryDate,
           institution,
           branding,
         },
@@ -3009,10 +3034,29 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
               <input
                 type="email"
                 value={customerEmail}
-                onChange={(event) => setCustomerEmail(event.target.value)}
+                onChange={(event) => {
+                  const nextEmail = event.target.value
+                  setCustomerEmail(nextEmail)
+                  if (!nextEmail.trim()) setEstimatedDeliveryDate("")
+                }}
                 placeholder="customer@example.com"
                 autoComplete="email"
                 maxLength={254}
+              />
+            </label>
+            <label>
+              <span>
+                Estimated delivery date{" "}
+                <small>(optional, for physical orders)</small>
+              </span>
+              <input
+                type="date"
+                value={estimatedDeliveryDate}
+                min={new Date().toISOString().slice(0, 10)}
+                disabled={!customerEmail.trim()}
+                onChange={(event) =>
+                  setEstimatedDeliveryDate(event.target.value)
+                }
               />
             </label>
             <PaymentBrandingOverrides
