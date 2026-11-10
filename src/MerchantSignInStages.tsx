@@ -8,7 +8,7 @@ import {
   Lock,
   ShieldCheck,
 } from "lucide-react"
-import { Button } from "./AppPrimitives"
+import { Button, IconButton } from "./AppPrimitives"
 import {
   createGoogleLoginChallenge,
   createTelegramLoginChallenge,
@@ -95,16 +95,15 @@ function SocialSignInOptions({
                 />
               )}
             {authProviderConfig?.passkeys && passkeysSupported && (
-              <button
-                type="button"
-                className="button button-secondary auth-social-icon-button"
-                aria-label="Sign in with passkey"
+              <IconButton
+                className="auth-social-icon-button"
+                label="Sign in with passkey"
                 title="Sign in with passkey"
                 disabled={busy}
                 onClick={onPasskey}
               >
                 <Fingerprint size={20} />
-              </button>
+              </IconButton>
             )}
           </div>
         </>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { AlertCircle, LoaderCircle } from "lucide-react"
-import { Button } from "./AppPrimitives"
+import { Button, IconButton } from "./AppPrimitives"
 import type { GoogleAuthChallenge, TelegramAuthChallenge } from "./lib/swiftpay"
 
 type TelegramAuthResponse = {
@@ -320,12 +320,21 @@ export function TelegramIdentityButton({
 
   if (!clientId) return null
   return (
-    <div className={iconOnly ? "auth-provider-control" : undefined}>
+    <div
+      className={
+        iconOnly
+          ? `auth-provider-control ${
+              disabled || busy || !scriptReady || loadingScript
+                ? "is-disabled"
+                : ""
+            }`.trim()
+          : undefined
+      }
+    >
       {iconOnly ? (
-        <button
-          type="button"
-          className="button button-secondary auth-social-icon-button"
-          aria-label={busy ? "Waiting for Telegram" : "Continue with Telegram"}
+        <IconButton
+          className="auth-social-icon-button"
+          label={busy ? "Waiting for Telegram" : "Continue with Telegram"}
           title={busy ? "Waiting for Telegram" : "Continue with Telegram"}
           disabled={disabled || busy || !scriptReady || loadingScript}
           onClick={() => void signIn()}
@@ -335,7 +344,7 @@ export function TelegramIdentityButton({
           ) : (
             <TelegramProviderIcon size={20} />
           )}
-        </button>
+        </IconButton>
       ) : (
         <Button
           variant="secondary"
