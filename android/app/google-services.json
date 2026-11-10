@@ -1,21 +1,21 @@
 {
   "project_info": {
-    "project_number": "497801553432",
-    "project_id": "drpay-70b3c",
-    "storage_bucket": "drpay-70b3c.firebasestorage.app"
+    "project_number": "1039927248354",
+    "project_id": "drpay-payment-services",
+    "storage_bucket": "drpay-payment-services.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:497801553432:android:28ba11bfc85ea0280d456d",
+        "mobilesdk_app_id": "1:1039927248354:android:d35caeb4df92063589e5bb",
         "android_client_info": {
-          "package_name": "ph.drpays.merchant"
+          "package_name": "ph.drpays.merchant.public"
         }
       },
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyAReaH8T-pfdkuJHJU92m916mK_RYLLaQA"
+          "current_key": "AIzaSyB-fTmywSPw49MMiTiwbbjQNk5tcNgvzRo"
         }
       ],
       "services": {
