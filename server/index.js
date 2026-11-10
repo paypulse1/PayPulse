@@ -93,6 +93,7 @@ import {
 } from "./telegram-notifications.js"
 import { createPinnedLookup } from "./pinned-lookup.js"
 import { createPrivateDocumentUploadCommand } from "./private-document-upload.js"
+import { ensureMerchantRegistrationDocumentSchema } from "./registration-document-schema.js"
 
 const { Pool } = pg
 const platformFeeLedgerSourceTypesSql = PLATFORM_FEE_LEDGER_SOURCE_TYPES.map(
@@ -2210,6 +2211,7 @@ async function initializeDatabase() {
       ON disbursements (request_fingerprint)
       WHERE status IN ('REQUESTING', 'PENDING', 'OUTCOME_UNKNOWN');
   `)
+  await ensureMerchantRegistrationDocumentSchema(pool)
   console.info("Database schema initialization completed")
   await pool.query(`
     INSERT INTO admin_audit_events
