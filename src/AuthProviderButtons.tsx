@@ -21,10 +21,11 @@ declare global {
           renderButton: (
             element: HTMLElement,
             options: {
+              type: "standard" | "icon"
               theme: "outline"
               size: "large"
               text: "continue_with"
-              shape: "rectangular"
+              shape: "rectangular" | "square"
               width: number
             },
           ) => void
@@ -120,12 +121,14 @@ export function TelegramProviderIcon({ size = 18 }: { size?: number }) {
 export function GoogleIdentityButton({
   clientId,
   disabled = false,
+  iconOnly = false,
   createChallenge,
   onCredential,
   onError,
 }: {
   clientId: string
   disabled?: boolean
+  iconOnly?: boolean
   createChallenge: () => Promise<GoogleAuthChallenge>
   onCredential: (challengeId: string, credential: string) => Promise<void>
   onError: (message: string) => void
@@ -187,11 +190,14 @@ export function GoogleIdentityButton({
         },
       })
       window.google.accounts.id.renderButton(buttonRef.current, {
+        type: iconOnly ? "icon" : "standard",
         theme: "outline",
         size: "large",
         text: "continue_with",
-        shape: "rectangular",
-        width: Math.min(300, buttonRef.current.clientWidth || 300),
+        shape: iconOnly ? "square" : "rectangular",
+        width: iconOnly
+          ? 48
+          : Math.min(300, buttonRef.current.clientWidth || 300),
       })
     }
 
@@ -210,7 +216,7 @@ export function GoogleIdentityButton({
     return () => {
       active = false
     }
-  }, [clientId, createChallenge])
+  }, [clientId, createChallenge, iconOnly])
 
   if (!clientId) return null
   return (
@@ -229,12 +235,14 @@ export function GoogleIdentityButton({
 export function TelegramIdentityButton({
   clientId,
   disabled = false,
+  iconOnly = false,
   createChallenge,
   onToken,
   onError,
 }: {
   clientId: string
   disabled?: boolean
+  iconOnly?: boolean
   createChallenge: () => Promise<TelegramAuthChallenge>
   onToken: (challengeId: string, idToken: string) => Promise<void>
   onError: (message: string) => void
@@ -312,21 +320,38 @@ export function TelegramIdentityButton({
 
   if (!clientId) return null
   return (
-    <>
-      <Button
-        variant="secondary"
-        disabled={disabled || busy || !scriptReady || loadingScript}
-        onClick={() => void signIn()}
-        icon={
-          busy || loadingScript ? (
-            <LoaderCircle className="spin" size={17} />
+    <div className={iconOnly ? "auth-provider-control" : undefined}>
+      {iconOnly ? (
+        <button
+          type="button"
+          className="button button-secondary auth-social-icon-button"
+          aria-label={busy ? "Waiting for Telegram" : "Continue with Telegram"}
+          title={busy ? "Waiting for Telegram" : "Continue with Telegram"}
+          disabled={disabled || busy || !scriptReady || loadingScript}
+          onClick={() => void signIn()}
+        >
+          {busy || loadingScript ? (
+            <LoaderCircle className="spin" size={19} />
           ) : (
-            <TelegramProviderIcon />
-          )
-        }
-      >
-        {busy ? "Waiting for Telegram…" : "Continue with Telegram"}
-      </Button>
-    </>
+            <TelegramProviderIcon size={20} />
+          )}
+        </button>
+      ) : (
+        <Button
+          variant="secondary"
+          disabled={disabled || busy || !scriptReady || loadingScript}
+          onClick={() => void signIn()}
+          icon={
+            busy || loadingScript ? (
+              <LoaderCircle className="spin" size={17} />
+            ) : (
+              <TelegramProviderIcon />
+            )
+          }
+        >
+          {busy ? "Waiting for Telegram…" : "Continue with Telegram"}
+        </Button>
+      )}
+    </div>
   )
 }

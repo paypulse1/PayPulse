@@ -77,6 +77,7 @@ function SocialSignInOptions({
                 <GoogleIdentityButton
                   clientId={authProviderConfig.googleClientId}
                   disabled={busy}
+                  iconOnly
                   createChallenge={createGoogleLoginChallenge}
                   onCredential={onGoogleCredential}
                   onError={onError}
@@ -87,21 +88,23 @@ function SocialSignInOptions({
                 <TelegramIdentityButton
                   clientId={authProviderConfig.telegramClientId}
                   disabled={busy}
+                  iconOnly
                   createChallenge={createTelegramLoginChallenge}
                   onToken={onTelegramToken}
                   onError={onError}
                 />
               )}
             {authProviderConfig?.passkeys && passkeysSupported && (
-              <Button
+              <button
                 type="button"
-                variant="secondary"
+                className="button button-secondary auth-social-icon-button"
+                aria-label="Sign in with passkey"
+                title="Sign in with passkey"
                 disabled={busy}
                 onClick={onPasskey}
-                icon={<Fingerprint size={17} />}
               >
-                Sign in with passkey
-              </Button>
+                <Fingerprint size={20} />
+              </button>
             )}
           </div>
         </>

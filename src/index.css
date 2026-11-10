@@ -1119,10 +1119,12 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .auth-social-signin { display: grid; gap: 12px; }
 .auth-social-divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 10px; }
 .auth-social-divider::before, .auth-social-divider::after { height: 1px; flex: 1; content: ""; background: #e5ebf3; }
-.auth-social-options { display: grid; gap: 10px; }
-.auth-social-options .auth-provider-control, .auth-social-options > .button { width: 100%; }
-.auth-social-options .auth-provider-control > div { width: 100%; }
-.auth-login-card .auth-social-options .button { min-height: 46px; }
+.auth-social-options { display: flex; flex-wrap: wrap; gap: 10px; }
+.auth-social-options .auth-provider-control, .auth-social-options > .button { width: auto; }
+.auth-social-options .auth-provider-control > div { width: auto; }
+.auth-social-icon-button { width: 48px; min-height: 46px; height: 46px; padding: 0; justify-content: center; }
+.auth-social-icon-button > svg { width: 20px; height: 20px; }
+.auth-social-options .auth-provider-control iframe { display: block; width: 48px; height: 46px; }
 .auth-login-card label > span { margin-bottom: 8px; color: #394b62; font-size: 11px; font-weight: 700; }
 .auth-login-card input { height: 54px; padding-inline: 15px; border-color: #d4deea; border-radius: 12px; background: #fbfcfe; font-size: 14px; transition: border-color var(--motion-fast), box-shadow var(--motion-fast), background-color var(--motion-fast); }
 .auth-login-card input:focus { border-color: #1b4f9c; background: #fff; box-shadow: 0 0 0 4px rgb(27 79 156 / 11%); }

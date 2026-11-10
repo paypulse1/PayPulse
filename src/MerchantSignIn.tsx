@@ -21,8 +21,9 @@ import {
   readBiometricSecret,
   supportsBiometricLogin,
 } from "./lib/biometric"
-import { Brand, Button, PoweredByFooter } from "./AppPrimitives"
+import { Button } from "./AppPrimitives"
 import MerchantRegistration from "./MerchantRegistration"
+import MerchantAuthLayout from "./MerchantAuthLayout"
 import {
   EmailSignInStage,
   OtpSignInStage,
@@ -219,148 +220,123 @@ export default function MerchantSignIn({
   }
 
   return (
-    <main className="auth-screen auth-screen-with-footer auth-login-screen">
-      <div className="auth-login-layout">
-        <aside className="auth-login-aside">
-          <span className="auth-login-kicker">
-            <ShieldCheck size={15} />
-            SECURE MERCHANT ACCESS
-          </span>
-          <div className="auth-login-aside-copy">
-            <h2>
-              Your payments,
-              <br />
-              <span>in good hands.</span>
-            </h2>
-            <p>
-              A secure workspace to manage your merchant account and stay on top
-              of every transaction.
-            </p>
-          </div>
-          <div className="auth-login-benefits">
-            <div>
-              <span className="auth-login-benefit-icon">
-                <Lock size={16} />
-              </span>
-              <span>
-                <strong>Protected sign-in</strong>
-                <small>MPIN on your verified devices</small>
-              </span>
-            </div>
-            <div>
-              <span className="auth-login-benefit-icon">
-                <ShieldCheck size={16} />
-              </span>
-              <span>
-                <strong>Device verification</strong>
-                <small>Email code for new devices</small>
-              </span>
-            </div>
-          </div>
-          <span className="auth-login-glow" aria-hidden="true" />
-        </aside>
-        <div className="auth-login-panel">
-          <div className="auth-brand">
-            <Brand />
-          </div>
-          <section className="auth-card auth-login-card">
-            <span className="eyebrow">MERCHANT PORTAL</span>
-            <h1>
-              {stage === "otp"
-                ? "Verify your device"
-                : stage === "pin"
-                  ? "Welcome back"
-                  : "Sign in to DRPAY"}
-            </h1>
-            <p>
-              {stage === "otp"
-                ? "Enter the six-digit code sent to your merchant email."
-                : stage === "pin"
-                  ? "Enter your MPIN to continue to your account."
-                  : "Use your verified device or confirm your identity by email."}
-            </p>
-            <div className="auth-login-assurance">
-              <ShieldCheck size={17} />
-              <span>
-                <strong>Your account, protected</strong>
-              </span>
-            </div>
-            {stage === "email" && (
-              <EmailSignInStage
-                busy={busy}
-                email={email}
-                error={error}
-                onEmailChange={setEmail}
-                onBiometric={() => void submitBiometric()}
-                onContinue={continueWithEmail}
-                authProviderConfig={authProviderConfig}
-                authProviderConfigError={authProviderConfigError}
-                passkeysSupported={passkeysSupported}
-                onPasskey={() => void submitPasskey()}
-                onGoogleCredential={submitGoogleCredential}
-                onTelegramToken={submitTelegramToken}
-                onError={setError}
-              />
-            )}
-            {stage === "pin" && (
-              <PinSignInStage
-                busy={busy}
-                email={email}
-                error={error}
-                onEmailChange={setEmail}
-                onBiometric={() => void submitBiometric()}
-                authProviderConfig={authProviderConfig}
-                authProviderConfigError={authProviderConfigError}
-                passkeysSupported={passkeysSupported}
-                onPasskey={() => void submitPasskey()}
-                onGoogleCredential={submitGoogleCredential}
-                onTelegramToken={submitTelegramToken}
-                onError={setError}
-                pin={pin}
-                onPinChange={setPin}
-                onSubmit={(event) => void submitPin(event)}
-                onForgotPin={() => void sendOtp()}
-                onUseDifferentEmail={() => {
-                  setStage("email")
-                  setEmail("")
-                  setPin("")
-                  setError("")
-                }}
-              />
-            )}
-            {stage === "otp" && (
-              <OtpSignInStage
-                busy={busy}
-                email={email}
-                error={error}
-                otp={otp}
-                onOtpChange={setOtp}
-                onSubmit={(event) => void submitOtp(event)}
-                onResend={() => void sendOtp()}
-                onBack={() => {
-                  setStage("email")
-                  setOtp("")
-                  setError("")
-                }}
-              />
-            )}
-            {stage === "email" && (
-              <button
-                type="button"
-                className="auth-registration-link"
-                onClick={() => setRegistering(true)}
-              >
-                New to DRPAY? <strong>Create a merchant account</strong>
-              </button>
-            )}
-            <div className="auth-trust">
-              <Lock size={15} />
-              <span>DO NOT SHARE YOUR MPIN</span>
-            </div>
-          </section>
-          <PoweredByFooter />
-        </div>
+    <MerchantAuthLayout
+      kicker="SECURE MERCHANT ACCESS"
+      kickerIcon={<ShieldCheck size={15} />}
+      headline={
+        <>
+          Your payments,
+          <br />
+          <span>in good hands.</span>
+        </>
+      }
+      description="A secure workspace to manage your merchant account and stay on top of every transaction."
+      benefits={[
+        {
+          icon: <Lock size={16} />,
+          title: "Protected sign-in",
+          description: "MPIN on your verified devices",
+        },
+        {
+          icon: <ShieldCheck size={16} />,
+          title: "Device verification",
+          description: "Email code for new devices",
+        },
+      ]}
+      eyebrow="MERCHANT PORTAL"
+    >
+      <h1>
+        {stage === "otp"
+          ? "Verify your device"
+          : stage === "pin"
+            ? "Welcome back"
+            : "Sign in to DRPAY"}
+      </h1>
+      <p>
+        {stage === "otp"
+          ? "Enter the six-digit code sent to your merchant email."
+          : stage === "pin"
+            ? "Enter your MPIN to continue to your account."
+            : "Use your verified device or confirm your identity by email."}
+      </p>
+      <div className="auth-login-assurance">
+        <ShieldCheck size={17} />
+        <span>
+          <strong>Your account, protected</strong>
+        </span>
       </div>
-    </main>
+      {stage === "email" && (
+        <EmailSignInStage
+          busy={busy}
+          email={email}
+          error={error}
+          onEmailChange={setEmail}
+          onBiometric={() => void submitBiometric()}
+          onContinue={continueWithEmail}
+          authProviderConfig={authProviderConfig}
+          authProviderConfigError={authProviderConfigError}
+          passkeysSupported={passkeysSupported}
+          onPasskey={() => void submitPasskey()}
+          onGoogleCredential={submitGoogleCredential}
+          onTelegramToken={submitTelegramToken}
+          onError={setError}
+        />
+      )}
+      {stage === "pin" && (
+        <PinSignInStage
+          busy={busy}
+          email={email}
+          error={error}
+          onEmailChange={setEmail}
+          onBiometric={() => void submitBiometric()}
+          authProviderConfig={authProviderConfig}
+          authProviderConfigError={authProviderConfigError}
+          passkeysSupported={passkeysSupported}
+          onPasskey={() => void submitPasskey()}
+          onGoogleCredential={submitGoogleCredential}
+          onTelegramToken={submitTelegramToken}
+          onError={setError}
+          pin={pin}
+          onPinChange={setPin}
+          onSubmit={(event) => void submitPin(event)}
+          onForgotPin={() => void sendOtp()}
+          onUseDifferentEmail={() => {
+            setStage("email")
+            setEmail("")
+            setPin("")
+            setError("")
+          }}
+        />
+      )}
+      {stage === "otp" && (
+        <OtpSignInStage
+          busy={busy}
+          email={email}
+          error={error}
+          otp={otp}
+          onOtpChange={setOtp}
+          onSubmit={(event) => void submitOtp(event)}
+          onResend={() => void sendOtp()}
+          onBack={() => {
+            setStage("email")
+            setOtp("")
+            setError("")
+          }}
+        />
+      )}
+      {stage === "email" && (
+        <button
+          type="button"
+          className="auth-registration-link"
+          onClick={() => setRegistering(true)}
+        >
+          New to DRPAY? <strong>Create a merchant account</strong>
+        </button>
+      )}
+      <div className="auth-trust">
+        <Lock size={15} />
+        <span>DO NOT SHARE YOUR MPIN</span>
+      </div>
+    </MerchantAuthLayout>
   )
 }
