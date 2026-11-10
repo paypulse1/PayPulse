@@ -51,6 +51,11 @@ def publish_track_release(
         },
         timeout=60,
     )
+    if track_response.status_code == 404 and track == "public-closed-test":
+        raise RuntimeError(
+            "The public-closed-test track does not exist yet. Create the closed "
+            "testing track in Google Play Console, then retry."
+        )
     track_response.raise_for_status()
 
     commit_response = session.post(
@@ -253,6 +258,23 @@ def main() -> None:
     edit_id = edit_response.json()["id"]
 
     if checking_production:
+        tracks_url = f"{edit_url}/{quote(edit_id, safe='')}/tracks"
+        tracks_response = session.get(tracks_url, timeout=60)
+        tracks_response.raise_for_status()
+        available_tracks = [
+            {
+                "track": track.get("track"),
+                "releases": [
+                    {
+                        "name": release.get("name"),
+                        "status": release.get("status"),
+                        "versionCodes": release.get("versionCodes", []),
+                    }
+                    for release in track.get("releases", [])
+                ],
+            }
+            for track in tracks_response.json().get("tracks", [])
+        ]
         track_states = {}
         for track in ("production", "internal"):
             track_url = f"{edit_url}/{quote(edit_id, safe='')}/tracks/{track}"
@@ -330,6 +352,7 @@ def main() -> None:
                 "reason": "Google Play returned an empty response",
             }
         print(f"Track releases: {json.dumps(track_states, sort_keys=True)}")
+        print(f"Available tracks: {json.dumps(available_tracks, sort_keys=True)}")
         print(
             "Production availability: "
             + json.dumps(production_availability, sort_keys=True)
