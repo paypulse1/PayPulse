@@ -92,6 +92,7 @@ import {
   sendTelegramMessage,
 } from "./telegram-notifications.js"
 import { createPinnedLookup } from "./pinned-lookup.js"
+import { createPrivateDocumentUploadCommand } from "./private-document-upload.js"
 
 const { Pool } = pg
 const platformFeeLedgerSourceTypesSql = PLATFORM_FEE_LEDGER_SOURCE_TYPES.map(
@@ -3164,13 +3165,12 @@ app.post(
     try {
       const uploadUrl = await getSignedUrl(
         r2Client,
-        new PutObjectCommand({
-          Bucket: r2BucketName,
-          Key: objectKey,
-          ContentType: contentType,
-          ContentLength: sizeBytes,
-          Metadata: { "document-id": documentId },
-        }),
+        createPrivateDocumentUploadCommand(
+          r2BucketName,
+          objectKey,
+          contentType,
+          documentId,
+        ),
         { expiresIn: 300 },
       )
       return res.set("Cache-Control", "no-store").json({
@@ -7507,13 +7507,12 @@ app.post("/v1/kyb/documents/presign", async (req, res) => {
   try {
     const uploadUrl = await getSignedUrl(
       r2Client,
-      new PutObjectCommand({
-        Bucket: r2BucketName,
-        Key: objectKey,
-        ContentType: contentType,
-        ContentLength: sizeBytes,
-        Metadata: { "document-id": documentId },
-      }),
+      createPrivateDocumentUploadCommand(
+        r2BucketName,
+        objectKey,
+        contentType,
+        documentId,
+      ),
       { expiresIn: 300 },
     )
     return res.set("Cache-Control", "no-store").json({

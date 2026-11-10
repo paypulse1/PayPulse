@@ -2806,31 +2806,36 @@ function ScannerSheet({
               )}
             </dl>
             <p>
-              This QR is a merchant payment code. Use it in a payer app to
-              complete the payment.
+              Open GCash to review and authorize this payment. You can also
+              scan the QR with any supported banking app.
             </p>
+            <QrPaymentDisplay
+              value={merchantQrPayload}
+              institution={{ code: "GCASH", name: "GCash" }}
+            />
             <Button
+              variant="secondary"
               onClick={async () => {
                 try {
                   if (navigator.share) {
                     await navigator.share({
-                      title: "DRPAY merchant QR payment",
+                      title: "QRPH merchant payment",
                       text: merchantQrPayload,
                     })
                   } else {
                     await navigator.clipboard.writeText(merchantQrPayload)
                     setMerchantQrAction(
-                      "Merchant QR copied. Open your banking app and paste or scan the QR payload.",
+                      "QRPH payment code copied.",
                     )
                   }
                 } catch {
                   setMerchantQrAction(
-                    "Could not open a payment app. Try copying the QR from the QR screen again.",
+                    "Could not share the QR code. You can still scan it with another banking app.",
                   )
                 }
               }}
             >
-              Pay merchant
+              Share QR code
             </Button>
             {merchantQrAction && <p role="status">{merchantQrAction}</p>}
             <Button
