@@ -65,29 +65,46 @@ def publish_track_release(
         )
 
 
-def load_store_listing() -> tuple[dict, Path, list[Path]]:
-    listing_dir = Path(__file__).parent / "play-listing" / "en-US"
-    listing_path = listing_dir / "listing.json"
-    listing = json.loads(listing_path.read_text())
-    for field, maximum in (
-        ("title", 30),
-        ("shortDescription", 80),
-        ("fullDescription", 4000),
-    ):
-        value = listing.get(field)
-        if not isinstance(value, str) or not value.strip() or len(value) > maximum:
-            raise ValueError(f"Store listing {field} must be 1-{maximum} characters")
+def load_store_listings() -> list[tuple[dict, Path, list[Path]]]:
+    listing_root = Path(__file__).parent / "play-listing"
+    english_assets = listing_root / "en-US" / "assets"
+    listing_dirs = sorted(
+        path for path in listing_root.iterdir() if (path / "listing.json").is_file()
+    )
+    if PACKAGE_NAME != "ph.drpays.merchant.public":
+        listing_dirs = [path for path in listing_dirs if path.name == "en-US"]
+    if not listing_dirs or listing_dirs[0].name != "en-US":
+        raise ValueError("Google Play store listings must include en-US")
 
-    locale = listing.get("language")
-    if not isinstance(locale, str) or not locale:
-        raise ValueError("Store listing language is required")
-    feature_graphic = listing_dir / "assets" / "feature-graphic.png"
-    screenshots = sorted((listing_dir / "assets").glob("phone-screenshot-*.png"))
-    if not feature_graphic.is_file():
-        raise FileNotFoundError(f"Missing Play feature graphic: {feature_graphic}")
-    if not 2 <= len(screenshots) <= 8:
-        raise ValueError("Google Play requires 2-8 phone screenshots")
-    return listing, feature_graphic, screenshots
+    listings = []
+    for listing_dir in listing_dirs:
+        listing = json.loads((listing_dir / "listing.json").read_text())
+        for field, maximum in (
+            ("title", 30),
+            ("shortDescription", 80),
+            ("fullDescription", 4000),
+        ):
+            value = listing.get(field)
+            if not isinstance(value, str) or not value.strip() or len(value) > maximum:
+                raise ValueError(
+                    f"Store listing {listing_dir.name} {field} must be 1-{maximum} characters"
+                )
+
+        if listing.get("language") != listing_dir.name:
+            raise ValueError(
+                f"Store listing language must match directory {listing_dir.name}"
+            )
+        assets_dir = listing_dir / "assets"
+        if not assets_dir.is_dir():
+            assets_dir = english_assets
+        feature_graphic = assets_dir / "feature-graphic.png"
+        screenshots = sorted(assets_dir.glob("phone-screenshot-*.png"))
+        if not feature_graphic.is_file():
+            raise FileNotFoundError(f"Missing Play feature graphic: {feature_graphic}")
+        if not 2 <= len(screenshots) <= 8:
+            raise ValueError("Google Play requires 2-8 phone screenshots")
+        listings.append((listing, feature_graphic, screenshots))
+    return listings
 
 
 def upload_listing_image(
@@ -116,11 +133,8 @@ def publish_store_listing(
     session: AuthorizedSession,
     edit_url: str,
     edit_id: str,
-    listing: dict,
-    feature_graphic: Path,
-    screenshots: list[Path],
+    localized_listings: list[tuple[dict, Path, list[Path]]],
 ) -> None:
-    locale = listing["language"]
     listings_url = f"{edit_url}/{quote(edit_id, safe='')}/listings"
     listings_response = session.get(listings_url, timeout=60)
     listings_response.raise_for_status()
@@ -128,41 +142,40 @@ def publish_store_listing(
         item.get("language")
         for item in listings_response.json().get("listings", [])
     }
-    if locale not in available_locales:
-        raise RuntimeError(
-            f"Google Play has no existing {locale} listing; refusing to publish"
+
+    for listing, feature_graphic, screenshots in localized_listings:
+        locale = listing["language"]
+        listing_url = (
+            f"{edit_url}/{quote(edit_id, safe='')}/listings/{quote(locale, safe='')}"
         )
+        response = session.put(
+            listing_url,
+            json={
+                "language": locale,
+                "title": listing["title"],
+                "shortDescription": listing["shortDescription"],
+                "fullDescription": listing["fullDescription"],
+            },
+            timeout=60,
+        )
+        response.raise_for_status()
 
-    listing_url = (
-        f"{edit_url}/{quote(edit_id, safe='')}/listings/{quote(locale, safe='')}"
-    )
-    response = session.put(
-        listing_url,
-        json={
-            "language": locale,
-            "title": listing["title"],
-            "shortDescription": listing["shortDescription"],
-            "fullDescription": listing["fullDescription"],
-        },
-        timeout=60,
-    )
-    response.raise_for_status()
-
-    image_root = f"{listing_url}/{{image_type}}"
-    for image_type, image_paths in (
-        ("featureGraphic", [feature_graphic]),
-        ("phoneScreenshots", screenshots),
-    ):
-        images_url = image_root.format(image_type=image_type)
-        images_response = session.get(images_url, timeout=60)
-        images_response.raise_for_status()
-        if images_response.json().get("images"):
-            delete_response = session.delete(images_url, timeout=60)
-            delete_response.raise_for_status()
-        for image_path in image_paths:
-            upload_listing_image(
-                session, edit_id, locale, image_type, image_path
-            )
+        image_root = f"{listing_url}/{{image_type}}"
+        for image_type, image_paths in (
+            ("featureGraphic", [feature_graphic]),
+            ("phoneScreenshots", screenshots),
+        ):
+            images_url = image_root.format(image_type=image_type)
+            if locale in available_locales:
+                images_response = session.get(images_url, timeout=60)
+                images_response.raise_for_status()
+                if images_response.json().get("images"):
+                    delete_response = session.delete(images_url, timeout=60)
+                    delete_response.raise_for_status()
+            for image_path in image_paths:
+                upload_listing_image(
+                    session, edit_id, locale, image_type, image_path
+                )
 
     commit_response = session.post(
         f"{edit_url}/{quote(edit_id, safe='')}:commit",
@@ -197,7 +210,7 @@ def main() -> None:
         )
 
     if updating_listing:
-        listing, feature_graphic, screenshots = load_store_listing()
+        localized_listings = load_store_listings()
 
     service_account_json = os.environ.get("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON")
     if not service_account_json:
@@ -290,9 +303,13 @@ def main() -> None:
         return
     elif updating_listing:
         publish_store_listing(
-            session, edit_url, edit_id, listing, feature_graphic, screenshots
+            session, edit_url, edit_id, localized_listings
         )
-        print(f"Updated the {listing['language']} Google Play store listing.")
+        print(
+            "Updated Google Play store listings for "
+            + ", ".join(listing["language"] for listing, _, _ in localized_listings)
+            + "."
+        )
         return
     elif promoting_existing_release:
         track = "production"

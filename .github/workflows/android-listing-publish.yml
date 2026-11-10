@@ -5,9 +5,7 @@ on:
     branches:
       - Production
     paths:
-      - android/play-listing/**
-      - android/publish_to_play.py
-      - .github/workflows/android-listing-publish.yml
+      - android/play-listing/en-US/**
 
 permissions:
   contents: read

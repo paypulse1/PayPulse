@@ -1,0 +1,6 @@
+{
+  "language": "fil",
+  "title": "DRPAY: Bayad Negosyo",
+  "shortDescription": "Pamahalaan ang bayad, singil, at paglilipat para sa iyong negosyo.",
+  "fullDescription": "Ang DRPAY ay mobile na workspace para sa mga rehistradong merchant sa Pilipinas.\n\nGamitin ang app para:\n\n- Tingnan ang balanse ng PHP wallet at mga aktibidad sa pagbabayad.\n- Gumawa ng mga payment link at hosted checkout para sa iyong mga customer.\n- Tumanggap ng QRPH payments sa mga paraang available sa iyong merchant account.\n- Magpadala ng sinusuportahang bank transfer o e-wallet transfer, at suriin ang available na network bago kumpirmahin.\n- Subaybayan ang status ng transaksyon at tumanggap ng mga notification para sa merchant.\n\nKontrolin ang access gamit ang MPIN, pag-verify ng email kapag nag-sign in sa bagong device, at biometric sign-in kung available.\n\nPara ito sa mga rehistradong merchant, hindi consumer banking. Nakadepende sa iyong account, napiling institusyon, at provider ang mga available na paraan ng pagbabayad, network ng transfer, bayarin, limitasyon, at oras ng settlement."
+}
