@@ -29,9 +29,19 @@ describe("merchant registration document schema compatibility", () => {
 
     await ensureMerchantRegistrationDocumentSchema(pool)
 
-    expect(calls.join("\n")).toContain("ADD COLUMN IF NOT EXISTS completed_at")
-    expect(calls.join("\n")).toContain("uploaded_at")
-    expect(calls.join("\n")).toContain("completed_at")
+    const migration = calls.join("\n")
+    const renameIndex = migration.indexOf(
+      "RENAME COLUMN uploaded_at TO completed_at",
+    )
+    const addCompletedAtIndex = migration.indexOf(
+      "ADD COLUMN IF NOT EXISTS completed_at",
+    )
+
+    expect(renameIndex).toBeGreaterThan(-1)
+    expect(addCompletedAtIndex).toBeGreaterThan(renameIndex)
+    expect(migration).toContain(
+      "COALESCE(completed_at, uploaded_at)",
+    )
   })
 
   it("adds the missing challenge_id column for legacy registration records", async () => {
@@ -74,5 +84,22 @@ describe("merchant registration document schema compatibility", () => {
     await ensureMerchantRegistrationDocumentSchema(pool)
 
     expect(calls.join("\n")).toContain("ADD COLUMN IF NOT EXISTS object_key")
+  })
+
+  it("adds the missing upload metadata columns for legacy registration records", async () => {
+    const calls = []
+    const pool = {
+      query: async (sql) => {
+        calls.push(sql)
+        return { rows: [] }
+      },
+    }
+
+    await ensureMerchantRegistrationDocumentSchema(pool)
+
+    const migration = calls.join("\n")
+    expect(migration).toContain("ADD COLUMN IF NOT EXISTS file_name")
+    expect(migration).toContain("ADD COLUMN IF NOT EXISTS content_type")
+    expect(migration).toContain("ADD COLUMN IF NOT EXISTS size_bytes")
   })
 })

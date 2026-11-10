@@ -31,7 +31,17 @@ export async function ensureMerchantRegistrationDocumentSchema(pool) {
 
   await pool.query(`
     ALTER TABLE merchant_registration_documents
-      ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+      ADD COLUMN IF NOT EXISTS file_name TEXT;
+  `)
+
+  await pool.query(`
+    ALTER TABLE merchant_registration_documents
+      ADD COLUMN IF NOT EXISTS content_type TEXT;
+  `)
+
+  await pool.query(`
+    ALTER TABLE merchant_registration_documents
+      ADD COLUMN IF NOT EXISTS size_bytes BIGINT;
   `)
 
   await pool.query(`
@@ -58,8 +68,29 @@ export async function ensureMerchantRegistrationDocumentSchema(pool) {
       ) THEN
         ALTER TABLE merchant_registration_documents
           RENAME COLUMN uploaded_at TO completed_at;
+      ELSIF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'merchant_registration_documents'
+          AND column_name = 'uploaded_at'
+      ) AND EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'merchant_registration_documents'
+          AND column_name = 'completed_at'
+      ) THEN
+        EXECUTE 'UPDATE merchant_registration_documents
+          SET completed_at = COALESCE(completed_at, uploaded_at)
+          WHERE completed_at IS NULL';
       END IF;
     END $$;
+  `)
+
+  await pool.query(`
+    ALTER TABLE merchant_registration_documents
+      ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
   `)
 
   await pool.query(`
