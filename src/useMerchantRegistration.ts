@@ -70,6 +70,10 @@ export const requiredDocumentTypes = documentRequirements
   .filter((document) => document.required)
   .map((document) => document.type)
 
+export function normalizeReferralCode(value: string) {
+  return value.trim().toUpperCase()
+}
+
 type RegistrationStep = {
   id: Exclude<RegistrationStage, "submitted">
   label: string
@@ -105,11 +109,9 @@ const maximumOwnerDateOfBirth = new Date(
 export function useMerchantRegistration() {
   const [contact, setContact] = useState(() => ({
     ...initialContact,
-    referralCode:
-      new URLSearchParams(window.location.search)
-        .get("ref")
-        ?.trim()
-        .toUpperCase() || "",
+    referralCode: normalizeReferralCode(
+      new URLSearchParams(window.location.search).get("ref") || "",
+    ),
   }))
   const [application, setApplication] = useState(initialApplication)
   const [stage, setStage] = useState<RegistrationStage>("contact")
@@ -133,7 +135,11 @@ export function useMerchantRegistration() {
     field: keyof MerchantRegistrationInput,
     value: string,
   ) {
-    setContact((current) => ({ ...current, [field]: value }))
+    setContact((current) => ({
+      ...current,
+      [field]:
+        field === "referralCode" ? normalizeReferralCode(value) : value,
+    }))
   }
 
   function updateApplication(

@@ -179,6 +179,25 @@ export default function MerchantRegistration({
                   required
                 />
               </label>
+              <label>
+                <span>Referral code (optional)</span>
+                <input
+                  type="text"
+                  value={contact.referralCode}
+                  onChange={(event) =>
+                    updateContact("referralCode", event.target.value)
+                  }
+                  placeholder="16-character code"
+                  maxLength={16}
+                  pattern="[A-Z0-9]{16}"
+                  title="Enter a 16-character referral code using letters and numbers."
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </label>
+              <small className="registration-step-hint">
+                Enter the code from the DRPAY merchant who referred you.
+              </small>
               <small className="registration-step-hint">
                 A verification code will be sent to your email.
               </small>
