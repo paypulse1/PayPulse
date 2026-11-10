@@ -33,4 +33,18 @@ describe("merchant registration document schema compatibility", () => {
     expect(calls.join("\n")).toContain("uploaded_at")
     expect(calls.join("\n")).toContain("completed_at")
   })
+
+  it("adds the missing challenge_id column for legacy registration records", async () => {
+    const calls = []
+    const pool = {
+      query: async (sql) => {
+        calls.push(sql)
+        return { rows: [] }
+      },
+    }
+
+    await ensureMerchantRegistrationDocumentSchema(pool)
+
+    expect(calls.join("\n")).toContain("ADD COLUMN IF NOT EXISTS challenge_id")
+  })
 })
