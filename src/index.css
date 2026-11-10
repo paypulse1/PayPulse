@@ -1124,7 +1124,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .auth-social-signin { display: grid; gap: 12px; }
 .auth-social-divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 10px; }
 .auth-social-divider::before, .auth-social-divider::after { height: 1px; flex: 1; content: ""; background: #e5ebf3; }
-.auth-social-options { display: flex; flex-wrap: wrap; gap: 10px; }
+.auth-social-options { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
 .auth-social-options .auth-provider-control, .auth-social-options > .button { width: auto; }
 .auth-social-options .auth-provider-control > div { width: auto; }
 .auth-social-icon-button { width: 48px; min-height: 46px; height: 46px; padding: 0; justify-content: center; border-color: #d3deec; border-radius: 14px; background: #f7f9fc; box-shadow: 0 2px 7px rgb(11 31 58 / 5%); transition: transform var(--motion-fast) var(--motion-ease), border-color var(--motion-fast) var(--motion-ease), background-color var(--motion-fast) var(--motion-ease), box-shadow var(--motion-fast) var(--motion-ease); }
@@ -1133,6 +1133,11 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .auth-social-icon-button:disabled { opacity: .5; cursor: not-allowed; }
 .auth-social-icon-button > svg { width: 20px; height: 20px; }
 .auth-social-options .auth-provider-control iframe { display: block; width: 48px; height: 46px; }
+.auth-provider-google-control:not(.is-unavailable) { position: relative; width: 48px; height: 46px; display: grid; place-items: center; border: 1px solid #d3deec; border-radius: 14px; background: #f7f9fc; box-shadow: 0 2px 7px rgb(11 31 58 / 5%); }
+.auth-provider-google-control > svg { width: 23px; height: 23px; }
+.auth-provider-google-control > div { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; }
+.auth-provider-google-control iframe { width: 100% !important; height: 100% !important; opacity: 0; }
+.auth-provider-google-control:focus-within { outline: 3px solid rgb(34 87 165 / 28%); outline-offset: 3px; }
 .auth-social-options .auth-provider-control { border-radius: 12px; transition: transform var(--motion-fast) var(--motion-ease), box-shadow var(--motion-fast) var(--motion-ease); }
 .auth-social-options .auth-provider-control:hover:not(.is-disabled) { transform: translateY(-2px); box-shadow: 0 7px 16px rgb(11 31 58 / 10%); }
 .auth-login-card label > span { margin-bottom: 8px; color: #394b62; font-size: 11px; font-weight: 700; }

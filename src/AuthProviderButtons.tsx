@@ -78,7 +78,6 @@ export function GoogleProviderIcon({ size = 20 }: { size?: number }) {
       viewBox="0 0 24 24"
       fill="none"
     >
-      <circle cx="12" cy="12" r="10.5" stroke="currentColor" />
       <path
         fill="#4285F4"
         d="M21.6 12.23c0-.68-.06-1.33-.17-1.96H12v3.71h5.38a4.6 4.6 0 0 1-2 3.02v2.42h3.24c1.9-1.75 2.98-4.33 2.98-7.19Z"
@@ -220,11 +219,19 @@ export function GoogleIdentityButton({
 
   if (!clientId) return null
   return (
-    <div className={`auth-provider-control ${disabled ? "is-disabled" : ""}`}>
+    <div
+      className={`auth-provider-control ${iconOnly ? "auth-provider-google-control" : ""} ${disabled ? "is-disabled" : ""} ${unavailable ? "is-unavailable" : ""}`.trim()}
+      title={iconOnly ? "Continue with Google" : undefined}
+    >
       {unavailable ? (
         <p className="auth-provider-error" role="status">
           <AlertCircle size={14} /> Google sign-in is unavailable right now.
         </p>
+      ) : iconOnly ? (
+        <>
+          <GoogleProviderIcon size={23} />
+          <div ref={buttonRef} aria-label="Continue with Google" />
+        </>
       ) : (
         <div ref={buttonRef} aria-label="Continue with Google" />
       )}
