@@ -321,12 +321,35 @@ const r2Client =
 const kybDocumentMaxBytes = 10 * 1024 * 1024
 const taxInvoiceAttachmentMaxBytes = 10 * 1024 * 1024
 const allowedTaxInvoiceAttachmentTypes = new Set(["application/pdf"])
+const allowedDocumentContentTypes = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+])
 const allowedKybDocuments = new Set([
   "business_registration",
   "identity_front",
   "identity_back",
   "proof_of_address",
 ])
+
+function normalizeDocumentContentType(fileName, contentType) {
+  const normalized =
+    typeof contentType === "string" ? contentType.trim().toLowerCase() : ""
+  if (normalized === "image/jpg" || normalized === "image/pjpeg") {
+    return "image/jpeg"
+  }
+  if (allowedDocumentContentTypes.has(normalized)) {
+    return normalized
+  }
+  const extension =
+    typeof fileName === "string" ? fileName.split(".").pop()?.toLowerCase() : ""
+  if (extension === "pdf") return "application/pdf"
+  if (extension === "jpg" || extension === "jpeg") return "image/jpeg"
+  if (extension === "png") return "image/png"
+  return ""
+}
+
 const liveMoneyAcknowledgement = process.env.SWIFTPAY_LIVE_MONEY_ACKNOWLEDGED
 const swiftPayBaseUrl =
   swiftPayEnvironment === "production"
@@ -581,6 +604,37 @@ async function consumeMerchantAuthChallenge(id, provider, purpose) {
     [id, provider, purpose],
   )
   return result.rows[0] || null
+}
+
+async function getMerchantAuthChallenge(id, provider, purpose) {
+  if (typeof id !== "string" || !/^[0-9a-f-]{36}$/i.test(id)) return null
+  const result = await pool.query(
+    `SELECT merchant_email AS "merchantEmail"
+     FROM merchant_auth_challenges
+     WHERE id = $1 AND provider = $2 AND purpose = $3 AND expires_at > NOW()`,
+    [id, provider, purpose],
+  )
+  return result.rows[0] || null
+}
+
+async function createMerchantSignInStepUp(provider, email) {
+  const security = await pool.query(
+    "SELECT pin_hash FROM merchant_security WHERE email = $1",
+    [email],
+  )
+  if (!security.rows[0]?.pin_hash) {
+    return {
+      ...(await issueMerchantSession(email)),
+      pinConfigured: false,
+    }
+  }
+  const challengeId = await createMerchantAuthChallenge(
+    provider,
+    "login",
+    email,
+    randomBytes(32).toString("base64url"),
+  )
+  return { email, challengeId, pinConfigured: true }
 }
 
 async function verifyGoogleIdentityToken(idToken, expectedNonce) {
@@ -3107,6 +3161,7 @@ app.post(
     const fileName =
       typeof req.body?.fileName === "string" ? req.body.fileName.trim() : ""
     const contentType = req.body?.contentType
+    const normalizedContentType = normalizeDocumentContentType(fileName, contentType)
     const sizeBytes = Number(req.body?.sizeBytes)
     if (
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
@@ -3116,7 +3171,7 @@ app.post(
       !fileName ||
       fileName.length > 180 ||
       /[/\\\u0000-\u001f]/.test(fileName) ||
-      !["application/pdf", "image/jpeg", "image/png"].includes(contentType) ||
+      !allowedDocumentContentTypes.has(normalizedContentType) ||
       !Number.isSafeInteger(sizeBytes) ||
       sizeBytes <= 0 ||
       sizeBytes > kybDocumentMaxBytes
@@ -3165,7 +3220,7 @@ app.post(
         documentType,
         objectKey,
         safeName,
-        contentType,
+        normalizedContentType,
         sizeBytes,
       ],
     )
@@ -3175,7 +3230,7 @@ app.post(
         createPrivateDocumentUploadCommand(
           r2BucketName,
           objectKey,
-          contentType,
+          normalizedContentType,
           documentId,
         ),
         { expiresIn: 300 },
@@ -3186,7 +3241,7 @@ app.post(
         objectKey,
         fileName: safeName,
         headers: {
-          "Content-Type": contentType,
+          "Content-Type": normalizedContentType,
           "x-amz-meta-document-id": documentId,
         },
         expiresInSeconds: 300,
@@ -3225,6 +3280,10 @@ app.post(
       contentType,
       sizeBytes,
     } = req.body || {}
+    const normalizedContentType = normalizeDocumentContentType(
+      typeof fileName === "string" ? fileName : "",
+      contentType,
+    )
     if (
       !/^[0-9a-f-]{36}$/i.test(challengeId || "") ||
       !/^[0-9a-f-]{36}$/i.test(documentId || "") ||
@@ -3233,7 +3292,7 @@ app.post(
       !allowedKybDocuments.has(documentType) ||
       typeof fileName !== "string" ||
       fileName.length > 180 ||
-      !["application/pdf", "image/jpeg", "image/png"].includes(contentType) ||
+      !allowedDocumentContentTypes.has(normalizedContentType) ||
       !Number.isSafeInteger(Number(sizeBytes)) ||
       Number(sizeBytes) <= 0 ||
       Number(sizeBytes) > kybDocumentMaxBytes
@@ -3254,7 +3313,7 @@ app.post(
       !record ||
       record.document_type !== documentType ||
       record.file_name !== fileName ||
-      record.content_type !== contentType ||
+      record.content_type !== normalizedContentType ||
       Number(record.size_bytes) !== Number(sizeBytes)
     ) {
       return res.status(409).json({
@@ -3278,7 +3337,7 @@ app.post(
       )
       if (
         Number(object.ContentLength) !== Number(sizeBytes) ||
-        object.ContentType !== contentType ||
+        object.ContentType !== normalizedContentType ||
         object.Metadata?.["document-id"] !== documentId
       ) {
         return res.status(400).json({
@@ -3619,7 +3678,7 @@ app.post("/v1/auth/google/login", loginLimiter, async (req, res) => {
     })
   return res
     .set("Cache-Control", "no-store")
-    .json(await issueMerchantSession(merchantEmail))
+    .json(await createMerchantSignInStepUp("google", merchantEmail))
 })
 
 app.post("/v1/auth/telegram/challenge", loginLimiter, async (_req, res) => {
@@ -3675,7 +3734,7 @@ app.post("/v1/auth/telegram/login", loginLimiter, async (req, res) => {
     })
   return res
     .set("Cache-Control", "no-store")
-    .json(await issueMerchantSession(merchantEmail))
+    .json(await createMerchantSignInStepUp("telegram", merchantEmail))
 })
 
 app.post("/v1/auth/passkey/options", loginLimiter, async (_req, res) => {
@@ -3754,7 +3813,7 @@ app.post("/v1/auth/passkey/verify", loginLimiter, async (req, res) => {
   )
   return res
     .set("Cache-Control", "no-store")
-    .json(await issueMerchantSession(storedCredential.email))
+    .json(await createMerchantSignInStepUp("passkey", storedCredential.email))
 })
 
 app.post("/v1/auth/device/otp/request", loginLimiter, async (req, res) => {
@@ -3917,10 +3976,21 @@ app.post("/v1/auth/device/otp/verify", loginLimiter, async (req, res) => {
        WHERE email = $1`,
       [email],
     )
+    const security = await client.query(
+      "SELECT pin_hash FROM merchant_security WHERE email = $1",
+      [email],
+    )
     await client.query("COMMIT")
+    if (security.rows[0]?.pin_hash) {
+      return res.set("Cache-Control", "no-store").json({
+        verified: true,
+        pinConfigured: true,
+        email,
+      })
+    }
     return res
       .set("Cache-Control", "no-store")
-      .json(await issueMerchantSession(email))
+      .json({ ...(await issueMerchantSession(email)), pinConfigured: false })
   } catch (error) {
     await client.query("ROLLBACK")
     throw error
@@ -3930,10 +4000,27 @@ app.post("/v1/auth/device/otp/verify", loginLimiter, async (req, res) => {
 })
 
 app.post("/v1/auth/device/pin", loginLimiter, async (req, res) => {
-  const email =
-    typeof req.body?.email === "string"
-      ? req.body.email.trim().toLowerCase()
+  const providerChallengeId =
+    typeof req.body?.providerChallengeId === "string"
+      ? req.body.providerChallengeId
       : ""
+  const provider =
+    typeof req.body?.provider === "string" ? req.body.provider : ""
+  const hasProviderStepUp = Boolean(providerChallengeId || provider)
+  const stepUpChallenge =
+    hasProviderStepUp &&
+    ["google", "telegram", "passkey"].includes(provider)
+      ? await getMerchantAuthChallenge(providerChallengeId, provider, "login")
+      : null
+  if (hasProviderStepUp && !stepUpChallenge?.merchantEmail) {
+    return res.status(401).json({
+      error: "Verify your identity again before entering your MPIN.",
+    })
+  }
+  const email = stepUpChallenge?.merchantEmail ||
+    (typeof req.body?.email === "string"
+      ? req.body.email.trim().toLowerCase()
+      : "")
   const pin = typeof req.body?.pin === "string" ? req.body.pin : ""
   const deviceToken =
     typeof req.body?.deviceToken === "string" ? req.body.deviceToken : ""
@@ -3949,10 +4036,11 @@ app.post("/v1/auth/device/pin", loginLimiter, async (req, res) => {
   }
   const { rows } = await pool.query(
     `SELECT s.pin_salt, s.pin_hash FROM merchant_accounts a
-     JOIN merchant_devices d ON d.email = a.email
+     LEFT JOIN merchant_devices d ON d.email = a.email AND d.device_token_hash = $2
      JOIN merchant_security s ON s.email = a.email
-     WHERE a.email = $1 AND a.active = TRUE AND d.device_token_hash = $2`,
-    [email, deviceTokenHash(deviceToken)],
+     WHERE a.email = $1 AND a.active = TRUE
+       AND ($3::boolean = TRUE OR d.device_token_hash IS NOT NULL)`,
+    [email, deviceTokenHash(deviceToken), hasProviderStepUp],
   )
   const security = rows[0]
   if (!security?.pin_hash) return res.status(403).json({
@@ -3979,20 +4067,56 @@ app.post("/v1/auth/device/pin", loginLimiter, async (req, res) => {
     "DELETE FROM merchant_pin_attempts WHERE merchant_email = $1",
     [email],
   )
-  await pool.query(
-    "UPDATE merchant_devices SET last_used_at = NOW() WHERE email = $1 AND device_token_hash = $2",
-    [email, deviceTokenHash(deviceToken)],
-  )
+  if (hasProviderStepUp) {
+    const consumedChallenge = await consumeMerchantAuthChallenge(
+      providerChallengeId,
+      provider,
+      "login",
+    )
+    if (consumedChallenge?.merchantEmail !== email) {
+      return res.status(401).json({
+        error: "Verify your identity again before entering your MPIN.",
+      })
+    }
+    await pool.query(
+      `INSERT INTO merchant_devices (email, device_token_hash)
+       VALUES ($1, $2) ON CONFLICT (email, device_token_hash)
+       DO UPDATE SET last_used_at = NOW()`,
+      [email, deviceTokenHash(deviceToken)],
+    )
+  } else {
+    await pool.query(
+      "UPDATE merchant_devices SET last_used_at = NOW() WHERE email = $1 AND device_token_hash = $2",
+      [email, deviceTokenHash(deviceToken)],
+    )
+  }
   return res
     .set("Cache-Control", "no-store")
     .json(await issueMerchantSession(email))
 })
 
 app.post("/v1/auth/device/biometric", loginLimiter, async (req, res) => {
-  const email =
-    typeof req.body?.email === "string"
-      ? req.body.email.trim().toLowerCase()
+  const providerChallengeId =
+    typeof req.body?.providerChallengeId === "string"
+      ? req.body.providerChallengeId
       : ""
+  const provider =
+    typeof req.body?.provider === "string" ? req.body.provider : ""
+  const hasProviderStepUp = Boolean(providerChallengeId || provider)
+  const stepUpChallenge =
+    hasProviderStepUp &&
+    ["google", "telegram", "passkey"].includes(provider)
+      ? await getMerchantAuthChallenge(providerChallengeId, provider, "login")
+      : null
+  if (hasProviderStepUp && !stepUpChallenge?.merchantEmail) {
+    return res.status(401).json({
+      error: "Verify your identity again before using biometrics.",
+    })
+  }
+  const email = stepUpChallenge?.merchantEmail ||
+    (typeof req.body?.email === "string"
+      ? req.body.email.trim().toLowerCase()
+      : "")
   const secret = typeof req.body?.secret === "string" ? req.body.secret : ""
   const deviceToken =
     typeof req.body?.deviceToken === "string" ? req.body.deviceToken : ""
@@ -4028,6 +4152,18 @@ app.post("/v1/auth/device/biometric", loginLimiter, async (req, res) => {
       error:
         "Biometric sign-in is unavailable. Use your MPIN or verify this device by email.",
     })
+  }
+  if (hasProviderStepUp) {
+    const consumedChallenge = await consumeMerchantAuthChallenge(
+      providerChallengeId,
+      provider,
+      "login",
+    )
+    if (consumedChallenge?.merchantEmail !== email) {
+      return res.status(401).json({
+        error: "Verify your identity again before using biometrics.",
+      })
+    }
   }
   await pool.query(
     `UPDATE merchant_biometric_credentials SET last_used_at = NOW()
@@ -7466,14 +7602,17 @@ app.post("/v1/kyb/documents/presign", async (req, res) => {
   const documentType = req.body?.documentType
   const fileName =
     typeof req.body?.fileName === "string" ? req.body.fileName.trim() : ""
-  const contentType = req.body?.contentType
+  const normalizedContentType = normalizeDocumentContentType(
+    fileName,
+    req.body?.contentType,
+  )
   const sizeBytes = Number(req.body?.sizeBytes)
   if (
     !allowedKybDocuments.has(documentType) ||
     !fileName ||
     fileName.length > 180 ||
     /[/\\\u0000-\u001f]/.test(fileName) ||
-    !["application/pdf", "image/jpeg", "image/png"].includes(contentType) ||
+    !allowedDocumentContentTypes.has(normalizedContentType) ||
     !Number.isSafeInteger(sizeBytes) ||
     sizeBytes <= 0 ||
     sizeBytes > kybDocumentMaxBytes
@@ -7507,7 +7646,7 @@ app.post("/v1/kyb/documents/presign", async (req, res) => {
       documentType,
       objectKey,
       safeName,
-      contentType,
+      normalizedContentType,
       sizeBytes,
     ],
   )
@@ -7517,7 +7656,7 @@ app.post("/v1/kyb/documents/presign", async (req, res) => {
       createPrivateDocumentUploadCommand(
         r2BucketName,
         objectKey,
-        contentType,
+        normalizedContentType,
         documentId,
       ),
       { expiresIn: 300 },
@@ -7528,7 +7667,7 @@ app.post("/v1/kyb/documents/presign", async (req, res) => {
       objectKey,
       fileName: safeName,
       headers: {
-        "Content-Type": contentType,
+        "Content-Type": normalizedContentType,
         "x-amz-meta-document-id": documentId,
       },
       expiresInSeconds: 300,
@@ -7559,6 +7698,10 @@ app.post("/v1/kyb/documents/complete", async (req, res) => {
     contentType,
     sizeBytes,
   } = req.body || {}
+  const normalizedContentType = normalizeDocumentContentType(
+    typeof fileName === "string" ? fileName : "",
+    contentType,
+  )
   if (
     !/^[0-9a-f-]{36}$/i.test(documentId || "") ||
     typeof objectKey !== "string" ||
@@ -7566,7 +7709,7 @@ app.post("/v1/kyb/documents/complete", async (req, res) => {
     !allowedKybDocuments.has(documentType) ||
     typeof fileName !== "string" ||
     fileName.length > 180 ||
-    !["application/pdf", "image/jpeg", "image/png"].includes(contentType) ||
+    !allowedDocumentContentTypes.has(normalizedContentType) ||
     !Number.isSafeInteger(Number(sizeBytes)) ||
     Number(sizeBytes) <= 0 ||
     Number(sizeBytes) > kybDocumentMaxBytes
@@ -7587,7 +7730,7 @@ app.post("/v1/kyb/documents/complete", async (req, res) => {
     !reservation ||
     reservation.document_type !== documentType ||
     reservation.file_name !== fileName ||
-    reservation.content_type !== contentType ||
+    reservation.content_type !== normalizedContentType ||
     Number(reservation.size_bytes) !== Number(sizeBytes)
   ) {
     return res.status(409).json({
@@ -7623,7 +7766,7 @@ app.post("/v1/kyb/documents/complete", async (req, res) => {
     )
     if (
       Number(object.ContentLength) !== Number(sizeBytes) ||
-      object.ContentType !== contentType ||
+      object.ContentType !== normalizedContentType ||
       object.Metadata?.["document-id"] !== documentId
     ) {
       return res.status(400).json({
@@ -7639,9 +7782,9 @@ app.post("/v1/kyb/documents/complete", async (req, res) => {
     )
     const bytes = Buffer.from(await prefix.Body.transformToByteArray())
     const validSignature =
-      contentType === "application/pdf"
+      normalizedContentType === "application/pdf"
         ? bytes.subarray(0, 5).toString("ascii") === "%PDF-"
-        : contentType === "image/jpeg"
+        : normalizedContentType === "image/jpeg"
           ? bytes.length >= 3 &&
             bytes[0] === 0xff &&
             bytes[1] === 0xd8 &&

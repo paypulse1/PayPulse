@@ -6,6 +6,8 @@ import {
   getLastMerchantEmail,
   hasTrustedDevice,
   getAuthProviderConfig,
+  completeProviderLoginWithBiometric,
+  completeProviderLoginWithPin,
   loginWithGoogleCredential,
   loginWithPasskey,
   loginWithBiometric,
@@ -14,6 +16,7 @@ import {
   requestDeviceOtp,
   verifyDeviceOtp,
   type AuthProviderConfig,
+  type LoginProvider,
   type Session,
 } from "./lib/swiftpay"
 import {
@@ -39,6 +42,11 @@ export default function MerchantSignIn({
   const [pin, setPin] = useState("")
   const [otp, setOtp] = useState("")
   const [challengeId, setChallengeId] = useState("")
+  const [providerStepUp, setProviderStepUp] = useState<{
+    provider: LoginProvider
+    challengeId: string
+    email: string
+  } | null>(null)
   const [stage, setStage] = useState<"email" | "pin" | "otp">(() =>
     hasTrustedDevice(getLastMerchantEmail()) ? "pin" : "email",
   )
@@ -87,6 +95,7 @@ export default function MerchantSignIn({
 
   async function sendOtp() {
     const normalizedEmail = email.trim().toLowerCase()
+    setProviderStepUp(null)
     setBusy(true)
     setError("")
     try {
@@ -110,7 +119,16 @@ export default function MerchantSignIn({
     setBusy(true)
     setError("")
     try {
-      onAuthenticated(await loginWithPin(email.trim().toLowerCase(), pin))
+      const normalizedEmail = email.trim().toLowerCase()
+      const session = providerStepUp
+        ? await completeProviderLoginWithPin(
+            providerStepUp.email,
+            providerStepUp.provider,
+            providerStepUp.challengeId,
+            pin,
+          )
+        : await loginWithPin(normalizedEmail, pin)
+      onAuthenticated(session)
     } catch (requestError) {
       setPin("")
       setError(
@@ -128,7 +146,15 @@ export default function MerchantSignIn({
     setError("")
     try {
       const secret = await readBiometricSecret(normalizedEmail)
-      onAuthenticated(await loginWithBiometric(normalizedEmail, secret))
+      const session = providerStepUp
+        ? await completeProviderLoginWithBiometric(
+            providerStepUp.email,
+            providerStepUp.provider,
+            providerStepUp.challengeId,
+            secret,
+          )
+        : await loginWithBiometric(normalizedEmail, secret)
+      onAuthenticated(session)
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -147,7 +173,19 @@ export default function MerchantSignIn({
     setBusy(true)
     setError("")
     try {
-      onAuthenticated(await loginWithGoogleCredential(challengeId, credential))
+      const result = await loginWithGoogleCredential(challengeId, credential)
+      if ("session" in result) {
+        onAuthenticated(result.session)
+        return
+      }
+      setEmail(result.stepUp.email)
+      setPin("")
+      setProviderStepUp({
+        provider: "google",
+        challengeId: result.stepUp.challengeId,
+        email: result.stepUp.email,
+      })
+      setStage("pin")
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -163,7 +201,19 @@ export default function MerchantSignIn({
     setBusy(true)
     setError("")
     try {
-      onAuthenticated(await loginWithTelegramToken(challengeId, idToken))
+      const result = await loginWithTelegramToken(challengeId, idToken)
+      if ("session" in result) {
+        onAuthenticated(result.session)
+        return
+      }
+      setEmail(result.stepUp.email)
+      setPin("")
+      setProviderStepUp({
+        provider: "telegram",
+        challengeId: result.stepUp.challengeId,
+        email: result.stepUp.email,
+      })
+      setStage("pin")
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -180,7 +230,19 @@ export default function MerchantSignIn({
     setBusy(true)
     setError("")
     try {
-      onAuthenticated(await loginWithPasskey())
+      const result = await loginWithPasskey()
+      if ("session" in result) {
+        onAuthenticated(result.session)
+        return
+      }
+      setEmail(result.stepUp.email)
+      setPin("")
+      setProviderStepUp({
+        provider: "passkey",
+        challengeId: result.stepUp.challengeId,
+        email: result.stepUp.email,
+      })
+      setStage("pin")
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -197,9 +259,16 @@ export default function MerchantSignIn({
     setBusy(true)
     setError("")
     try {
-      onAuthenticated(
-        await verifyDeviceOtp(email.trim().toLowerCase(), challengeId, otp),
+      const session = await verifyDeviceOtp(
+        email.trim().toLowerCase(),
+        challengeId,
+        otp,
       )
+      if (session) onAuthenticated(session)
+      else {
+        setPin("")
+        setStage("pin")
+      }
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -236,13 +305,13 @@ export default function MerchantSignIn({
       benefits={[
         {
           icon: <Lock size={16} />,
-          title: "Protected sign-in",
-          description: "MPIN on your verified devices",
+          title: "Second-factor sign-in",
+          description: "MPIN or biometrics after identity verification",
         },
         {
           icon: <ShieldCheck size={16} />,
           title: "Device verification",
-          description: "Email code for new devices",
+          description: "Google, Telegram, passkey, or email code",
         },
       ]}
       eyebrow="MERCHANT PORTAL"
@@ -251,15 +320,19 @@ export default function MerchantSignIn({
         {stage === "otp"
           ? "Verify your device"
           : stage === "pin"
-            ? "Welcome back"
+            ? providerStepUp
+              ? "Identity verified"
+              : "Welcome back"
             : "Sign in to DRPAY"}
       </h1>
       <p>
         {stage === "otp"
           ? "Enter the six-digit code sent to your merchant email."
           : stage === "pin"
-            ? "Enter your MPIN to continue to your account."
-            : "Use your verified device or confirm your identity by email."}
+            ? providerStepUp
+              ? "Enter your MPIN or use biometrics to finish signing in."
+              : "Enter your MPIN to continue to your account."
+            : "Verify with Google, Telegram, a passkey, or an email code."}
       </p>
       <div className="auth-login-assurance">
         <ShieldCheck size={17} />
@@ -273,7 +346,6 @@ export default function MerchantSignIn({
           email={email}
           error={error}
           onEmailChange={setEmail}
-          onBiometric={() => void submitBiometric()}
           onContinue={continueWithEmail}
           authProviderConfig={authProviderConfig}
           authProviderConfigError={authProviderConfigError}
@@ -298,12 +370,15 @@ export default function MerchantSignIn({
           onGoogleCredential={submitGoogleCredential}
           onTelegramToken={submitTelegramToken}
           onError={setError}
+          providerVerified={Boolean(providerStepUp)}
+          emailReadOnly={Boolean(providerStepUp)}
           pin={pin}
           onPinChange={setPin}
           onSubmit={(event) => void submitPin(event)}
           onForgotPin={() => void sendOtp()}
           onUseDifferentEmail={() => {
             setStage("email")
+            setProviderStepUp(null)
             setEmail("")
             setPin("")
             setError("")
@@ -320,6 +395,7 @@ export default function MerchantSignIn({
           onSubmit={(event) => void submitOtp(event)}
           onResend={() => void sendOtp()}
           onBack={() => {
+            setProviderStepUp(null)
             setStage("email")
             setOtp("")
             setError("")

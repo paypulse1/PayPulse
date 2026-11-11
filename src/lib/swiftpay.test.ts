@@ -572,3 +572,66 @@ test("merchant KYB uploads send the signed document metadata header", async () =
     "x-amz-meta-document-id": "kyb-document-id",
   })
 })
+
+test("merchant document uploads normalize empty or aliased browser MIME types", async () => {
+  vi.stubEnv("VITE_DRPAY_BACKEND_URL", "https://api.example.test")
+  vi.stubGlobal("window", {
+    location: {
+      hostname: "localhost",
+      origin: "http://localhost",
+    },
+  })
+  installSessionStorage(new MockStorage())
+  saveSession({
+    accessToken: "merchant-token",
+    expiresAt: Date.now() + 60_000,
+    email: "merchant@example.com",
+    role: "merchant",
+  })
+  const requests: Array<{ url: string; options?: RequestInit }> = []
+  vi.stubGlobal(
+    "fetch",
+    async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = input.toString()
+      requests.push({ url, options })
+      if (url === "https://storage.example.test/signed-upload")
+        return new Response(null, { status: 200 })
+      const response = url.endsWith("/presign")
+        ? {
+            documentId: "kyb-document-id",
+            uploadUrl: "https://storage.example.test/signed-upload",
+            objectKey: "kyb/kyb-document-id",
+            fileName: "business-registration.jpg",
+            headers: {
+              "Content-Type": "image/jpeg",
+              "x-amz-meta-document-id": "kyb-document-id",
+            },
+          }
+        : { uploaded: true, documentType: "business_registration" }
+      return new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    },
+  )
+
+  const { uploadKybDocument } = await import("./swiftpay.ts")
+  const file = new File(["business document"], "business-registration.jpg", {
+    type: "",
+  })
+
+  assert.deepEqual(await uploadKybDocument("business_registration", file), {
+    uploaded: true,
+    documentType: "business_registration",
+  })
+  assert.deepEqual(JSON.parse(String(requests[0].options?.body)), {
+    documentType: "business_registration",
+    fileName: "business-registration.jpg",
+    contentType: "image/jpeg",
+    sizeBytes: file.size,
+  })
+  assert.deepEqual(requests[1].options?.headers, {
+    "Content-Type": "image/jpeg",
+    "x-amz-meta-document-id": "kyb-document-id",
+  })
+})

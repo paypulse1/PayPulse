@@ -117,7 +117,6 @@ export function EmailSignInStage({
   email,
   error,
   onEmailChange,
-  onBiometric,
   onContinue,
   authProviderConfig,
   authProviderConfigError,
@@ -126,7 +125,7 @@ export function EmailSignInStage({
   onGoogleCredential,
   onTelegramToken,
   onError,
-}: StageProps & {
+}: Omit<StageProps, "onBiometric"> & {
   onContinue: (event: FormEvent) => void
   authProviderConfig: AuthProviderConfig | null
   authProviderConfigError: string
@@ -169,19 +168,6 @@ export function EmailSignInStage({
               ? "Continue with MPIN"
               : "Verify device by email"}
         </Button>
-        {supportsBiometricLogin() &&
-          email.trim() &&
-          hasBiometricLogin(email) && (
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={busy}
-              onClick={onBiometric}
-              icon={<Fingerprint size={17} />}
-            >
-              Sign in with biometrics
-            </Button>
-          )}
       </form>
       <SocialSignInOptions
         busy={busy}
@@ -215,6 +201,8 @@ export function PinSignInStage({
   onSubmit,
   onForgotPin,
   onUseDifferentEmail,
+  providerVerified,
+  emailReadOnly,
 }: StageProps & {
   pin: string
   authProviderConfig: AuthProviderConfig | null
@@ -228,6 +216,8 @@ export function PinSignInStage({
   onSubmit: (event: FormEvent) => void
   onForgotPin: () => void
   onUseDifferentEmail: () => void
+  providerVerified: boolean
+  emailReadOnly: boolean
 }) {
   return (
     <div className="auth-pin-stage">
@@ -238,6 +228,7 @@ export function PinSignInStage({
             type="email"
             value={email}
             onChange={(event) => onEmailChange(event.target.value)}
+            readOnly={emailReadOnly}
             required
             autoComplete="username"
           />
@@ -298,19 +289,21 @@ export function PinSignInStage({
           disabled={busy}
           onClick={onUseDifferentEmail}
         >
-          Use a different email
+          {providerVerified ? "Use a different sign-in method" : "Use a different email"}
         </button>
       </form>
-      <SocialSignInOptions
-        busy={busy}
-        authProviderConfig={authProviderConfig}
-        authProviderConfigError={authProviderConfigError}
-        passkeysSupported={passkeysSupported}
-        onPasskey={onPasskey}
-        onGoogleCredential={onGoogleCredential}
-        onTelegramToken={onTelegramToken}
-        onError={onError}
-      />
+      {!providerVerified && (
+        <SocialSignInOptions
+          busy={busy}
+          authProviderConfig={authProviderConfig}
+          authProviderConfigError={authProviderConfigError}
+          passkeysSupported={passkeysSupported}
+          onPasskey={onPasskey}
+          onGoogleCredential={onGoogleCredential}
+          onTelegramToken={onTelegramToken}
+          onError={onError}
+        />
+      )}
     </div>
   )
 }

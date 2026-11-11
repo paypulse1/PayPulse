@@ -12,6 +12,31 @@ export type Session = {
   role: "customer" | "merchant" | "super_admin"
 }
 
+export function normalizeDocumentContentType(
+  file: Pick<File, "name" | "type">,
+): "application/pdf" | "image/jpeg" | "image/png" | "" {
+  const rawType = file.type?.trim().toLowerCase()
+  const normalizedType =
+    rawType === "image/jpg" || rawType === "image/pjpeg"
+      ? "image/jpeg"
+      : rawType
+
+  if (
+    normalizedType === "application/pdf" ||
+    normalizedType === "image/jpeg" ||
+    normalizedType === "image/png"
+  ) {
+    return normalizedType
+  }
+
+  const extension = file.name.split(".").pop()?.toLowerCase()
+  if (extension === "pdf") return "application/pdf"
+  if (extension === "jpg" || extension === "jpeg") return "image/jpeg"
+  if (extension === "png") return "image/png"
+
+  return ""
+}
+
 export type AuthProviderConfig = {
   google: boolean
   googleClientId: string | null
@@ -19,6 +44,31 @@ export type AuthProviderConfig = {
   telegramClientId: string | null
   passkeys: boolean
 }
+
+export type LoginProvider = "google" | "telegram" | "passkey"
+
+export type ProviderStepUp = {
+  email: string
+  challengeId: string
+}
+
+export type ProviderSignInResult =
+  | { stepUp: ProviderStepUp }
+  | { session: Session }
+
+type ProviderSignInResponse =
+  | {
+      email: string
+      challengeId: string
+      pinConfigured: true
+    }
+  | {
+      accessToken: string
+      expiresInSeconds: number
+      email: string
+      role: Session["role"]
+      pinConfigured: false
+    }
 
 export type MerchantAuthMethods = {
   google: boolean
@@ -987,6 +1037,11 @@ export async function uploadMerchantRegistrationDocument(
   documentType: RegistrationDocumentType,
   file: File,
 ) {
+  const contentType = normalizeDocumentContentType(file)
+  if (!contentType) {
+    throw new Error("Choose a PDF, JPEG, or PNG document no larger than 10 MB.")
+  }
+
   const signed = await publicRequest<{
     documentId: string
     uploadUrl: string
@@ -999,7 +1054,7 @@ export async function uploadMerchantRegistrationDocument(
       challengeId,
       documentType,
       fileName: file.name,
-      contentType: file.type,
+      contentType,
       sizeBytes: file.size,
     }),
   })
@@ -1020,7 +1075,7 @@ export async function uploadMerchantRegistrationDocument(
         objectKey: signed.objectKey,
         documentType,
         fileName: signed.fileName,
-        contentType: file.type,
+        contentType,
         sizeBytes: file.size,
       }),
     },
@@ -1031,8 +1086,9 @@ export async function verifyDeviceOtp(
   email: string,
   challengeId: string,
   code: string,
-): Promise<Session> {
+): Promise<Session | null> {
   const response = await publicRequest<{
+    pinConfigured: boolean
     accessToken: string
     expiresInSeconds: number
     email?: string
@@ -1047,6 +1103,7 @@ export async function verifyDeviceOtp(
     }),
   })
   writeStorageItem("local", `${VERIFIED_DEVICE_PREFIX}${email}`, "true")
+  if (response.pinConfigured) return null
   return saveMerchantSession(email, response)
 }
 
@@ -1082,26 +1139,83 @@ export async function loginWithBiometric(
   return saveMerchantSession(email, response)
 }
 
+export async function completeProviderLoginWithPin(
+  email: string,
+  provider: LoginProvider,
+  providerChallengeId: string,
+  pin: string,
+): Promise<Session> {
+  const response = await publicRequest<{
+    accessToken: string
+    expiresInSeconds: number
+    email?: string
+    role?: Session["role"]
+  }>("/v1/auth/device/pin", {
+    method: "POST",
+    body: JSON.stringify({
+      email,
+      pin,
+      provider,
+      providerChallengeId,
+      deviceToken: getDeviceToken(email),
+    }),
+  })
+  writeStorageItem("local", `${VERIFIED_DEVICE_PREFIX}${email}`, "true")
+  return saveMerchantSession(email, response)
+}
+
+export async function completeProviderLoginWithBiometric(
+  email: string,
+  provider: LoginProvider,
+  providerChallengeId: string,
+  secret: string,
+): Promise<Session> {
+  const response = await publicRequest<{
+    accessToken: string
+    expiresInSeconds: number
+    email?: string
+    role?: Session["role"]
+  }>("/v1/auth/device/biometric", {
+    method: "POST",
+    body: JSON.stringify({
+      email,
+      secret,
+      provider,
+      providerChallengeId,
+      deviceToken: getDeviceToken(email),
+    }),
+  })
+  return saveMerchantSession(email, response)
+}
+
 export function getAuthProviderConfig() {
   return publicRequest<AuthProviderConfig>("/v1/auth/providers", {
     cache: "no-store",
   })
 }
 
+function resolveProviderSignIn(
+  response: ProviderSignInResponse,
+): ProviderSignInResult {
+  if (response.pinConfigured) {
+    return {
+      stepUp: { email: response.email, challengeId: response.challengeId },
+    }
+  }
+  return {
+    session: saveMerchantSession(response.email, response),
+  }
+}
+
 export async function loginWithGoogleCredential(
   challengeId: string,
   credential: string,
-) {
-  const response = await publicRequest<{
-    accessToken: string
-    expiresInSeconds: number
-    email: string
-    role: Session["role"]
-  }>("/v1/auth/google/login", {
+): Promise<ProviderSignInResult> {
+  const response = await publicRequest<ProviderSignInResponse>("/v1/auth/google/login", {
     method: "POST",
     body: JSON.stringify({ challengeId, credential }),
   })
-  return saveMerchantSession(response.email, response)
+  return resolveProviderSignIn(response)
 }
 
 export type TelegramAuthChallenge = {
@@ -1130,20 +1244,15 @@ export function createTelegramLoginChallenge() {
 export async function loginWithTelegramToken(
   challengeId: string,
   idToken: string,
-) {
-  const response = await publicRequest<{
-    accessToken: string
-    expiresInSeconds: number
-    email: string
-    role: Session["role"]
-  }>("/v1/auth/telegram/login", {
+): Promise<ProviderSignInResult> {
+  const response = await publicRequest<ProviderSignInResponse>("/v1/auth/telegram/login", {
     method: "POST",
     body: JSON.stringify({ challengeId, idToken }),
   })
-  return saveMerchantSession(response.email, response)
+  return resolveProviderSignIn(response)
 }
 
-export async function loginWithPasskey() {
+export async function loginWithPasskey(): Promise<ProviderSignInResult> {
   const challenge = await publicRequest<{
     challengeId: string
     options: PublicKeyCredentialRequestOptionsJSON
@@ -1151,19 +1260,14 @@ export async function loginWithPasskey() {
   const credential = await startAuthentication({
     optionsJSON: challenge.options,
   })
-  const response = await publicRequest<{
-    accessToken: string
-    expiresInSeconds: number
-    email: string
-    role: Session["role"]
-  }>("/v1/auth/passkey/verify", {
+  const response = await publicRequest<ProviderSignInResponse>("/v1/auth/passkey/verify", {
     method: "POST",
     body: JSON.stringify({
       challengeId: challenge.challengeId,
       credential,
     }),
   })
-  return saveMerchantSession(response.email, response)
+  return resolveProviderSignIn(response)
 }
 
 export function getMerchantAuthMethods() {
@@ -1949,6 +2053,11 @@ export async function saveMerchantKybProfile(
 }
 
 export async function uploadKybDocument(documentType: string, file: File) {
+  const contentType = normalizeDocumentContentType(file)
+  if (!contentType) {
+    throw new Error("Upload a PDF, JPEG, or PNG document no larger than 10 MB.")
+  }
+
   const signed = await backendRequest<{
     documentId: string
     uploadUrl: string
@@ -1960,7 +2069,7 @@ export async function uploadKybDocument(documentType: string, file: File) {
     body: JSON.stringify({
       documentType,
       fileName: file.name,
-      contentType: file.type,
+      contentType,
       sizeBytes: file.size,
     }),
   })
@@ -1980,7 +2089,7 @@ export async function uploadKybDocument(documentType: string, file: File) {
         objectKey: signed.objectKey,
         documentType,
         fileName: signed.fileName,
-        contentType: file.type,
+        contentType,
         sizeBytes: file.size,
       }),
     },
