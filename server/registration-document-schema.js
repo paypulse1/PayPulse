@@ -160,18 +160,22 @@ export async function ensureMerchantRegistrationDocumentSchema(pool) {
 
   await pool.query(`
     DO $$
+    DECLARE
+      legacy_column TEXT;
     BEGIN
-      IF EXISTS (
-        SELECT 1
+      FOR legacy_column IN
+        SELECT column_name
         FROM information_schema.columns
         WHERE table_schema = current_schema()
           AND table_name = 'merchant_registration_documents'
-          AND column_name = 'email'
+          AND column_name IN ('email', 'kind')
           AND is_nullable = 'NO'
-      ) THEN
-        EXECUTE 'ALTER TABLE merchant_registration_documents
-          ALTER COLUMN email DROP NOT NULL';
-      END IF;
+      LOOP
+        EXECUTE format(
+          'ALTER TABLE merchant_registration_documents ALTER COLUMN %I DROP NOT NULL',
+          legacy_column
+        );
+      END LOOP;
     END $$;
   `)
 }

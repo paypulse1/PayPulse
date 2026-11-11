@@ -110,7 +110,7 @@ describe("merchant registration document schema compatibility", () => {
     expect(migration).toContain("ADD COLUMN IF NOT EXISTS size_bytes")
   })
 
-  it("makes the legacy email column nullable when present", async () => {
+  it("makes the legacy email and kind columns nullable when present", async () => {
     const calls = []
     const pool = {
       query: async (sql) => {
@@ -125,12 +125,13 @@ describe("merchant registration document schema compatibility", () => {
     const replacePrimaryKeyIndex = migration.indexOf(
       "ALTER TABLE merchant_registration_documents DROP CONSTRAINT",
     )
-    const dropEmailNotNullIndex = migration.indexOf(
-      "ALTER COLUMN email DROP NOT NULL",
+    const dropLegacyColumnsIndex = migration.indexOf(
+      "column_name IN ('email', 'kind')",
     )
 
     expect(replacePrimaryKeyIndex).toBeGreaterThan(-1)
     expect(migration).toContain("ADD PRIMARY KEY (id)")
-    expect(dropEmailNotNullIndex).toBeGreaterThan(replacePrimaryKeyIndex)
+    expect(dropLegacyColumnsIndex).toBeGreaterThan(replacePrimaryKeyIndex)
+    expect(migration).toContain("ALTER COLUMN %I DROP NOT NULL")
   })
 })
