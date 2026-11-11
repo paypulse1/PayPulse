@@ -279,6 +279,7 @@ export function useMerchantRegistration() {
     const file = event.target.files?.[0]
     if (!file) return
     setSelectedFiles((current) => ({ ...current, [documentType]: file }))
+    event.target.value = ""
   }
 
   return {

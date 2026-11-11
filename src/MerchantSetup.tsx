@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { Button } from "./AppPrimitives";
 import {
   createMerchantApiKey,
@@ -56,6 +56,7 @@ export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
   const [reviewNotes, setReviewNotes] = useState("");
   const [documents, setDocuments] = useState<KybDocument[]>([]);
   const [files, setFiles] = useState<Record<string, File | undefined>>({});
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -113,6 +114,9 @@ export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
       setDocuments(result.documents);
       setStatus(result.profile?.status || "PENDING");
       setFiles((current) => ({ ...current, [documentType]: undefined }));
+      if (fileInputRefs.current[documentType]) {
+        fileInputRefs.current[documentType]!.value = "";
+      }
       setNotice("Document uploaded securely.");
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Could not upload the KYB document.");
@@ -151,10 +155,16 @@ export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
               <label className="setup-file-button">
                 {files[documentType] ? "Change file" : existing ? "Replace" : "Choose file"}
                 <input
+                  ref={(node) => {
+                    fileInputRefs.current[documentType] = node;
+                  }}
                   type="file"
                   accept="application/pdf,image/jpeg,image/png"
                   disabled={status === "APPROVED"}
-                  onChange={(event: ChangeEvent<HTMLInputElement>) => setFiles((current) => ({ ...current, [documentType]: event.target.files?.[0] }))}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                    setFiles((current) => ({ ...current, [documentType]: event.target.files?.[0] }));
+                    event.target.value = "";
+                  }}
                 />
               </label>
               {files[documentType] && <button className="setup-link-button" type="button" disabled={busy !== ""} onClick={() => void uploadDocument(documentType)}>{busy === documentType ? "Uploading…" : "Upload"}</button>}

@@ -7,6 +7,7 @@ import {
   Mail,
   ShieldCheck,
 } from "lucide-react"
+import { useRef } from "react"
 import { Button } from "./AppPrimitives"
 import MerchantAuthLayout from "./MerchantAuthLayout"
 import {
@@ -107,6 +108,7 @@ export default function MerchantRegistration({
 }: {
   onBack: () => void
 }) {
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const {
     application,
     busy,
@@ -136,6 +138,11 @@ export default function MerchantRegistration({
     verifyCode,
     maximumOwnerDateOfBirth,
   } = useMerchantRegistration()
+
+  const clearDocumentInput = (documentType: string) => {
+    const input = fileInputRefs.current[documentType]
+    if (input) input.value = ""
+  }
 
   return (
     <MerchantAuthLayout
@@ -657,6 +664,9 @@ export default function MerchantRegistration({
                       ) : (
                         <div className="registration-document-action">
                           <input
+                            ref={(node) => {
+                              fileInputRefs.current[document.type] = node
+                            }}
                             type="file"
                             accept="application/pdf,image/jpeg,image/png"
                             disabled={isUploading}
@@ -669,9 +679,16 @@ export default function MerchantRegistration({
                               type="button"
                               variant="secondary"
                               disabled={isUploading}
-                              onClick={() =>
-                                void uploadDocument(document.type, selectedFile)
-                              }
+                              onClick={async () => {
+                                try {
+                                  await uploadDocument(
+                                    document.type,
+                                    selectedFile,
+                                  )
+                                } finally {
+                                  clearDocumentInput(document.type)
+                                }
+                              }}
                               icon={
                                 isUploading ? (
                                   <LoaderCircle className="spin" size={16} />
