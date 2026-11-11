@@ -63,23 +63,6 @@ export async function ensureMerchantRegistrationDocumentSchema(pool) {
         FROM information_schema.columns
         WHERE table_schema = current_schema()
           AND table_name = 'merchant_registration_documents'
-          AND column_name = 'email'
-          AND is_nullable = 'NO'
-      ) THEN
-        EXECUTE 'ALTER TABLE merchant_registration_documents
-          ALTER COLUMN email DROP NOT NULL';
-      END IF;
-    END $$;
-  `)
-
-  await pool.query(`
-    DO $$
-    BEGIN
-      IF EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = current_schema()
-          AND table_name = 'merchant_registration_documents'
           AND column_name = 'uploaded_at'
       )
       AND NOT EXISTS (
@@ -139,14 +122,55 @@ export async function ensureMerchantRegistrationDocumentSchema(pool) {
 
   await pool.query(`
     DO $$
+    DECLARE
+      existing_primary_key TEXT;
     BEGIN
+      SELECT conname INTO existing_primary_key
+      FROM pg_constraint
+      WHERE conrelid = 'merchant_registration_documents'::regclass
+        AND contype = 'p'
+        AND NOT (
+          array_length(conkey, 1) = 1
+          AND conkey[1] = (
+            SELECT attnum
+            FROM pg_attribute
+            WHERE attrelid = 'merchant_registration_documents'::regclass
+              AND attname = 'id'
+          )
+        );
+
+      IF existing_primary_key IS NOT NULL THEN
+        EXECUTE format(
+          'ALTER TABLE merchant_registration_documents DROP CONSTRAINT %I',
+          existing_primary_key
+        );
+      END IF;
+
       IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint
+        SELECT 1
+        FROM pg_constraint
         WHERE conrelid = 'merchant_registration_documents'::regclass
           AND contype = 'p'
       ) THEN
         ALTER TABLE merchant_registration_documents
           ADD PRIMARY KEY (id);
+      END IF;
+    END $$;
+  `)
+
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'merchant_registration_documents'
+          AND column_name = 'email'
+          AND is_nullable = 'NO'
+      ) THEN
+        EXECUTE 'ALTER TABLE merchant_registration_documents
+          ALTER COLUMN email DROP NOT NULL';
       END IF;
     END $$;
   `)

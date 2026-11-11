@@ -122,7 +122,15 @@ describe("merchant registration document schema compatibility", () => {
     await ensureMerchantRegistrationDocumentSchema(pool)
 
     const migration = calls.join("\n")
-    expect(migration).toContain("column_name = 'email'")
-    expect(migration).toContain("ALTER COLUMN email DROP NOT NULL")
+    const replacePrimaryKeyIndex = migration.indexOf(
+      "ALTER TABLE merchant_registration_documents DROP CONSTRAINT",
+    )
+    const dropEmailNotNullIndex = migration.indexOf(
+      "ALTER COLUMN email DROP NOT NULL",
+    )
+
+    expect(replacePrimaryKeyIndex).toBeGreaterThan(-1)
+    expect(migration).toContain("ADD PRIMARY KEY (id)")
+    expect(dropEmailNotNullIndex).toBeGreaterThan(replacePrimaryKeyIndex)
   })
 })
