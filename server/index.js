@@ -74,6 +74,9 @@ import {
   createMerchantActivationEmail,
   createMerchantApiGuideEmail,
 } from "./merchant-activation-email.js"
+import { sendMerchantEmails } from "./merchant-email-delivery.js"
+import { createMerchantKybReviewEmail } from "./merchant-kyb-review-email.js"
+import { createMerchantOtpEmail } from "./merchant-otp-email.js"
 import { createMerchantApiIntegrationGuidePdf } from "./merchant-api-integration-guide.js"
 import { createAlipayPlusAgreementPdf } from "./alipay-plus-agreement.js"
 import { createMerchantAgreementPdf } from "./merchant-agreement.js"
@@ -716,38 +719,8 @@ function biometricSecretHash(secret) {
     .digest("hex")
 }
 
-async function sendMerchantOtp(email, code) {
-  const subject = "Your DRPAY verification code"
-  const text = [
-    "DRPAY",
-    "",
-    "Confirm it's you",
-    `Use this one-time code to securely verify your DRPAY account or trusted device: ${code}`,
-    "",
-    "This code expires in 10 minutes. For your security, never share it with anyone. DRPAY will never ask you to share a verification code.",
-    "",
-    "If you did not request this code, you can safely ignore this email.",
-  ].join("\n")
-  const html = `
-    <div style="margin:0;padding:40px 16px;background:#f4f7f5;font-family:Arial,Helvetica,sans-serif;color:#17231d">
-      <div style="max-width:480px;margin:0 auto">
-        <div style="padding:0 4px 20px;color:#163c2a;font-size:18px;font-weight:700;letter-spacing:1px">DRPAY</div>
-        <div style="padding:32px;background:#ffffff;border:1px solid #e2e9e4;border-radius:16px">
-          <div style="margin-bottom:10px;color:#5d7867;font-size:11px;font-weight:700;letter-spacing:1.5px">SECURITY VERIFICATION</div>
-          <h1 style="margin:0 0 12px;font-size:24px;line-height:1.3">Confirm it’s you</h1>
-          <p style="margin:0;color:#58665e;font-size:14px;line-height:1.6">Enter this one-time code in DRPAY to verify your account or trusted device.</p>
-          <div style="margin:26px 0;padding:19px 12px;background:#f4f8f5;border:1px solid #e2e9e4;border-radius:12px;text-align:center">
-            <div style="color:#163c2a;font-size:32px;font-weight:700;letter-spacing:9px">${code}</div>
-          </div>
-          <p style="margin:0;color:#58665e;font-size:13px;line-height:1.6">This code expires in <strong style="color:#17231d">10 minutes</strong>.</p>
-          <div style="margin-top:22px;padding-top:18px;border-top:1px solid #e8ede9">
-            <p style="margin:0;color:#58665e;font-size:12px;line-height:1.6"><strong style="color:#17231d">Keep your account secure.</strong> Never share this code. DRPAY will never ask you to share a verification code.</p>
-          </div>
-        </div>
-        <p style="margin:18px 4px 0;color:#77847c;font-size:11px;line-height:1.6">If you didn’t request this code, you can safely ignore this email.</p>
-      </div>
-    </div>
-  `
+async function sendMerchantOtp(email, code, purpose) {
+  const message = createMerchantOtpEmail({ code, purpose })
   if (!resendFromEmail) {
     throw new Error(
       "A verified sender address is required to send verification codes.",
@@ -762,9 +735,7 @@ async function sendMerchantOtp(email, code) {
     body: JSON.stringify({
       from: resendFromEmail,
       to: [email],
-      subject,
-      text,
-      html,
+      ...message,
     }),
     signal: AbortSignal.timeout(10_000),
   })
@@ -783,6 +754,46 @@ async function sendMerchantOtp(email, code) {
     })
     throw new Error("Verification email could not be sent.")
   }
+}
+
+async function sendMerchantAccessReadyEmails(merchants) {
+  const portalUrl = new URL("/login", frontendOrigin).toString()
+  await sendMerchantEmails({
+    from: resendFromEmail,
+    apiKey: resendApiKey,
+    messages: merchants.map((merchant) => ({
+      to: merchant.email,
+      email: createMerchantActivationEmail({
+        contactPerson:
+          merchant.contactPerson || merchant.businessName || merchant.email,
+        businessName: merchant.businessName || merchant.email,
+        portalUrl,
+      }),
+    })),
+  })
+}
+
+async function sendMerchantKybReviewNotification(merchant, status, reviewNotes) {
+  const portalUrl = new URL("/login", frontendOrigin).toString()
+  await sendMerchantEmails({
+    from: resendFromEmail,
+    apiKey: resendApiKey,
+    messages: [
+      {
+        to: merchant.email,
+        email: createMerchantKybReviewEmail({
+          contactPerson:
+            merchant.contactPerson ||
+            merchant.businessName ||
+            merchant.email,
+          status,
+          reviewNotes: reviewNotes || "",
+          accessEnabled: merchant.active,
+          portalUrl,
+        }),
+      },
+    ],
+  })
 }
 
 function escapeEmailHtml(value) {
@@ -3053,7 +3064,7 @@ app.post(
     [challengeId, email, phoneNumber, codeHash, referralCode || null],
   )
   try {
-    await sendMerchantOtp(email, code)
+    await sendMerchantOtp(email, code, "registration")
   } catch {
     await pool.query("DELETE FROM merchant_registration_otps WHERE id = $1", [
       challengeId,
@@ -3879,7 +3890,7 @@ app.post("/v1/auth/device/otp/request", loginLimiter, async (req, res) => {
       [challengeId, email, tokenHash, codeHash],
     )
     try {
-      await sendMerchantOtp(email, code)
+      await sendMerchantOtp(email, code, "device")
     } catch {
       await pool.query("DELETE FROM merchant_email_otps WHERE id = $1", [
         challengeId,
@@ -5347,7 +5358,8 @@ app.post("/v1/admin/merchants/activate", async (req, res) => {
          registration_pending = FALSE,
          updated_at = NOW()
        WHERE email = ANY($1) AND active = FALSE
-       RETURNING email`,
+         RETURNING email, business_name AS "businessName",
+           contact_person AS "contactPerson"`,
       [emails],
     )
     for (const account of activated.rows) {
@@ -5361,8 +5373,22 @@ app.post("/v1/admin/merchants/activate", async (req, res) => {
       })
     }
     await client.query("COMMIT")
+    let activationEmailFailureCount = 0
+    if (activated.rows.length) {
+      try {
+        await sendMerchantAccessReadyEmails(activated.rows)
+      } catch (error) {
+        activationEmailFailureCount = activated.rows.length
+        console.error("Merchant access-ready email delivery failed", {
+          recipientCount: activated.rows.length,
+          error:
+            error instanceof Error ? error.name : "email provider error",
+        })
+      }
+    }
     return res.json({
       activatedEmails: activated.rows.map((account) => account.email),
+      activationEmailFailureCount,
     })
   } catch (error) {
     await client.query("ROLLBACK")
@@ -6345,7 +6371,7 @@ app.patch("/v1/admin/merchants/:email", async (req, res) => {
     await client.query("BEGIN")
     await client.query("SELECT pg_advisory_xact_lock(84172031)")
     const account = await client.query(
-      "SELECT email FROM merchant_accounts WHERE email = $1",
+      "SELECT email, active FROM merchant_accounts WHERE email = $1",
       [email],
     )
     if (!account.rowCount) {
@@ -6416,7 +6442,24 @@ app.patch("/v1/admin/merchants/:email", async (req, res) => {
       }.`,
     })
     await client.query("COMMIT")
-    return res.json({ ...result.rows[0], ...payout.rows[0] })
+    let activationEmailStatus
+    if (req.body.active && !account.rows[0].active) {
+      try {
+        await sendMerchantAccessReadyEmails([result.rows[0]])
+        activationEmailStatus = "sent"
+      } catch (error) {
+        activationEmailStatus = "failed"
+        console.error("Merchant access-ready email delivery failed", {
+          error:
+            error instanceof Error ? error.name : "email provider error",
+        })
+      }
+    }
+    return res.json({
+      ...result.rows[0],
+      ...payout.rows[0],
+      ...(activationEmailStatus ? { activationEmailStatus } : {}),
+    })
   } catch (error) {
     await client.query("ROLLBACK")
     throw error
@@ -6539,6 +6582,16 @@ app.patch("/v1/admin/kyb/:email", async (req, res) => {
       await client.query("ROLLBACK")
       return res.status(404).json({ error: "KYB application not found." })
     }
+    const merchant = await client.query(
+      `SELECT email, active, business_name AS "businessName",
+         contact_person AS "contactPerson"
+       FROM merchant_accounts WHERE email = $1`,
+      [email],
+    )
+    if (!merchant.rowCount) {
+      await client.query("ROLLBACK")
+      return res.status(404).json({ error: "Merchant account not found." })
+    }
     await recordAdminAuditEvent(client, {
       eventKey: `kyb-review:${randomUUID()}`,
       category: "KYB review",
@@ -6550,7 +6603,22 @@ app.patch("/v1/admin/kyb/:email", async (req, res) => {
         : "KYB application review recorded.",
     })
     await client.query("COMMIT")
-    return res.json(result.rows[0])
+    let emailNotificationStatus
+    try {
+      await sendMerchantKybReviewNotification(
+        merchant.rows[0],
+        status,
+        reviewNotes,
+      )
+      emailNotificationStatus = "sent"
+    } catch (error) {
+      emailNotificationStatus = "failed"
+      console.error("Merchant KYB notification email delivery failed", {
+        status,
+        error: error instanceof Error ? error.name : "email provider error",
+      })
+    }
+    return res.json({ ...result.rows[0], emailNotificationStatus })
   } catch (error) {
     await client.query("ROLLBACK")
     throw error

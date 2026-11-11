@@ -1767,18 +1767,23 @@ export async function getAdminMerchantAccounts(): Promise<AdminMerchantAccount[]
 
 export async function activateAdminMerchantAccounts(
   emails: string[],
-): Promise<{ activatedEmails: string[] }> {
+): Promise<{
+  activatedEmails: string[];
+  activationEmailFailureCount: number;
+}> {
   const activatedEmails: string[] = []
+  let activationEmailFailureCount = 0
   for (let start = 0; start < emails.length; start += 100) {
     try {
-      const result = await backendRequest<{ activatedEmails: string[] }>(
-        "/v1/admin/merchants/activate",
-        {
-          method: "POST",
-          body: JSON.stringify({ emails: emails.slice(start, start + 100) }),
-        },
-      )
+      const result = await backendRequest<{
+        activatedEmails: string[];
+        activationEmailFailureCount?: number;
+      }>("/v1/admin/merchants/activate", {
+        method: "POST",
+        body: JSON.stringify({ emails: emails.slice(start, start + 100) }),
+      })
       activatedEmails.push(...result.activatedEmails)
+      activationEmailFailureCount += result.activationEmailFailureCount ?? 0
     } catch (error) {
       if (activatedEmails.length && error instanceof Error) {
         throw new Error(
@@ -1788,7 +1793,7 @@ export async function activateAdminMerchantAccounts(
       throw error
     }
   }
-  return { activatedEmails }
+  return { activatedEmails, activationEmailFailureCount }
 }
 
 export async function activateAdminMerchantDownline(
@@ -2023,8 +2028,12 @@ export async function updateAdminMerchantAccount(
     accountName: string
     accountNumber: string
   },
-): Promise<AdminMerchantAccount> {
-  return backendRequest<AdminMerchantAccount>(
+): Promise<
+  AdminMerchantAccount & { activationEmailStatus?: "sent" | "failed" }
+> {
+  return backendRequest<
+    AdminMerchantAccount & { activationEmailStatus?: "sent" | "failed" }
+  >(
     `/v1/admin/merchants/${encodeURIComponent(email)}`,
     {
       method: "PATCH",
@@ -2151,6 +2160,7 @@ export async function reviewAdminKybApplication(
     merchantEmail: string
     status: AdminKybApplication["status"]
     reviewNotes: string | null
+    emailNotificationStatus?: "sent" | "failed"
   }>(`/v1/admin/kyb/${encodeURIComponent(email)}`, {
     method: "PATCH",
     body: JSON.stringify(input),

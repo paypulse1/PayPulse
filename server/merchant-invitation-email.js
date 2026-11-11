@@ -13,13 +13,15 @@ export function createMerchantInvitationEmail({
 }) {
   return createMerchantEmail({
     subject: `Your ${providerName} merchant invitation and agreements`,
-    title: `${providerName} merchant invitation`,
+    title: `Welcome to ${providerName}`,
+    preheader:
+      "Your merchant account is ready. Review the attached agreements.",
     greeting: contactPerson,
     paragraphs: [
       `${providerName} has invited ${businessName} to set up a merchant account.`,
       "Review and sign the attached Merchant Services Agreement. By signing, you agree to its strict confidentiality, non-disclosure, and data-protection obligations covering all non-public information connected with DRPAY, your account, customers, transactions, services, and this relationship.",
       "Review and sign the attached Alipay+ Service Access and Incorporation Addendum, which is between DRPAY and your business. Any applicable Alipay+, acquirer, or wallet terms will be identified and provided for your review before the related payment service is enabled.",
-      "Sign in using this email address and follow the email verification steps.",
+      "Sign in using the email address that received this invitation. When signing in from a new device, enter the one-time verification code sent to your inbox.",
     ],
     action: { label: "Open merchant portal", url: invitationUrl },
     documents: [
@@ -36,7 +38,7 @@ export function createMerchantInvitationEmail({
     ],
     footerNotes: [
       "STRICTLY CONFIDENTIAL: This message and every attachment are intended only for the named recipient and contain confidential information. The Merchant must protect them and may use or disclose them only as allowed by the signed Merchant Services Agreement. If you are not the intended recipient, do not use, copy, forward, or disclose this message; notify the sender and delete it.",
-      "Never send passwords, MPINs, or one-time verification codes by email.",
+      "Never reply to this email with a password, MPIN, or one-time verification code.",
     ],
     signature: providerName,
   })

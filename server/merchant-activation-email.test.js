@@ -5,26 +5,20 @@ import {
 } from "./merchant-activation-email.js"
 
 describe("merchant activation email", () => {
-  it("sends the API guide and collection instructions without issuing a key", () => {
+  it("confirms merchant access and explains how to verify a new device", () => {
     const email = createMerchantActivationEmail({
       contactPerson: "Alex Merchant",
       businessName: "Example Trading Co.",
       portalUrl: "https://merchant.example.test/",
-      postmanCollectionUrl:
-        "https://merchant.example.test/postman/DRPAY-Merchant-API.postman_collection.json",
     })
 
-    expect(email.subject).toContain("services are activated")
-    expect(email.text).toContain("completed its activation requirements")
+    expect(email.subject).toContain("merchant access is ready")
     expect(email.text).toContain(
-      "Generate your own environment-specific API key",
+      "account for Example Trading Co. is now active",
     )
-    expect(email.text).toContain("not included in this email")
-    expect(email.text).toContain("payload examples")
-    expect(email.html).toContain("Profile &gt; Developer hub &gt; API access")
-    expect(email.html).toContain("Download Postman collection")
-    expect(email.text).not.toContain("drp_production_")
-    expect(email.html).not.toContain("drp_production_")
+    expect(email.text).toContain("verification code sent to your inbox")
+    expect(email.html).toContain("Open merchant portal")
+    expect(email.text).not.toContain("API Integration Guide")
   })
 
   it("escapes untrusted values in HTML", () => {
@@ -32,7 +26,6 @@ describe("merchant activation email", () => {
       contactPerson: "<Merchant>",
       businessName: '"Example" <Trading>',
       portalUrl: "https://merchant.example.test/?name=<merchant>",
-      postmanCollectionUrl: "https://merchant.example.test/postman.json",
     })
 
     expect(email.html).toContain("&lt;Merchant&gt;")

@@ -39,6 +39,10 @@ describe("merchant invitation email", () => {
     expect(email.text).toContain(
       "before the related payment service is enabled",
     )
+    expect(email.text).toContain(
+      "one-time verification code sent to your inbox",
+    )
+    expect(email.html).toContain("Review and sign")
   })
 
   it("escapes untrusted values in the HTML body", () => {

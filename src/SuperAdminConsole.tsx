@@ -746,7 +746,7 @@ export function SuperAdminConsole({
     setError("")
     setNotice("")
     try {
-      await updateAdminMerchantAccount(account.email, {
+      const updated = await updateAdminMerchantAccount(account.email, {
         active: !account.active,
       })
       setSelectedMerchantEmails((current) =>
@@ -765,12 +765,18 @@ export function SuperAdminConsole({
             : item,
         ),
       )
+      const emailNotice =
+        updated.activationEmailStatus === "sent"
+          ? " Access-ready email sent."
+          : updated.activationEmailStatus === "failed"
+            ? " Access-ready email could not be sent."
+            : ""
       setNotice(
         account.registrationPending
-          ? `Registration approved. Merchant access enabled for ${account.email}.`
+          ? `Registration approved. Merchant access enabled for ${account.email}.${emailNotice}`
           : account.active
             ? "Merchant account disabled."
-            : `Merchant account enabled and API integration guide emailed to ${account.email}.`,
+            : `Merchant account enabled.${emailNotice}`,
       )
       await refreshAuditEvents()
     } catch (requestError) {
@@ -841,9 +847,10 @@ export function SuperAdminConsole({
     setError("")
     setNotice("")
     try {
-      const { activatedEmails } = await activateAdminMerchantAccounts(
-        accounts.map((account) => account.email),
-      )
+      const { activatedEmails, activationEmailFailureCount } =
+        await activateAdminMerchantAccounts(
+          accounts.map((account) => account.email),
+        )
       const activatedSet = new Set(activatedEmails)
       setMerchants((current) =>
         current.map((merchant) =>
@@ -862,11 +869,21 @@ export function SuperAdminConsole({
         ),
       )
       setNotice(
-        activatedEmails.length
-          ? `Merchant access enabled for ${activatedEmails.length} selected account${
-              activatedEmails.length === 1 ? "" : "s"
-            }.`
-          : "All selected merchant accounts already have access enabled.",
+        `${
+          activatedEmails.length
+            ? `Merchant access enabled for ${activatedEmails.length} selected account${
+                activatedEmails.length === 1 ? "" : "s"
+              }.`
+            : "All selected merchant accounts already have access enabled."
+        }${
+          activationEmailFailureCount
+            ? ` ${activationEmailFailureCount} access-ready email${
+                activationEmailFailureCount === 1 ? "" : "s"
+              } could not be sent.`
+            : activatedEmails.length
+              ? " Access-ready emails sent."
+              : ""
+        }`,
       )
       await refreshAuditEvents()
     } catch (requestError) {
@@ -1228,10 +1245,13 @@ export function SuperAdminConsole({
     setNotice("")
     setReviewingRequestId(application.merchantEmail)
     try {
-      await reviewAdminKybApplication(application.merchantEmail, {
-        status,
-        reviewNotes,
-      })
+      const result = await reviewAdminKybApplication(
+        application.merchantEmail,
+        {
+          status,
+          reviewNotes,
+        },
+      )
       setKybApplications((current) =>
         current.map((item) =>
           item.merchantEmail === application.merchantEmail
@@ -1242,7 +1262,14 @@ export function SuperAdminConsole({
       setMerchants((current) =>
         updateMerchantKybStatus(current, application.merchantEmail, status),
       )
-      setNotice(`KYB application ${status.replace("_", " ").toLowerCase()}.`)
+      const resultNotice = `KYB application ${status.replace("_", " ").toLowerCase()}.`
+      setNotice(
+        result.emailNotificationStatus === "failed"
+          ? `${resultNotice} Merchant notification email could not be sent.`
+          : result.emailNotificationStatus === "sent"
+            ? `${resultNotice} Merchant notification sent.`
+            : resultNotice,
+      )
       await refreshAuditEvents()
     } catch (requestError) {
       setError(

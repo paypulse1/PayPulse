@@ -142,10 +142,16 @@ test("admin merchant activation sends batches within the endpoint limit", async 
         emails: string[]
       }
       requests.push(emails)
-      return new Response(JSON.stringify({ activatedEmails: emails }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      })
+      return new Response(
+        JSON.stringify({
+          activatedEmails: emails,
+          activationEmailFailureCount: 1,
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      )
     },
   )
 
@@ -157,6 +163,7 @@ test("admin merchant activation sends batches within the endpoint limit", async 
 
   assert.deepEqual(await activateAdminMerchantAccounts(emails), {
     activatedEmails: emails,
+    activationEmailFailureCount: 3,
   })
   assert.deepEqual(
     requests.map((batch) => batch.length),
