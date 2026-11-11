@@ -14,6 +14,7 @@ import {
   type DashboardData,
   type Transaction,
 } from "./lib/swiftpay"
+import ScreenTitle from "./ScreenTitle"
 import useBalanceVisibility from "./useBalanceVisibility"
 
 const WALLET_ACTIVITY_FILTERS = [
@@ -168,11 +169,13 @@ export default function WalletScreen({
         >
           Back to Wallet
         </Button>
-        <div className="wallet-subpage-heading crypto-wallet-page-heading">
-          <span className="eyebrow">TRON · TRC20</span>
-          <h2>USDT wallet</h2>
-          <p>View your balance, receive USDT, and manage transfer requests.</p>
-        </div>
+        <ScreenTitle
+          className="wallet-subpage-heading crypto-wallet-page-heading"
+          eyebrow="TRON · TRC20"
+          title="USDT wallet"
+          level="h2"
+          description="View your balance, receive USDT, and manage transfer requests."
+        />
         {renderUsdtWallet(refreshVersion)}
       </section>
     )
@@ -188,14 +191,13 @@ export default function WalletScreen({
         >
           Back to Wallet
         </Button>
-        <div className="wallet-subpage-heading">
-          <span className="eyebrow">WALLET</span>
-          <h2>Unsettled Funds</h2>
-          <p>
-            Track your Alipay+ collection threshold for transferring unsettled
-            funds to your live DRPAY PHP wallet.
-          </p>
-        </div>
+        <ScreenTitle
+          className="wallet-subpage-heading"
+          eyebrow="WALLET"
+          title="Unsettled Funds"
+          level="h2"
+          description="Track your Alipay+ collection threshold for transferring unsettled funds to your live DRPAY PHP wallet."
+        />
         {renderUnsettledBalanceCard({ data, balanceVisible, refreshVersion })}
       </section>
     )

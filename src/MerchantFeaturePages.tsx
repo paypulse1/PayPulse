@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   Link2,
   LogOut,
+  type LucideIcon,
   ReceiptText,
   Settings,
   ShieldCheck,
@@ -23,7 +24,41 @@ import { Brand, Button } from "./AppPrimitives"
 import { APP_ROUTES } from "./lib/routes"
 import type { DashboardData, Session } from "./lib/swiftpay"
 import useBalanceVisibility from "./useBalanceVisibility"
+import ScreenTitle from "./ScreenTitle"
 import type { AppTab } from "./AppNavigation"
+
+type AccessMenuItem = {
+  label: string
+  description: string
+  icon: LucideIcon
+  action: () => void
+}
+
+function AccessMenuButton({ item }: { item: AccessMenuItem }) {
+  const Icon = item.icon
+
+  return (
+    <button
+      type="button"
+      className="all-access-item"
+      onClick={item.action}
+      aria-label={`${item.label}: ${item.description}`}
+    >
+      <span className="all-access-item-icon" aria-hidden="true">
+        <Icon size={19} strokeWidth={2} />
+      </span>
+      <span className="all-access-item-copy">
+        <strong>{item.label}</strong>
+        <small>{item.description}</small>
+      </span>
+      <ChevronRight
+        className="all-access-item-chevron"
+        size={16}
+        aria-hidden="true"
+      />
+    </button>
+  )
+}
 
 export function MerchantProfileView({
   session,
@@ -36,10 +71,12 @@ export function MerchantProfileView({
 
   return (
     <section className="merchant-profile-page" aria-label="Merchant profile">
-      <div className="profile-menu-heading">
-        <h2>Merchant profile</h2>
-        <p>Your merchant account information.</p>
-      </div>
+      <ScreenTitle
+        className="profile-menu-heading"
+        title="Merchant profile"
+        level="h2"
+        description="Your merchant account information."
+      />
       <MerchantProfileDetails
         session={session}
         data={data}
@@ -112,7 +149,7 @@ export function AllAccessView({
   onNavigate: (tab: AppTab) => void
   onCollect: () => void
 }) {
-  const items = [
+  const items: AccessMenuItem[] = [
     {
       label: "Dashboard",
       description: "View your balance and recent activity.",
@@ -223,8 +260,11 @@ export function AllAccessView({
         <button type="button" className="profile-back-button" onClick={onClose}>
           <ChevronLeft size={16} /> Dashboard
         </button>
-        <h2>All access</h2>
-        <p>Shortcuts to your merchant tools and account settings.</p>
+        <ScreenTitle
+          title="All access"
+          level="h2"
+          description="Shortcuts to your merchant tools and account settings."
+        />
       </header>
       <div className="profile-menu-heading">
         <h3>Merchant tools</h3>
@@ -233,17 +273,8 @@ export function AllAccessView({
         className="settings-list all-access-list"
         aria-label="Merchant tools"
       >
-        {items.map(({ label, description, icon: Icon, action }) => (
-          <button type="button" key={label} onClick={action}>
-            <span className="setting-icon">
-              <Icon size={20} strokeWidth={2} />
-            </span>
-            <span>
-              <strong>{label}</strong>
-              <small>{description}</small>
-            </span>
-            <ChevronRight size={17} />
-          </button>
+        {items.map((item) => (
+          <AccessMenuButton key={item.label} item={item} />
         ))}
       </nav>
       <Button

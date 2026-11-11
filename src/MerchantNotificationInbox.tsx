@@ -15,6 +15,7 @@ import {
   markMerchantNotificationRead,
   type MerchantNotification,
 } from "./lib/swiftpay"
+import PullToRefreshIndicator from "./PullToRefreshIndicator"
 
 function formatNotificationAmount(notification: MerchantNotification) {
   const amount = new Intl.NumberFormat("en-PH", {
@@ -172,27 +173,10 @@ export default function MerchantNotificationInbox({
 
   return (
     <div className="notification-inbox">
-      {(pullDistance > 0 || pullRefreshing) && (
-        <div className="pull-refresh-indicator" role="status" aria-live="polite">
-          <span
-            className={pullRefreshing ? "is-refreshing" : ""}
-            style={{
-              transform: `translateY(${
-                pullRefreshing ? 0 : pullDistance - 38
-              }px)`,
-            }}
-          >
-            <RefreshCw size={15} />
-          </span>
-          <small>
-            {pullRefreshing
-              ? "Refreshing…"
-              : pullDistance >= 58
-                ? "Release to refresh"
-                : "Pull to refresh"}
-          </small>
-        </div>
-      )}
+      <PullToRefreshIndicator
+        distance={pullDistance}
+        refreshing={pullRefreshing}
+      />
       <div className="notification-inbox-toolbar">
         <p>
           {unreadCount === 0

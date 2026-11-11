@@ -7,7 +7,6 @@ import {
   useState,
   type FormEvent,
   type ReactNode,
-  type TouchEvent,
 } from "react"
 import { Capacitor } from "@capacitor/core"
 import { App as CapacitorApp } from "@capacitor/app"
@@ -118,10 +117,14 @@ import {
 import type { MerchantQrDetails, TransferQrDetails } from "./lib/transferQr"
 import { parseScannedQr } from "./lib/transferQr"
 import { parseUsdtAmount } from "./lib/tronLink"
+import ScreenTitle from "./ScreenTitle"
+import { getMerchantScreenTitle } from "./lib/screenTitles"
 import MerchantAuthMethods from "./MerchantAuthMethods"
 import TransferReceiptActions from "./TransferReceiptActions"
 import VirtualAccountInformation from "./VirtualAccountInformation"
 import MerchantDownlineView from "./MerchantDownlineView"
+import PullToRefreshIndicator from "./PullToRefreshIndicator"
+import { usePullToRefresh } from "./usePullToRefresh"
 import {
   AllAccessView,
   MerchantProfileView,
@@ -5144,26 +5147,6 @@ function ProfileInfoPage({
   )
 }
 
-function hasScrolledNestedContainer(
-  target: EventTarget | null,
-  root: HTMLElement,
-) {
-  let element = target instanceof Element ? target : null
-  while (element && element !== root) {
-    const overflowY = window.getComputedStyle(element).overflowY
-    if (
-      element instanceof HTMLElement &&
-      ["auto", "scroll", "overlay"].includes(overflowY) &&
-      element.scrollHeight > element.clientHeight &&
-      element.scrollTop > 0
-    ) {
-      return true
-    }
-    element = element.parentElement
-  }
-  return false
-}
-
 export default function App() {
   const isUsdtPaymentPage =
     window.location.pathname.replace(/\/+$/, "") ===
@@ -5230,11 +5213,17 @@ export default function App() {
   } | null>(null)
   const [loading, setLoading] = useState(false)
   const [refreshVersion, setRefreshVersion] = useState(0)
-  const [pullDistance, setPullDistance] = useState(0)
-  const [pullRefreshing, setPullRefreshing] = useState(false)
-  const touchStartYRef = useRef<number | null>(null)
-  const touchStartXRef = useRef<number | null>(null)
-  const pullDistanceRef = useRef(0)
+  const {
+    handlers: pullRefreshHandlers,
+    isRefreshing: pullRefreshing,
+    pullDistance,
+  } = usePullToRefresh({
+    disabled: loading,
+    onRefresh: async () => {
+      setRefreshVersion((version) => version + 1)
+      await loadDashboard()
+    },
+  })
   const [error, setError] = useState("")
   const dismissedUpdateVersionRef = useRef("")
 
@@ -5579,62 +5568,6 @@ export default function App() {
     }
 
     setLoading(false)
-  }
-
-  function handleDashboardTouchStart(event: TouchEvent<HTMLDivElement>) {
-    if (
-      loading ||
-      pullRefreshing ||
-      event.touches.length !== 1 ||
-      event.currentTarget.scrollTop > 0 ||
-      hasScrolledNestedContainer(event.target, event.currentTarget)
-    ) {
-      touchStartYRef.current = null
-      touchStartXRef.current = null
-      return
-    }
-    touchStartYRef.current = event.touches[0].clientY
-    touchStartXRef.current = event.touches[0].clientX
-  }
-
-  function handleDashboardTouchMove(event: TouchEvent<HTMLDivElement>) {
-    const startY = touchStartYRef.current
-    const startX = touchStartXRef.current
-    if (startY === null || startX === null || event.touches.length !== 1) return
-    const deltaY = event.touches[0].clientY - startY
-    const deltaX = event.touches[0].clientX - startX
-    if (Math.abs(deltaX) > Math.abs(deltaY)) {
-      touchStartYRef.current = null
-      touchStartXRef.current = null
-      pullDistanceRef.current = 0
-      setPullDistance(0)
-      return
-    }
-    const distance = deltaY
-    if (distance <= 0) {
-      pullDistanceRef.current = 0
-      setPullDistance(0)
-      return
-    }
-    const nextDistance = Math.min(84, distance * 0.55)
-    pullDistanceRef.current = nextDistance
-    setPullDistance(nextDistance)
-  }
-
-  async function handleDashboardTouchEnd() {
-    const shouldRefresh = !loading && pullDistanceRef.current >= 58
-    touchStartYRef.current = null
-    touchStartXRef.current = null
-    pullDistanceRef.current = 0
-    setPullDistance(0)
-    if (!shouldRefresh) return
-    setPullRefreshing(true)
-    setRefreshVersion((version) => version + 1)
-    try {
-      await loadDashboard()
-    } finally {
-      setPullRefreshing(false)
-    }
   }
 
   useEffect(() => {
@@ -5996,16 +5929,12 @@ export default function App() {
         <main
           className="dashboard-error-screen error-screen"
           role="alert"
-          onTouchStart={handleDashboardTouchStart}
-          onTouchMove={handleDashboardTouchMove}
-          onTouchEnd={() => void handleDashboardTouchEnd()}
-          onTouchCancel={() => {
-            touchStartYRef.current = null
-            touchStartXRef.current = null
-            pullDistanceRef.current = 0
-            setPullDistance(0)
-          }}
+          {...pullRefreshHandlers}
         >
+          <PullToRefreshIndicator
+            distance={pullDistance}
+            refreshing={pullRefreshing}
+          />
           <p className="profile-info-note">Pull down to try again.</p>
           <AlertCircle size={28} />
           <h1>Wallet unavailable</h1>
@@ -6028,23 +5957,15 @@ export default function App() {
     <div className="app-stage">
       <main className="mobile-app">
         <header className="app-header">
-          <h1 className="app-header-title">
-            {profileSection ||
-              (allAccessPage
-                ? "All access"
-                : activeTab === "Home"
-              ? "Dashboard"
-              : activeTab === "Transfer"
-                ? "Transfers"
-                : activeTab === "Profile"
-                  ? "Profile"
-                  : activeTab === "Wallet" && walletSubscreen === "usdt"
-                    ? "USDT"
-                    : activeTab === "Wallet" &&
-                        walletSubscreen === "unsettled-balance"
-                      ? "Pendings"
-                      : activeTab)}
-          </h1>
+          <ScreenTitle
+            title={getMerchantScreenTitle({
+              profileSection,
+              allAccessPage,
+              activeTab,
+              walletSubscreen,
+            })}
+            className="app-header-title"
+          />
           <div className="header-actions">
             <IconButton
               label={`Notifications${
@@ -6066,43 +5987,11 @@ export default function App() {
           </div>
         </header>
 
-        <div
-          className="app-scroll"
-          onTouchStart={handleDashboardTouchStart}
-          onTouchMove={handleDashboardTouchMove}
-          onTouchEnd={() => void handleDashboardTouchEnd()}
-          onTouchCancel={() => {
-            touchStartYRef.current = null
-            touchStartXRef.current = null
-            pullDistanceRef.current = 0
-            setPullDistance(0)
-          }}
-        >
-          {(pullDistance > 0 || pullRefreshing) && (
-            <div
-              className="pull-refresh-indicator"
-              role="status"
-              aria-live="polite"
-            >
-              <span
-                className={pullRefreshing ? "is-refreshing" : ""}
-                style={{
-                  transform: `translateY(${
-                    pullRefreshing ? 0 : pullDistance - 38
-                  }px)`,
-                }}
-              >
-                <RefreshCw size={15} />
-              </span>
-              <small>
-                {pullRefreshing
-                  ? "Refreshing…"
-                  : pullDistance >= 58
-                    ? "Release to refresh"
-                    : "Pull to refresh"}
-              </small>
-            </div>
-          )}
+        <div className="app-scroll" {...pullRefreshHandlers}>
+          <PullToRefreshIndicator
+            distance={pullDistance}
+            refreshing={pullRefreshing}
+          />
           {error && (
             <div className="data-warning">
               <AlertCircle size={15} />
@@ -6306,15 +6195,7 @@ export default function App() {
           className="sheet-backdrop"
           role="presentation"
           onMouseDown={() => setShowNotifications(false)}
-          onTouchStart={handleDashboardTouchStart}
-          onTouchMove={handleDashboardTouchMove}
-          onTouchEnd={() => void handleDashboardTouchEnd()}
-          onTouchCancel={() => {
-            touchStartYRef.current = null
-            touchStartXRef.current = null
-            pullDistanceRef.current = 0
-            setPullDistance(0)
-          }}
+          {...pullRefreshHandlers}
         >
           <AccessibleDialog
             className="payment-sheet"
