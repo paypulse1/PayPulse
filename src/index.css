@@ -242,29 +242,32 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .merchant-downline-locked > strong { font-size: 11px; }
 .merchant-downline-locked > p, .merchant-downline-locked > small { margin: 0; color: var(--muted); font-size: 8px; line-height: 1.55; }
 .merchant-downline-referral { margin-bottom: 16px; }
-.merchant-downline-referral > div { display: grid; gap: 5px; }
-.merchant-downline-referral > div > span { color: var(--muted); font-size: 8px; }
-.merchant-downline-referral > div > strong { font-size: 18px; letter-spacing: .12em; }
-.merchant-downline-referral > .button { width: 100%; }
-.merchant-downline-referral > small { color: var(--muted); font-size: 8px; }
+.merchant-downline-referral-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; }
+.merchant-downline-referral-header > div { min-width: 0; display: grid; gap: 5px; }
+.merchant-downline-referral-header > div > span { color: var(--muted); font-size: 8px; }
+.merchant-downline-referral-header > div > strong { display: block; font-size: 18px; letter-spacing: .12em; overflow-wrap: anywhere; }
+.merchant-downline-copy-button { min-height: 38px; padding-inline: 12px; white-space: nowrap; }
+.merchant-downline-referral > small { display: block; color: var(--muted); font-size: 8px; }
 .merchant-downline-list-heading { margin: 16px 3px 8px; display: flex; align-items: center; justify-content: space-between; }
 .merchant-downline-list-heading h3 { margin: 0; font-size: 10px; }
 .merchant-downline-list-heading > span { min-width: 22px; padding: 4px 7px; border-radius: 999px; background: var(--blue); color: var(--link); font-size: 8px; font-weight: 800; text-align: center; }
-.merchant-downline-list { display: grid; gap: 8px; }
-.merchant-downline-list > article { min-width: 0; padding: 11px; display: flex; flex-wrap: wrap; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); }
-.merchant-downline-list > article > div { min-width: 0; flex: 1; display: grid; gap: 3px; }
-.merchant-downline-list > article > div > strong { font-size: 9px; overflow-wrap: anywhere; }
-.merchant-downline-list > article > div > small { color: var(--muted); font-size: 7px; overflow-wrap: anywhere; }
-.merchant-downline-status { padding: 4px 6px; border-radius: 999px; background: var(--surface-soft); color: var(--muted); font-size: 6px; font-weight: 800; white-space: nowrap; }
+.merchant-downline-list { display: grid; gap: 10px; }
+.merchant-downline-list > article { min-width: 0; padding: 12px 12px 10px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px 10px; border: 1px solid var(--line); border-radius: 15px; background: var(--surface); box-shadow: 0 6px 14px rgb(16 35 61 / 4%); }
+.merchant-downline-list > article > .merchant-downline-icon { width: 36px; height: 36px; border-radius: 11px; }
+.merchant-downline-list > article > div { min-width: 0; display: grid; gap: 3px; }
+.merchant-downline-list > article > div > strong { font-size: 9px; line-height: 1.35; overflow-wrap: anywhere; }
+.merchant-downline-list > article > div > small { color: var(--muted); font-size: 7px; line-height: 1.45; overflow-wrap: anywhere; }
+.merchant-downline-status { justify-self: end; padding: 4px 7px; border-radius: 999px; background: var(--surface-soft); color: var(--muted); font-size: 6px; font-weight: 800; letter-spacing: .04em; white-space: nowrap; }
 .merchant-downline-status.is-active { background: var(--success-soft); color: var(--success); }
 .merchant-downline-status.is-pending { background: var(--warning-soft); color: var(--warning); }
-.merchant-downline-rate { width: 100%; padding-top: 9px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 7px; border-top: 1px solid var(--line); }
+.merchant-downline-rate { width: 100%; grid-column: 1 / -1; padding-top: 10px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 7px; border-top: 1px solid var(--line); }
 .merchant-downline-rate > label { min-width: 0; display: grid; gap: 4px; }
 .merchant-downline-rate > label > span:first-child { color: var(--muted); font-size: 7px; font-weight: 700; }
 .merchant-downline-rate-input { min-width: 0; display: flex; align-items: center; gap: 6px; }
-.merchant-downline-rate-input > input { width: 100%; min-width: 0; height: 34px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); font-size: 9px; }
+.merchant-downline-rate-input > input { width: 100%; min-width: 0; height: 34px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); font-size: 9px; color: var(--ink); }
+.merchant-downline-rate-input > input:focus { border-color: var(--brand-blue); box-shadow: 0 0 0 3px rgb(34 87 165 / 8%); outline: none; }
 .merchant-downline-rate-input > span { color: var(--muted); font-size: 8px; font-weight: 700; }
-.merchant-downline-rate > .button { min-height: 34px; padding-inline: 9px; font-size: 8px; }
+.merchant-downline-save-button { min-height: 34px; padding-inline: 9px; font-size: 8px; }
 .merchant-downline-rate > small { grid-column: 1 / -1; color: var(--muted); font-size: 7px; }
 .wallet-page, .transfers-page { padding-top: 4px; }
 .wallet-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
@@ -534,11 +537,15 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .auth-screen :where(p, small),
 .checkout-screen :where(p, small) { line-height: 1.45; }
 
-.button { min-height: 44px; padding: 0 17px; border: 1px solid transparent; border-radius: var(--radius-control); display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-size: 10px; font-weight: 750; }
+.button { min-height: 44px; padding: 0 17px; border: 1px solid transparent; border-radius: var(--radius-control); display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-size: 10px; font-weight: 750; line-height: 1.2; transition: background-color var(--motion-fast) var(--motion-ease), border-color var(--motion-fast) var(--motion-ease), box-shadow var(--motion-fast) var(--motion-ease), transform var(--motion-fast) var(--motion-ease), opacity var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease); }
+.button-size-sm { min-height: 34px; padding: 0 12px; font-size: 9px; }
+.button-size-lg { min-height: 48px; padding: 0 19px; font-size: 11px; }
 .button-primary { background: linear-gradient(135deg, var(--brand-navy), #153c70); color: white; box-shadow: 0 5px 12px rgb(11 31 58 / 14%); }
 .button-secondary { background: var(--surface); border-color: var(--line); color: var(--brand-navy); }
+.button-secondary:not(:disabled):hover { border-color: #bdcbe0; background: #f8fafd; }
 .button-quiet { background: transparent; color: var(--brand-blue); }
-.button:disabled { opacity: .55; box-shadow: none; }
+.button:disabled { opacity: .55; box-shadow: none; cursor: not-allowed; }
+.button:not(:disabled):active { transform: translateY(1px) scale(.99); }
 .sheet-backdrop.biometric-backdrop { z-index: 60; align-items: flex-end; }
 .biometric-prompt { display: flex; flex-direction: column; align-items: stretch; gap: 12px; padding-bottom: calc(24px + env(safe-area-inset-bottom)); text-align: center; }
 .biometric-prompt .sheet-handle { flex: 0 0 auto; }

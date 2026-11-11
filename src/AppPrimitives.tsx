@@ -31,6 +31,7 @@ type ButtonProps = {
   onClick?: () => void
   type?: "button" | "submit"
   variant?: "primary" | "secondary" | "quiet"
+  size?: "sm" | "md" | "lg"
   disabled?: boolean
 }
 
@@ -125,14 +126,23 @@ export function Button({
   onClick,
   type = "button",
   variant = "primary",
+  size = "md",
   disabled,
 }: ButtonProps) {
   const buttonIcon = icon || getActionIcon(children, type)
+  const classes = [
+    "button",
+    `button-${variant}`,
+    `button-size-${size}`,
+    className,
+  ]
+    .filter(Boolean)
+    .join(" ")
 
   return (
     <button
       type={type}
-      className={`button button-${variant} ${className}`}
+      className={classes}
       onClick={onClick}
       disabled={disabled}
     >
