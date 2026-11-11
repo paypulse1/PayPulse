@@ -109,4 +109,20 @@ describe("merchant registration document schema compatibility", () => {
     expect(migration).toContain("ADD COLUMN IF NOT EXISTS content_type")
     expect(migration).toContain("ADD COLUMN IF NOT EXISTS size_bytes")
   })
+
+  it("makes the legacy email column nullable when present", async () => {
+    const calls = []
+    const pool = {
+      query: async (sql) => {
+        calls.push(sql)
+        return { rows: [] }
+      },
+    }
+
+    await ensureMerchantRegistrationDocumentSchema(pool)
+
+    const migration = calls.join("\n")
+    expect(migration).toContain("column_name = 'email'")
+    expect(migration).toContain("ALTER COLUMN email DROP NOT NULL")
+  })
 })
