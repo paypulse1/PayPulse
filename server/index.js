@@ -1472,6 +1472,7 @@ function matchesPasswordHash(candidate, salt, expectedHash) {
 async function initializeDatabase() {
   const initializationStartedAt = Date.now()
   console.info("Database schema initialization started")
+  await pool.query("CREATE EXTENSION IF NOT EXISTS pgcrypto;")
   await pool.query(`
     CREATE TABLE IF NOT EXISTS merchant_accounts (
       email TEXT PRIMARY KEY,

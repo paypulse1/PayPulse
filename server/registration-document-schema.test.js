@@ -1,7 +1,14 @@
+import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import { ensureMerchantRegistrationDocumentSchema } from "./registration-document-schema.js"
 
 describe("merchant registration document schema compatibility", () => {
+  it("bootstraps pgcrypto before uuid-based migration logic", () => {
+    const migrationSql = readFileSync(new URL("./index.js", import.meta.url), "utf8")
+
+    expect(migrationSql).toContain("CREATE EXTENSION IF NOT EXISTS pgcrypto;")
+  })
+
   it("adds the missing id column and backfills legacy rows", async () => {
     const calls = []
     const pool = {

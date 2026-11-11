@@ -1,4 +1,10 @@
+async function ensurePgcryptoExtension(pool) {
+  await pool.query("CREATE EXTENSION IF NOT EXISTS pgcrypto;")
+}
+
 export async function ensureMerchantRegistrationDocumentSchema(pool) {
+  await ensurePgcryptoExtension(pool)
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS merchant_registration_documents (
       id UUID PRIMARY KEY,
@@ -130,6 +136,8 @@ export async function ensureMerchantRegistrationDocumentSchema(pool) {
 }
 
 export async function ensureMerchantKybDocumentSchema(pool) {
+  await ensurePgcryptoExtension(pool)
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS merchant_kyb_documents (
       id UUID PRIMARY KEY,
