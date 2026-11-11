@@ -3101,6 +3101,7 @@ function HomeView({
   onActivity,
   onCrypto,
   onPendings,
+  onAllAccess,
   onTransaction,
 }: {
   data: DashboardData
@@ -3111,6 +3112,7 @@ function HomeView({
   onActivity: () => void
   onCrypto: () => void
   onPendings: () => void
+  onAllAccess: () => void
   onTransaction: (transaction: Transaction) => void
 }) {
   const { balanceVisible, toggleBalanceVisibility } = useBalanceVisibility()
@@ -3153,6 +3155,11 @@ function HomeView({
           icon={<Clock3 size={21} />}
           label="Pendings"
           onClick={onPendings}
+        />
+        <QuickAction
+          icon={<LayoutDashboard size={21} />}
+          label="All access"
+          onClick={onAllAccess}
         />
       </section>
 
@@ -6030,18 +6037,6 @@ export default function App() {
                       : activeTab)}
           </h1>
           <div className="header-actions">
-            {activeTab === "Home" && !allAccessPage && (
-              <button
-                type="button"
-                className="all-access-trigger"
-                onClick={() => {
-                  setProfileSection("")
-                  setAllAccessPage(true)
-                }}
-              >
-                All access
-              </button>
-            )}
             <IconButton
               label={`Notifications${
                 unreadNotificationCount
@@ -6136,6 +6131,10 @@ export default function App() {
                 onPendings={() => {
                   setWalletSubscreen("unsettled-balance")
                   setActiveTab("Wallet")
+                }}
+                onAllAccess={() => {
+                  setProfileSection("")
+                  setAllAccessPage(true)
                 }}
                 onTransaction={setSelectedTransaction}
               />
