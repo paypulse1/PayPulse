@@ -92,7 +92,7 @@ import {
   sendTelegramMessage,
 } from "./telegram-notifications.js"
 import { createPinnedLookup } from "./pinned-lookup.js"
-import { createPrivateDocumentUploadCommand } from "./private-document-upload.js"
+import { getPrivateDocumentUploadUrl } from "./private-document-upload.js"
 import {
   ensureMerchantKybDocumentSchema,
   ensureMerchantRegistrationDocumentSchema,
@@ -3225,15 +3225,12 @@ app.post(
       ],
     )
     try {
-      const uploadUrl = await getSignedUrl(
+      const uploadUrl = await getPrivateDocumentUploadUrl(
         r2Client,
-        createPrivateDocumentUploadCommand(
-          r2BucketName,
-          objectKey,
-          normalizedContentType,
-          documentId,
-        ),
-        { expiresIn: 300 },
+        r2BucketName,
+        objectKey,
+        normalizedContentType,
+        documentId,
       )
       return res.set("Cache-Control", "no-store").json({
         documentId,
@@ -7651,15 +7648,12 @@ app.post("/v1/kyb/documents/presign", async (req, res) => {
     ],
   )
   try {
-    const uploadUrl = await getSignedUrl(
+    const uploadUrl = await getPrivateDocumentUploadUrl(
       r2Client,
-      createPrivateDocumentUploadCommand(
-        r2BucketName,
-        objectKey,
-        normalizedContentType,
-        documentId,
-      ),
-      { expiresIn: 300 },
+      r2BucketName,
+      objectKey,
+      normalizedContentType,
+      documentId,
     )
     return res.set("Cache-Control", "no-store").json({
       documentId,
