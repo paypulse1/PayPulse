@@ -77,15 +77,11 @@ jobs:
           python3 -m pip install --disable-pip-version-check "google-auth[requests]>=2,<3"
           python3 android/publish_to_play.py --update-listing
 
-      - name: Publish public app to closed testing
+      - name: Publish app to closed testing
         if: github.event_name == 'workflow_dispatch' && inputs.action == 'publish-closed-test'
         env:
           GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           ANDROID_APPLICATION_ID: ${{ inputs.application == 'public' && 'ph.drpays.merchant.public' || 'ph.drpays.merchant' }}
         run: |
-          if [[ "$ANDROID_APPLICATION_ID" != "ph.drpays.merchant.public" ]]; then
-            echo "Closed-test setup is only enabled for the public app." >&2
-            exit 1
-          fi
           python3 -m pip install --disable-pip-version-check "google-auth[requests]>=2,<3"
           python3 android/publish_to_play.py --publish-closed-test

@@ -397,7 +397,7 @@ def main() -> None:
             and release.get("versionCodes")
         ]
         if not completed_releases:
-            raise RuntimeError("The public app has no completed internal release")
+            raise RuntimeError("The app has no completed internal release")
         release = max(
             completed_releases,
             key=lambda item: max(int(code) for code in item["versionCodes"]),
@@ -419,7 +419,7 @@ def main() -> None:
             ]
             if int(version_code) in existing_version_codes:
                 print(
-                    f"Public app version {version_name} is already on "
+                    f"App version {version_name} is already on "
                     f"the {closed_track} track."
                 )
                 return
@@ -443,7 +443,7 @@ def main() -> None:
             status="completed",
         )
         print(
-            f"Published public app version {version_name} ({version_code}) "
+            f"Published {PACKAGE_NAME} version {version_name} ({version_code}) "
             "to the alpha closed-testing track."
         )
         return
