@@ -387,7 +387,11 @@
           "description": { "type": "string", "minLength": 1, "maxLength": 100 },
           "customerEmail": { "type": "string", "format": "email", "maxLength": 254 },
           "collectionAmountKrw": { "type": "integer", "minimum": 1, "description": "Optional whole-number KRW display amount associated with a PHP checkout." },
-          "institutionCode": { "type": "string", "maxLength": 64 },
+          "institutionCode": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "Use DRPAY_VIRTUAL_ACCOUNT with institutionName Virtual Account to include provider-returned Virtual Account details."
+          },
           "institutionName": { "type": "string", "maxLength": 120 },
           "institutionLogoUrl": { "type": "string", "format": "uri" },
           "institutionDeepLink": { "type": "string", "format": "uri" },
@@ -410,10 +414,20 @@
           "status": { "type": "string" },
           "amount": { "type": "number" },
           "currency": { "type": "string", "enum": ["PHP"] },
+          "virtualAccountInfo": { "$ref": "#/components/schemas/VirtualAccountInfo" },
           "requestEmailStatus": {
             "type": "string",
             "enum": ["queued", "sent", "no_customer_email", "queue_failed"]
           }
+        }
+      },
+      "VirtualAccountInfo": {
+        "type": "object",
+        "description": "SwiftPay-provided Virtual Account details associated with the generated QRPH code.",
+        "properties": {
+          "bankAccountNumber": { "type": "string" },
+          "instapayBankCode": { "type": "string" },
+          "referenceNo": { "type": "string" }
         }
       },
       "PaymentLinkStatus": {

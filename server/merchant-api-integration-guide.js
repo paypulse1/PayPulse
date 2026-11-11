@@ -259,6 +259,9 @@ export async function createMerchantApiIntegrationGuidePdf({
       '/v1/public/checkout/opaque_checkout_code/qr.png",\n  "status": "PENDING",\n  "amount": 125.50,\n  "currency": "PHP",\n  "requestEmailStatus": "queued"\n}',
     127,
   )
+  drawParagraph(
+    "To request Virtual Account details with the QRPH code, set institutionCode to DRPAY_VIRTUAL_ACCOUNT and institutionName to Virtual Account. The response and hosted checkout include SwiftPay's documented bankAccountNumber, instapayBankCode, and referenceNo fields when returned.",
+  )
 
   page = document.addPage([pageWidth, pageHeight])
   drawHeader(page, 3)

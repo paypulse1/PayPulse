@@ -7,9 +7,14 @@ import {
   ShieldCheck,
   TriangleAlert,
 } from "lucide-react"
-import { getPublicCheckout, type PublicCheckout } from "./lib/swiftpay"
+import {
+  getPublicCheckout,
+  VIRTUAL_ACCOUNT_INSTITUTION_CODE,
+  type PublicCheckout,
+} from "./lib/swiftpay"
 import { APP_ROUTES } from "./lib/routes"
 import QrPaymentDisplay from "./QrPaymentDisplay"
+import VirtualAccountInformation from "./VirtualAccountInformation"
 
 type GoogleSurveyOptInApi = {
   load: (api: string, callback: () => void) => void
@@ -314,20 +319,33 @@ export default function Checkout({ code }: { code: string }) {
                 help.
               </div>
             ) : (
-              <QrPaymentDisplay
-                value={checkout.qrCode}
-                showBirLogo={checkout.isTaxInvoice}
-                institution={
-                  checkout.institutionCode && checkout.institutionName
-                    ? {
-                        code: checkout.institutionCode,
-                        name: checkout.institutionName,
-                        logoUrl: checkout.institutionLogoUrl || undefined,
-                        deepLink: checkout.institutionDeepLink || undefined,
-                      }
-                    : undefined
-                }
-              />
+              <>
+                <QrPaymentDisplay
+                  value={checkout.qrCode}
+                  showBirLogo={checkout.isTaxInvoice}
+                  institution={
+                    checkout.institutionCode && checkout.institutionName
+                      ? {
+                          code: checkout.institutionCode,
+                          name: checkout.institutionName,
+                          logoUrl: checkout.institutionLogoUrl || undefined,
+                          deepLink: checkout.institutionDeepLink || undefined,
+                        }
+                      : undefined
+                  }
+                />
+                {checkout.institutionCode ===
+                  VIRTUAL_ACCOUNT_INSTITUTION_CODE && (
+                  <VirtualAccountInformation
+                    information={checkout.virtualAccountInfo}
+                    showReference={
+                      Boolean(checkout.virtualAccountInfo?.referenceNo) &&
+                      checkout.virtualAccountInfo?.referenceNo !==
+                        checkout.referenceNo
+                    }
+                  />
+                )}
+              </>
             )}
 
             {!terminal && (

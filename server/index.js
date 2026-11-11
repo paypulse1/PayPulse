@@ -87,6 +87,11 @@ import {
   paymentLinkRequestFingerprint,
 } from "./payment-link-idempotency.js"
 import {
+  VIRTUAL_ACCOUNT_INSTITUTION_CODE,
+  virtualAccountInformationFromProvider,
+  virtualAccountInformationFromRow,
+} from "./virtual-account-info.js"
+import {
   canManuallyConfirmPayment,
   createPaymentStateService,
 } from "./payment-state.js"
@@ -107,6 +112,8 @@ const platformFeeLedgerSourceTypesSql = PLATFORM_FEE_LEDGER_SOURCE_TYPES.map(
 ).join(", ")
 const defaultCheckoutInstructions =
   "Open your {bank} or supported banking app.\nOpen your {bank} QR scanner and scan the code above.\nConfirm the PHP amount before completing payment."
+const defaultVirtualAccountCheckoutInstructions =
+  "Scan this QR with your supported bank app, or use the Virtual Account number and InstaPay bank code below to make a bank transfer.\nConfirm the PHP amount and payment reference before completing payment."
 const defaultPaymentEmailSubject = "DRPAY: Payment request · {{reference}}"
 const defaultPaymentEmailMessage =
   "A payment has been requested. Review the details below to continue."
@@ -1985,6 +1992,9 @@ async function initializeDatabase() {
       payment_institution_name TEXT,
       payment_institution_logo_url TEXT,
       payment_institution_deep_link TEXT,
+      virtual_account_bank_account_number TEXT,
+      virtual_account_instapay_bank_code TEXT,
+      virtual_account_reference_no TEXT,
       payment_url TEXT,
       checkout_type TEXT NOT NULL DEFAULT 'PAYMENT_LINK',
       payment_token TEXT,
@@ -2161,6 +2171,9 @@ async function initializeDatabase() {
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_institution_name TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_institution_logo_url TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS payment_institution_deep_link TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS virtual_account_bank_account_number TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS virtual_account_instapay_bank_code TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS virtual_account_reference_no TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS merchant_email TEXT REFERENCES merchant_accounts(email) ON DELETE CASCADE;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS customer_email TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS estimated_delivery_date DATE;
@@ -6700,9 +6713,11 @@ app.get(
     if (!/^[A-Za-z0-9_-]{40,50}$/.test(code))
       return res.status(404).json({ error: "Checkout not found." })
     const record = await pool.query(
-      `SELECT code, title, reference_no, amount::float8 AS amount, currency, status, payment_token, qr_payload,
+      `SELECT id, code, title, reference_no, amount::float8 AS amount, currency, status, payment_token, qr_payload,
         payment_institution_code, payment_institution_name, payment_institution_logo_url,
-        payment_institution_deep_link, checkout_instructions, email_subject,
+        payment_institution_deep_link, virtual_account_bank_account_number,
+        virtual_account_instapay_bank_code, virtual_account_reference_no,
+        checkout_instructions, email_subject,
         email_brand_color, email_logo_url, customer_email,
         to_char(estimated_delivery_date, 'YYYY-MM-DD') AS estimated_delivery_date
      FROM payment_links WHERE code = $1 AND checkout_type = 'DIRECT_QRPH'`,
@@ -6762,10 +6777,15 @@ app.get(
       institutionName: row.payment_institution_name,
       institutionLogoUrl: row.payment_institution_logo_url,
       institutionDeepLink: row.payment_institution_deep_link,
-      checkoutInstructions: row.checkout_instructions.replaceAll(
-        "{bank}",
-        row.payment_institution_name || "bank",
-      ),
+      virtualAccountInfo: virtualAccountInformationFromRow(row),
+      checkoutInstructions:
+        row.payment_institution_code === VIRTUAL_ACCOUNT_INSTITUTION_CODE &&
+        row.checkout_instructions === defaultCheckoutInstructions
+          ? defaultVirtualAccountCheckoutInstructions
+          : row.checkout_instructions.replaceAll(
+              "{bank}",
+              row.payment_institution_name || "bank",
+            ),
       brandColor: row.email_brand_color,
       logoUrl: row.email_logo_url,
     })
@@ -9456,6 +9476,8 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
     typeof req.body?.institutionName === "string"
       ? req.body.institutionName.trim()
       : ""
+  const isVirtualAccount =
+    institutionCode === VIRTUAL_ACCOUNT_INSTITUTION_CODE
   const submittedLogoUrl = req.body?.institutionLogoUrl
   const hasInstitution = [
     req.body?.institutionCode,
@@ -9559,6 +9581,7 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
     hasInstitution &&
     (!/^[A-Z0-9_-]{1,64}$/.test(institutionCode) ||
       !institutionName ||
+      (isVirtualAccount && institutionName !== "Virtual Account") ||
       institutionName.length > 120 ||
       (submittedLogoUrl != null &&
         submittedLogoUrl !== "" &&
@@ -9665,6 +9688,7 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
         status: row.status,
         amount: Number(row.amount),
         currency: row.currency,
+        virtualAccountInfo: virtualAccountInformationFromRow(row),
         requestEmailStatus,
       })
     }
@@ -9746,9 +9770,25 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
     const actualAmount = Number(data.amount ?? amount)
     if (!Number.isFinite(actualAmount) || actualAmount <= 0)
       throw new Error("SwiftPay returned an invalid payment amount.")
+    const virtualAccountInfo = isVirtualAccount
+      ? virtualAccountInformationFromProvider(data, referenceNo)
+      : undefined
     await pool.query(
-      "UPDATE payment_links SET payment_token = $1, qr_payload = $2, payment_url = $3, status = $4, amount = $5, updated_at = NOW() WHERE id = $6",
-      [data.paymentId, data.qrCode, checkoutUrl, status, actualAmount, id],
+      `UPDATE payment_links SET payment_token = $1, qr_payload = $2, payment_url = $3,
+        status = $4, amount = $5, virtual_account_bank_account_number = $6,
+        virtual_account_instapay_bank_code = $7, virtual_account_reference_no = $8,
+        updated_at = NOW() WHERE id = $9`,
+      [
+        data.paymentId,
+        data.qrCode,
+        checkoutUrl,
+        status,
+        actualAmount,
+        virtualAccountInfo?.bankAccountNumber ?? null,
+        virtualAccountInfo?.instapayBankCode ?? null,
+        virtualAccountInfo?.referenceNo ?? null,
+        id,
+      ],
     )
     let requestEmailStatus = "no_customer_email"
     try {
@@ -9775,6 +9815,7 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
       status,
       amount: actualAmount,
       currency: "PHP",
+      virtualAccountInfo,
       requestEmailStatus,
     })
   } catch (error) {

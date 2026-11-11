@@ -61,6 +61,7 @@ import {
   clearSession,
   authorizeTransferWithPin,
   createPaymentLink,
+  VIRTUAL_ACCOUNT_INSTITUTION_CODE,
   getCollectionRefundDetails,
   createTransfer,
   clearPaymentLinkIdempotencyKey,
@@ -119,6 +120,7 @@ import { parseScannedQr } from "./lib/transferQr"
 import { parseUsdtAmount } from "./lib/tronLink"
 import MerchantAuthMethods from "./MerchantAuthMethods"
 import TransferReceiptActions from "./TransferReceiptActions"
+import VirtualAccountInformation from "./VirtualAccountInformation"
 import MerchantDownlineView from "./MerchantDownlineView"
 import {
   AllAccessView,
@@ -1263,6 +1265,13 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
                   value={result.qrCode}
                   institution={selectedInstitution || undefined}
                 />
+                {selectedInstitution?.code ===
+                  VIRTUAL_ACCOUNT_INSTITUTION_CODE && (
+                  <VirtualAccountInformation
+                    information={result.virtualAccountInfo}
+                    showReference
+                  />
+                )}
                 <PaymentLinkActions url={result.paymentUrl} />
                 <Button onClick={onClose}>Done</Button>
               </>

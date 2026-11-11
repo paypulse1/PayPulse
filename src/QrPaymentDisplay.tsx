@@ -94,7 +94,7 @@ export default function QrPaymentDisplay({ value, institution, showBirLogo = fal
       {institution && (
         <div className="qr-brand-label">
           <InstitutionLogo institution={institution} className="qr-brand-logo" />
-          <span>Selected payment app: <strong>{getPaymentInstitutionAppName(institution)}</strong></span>
+          <span>Payment method: <strong>{getPaymentInstitutionAppName(institution)}</strong></span>
         </div>
       )}
       <div className="qr-preview-frame">

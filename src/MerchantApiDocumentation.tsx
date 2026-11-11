@@ -225,6 +225,16 @@ DRPAY_API_KEY=your_environment_specific_key`}
           <code>{checkoutHost}</code>.
         </p>
         <p>
+          To generate a Virtual Account QRPH checkout, set{" "}
+          <code>institutionCode</code> to{" "}
+          <code>DRPAY_VIRTUAL_ACCOUNT</code> and{" "}
+          <code>institutionName</code> to <code>Virtual Account</code>. The
+          response and hosted checkout include SwiftPay&apos;s{" "}
+          <code>bankAccountNumber</code>, <code>instapayBankCode</code>, and{" "}
+          <code>referenceNo</code> under <code>virtualAccountInfo</code> when
+          those documented fields are returned.
+        </p>
+        <p>
           For physical orders, optionally include{" "}
           <code>estimatedDeliveryDate</code> in <code>YYYY-MM-DD</code> format.
           When both it and <code>customerEmail</code> are provided, the checkout

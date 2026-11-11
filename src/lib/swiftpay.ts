@@ -153,6 +153,8 @@ export type PaymentInstitution = InstitutionBrand & {
   category: string
 }
 
+export const VIRTUAL_ACCOUNT_INSTITUTION_CODE = "DRPAY_VIRTUAL_ACCOUNT"
+
 export type TransferResult = {
   id?: string
   referenceNo?: string
@@ -178,6 +180,12 @@ export type TransferAuthorizationInput = {
 
 export type CollectionRefundDetails = Pick<TransferAuthorizationInput, "amount" | "channel" | "institutionCode" | "accountNumber" | "fullName" | "remarks">
 
+export type VirtualAccountInfo = {
+  bankAccountNumber?: string
+  instapayBankCode?: string
+  referenceNo?: string
+}
+
 export type PaymentLinkResult = {
   id?: string
   code: string
@@ -187,6 +195,7 @@ export type PaymentLinkResult = {
   status?: string
   amount?: number
   currency?: string
+  virtualAccountInfo?: VirtualAccountInfo
   requestEmailStatus?: "queued" | "sent" | "no_customer_email" | "queue_failed"
 }
 
@@ -229,6 +238,7 @@ export type PublicCheckout = {
   institutionName?: string | null
   institutionLogoUrl?: string | null
   institutionDeepLink?: string | null
+  virtualAccountInfo?: VirtualAccountInfo
   checkoutInstructions?: string
   brandColor?: string
   logoUrl?: string

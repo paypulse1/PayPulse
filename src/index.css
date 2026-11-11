@@ -656,6 +656,13 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .link-result { padding: 8px 0 2px; text-align: center; }
 .result-icon { width: 52px; height: 52px; margin: 0 auto 16px; display: grid; place-items: center; border-radius: 17px; background: #e6eef8; color: #1b4f9c; }
 .qr-payment-display { margin: 0 auto 16px; }
+.virtual-account-info { width: min(360px, 100%); margin: 0 auto 16px; padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); text-align: left; }
+.virtual-account-info h3 { margin: 0; font-size: 10px; }
+.virtual-account-info dl { margin: 10px 0 0; display: grid; gap: 9px; }
+.virtual-account-info dl > div { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.virtual-account-info dt { color: var(--muted); font-size: 8px; line-height: 1.5; }
+.virtual-account-info dd { margin: 0; color: var(--ink); font-size: 8px; font-weight: 700; line-height: 1.5; text-align: right; overflow-wrap: anywhere; }
+.virtual-account-info-warning { margin: 9px 0 0; color: var(--warning); font-size: 8px; line-height: 1.5; }
 .qr-brand-label { width: min(272px, 100%); min-height: 42px; margin: 0 auto 9px; padding: 6px 10px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--muted); font-size: 8px; }
 .qr-brand-label strong { color: var(--ink); }
 .qr-brand-logo { width: 27px; height: 27px; flex: 0 0 27px; border: 1px solid var(--line); border-radius: 7px; background: white; object-fit: contain; }
