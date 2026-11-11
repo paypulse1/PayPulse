@@ -40,6 +40,8 @@ export default function MerchantAccountRow({
 }) {
   const canApproveRegistration =
     !account.registrationPending || account.kybStatus === "APPROVED"
+  const registrationReadyForApproval =
+    account.registrationPending && account.kybStatus === "APPROVED"
 
   return (
     <div className="admin-merchant-account">
@@ -81,7 +83,9 @@ export default function MerchantAccountRow({
           }`}
         >
           {account.registrationPending
-            ? "Pending review"
+            ? registrationReadyForApproval
+              ? "Awaiting access"
+              : "Pending review"
             : account.active
               ? "Active"
               : "Disabled"}

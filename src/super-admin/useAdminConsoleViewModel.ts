@@ -81,6 +81,16 @@ export function canActivateMerchant(account: AdminMerchantAccount) {
   )
 }
 
+export function updateMerchantKybStatus(
+  merchants: AdminMerchantAccount[],
+  email: string,
+  kybStatus: AdminMerchantAccount["kybStatus"],
+) {
+  return merchants.map((merchant) =>
+    merchant.email === email ? { ...merchant, kybStatus } : merchant,
+  )
+}
+
 export function hasRequiredKybDocuments(
   application: Pick<AdminKybApplication, "documents">,
 ) {

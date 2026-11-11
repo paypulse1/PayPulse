@@ -4,6 +4,7 @@ import type { AdminMerchantAccount } from "../lib/swiftpay"
 import {
   canActivateMerchant,
   hasRequiredKybDocuments,
+  updateMerchantKybStatus,
 } from "./useAdminConsoleViewModel"
 
 const documents = (documentTypes: string[]) =>
@@ -43,6 +44,18 @@ test("pending registration activation requires approved KYB", () => {
     ),
     true,
   )
+})
+
+test("approving KYB updates the merchant row so registration can be activated", () => {
+  const pendingMerchant = merchant({ kybStatus: "PENDING" })
+  const [updatedMerchant] = updateMerchantKybStatus(
+    [pendingMerchant],
+    pendingMerchant.email,
+    "APPROVED",
+  )
+
+  assert.equal(updatedMerchant.kybStatus, "APPROVED")
+  assert.equal(canActivateMerchant(updatedMerchant), true)
 })
 
 test("KYB approval requires each required document type", () => {

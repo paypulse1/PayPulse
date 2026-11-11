@@ -73,6 +73,7 @@ import KybApplicationCard, {
 import MerchantAccountRow from "./super-admin/MerchantAccountRow"
 import {
   canActivateMerchant,
+  updateMerchantKybStatus,
   useAdminConsoleViewModel,
   type AdminPage,
   type MerchantFilter,
@@ -1237,6 +1238,9 @@ export function SuperAdminConsole({
             ? { ...item, status, reviewNotes: reviewNotes || null }
             : item,
         ),
+      )
+      setMerchants((current) =>
+        updateMerchantKybStatus(current, application.merchantEmail, status),
       )
       setNotice(`KYB application ${status.replace("_", " ").toLowerCase()}.`)
       await refreshAuditEvents()
