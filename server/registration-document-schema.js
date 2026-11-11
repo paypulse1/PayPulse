@@ -168,7 +168,16 @@ export async function ensureMerchantRegistrationDocumentSchema(pool) {
         FROM information_schema.columns
         WHERE table_schema = current_schema()
           AND table_name = 'merchant_registration_documents'
-          AND column_name IN ('email', 'kind')
+          AND column_name NOT IN (
+            'id',
+            'challenge_id',
+            'document_type',
+            'object_key',
+            'file_name',
+            'content_type',
+            'size_bytes',
+            'created_at'
+          )
           AND is_nullable = 'NO'
       LOOP
         EXECUTE format(
