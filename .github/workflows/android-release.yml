@@ -57,6 +57,9 @@ jobs:
           pnpm build
           pnpm exec cap sync android
 
+      - name: Select private app Firebase config
+        run: cp android/app/google-services-private.json android/app/google-services.json
+
       - name: Verify Android and Firebase application IDs
         run: |
           python3 - <<'PY'
