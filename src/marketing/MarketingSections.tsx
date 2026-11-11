@@ -8,7 +8,6 @@ import {
   Smartphone,
 } from "lucide-react"
 import { APP_ROUTES } from "../lib/routes"
-import { PLAY_STORE_URL } from "./links"
 
 const paymentChannels = [
   {
@@ -243,11 +242,10 @@ export function DownloadSection() {
       <div className="drpay-cta-actions">
         <a
           className="drpay-button drpay-button-light"
-          href={PLAY_STORE_URL}
-          target="_blank"
-          rel="noreferrer"
+          href={APP_ROUTES.androidDownload}
+          download
         >
-          Get DRPAY on Google Play
+          Download DRPAY for Android
           <ArrowRight size={17} aria-hidden="true" />
         </a>
         <a className="drpay-cta-login" href={APP_ROUTES.merchantSignIn}>
@@ -268,13 +266,12 @@ export function MarketingFooter() {
       <p>Merchant payments, made clearer.</p>
       <a
         className="drpay-footer-play"
-        href={PLAY_STORE_URL}
-        target="_blank"
-        rel="noreferrer"
-        aria-label="Get DRPAY on Google Play"
+        href={APP_ROUTES.androidDownload}
+        download
+        aria-label="Download the DRPAY Android app"
       >
-        <span>GET IT ON</span>
-        <strong>Google Play</strong>
+        <span>DOWNLOAD</span>
+        <strong>Android app</strong>
         <ArrowRight size={14} aria-hidden="true" />
       </a>
       <nav aria-label="Footer navigation">

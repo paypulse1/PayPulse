@@ -1,7 +1,6 @@
 import { useState } from "react"
 import { ArrowRight, Menu, X } from "lucide-react"
 import { APP_ROUTES } from "../lib/routes"
-import { PLAY_STORE_URL } from "./links"
 
 const navigationLinks = [
   { href: "#capabilities", label: "Platform" },
@@ -33,12 +32,11 @@ function NavigationActions({ onNavigate }: { onNavigate?: () => void }) {
       </a>
       <a
         className="drpay-button drpay-button-small"
-        href={PLAY_STORE_URL}
-        target="_blank"
-        rel="noreferrer"
+        href={APP_ROUTES.androidDownload}
+        download
         onClick={onNavigate}
       >
-        Get it on Google Play <ArrowRight size={15} aria-hidden="true" />
+        Download app <ArrowRight size={15} aria-hidden="true" />
       </a>
     </div>
   )
