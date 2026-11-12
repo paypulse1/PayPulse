@@ -45,6 +45,9 @@ function RegistrationProgress({
     <div
       className="registration-progress"
       aria-label={`Step ${progressIndex + 1} of ${stages.length}`}
+      style={{
+        gridTemplateColumns: `repeat(${stages.length}, minmax(0, 1fr))`,
+      }}
     >
       {stages.map((item, index) => (
         <span
@@ -79,16 +82,24 @@ function RegistrationComplete({
       <span className="registration-complete-icon">
         <CheckCircle2 size={26} />
       </span>
-      <h1>Application received</h1>
+      <h1>Registration submitted</h1>
+      <RegistrationProgress
+        stages={[
+          { id: "registration", label: "Registration" },
+          { id: "approval", label: "Access approval" },
+          { id: "sign-in", label: "Sign in" },
+        ]}
+        progressIndex={1}
+      />
       <p>
-        Your registration is with our review team. We’ll contact you at{" "}
-        <strong>{email}</strong> when the review is complete.
+        We’ll review your application and email{" "}
+        <strong>{email}</strong> when merchant access is ready.
       </p>
       <div className="registration-review-note">
         <ShieldCheck size={17} />
         <span>
-          <strong>Pending review</strong>
-          <small>Your DRPAY account will be available after approval.</small>
+          <strong>Access approval</strong>
+          <small>Sign in after you receive the access-ready email.</small>
         </span>
       </div>
       <Button
@@ -97,7 +108,7 @@ function RegistrationComplete({
         onClick={onBack}
         icon={<ArrowLeft size={17} />}
       >
-        Back to sign in
+        Return to sign in
       </Button>
     </div>
   )
@@ -147,7 +158,7 @@ export default function MerchantRegistration({
   return (
     <MerchantAuthLayout
       registration
-      kicker="DRPAY MERCHANT SIGN-UP"
+      kicker="DRPAY MERCHANT REGISTRATION"
       kickerIcon={<ShieldCheck size={15} />}
       headline={
         <>

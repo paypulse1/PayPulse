@@ -24,7 +24,7 @@ describe("merchant KYB review emails", () => {
     })
 
     expect(email.subject).toContain("KYB review is approved")
-    expect(email.text).toContain("login access has not been enabled yet")
+    expect(email.text).toContain("sign-in access has not been enabled yet")
     expect(email.text).toContain("separate email when your access is ready")
     expect(email.text).not.toContain("Sign in to DRPAY")
     expect(email.html).not.toContain("Open merchant portal")

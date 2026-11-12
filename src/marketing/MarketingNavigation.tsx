@@ -28,7 +28,7 @@ function NavigationActions({ onNavigate }: { onNavigate?: () => void }) {
         href={APP_ROUTES.merchantSignIn}
         onClick={onNavigate}
       >
-        Log in
+        Sign in
       </a>
       <a
         className="drpay-button drpay-button-small"

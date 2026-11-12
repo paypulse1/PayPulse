@@ -36,7 +36,7 @@ function HeroSection() {
         </p>
         <div className="drpay-hero-actions">
           <a className="drpay-button" href={APP_ROUTES.merchantSignIn}>
-            Go to merchant sign in
+            Go to merchant sign-in
             <ArrowRight size={17} aria-hidden="true" />
           </a>
           <a className="drpay-text-link" href="#capabilities">

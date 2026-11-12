@@ -38,12 +38,12 @@ export default function MerchantAccountProfileForm({
         <div>
           <h2>Edit merchant profile</h2>
           <p>
-            Updating the login email requires the merchant to sign in again.
+            Updating the sign-in email requires the merchant to sign in again.
           </p>
         </div>
       </div>
       <label>
-        <span>Merchant email / login</span>
+        <span>Merchant email / sign-in</span>
         <input
           type="email"
           value={merchant.email}

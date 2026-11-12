@@ -1499,6 +1499,25 @@ export async function authorizeTransferWithPin(
   })
 }
 
+export async function authorizeTransferWithBiometric(
+  input: TransferAuthorizationInput,
+  secret: string,
+) {
+  const session = getSession()
+  if (!session) throw new Error("Sign in before authorizing a transfer.")
+  return backendRequest<{ stepUpToken: string }>(
+    "/v1/security/transfer/biometric",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        ...input,
+        secret,
+        deviceToken: getDeviceToken(session.email),
+      }),
+    },
+  )
+}
+
 export async function getCollectionRefundDetails(
   paymentId: string,
 ): Promise<CollectionRefundDetails> {

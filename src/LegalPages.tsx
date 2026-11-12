@@ -37,7 +37,7 @@ function LegalPage({ page }: { page: LegalPageKind }) {
       <nav className="legal-nav" aria-label="Main navigation">
         <LegalBrand />
         <a className="legal-sign-in" href={APP_ROUTES.merchantSignIn}>
-          Merchant sign in <ArrowRight size={15} />
+          Merchant sign-in <ArrowRight size={15} />
         </a>
       </nav>
 

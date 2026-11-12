@@ -669,7 +669,7 @@ export function SuperAdminConsole({
       )
       setEditingMerchant(null)
       setNotice(
-        "Merchant profile updated. If the login email changed, the merchant must sign in again using the new email.",
+        "Merchant profile updated. If the sign-in email changed, the merchant must sign in again using the new email.",
       )
       await refreshAuditEvents()
     } catch (requestError) {

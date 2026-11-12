@@ -40,7 +40,7 @@ export function createMerchantKybReviewEmail({
     paragraphs.push(
       accessEnabled
         ? "Your application is approved and merchant access is enabled. You can sign in now."
-        : "Your KYB review is approved, but merchant login access has not been enabled yet. We will send a separate email when your access is ready.",
+        : "Your KYB review is approved, but merchant sign-in access has not been enabled yet. We will send a separate email when your access is ready.",
     )
     if (accessEnabled) {
       action = { label: "Sign in to DRPAY", url: portalUrl }

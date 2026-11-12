@@ -83,6 +83,7 @@ import {
   getMerchantUsdtWithdrawalRequests,
   createMerchantUsdtWithdrawalRequest,
   getMerchantSecurityStatus,
+  authorizeTransferWithBiometric,
   getPaymentLinkIdempotencyKey,
   getPaymentLinkStatus,
   getSession,
@@ -120,6 +121,7 @@ import { parseUsdtAmount } from "./lib/tronLink"
 import ScreenTitle from "./ScreenTitle"
 import { getMerchantScreenTitle } from "./lib/screenTitles"
 import MerchantAuthMethods from "./MerchantAuthMethods"
+import StickerIcon, { type StickerKind } from "./StickerIcon"
 import TransferReceiptActions from "./TransferReceiptActions"
 import VirtualAccountInformation from "./VirtualAccountInformation"
 import MerchantDownlineView from "./MerchantDownlineView"
@@ -137,6 +139,7 @@ import {
   markBiometricLoginDisabled,
   markBiometricLoginEnabled,
   markBiometricOfferDismissed,
+  readBiometricSecret,
   storeBiometricSecret,
   supportsBiometricLogin,
   wasBiometricOfferDismissed,
@@ -447,17 +450,19 @@ function AvailableBalanceCard({
 }
 
 function QuickAction({
-  icon,
+  sticker,
   label,
   onClick,
 }: {
-  icon: ReactNode
+  sticker: StickerKind
   label: string
   onClick?: () => void
 }) {
   return (
     <button className="quick-action" onClick={onClick}>
-      <span>{icon}</span>
+      <span className="quick-action-sticker" aria-hidden="true">
+        <StickerIcon kind={sticker} size={52} />
+      </span>
       <strong>{label}</strong>
     </button>
   )
@@ -1824,12 +1829,16 @@ function TransactionSheet({
 function TransferSheet({
   balance,
   transferFeeFixed,
+  merchantEmail,
+  biometricEnabled,
   onClose,
   onComplete,
   initialValues,
 }: {
   balance: number
   transferFeeFixed: number
+  merchantEmail: string
+  biometricEnabled: boolean
   onClose: () => void
   onComplete: () => void
   initialValues?: TransferQrDetails
@@ -1856,6 +1865,7 @@ function TransferSheet({
   const [remarks, setRemarks] = useState("Bank transfer")
   const [reviewing, setReviewing] = useState(false)
   const [authorizing, setAuthorizing] = useState(false)
+  const [usingPin, setUsingPin] = useState(false)
   const [pin, setPin] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
@@ -1919,7 +1929,9 @@ function TransferSheet({
     idempotencyKey,
   }
 
-  async function submitWithAuthorization() {
+  async function submitWithAuthorization(
+    authorize: () => Promise<{ stepUpToken: string }>,
+  ) {
     if (!pesonetAvailable && channel === "PESONET") {
       setError("PESONet transfers are available only in a web browser.")
       return
@@ -1927,10 +1939,7 @@ function TransferSheet({
     setBusy(true)
     setError("")
     try {
-      const authorization = await authorizeTransferWithPin(
-        transferAuthorization,
-        pin,
-      )
+      const authorization = await authorize()
       const response = await createTransfer({
         ...transferAuthorization,
         stepUpToken: authorization.stepUpToken,
@@ -1964,6 +1973,19 @@ function TransferSheet({
     } finally {
       setBusy(false)
     }
+  }
+
+  function submitWithPin() {
+    return submitWithAuthorization(() =>
+      authorizeTransferWithPin(transferAuthorization, pin),
+    )
+  }
+
+  function submitWithBiometric() {
+    return submitWithAuthorization(async () => {
+      const secret = await readBiometricSecret(merchantEmail, "transfer")
+      return authorizeTransferWithBiometric(transferAuthorization, secret)
+    })
   }
 
   const selectedBank = institutions.find((item) => item.code === bank)
@@ -2241,12 +2263,16 @@ function TransferSheet({
               <span>Step 2 of 2</span>
               <strong>
                 {authorizing
-                  ? "Verify with your MPIN"
+                  ? biometricEnabled && !usingPin
+                    ? "Confirm with biometrics"
+                    : "Verify with your MPIN"
                   : "Review before sending"}
               </strong>
               <small>
                 {authorizing
-                  ? "Your MPIN securely authorizes this transfer."
+                  ? biometricEnabled && !usingPin
+                    ? "Your enrolled biometric securely authorizes this transfer."
+                    : "Your MPIN securely authorizes this transfer."
                   : "Check the recipient and account details carefully. Transfers may not be reversible."}
               </small>
             </div>
@@ -2292,7 +2318,7 @@ function TransferSheet({
               </div>
             </dl>
             {error && (
-              <div className="inline-error">
+              <div className="inline-error" role="alert">
                 <AlertCircle size={15} />
                 {error}
               </div>
@@ -2306,49 +2332,103 @@ function TransferSheet({
                   disabled={busy}
                   onClick={() => {
                     setAuthorizing(true)
+                    setUsingPin(false)
                     setError("")
                   }}
                   icon={<ShieldCheck size={16} />}
                 >
-                  Continue to MPIN
+                  {biometricEnabled
+                    ? "Continue to biometrics"
+                    : "Continue to MPIN"}
                 </Button>
               </div>
             ) : (
               <div className="transfer-authorization">
-                <p>Enter your MPIN to approve this transfer.</p>
-                <label>
-                  <span>Four-digit MPIN</span>
-                  <input
-                    type="password"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    pattern="[0-9]{4}"
-                    maxLength={4}
-                    value={pin}
-                    onChange={(event) =>
-                      setPin(event.target.value.replace(/\D/g, "").slice(0, 4))
-                    }
-                  />
-                </label>
-                <Button
-                  disabled={busy || pin.length !== 4}
-                  onClick={() => void submitWithAuthorization()}
-                  icon={
-                    busy ? (
-                      <LoaderCircle className="spin" size={16} />
-                    ) : (
-                      <KeyRound size={16} />
-                    )
-                  }
-                >
-                  {busy ? "Verifying…" : "Verify MPIN and send"}
-                </Button>
+                {biometricEnabled && !usingPin ? (
+                  <>
+                    <p>Approve this transfer with your enrolled biometric.</p>
+                    <Button
+                      disabled={busy}
+                      onClick={() => void submitWithBiometric()}
+                      icon={
+                        busy ? (
+                          <LoaderCircle className="spin" size={16} />
+                        ) : (
+                          <Fingerprint size={16} />
+                        )
+                      }
+                    >
+                      {busy
+                        ? "Verifying…"
+                        : "Verify with biometrics and send"}
+                    </Button>
+                    <button
+                      type="button"
+                      className="authorization-back"
+                      disabled={busy}
+                      onClick={() => {
+                        setUsingPin(true)
+                        setError("")
+                      }}
+                    >
+                      Use MPIN instead
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <p>Enter your MPIN to approve this transfer.</p>
+                    <label>
+                      <span>Four-digit MPIN</span>
+                      <input
+                        type="password"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        pattern="[0-9]{4}"
+                        maxLength={4}
+                        value={pin}
+                        onChange={(event) =>
+                          setPin(
+                            event.target.value.replace(/\D/g, "").slice(0, 4),
+                          )
+                        }
+                      />
+                    </label>
+                    <Button
+                      disabled={busy || pin.length !== 4}
+                      onClick={() => void submitWithPin()}
+                      icon={
+                        busy ? (
+                          <LoaderCircle className="spin" size={16} />
+                        ) : (
+                          <KeyRound size={16} />
+                        )
+                      }
+                    >
+                      {busy ? "Verifying…" : "Verify MPIN and send"}
+                    </Button>
+                    {biometricEnabled && (
+                      <button
+                        type="button"
+                        className="authorization-back"
+                        disabled={busy}
+                        onClick={() => {
+                          setPin("")
+                          setUsingPin(false)
+                          setError("")
+                        }}
+                      >
+                        Use biometrics instead
+                      </button>
+                    )}
+                  </>
+                )}
                 <button
                   type="button"
                   className="authorization-back"
                   disabled={busy}
                   onClick={() => {
                     setAuthorizing(false)
+                    setUsingPin(false)
                     setPin("")
                     setError("")
                   }}
@@ -3139,37 +3219,37 @@ function HomeView({
 
       <section className="quick-actions" aria-label="Quick actions">
         <QuickAction
-          icon={<HandCoins size={22} />}
+          sticker="collect"
           label="Collect"
           onClick={onRequestPayment}
         />
         <QuickAction
-          icon={<ArrowLeftRight size={21} />}
+          sticker="transfer"
           label="Transfer"
           onClick={onTransfer}
         />
         <QuickAction
-          icon={<ScanLine size={21} />}
+          sticker="qr"
           label="Scan QR"
           onClick={onScan}
         />
         <QuickAction
-          icon={<ReceiptText size={21} />}
+          sticker="statement"
           label="Activity"
           onClick={onActivity}
         />
         <QuickAction
-          icon={<Coins size={21} />}
+          sticker="crypto"
           label="Crypto"
           onClick={onCrypto}
         />
         <QuickAction
-          icon={<Clock3 size={21} />}
+          sticker="pending"
           label="Pendings"
           onClick={onPendings}
         />
         <QuickAction
-          icon={<LayoutDashboard size={21} />}
+          sticker="toolbox"
           label="All access"
           onClick={onAllAccess}
         />
@@ -3959,8 +4039,9 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
                 : "Complete service activation"}
             </strong>
             <p>
-              Sign-in and collections remain available. The PHP activation fee
-              is debited from your merchant wallet and credited to Super Admin.
+              This is separate from registration approval: sign-in and
+              collections remain available. The PHP activation fee is debited
+              from your merchant wallet and credited to Super Admin.
               Merchant payment transfers and API integrations unlock after the
               fee is paid and the USDT balance requirement is met. These
               requirements do not enable crypto trading or withdrawals.
@@ -4899,8 +4980,8 @@ function ProfileInfoPage({
             </p>
           )}
           <p className="profile-info-note">
-            Never share your one-time code or MPIN. Every outgoing transfer
-            requires MPIN approval.
+            Never share your one-time code or MPIN. Outgoing transfers require
+            MPIN approval or, when enabled, biometric verification.
           </p>
         </>
       )}
@@ -6112,6 +6193,7 @@ export default function App() {
                 <MerchantProfileView
                   session={session}
                   data={data}
+                  refreshVersion={refreshVersion}
                 />
               ))}
           </div>
@@ -6141,6 +6223,8 @@ export default function App() {
         <TransferSheet
           balance={data.balance}
           transferFeeFixed={data.transferFeeFixed}
+          merchantEmail={session?.email ?? ""}
+          biometricEnabled={biometricEnabled}
           initialValues={transferQrPrefill}
           onClose={() => {
             setShowTransfer(false)

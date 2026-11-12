@@ -38,6 +38,15 @@ function installSessionStorage(storage: MockStorage) {
   })
 }
 
+function installLocalStorage(storage: MockStorage) {
+  Object.defineProperty(globalThis, "localStorage", {
+    value: storage,
+    configurable: true,
+    writable: true,
+    enumerable: true,
+  })
+}
+
 test("getSession rejects malformed session objects", () => {
   const storage = new MockStorage()
   installSessionStorage(storage)
@@ -97,6 +106,68 @@ test("push device registration identifies the app's Firebase project", async () 
   assert.deepEqual(JSON.parse(String(requestOptions?.body)), {
     token: "device-push-token",
     appId: "ph.drpays.merchant.public",
+  })
+})
+
+test("biometric transfer authorization includes the registered device token", async () => {
+  vi.stubEnv("VITE_DRPAY_BACKEND_URL", "https://api.example.test")
+  vi.stubGlobal("window", {
+    location: {
+      hostname: "localhost",
+      origin: "http://localhost",
+    },
+  })
+  installSessionStorage(new MockStorage())
+  const localStorage = new MockStorage()
+  const deviceToken = "d".repeat(43)
+  localStorage.setItem("drpay_device_merchant@example.com", deviceToken)
+  installLocalStorage(localStorage)
+  saveSession({
+    accessToken: "merchant-token",
+    expiresAt: Date.now() + 60_000,
+    email: "merchant@example.com",
+    role: "merchant",
+  })
+
+  let requestUrl = ""
+  let requestOptions: RequestInit | undefined
+  vi.stubGlobal(
+    "fetch",
+    async (input: RequestInfo | URL, options?: RequestInit) => {
+      requestUrl = String(input)
+      requestOptions = options
+      return new Response(JSON.stringify({ stepUpToken: "step-up-token" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    },
+  )
+
+  vi.resetModules()
+  const { authorizeTransferWithBiometric } = await import("./swiftpay.ts")
+  const input = {
+    amount: 125,
+    channel: "INSTAPAY" as const,
+    institutionCode: "TEST",
+    accountNumber: "1234567890",
+    fullName: "Test Recipient",
+    remarks: "Transfer",
+    idempotencyKey: "11111111-1111-4111-8111-111111111111",
+  }
+  const secret = "s".repeat(43)
+
+  assert.deepEqual(
+    await authorizeTransferWithBiometric(input, secret),
+    { stepUpToken: "step-up-token" },
+  )
+  assert.equal(
+    requestUrl,
+    "https://api.example.test/v1/security/transfer/biometric",
+  )
+  assert.deepEqual(JSON.parse(String(requestOptions?.body)), {
+    ...input,
+    secret,
+    deviceToken,
   })
 })
 

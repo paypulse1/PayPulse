@@ -403,13 +403,18 @@ export default function MerchantSignIn({
         />
       )}
       {stage === "email" && (
-        <button
-          type="button"
-          className="auth-registration-link"
-          onClick={() => setRegistering(true)}
-        >
-          New to DRPAY? <strong>Create a merchant account</strong>
-        </button>
+        <>
+          <button
+            type="button"
+            className="auth-registration-link"
+            onClick={() => setRegistering(true)}
+          >
+            New to DRPAY? <strong>Start merchant registration</strong>
+          </button>
+          <p className="auth-registration-note">
+            Sign in once merchant access is approved and enabled.
+          </p>
+        </>
       )}
       <div className="auth-trust">
         <Lock size={15} />

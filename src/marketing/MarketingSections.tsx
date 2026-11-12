@@ -171,7 +171,7 @@ export function GettingStartedSection() {
           account, and manage activity from one place.
         </p>
         <a className="drpay-process-link" href={APP_ROUTES.merchantSignIn}>
-          Open merchant sign in <ArrowRight size={16} aria-hidden="true" />
+          Open merchant sign-in <ArrowRight size={16} aria-hidden="true" />
         </a>
       </div>
       <ol className="drpay-steps">
@@ -250,7 +250,7 @@ export function DownloadSection() {
           <ArrowRight size={17} aria-hidden="true" />
         </a>
         <a className="drpay-cta-login" href={APP_ROUTES.merchantSignIn}>
-          Already have an account? Log in
+          Already have an account? Sign in
         </a>
       </div>
     </section>

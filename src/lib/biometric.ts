@@ -61,13 +61,21 @@ export async function storeBiometricSecret(email: string, secret: string) {
   });
 }
 
-export async function readBiometricSecret(email: string) {
+export async function readBiometricSecret(
+  email: string,
+  purpose: "sign-in" | "transfer" = "sign-in",
+) {
+  const isTransfer = purpose === "transfer"
   const credentials = await NativeBiometric.getSecureCredentials({
     server: credentialServer(email),
-    title: "Sign in to DRPAY",
-    subtitle: "Confirm your identity to access your merchant account",
-    description: "Use your enrolled biometric to continue.",
-    negativeButtonText: "Use MPIN",
+    title: isTransfer ? "Authorize transfer" : "Sign in to DRPAY",
+    subtitle: isTransfer
+      ? "Confirm the transfer with your enrolled biometric"
+      : "Confirm your identity to access your merchant account",
+    description: isTransfer
+      ? "Use your enrolled biometric to approve this transfer."
+      : "Use your enrolled biometric to continue.",
+    negativeButtonText: isTransfer ? "Cancel" : "Use MPIN",
     maxAttempts: 3,
   });
   if (credentials.username !== email.trim().toLowerCase() || !/^[A-Za-z0-9_-]{43}$/.test(credentials.password)) {

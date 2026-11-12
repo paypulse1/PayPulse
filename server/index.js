@@ -8649,6 +8649,83 @@ app.post("/v1/security/transfer/pin", pinAttemptLimiter, async (req, res) => {
   return res.set("Cache-Control", "no-store").json({ stepUpToken })
 })
 
+app.post(
+  "/v1/security/transfer/biometric",
+  pinAttemptLimiter,
+  async (req, res) => {
+    const secret = typeof req.body?.secret === "string" ? req.body.secret : ""
+    const deviceToken =
+      typeof req.body?.deviceToken === "string" ? req.body.deviceToken : ""
+    const idempotencyKey =
+      typeof req.body?.idempotencyKey === "string"
+        ? req.body.idempotencyKey
+        : ""
+    if (
+      !/^[A-Za-z0-9_-]{43}$/.test(secret) ||
+      !/^[A-Za-z0-9_-]{32,128}$/.test(deviceToken) ||
+      !validIdempotencyKey(idempotencyKey)
+    ) {
+      return res.status(400).json({
+        error: "Biometric verification is unavailable. Use your MPIN instead.",
+      })
+    }
+
+    const deviceHash = deviceTokenHash(deviceToken)
+    const { rows } = await pool.query(
+      `SELECT credential.secret_hash
+       FROM merchant_accounts account
+       JOIN merchant_devices device ON device.email = account.email
+       JOIN merchant_biometric_credentials credential
+         ON credential.email = device.email
+         AND credential.device_token_hash = device.device_token_hash
+       WHERE account.email = $1 AND account.active = TRUE
+         AND device.device_token_hash = $2`,
+      [req.merchantEmail, deviceHash],
+    )
+    const expectedHash = rows[0]?.secret_hash
+    const actualHash = Buffer.from(biometricSecretHash(secret), "hex")
+    const storedHash =
+      typeof expectedHash === "string"
+        ? Buffer.from(expectedHash, "hex")
+        : Buffer.alloc(0)
+    if (
+      storedHash.length !== actualHash.length ||
+      !timingSafeEqual(storedHash, actualHash)
+    ) {
+      return res.status(403).json({
+        error: "Biometric verification failed. Use your MPIN or try again.",
+      })
+    }
+
+    await pool.query(
+      `UPDATE merchant_biometric_credentials SET last_used_at = NOW()
+       WHERE email = $1 AND device_token_hash = $2`,
+      [req.merchantEmail, deviceHash],
+    )
+    await pool.query(
+      `UPDATE merchant_devices SET last_used_at = NOW()
+       WHERE email = $1 AND device_token_hash = $2`,
+      [req.merchantEmail, deviceHash],
+    )
+    const fingerprint = transferSecurityFingerprint(
+      req.merchantEmail,
+      req.body,
+      idempotencyKey,
+    )
+    const stepUpToken = await new SignJWT({
+      purpose: "transfer_step_up",
+      fingerprint,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject(req.merchantEmail)
+      .setJti(randomUUID())
+      .setIssuedAt()
+      .setExpirationTime("2m")
+      .sign(jwtSecret)
+    return res.set("Cache-Control", "no-store").json({ stepUpToken })
+  },
+)
+
 app.get("/v1/internal-wallet", async (req, res) => {
   const [result, feeSetting] = await Promise.all([
     pool.query(
