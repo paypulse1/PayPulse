@@ -685,33 +685,37 @@ export default function MerchantRegistration({
                               handleFileChange(document.type, event)
                             }
                           />
-                          {selectedFile && (
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              disabled={isUploading}
-                              onClick={async () => {
-                                try {
-                                  await uploadDocument(
-                                    document.type,
-                                    selectedFile,
-                                  )
-                                } finally {
-                                  clearDocumentInput(document.type)
-                                }
-                              }}
-                              icon={
-                                isUploading ? (
-                                  <LoaderCircle className="spin" size={16} />
-                                ) : (
-                                  <ArrowRight size={16} />
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            disabled={!selectedFile || isUploading}
+                            onClick={async () => {
+                              if (!selectedFile) return
+                              try {
+                                await uploadDocument(
+                                  document.type,
+                                  selectedFile,
                                 )
+                              } finally {
+                                clearDocumentInput(document.type)
                               }
-                            >
-                              {isUploading ? "Uploading…" : "Upload"}
-                            </Button>
-                          )}
+                            }}
+                            icon={
+                              isUploading ? (
+                                <LoaderCircle className="spin" size={16} />
+                              ) : (
+                                <ArrowRight size={16} />
+                              )
+                            }
+                          >
+                            {isUploading ? "Uploading…" : "Upload"}
+                          </Button>
                         </div>
+                      )}
+                      {selectedFile && !uploadedName && (
+                        <small className="registration-uploaded-name">
+                          Selected: {selectedFile.name}
+                        </small>
                       )}
                     </div>
                   )
