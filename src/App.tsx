@@ -2751,6 +2751,7 @@ function ProfileInfoPage({
             <dl className="detail-list">
               <div><dt>Account role</dt><dd>{session.role.replace("_", " ")}</dd></div>
               <div><dt>Wallet type</dt><dd>{data.walletAccounting === "merchant_ledger" ? "Merchant-specific DRPAY ledger" : data.walletAccounting === "provider_wallet" ? "Pooled provider wallet" : "Internal ledger"}</dd></div>
+              <div><dt>Bank name</dt><dd>Netbank (Rural Bank of Romblon)</dd></div>
               <div><dt>Account number</dt><dd>{data.accountNumber ? `•••• ${data.accountNumber.slice(-4)}` : "Not provided"}</dd></div>
               <div><dt>Available balance</dt><dd>{balanceVisible ? data.availableBalance : "₱ ••••••"}</dd></div>
               <div><dt>Environment</dt><dd>{data.paymentEnvironment === "production" ? "Live" : "Sandbox"}</dd></div>

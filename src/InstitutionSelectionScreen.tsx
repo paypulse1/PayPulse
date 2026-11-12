@@ -95,7 +95,7 @@ export default function InstitutionSelectionScreen({
       <button type="button" className="institution-back" onClick={onBack}>
         <ArrowLeft size={16} /> Back
       </button>
-      <span className="eyebrow">PAYMENT APP</span>
+      <span className="eyebrow">MANUAL BANK TRANSFER</span>
       <h3 id="institution-selection-title">Which bank or wallet should appear with the QR?</h3>
       <p className="institution-selection-note">
         Choose the institution logo to display with the QR.
