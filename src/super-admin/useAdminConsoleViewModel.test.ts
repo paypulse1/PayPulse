@@ -3,19 +3,9 @@ import { test } from "vitest"
 import type { AdminMerchantAccount } from "../lib/swiftpay"
 import {
   canActivateMerchant,
-  hasRequiredKybDocuments,
+  hasPassedSumsubKyb,
   updateMerchantKybStatus,
 } from "./useAdminConsoleViewModel"
-
-const documents = (documentTypes: string[]) =>
-  documentTypes.map((documentType, index) => ({
-    id: String(index),
-    documentType,
-    fileName: `${documentType}.pdf`,
-    contentType: "application/pdf",
-    sizeBytes: 1,
-    uploadedAt: "",
-  }))
 
 const merchant = (overrides: Partial<AdminMerchantAccount> = {}) =>
   ({
@@ -58,25 +48,16 @@ test("approving KYB updates the merchant row so registration can be activated", 
   assert.equal(canActivateMerchant(updatedMerchant), true)
 })
 
-test("KYB approval requires each required document type", () => {
+test("KYB approval requires a positive Sumsub verification result", () => {
   assert.equal(
-    hasRequiredKybDocuments({
-      documents: documents([
-        "business_registration",
-        "identity_front",
-        "identity_back",
-        "proof_of_address",
-      ]),
+    hasPassedSumsubKyb({
+      sumsubReviewStatus: "APPROVED",
     }),
     true,
   )
   assert.equal(
-    hasRequiredKybDocuments({
-      documents: documents([
-        "business_registration",
-        "identity_front",
-        "proof_of_address",
-      ]),
+    hasPassedSumsubKyb({
+      sumsubReviewStatus: "IN_REVIEW",
     }),
     false,
   )

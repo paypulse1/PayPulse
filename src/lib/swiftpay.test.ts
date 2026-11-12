@@ -404,7 +404,7 @@ test("API errors include their server reference for support", async () => {
   })
 })
 
-test("merchant registration verifies contact before submitting business details", async () => {
+test("merchant registration completes Sumsub verification before submitting business details", async () => {
   vi.stubEnv("VITE_DRPAY_BACKEND_URL", "https://api.example.test")
   vi.stubGlobal("window", {
     location: {
@@ -423,10 +423,12 @@ test("merchant registration verifies contact before submitting business details"
           message: "A verification code has been sent.",
         },
         { email: "merchant@example.com", status: "verified" },
+        { accessToken: "sumsub-token", sumsubReviewStatus: "IN_PROGRESS" },
+        { sumsubReviewStatus: "IN_REVIEW" },
         { email: "merchant@example.com", status: "pending_review" },
       ]
       return new Response(JSON.stringify(responses[requests.length - 1]), {
-        status: requests.length === 3 ? 202 : 200,
+        status: requests.length === 5 ? 202 : 200,
         headers: { "Content-Type": "application/json" },
       })
     },
@@ -434,6 +436,8 @@ test("merchant registration verifies contact before submitting business details"
 
   const {
     requestMerchantRegistrationOtp,
+    getMerchantRegistrationSumsubStatus,
+    startMerchantRegistrationSumsubVerification,
     submitMerchantRegistration,
     verifyMerchantRegistrationOtp,
   } = await import("./swiftpay.ts")
@@ -471,6 +475,22 @@ test("merchant registration verifies contact before submitting business details"
     { email: registration.email, status: "verified" },
   )
   assert.deepEqual(
+    await startMerchantRegistrationSumsubVerification({
+      email: registration.email,
+      challengeId: "registration-challenge",
+      details: businessDetails,
+      consent: true,
+    }),
+    { accessToken: "sumsub-token", sumsubReviewStatus: "IN_PROGRESS" },
+  )
+  assert.deepEqual(
+    await getMerchantRegistrationSumsubStatus(
+      registration.email,
+      "registration-challenge",
+    ),
+    { sumsubReviewStatus: "IN_REVIEW" },
+  )
+  assert.deepEqual(
     await submitMerchantRegistration(
       registration.email,
       "registration-challenge",
@@ -498,6 +518,24 @@ test("merchant registration verifies contact before submitting business details"
           email: registration.email,
           challengeId: "registration-challenge",
           code: "123456",
+        },
+      },
+      {
+        url: "https://api.example.test/v1/auth/registration/sumsub/access-token",
+        method: "POST",
+        body: {
+          email: registration.email,
+          challengeId: "registration-challenge",
+          ...businessDetails,
+          consent: true,
+        },
+      },
+      {
+        url: "https://api.example.test/v1/auth/registration/sumsub/status",
+        method: "POST",
+        body: {
+          email: registration.email,
+          challengeId: "registration-challenge",
         },
       },
       {

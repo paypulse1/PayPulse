@@ -91,19 +91,10 @@ export function updateMerchantKybStatus(
   )
 }
 
-export function hasRequiredKybDocuments(
-  application: Pick<AdminKybApplication, "documents">,
+export function hasPassedSumsubKyb(
+  application: Pick<AdminKybApplication, "sumsubReviewStatus">,
 ) {
-  const requiredTypes = [
-    "business_registration",
-    "identity_front",
-    "identity_back",
-  ]
-  return requiredTypes.every((requiredType) =>
-    application.documents.some(
-      (document) => document.documentType === requiredType,
-    ),
-  )
+  return application.sumsubReviewStatus === "APPROVED"
 }
 
 export function useAdminConsoleViewModel({

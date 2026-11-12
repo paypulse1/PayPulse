@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "./AppPrimitives";
+import { APP_ROUTES } from "./lib/routes";
 import {
   createMerchantApiKey,
   deleteMerchantWebhook,
@@ -12,11 +13,11 @@ import {
   revokeMerchantApiKey,
   saveMerchantKybProfile,
   saveMerchantWebhook,
-  uploadKybDocument,
-  type KybDocument,
   type KybProfile,
   type MerchantApiKey,
   type MerchantWebhookSettings,
+  startSumsubKybVerification,
+  type SumsubKybStatus,
   type WebhookDelivery,
 } from "./lib/swiftpay";
 import MerchantApiDocumentation, {
@@ -36,13 +37,6 @@ const initialKyb = {
   ownerPhone: "",
 };
 
-const documentTypes = [
-  ["business_registration", "Business registration certificate"],
-  ["identity_front", "Owner identity document — front"],
-  ["identity_back", "Owner identity document — back"],
-  ["proof_of_address", "Business address proof"],
-] as const;
-
 const webhookEvents = [
   ["payment.succeeded", "Payment succeeded"],
   ["payment.failed", "Payment failed"],
@@ -50,133 +44,430 @@ const webhookEvents = [
   ["disbursement.failed", "Disbursement failed"],
 ] as const;
 
+const sumsubStatusLabels: Record<SumsubKybStatus, string> = {
+  NOT_STARTED: "Not started",
+  IN_PROGRESS: "In progress",
+  IN_REVIEW: "Waiting for Sumsub review",
+  ON_HOLD: "On hold",
+  RESUBMISSION_REQUIRED: "More information required",
+  APPROVED: "Provider checks passed — awaiting DRPAY review",
+  REJECTED: "Provider verification not approved",
+}
+
 export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
-  const [profile, setProfile] = useState(initialKyb);
-  const [status, setStatus] = useState<KybProfile["status"] | "">("");
-  const [reviewNotes, setReviewNotes] = useState("");
-  const [documents, setDocuments] = useState<KybDocument[]>([]);
-  const [files, setFiles] = useState<Record<string, File | undefined>>({});
-  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const [profile, setProfile] = useState(initialKyb)
+  const [status, setStatus] = useState<KybProfile["status"] | "">("")
+  const [sumsubReviewStatus, setSumsubReviewStatus] =
+    useState<SumsubKybStatus>("NOT_STARTED")
+  const [reviewNotes, setReviewNotes] = useState("")
+  const [profileSaved, setProfileSaved] = useState(false)
+  const [consent, setConsent] = useState(false)
+  const [sdkVisible, setSdkVisible] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState("")
+  const [error, setError] = useState("")
+  const [notice, setNotice] = useState("")
+  const sdkContainerRef = useRef<HTMLDivElement | null>(null)
+  const sdkInstanceRef = useRef<import("@sumsub/websdk").SnsWebSdk | null>(null)
 
   useEffect(() => {
-    let active = true;
-    getMerchantKyb().then((result) => {
-      if (!active) return;
-      if (result.profile) {
-        const { status: nextStatus, reviewNotes: notes, ...values } = result.profile;
-        setProfile(values);
-        setStatus(nextStatus);
-        setReviewNotes(notes || "");
-      }
-      setDocuments(result.documents);
-    }).catch((loadError: unknown) => {
-      if (active) setError(loadError instanceof Error ? loadError.message : "Could not load your KYB application.");
-    }).finally(() => {
-      if (active) setLoading(false);
-    });
-    return () => { active = false; };
-  }, [refreshVersion]);
+    let active = true
+    getMerchantKyb()
+      .then(({ profile: kybProfile }) => {
+        if (!active) return
+        if (kybProfile) {
+          setProfile({
+            legalBusinessName: kybProfile.legalBusinessName,
+            registrationNumber: kybProfile.registrationNumber,
+            businessType: kybProfile.businessType,
+            country: kybProfile.country,
+            businessAddress: kybProfile.businessAddress,
+            ownerFullName: kybProfile.ownerFullName,
+            ownerDateOfBirth: kybProfile.ownerDateOfBirth,
+            ownerNationality: kybProfile.ownerNationality,
+            ownerEmail: kybProfile.ownerEmail,
+            ownerPhone: kybProfile.ownerPhone,
+          })
+          setStatus(kybProfile.status)
+          setSumsubReviewStatus(kybProfile.sumsubReviewStatus)
+          setReviewNotes(kybProfile.reviewNotes || "")
+          setProfileSaved(true)
+        } else {
+          setProfileSaved(false)
+        }
+      })
+      .catch((loadError: unknown) => {
+        if (active) {
+          setError(
+            loadError instanceof Error
+              ? loadError.message
+              : "Could not load your KYB application.",
+          )
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+      sdkInstanceRef.current?.destroy()
+      sdkInstanceRef.current = null
+    }
+  }, [refreshVersion])
 
   function updateField(field: keyof typeof initialKyb, value: string) {
-    setProfile((current) => ({ ...current, [field]: value }));
+    setProfile((current) => ({ ...current, [field]: value }))
+    setProfileSaved(false)
+    setConsent(false)
+  }
+
+  async function refreshKybStatus() {
+    setError("")
+    try {
+      const { profile: kybProfile } = await getMerchantKyb()
+      if (!kybProfile) return
+      setStatus(kybProfile.status)
+      setSumsubReviewStatus(kybProfile.sumsubReviewStatus)
+      setReviewNotes(kybProfile.reviewNotes || "")
+      setNotice("Verification status refreshed.")
+    } catch (refreshError) {
+      setError(
+        refreshError instanceof Error
+          ? refreshError.message
+          : "Could not refresh the verification status.",
+      )
+    }
   }
 
   async function saveProfile(event: FormEvent) {
-    event.preventDefault();
-    setBusy("profile");
-    setError("");
-    setNotice("");
+    event.preventDefault()
+    setBusy("profile")
+    setError("")
+    setNotice("")
     try {
-      const result = await saveMerchantKybProfile(profile);
-      setStatus(result.status);
-      setReviewNotes("");
-      setNotice("KYB details saved. Upload the required documents to complete your application.");
+      const result = await saveMerchantKybProfile(profile)
+      setStatus(result.status)
+      setSumsubReviewStatus("NOT_STARTED")
+      setReviewNotes("")
+      setProfileSaved(true)
+      setConsent(false)
+      setNotice("Business and owner details saved. Continue with Sumsub verification.")
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Could not save your KYB details.");
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Could not save your KYB details.",
+      )
     } finally {
-      setBusy("");
+      setBusy("")
     }
   }
 
-  async function uploadDocument(documentType: string) {
-    const file = files[documentType];
-    if (!file) return;
-    setBusy(documentType);
-    setError("");
-    setNotice("");
+  async function startVerification() {
+    if (!consent) {
+      setError("Please review and accept the verification consent first.")
+      return
+    }
+    if (!profileSaved) {
+      setError("Save your business and beneficial-owner details first.")
+      return
+    }
+    setBusy("sumsub")
+    setError("")
+    setNotice("")
     try {
-      await uploadKybDocument(documentType, file);
-      const result = await getMerchantKyb();
-      setDocuments(result.documents);
-      setStatus(result.profile?.status || "PENDING");
-      setFiles((current) => ({ ...current, [documentType]: undefined }));
-      if (fileInputRefs.current[documentType]) {
-        fileInputRefs.current[documentType]!.value = "";
+      const { accessToken, sumsubReviewStatus: providerStatus } =
+        await startSumsubKybVerification(true)
+      setSumsubReviewStatus(providerStatus)
+      const { default: snsWebSdk } = await import("@sumsub/websdk")
+      sdkInstanceRef.current?.destroy()
+      const instance = snsWebSdk
+        .init(accessToken, async () => {
+          const refreshed = await startSumsubKybVerification(true)
+          return refreshed.accessToken
+        })
+        .withConf({ lang: "en", theme: "light" })
+        .withOptions({ addViewportTag: false, adaptIframeHeight: true })
+        .on("idCheck.onApplicantSubmitted", () => {
+          setNotice(
+            "Your verification was submitted to Sumsub. Refresh the status for the latest result.",
+          )
+        })
+        .on("idCheck.onError", () => {
+          setError(
+            "Sumsub verification could not continue. Please retry or contact DRPAY support.",
+          )
+        })
+        .build()
+      sdkInstanceRef.current = instance
+      setSdkVisible(true)
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve())
+      })
+      if (!sdkContainerRef.current) {
+        throw new Error("The Sumsub verification panel could not be opened.")
       }
-      setNotice("Document uploaded securely.");
-    } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : "Could not upload the KYB document.");
+      instance.launch(sdkContainerRef.current)
+    } catch (startError) {
+      setError(
+        startError instanceof Error
+          ? startError.message
+          : "Could not start Sumsub verification.",
+      )
     } finally {
-      setBusy("");
+      setBusy("")
     }
   }
 
-  if (loading) return <p className="profile-sheet-state">Loading KYB application…</p>;
+  function closeVerification() {
+    sdkInstanceRef.current?.destroy()
+    sdkInstanceRef.current = null
+    setSdkVisible(false)
+  }
+
+  if (loading) return <p className="profile-sheet-state">Loading KYB application…</p>
+
+  const providerResultIsFinal = ["APPROVED", "REJECTED"].includes(
+    sumsubReviewStatus,
+  )
+  const profileLocked = providerResultIsFinal || status === "APPROVED"
 
   return (
     <div className="merchant-setup">
-      {status && <div className={`kyb-status status-${status.toLowerCase()}`}><strong>{status.replace("_", " ")}</strong>{reviewNotes && <span>{reviewNotes}</span>}</div>}
-      <p className="profile-info-note">Provide your registered business details and beneficial owner information.</p>
+      {status && (
+        <div className={`kyb-status status-${status.toLowerCase()}`}>
+          <strong>DRPAY review: {status.replace("_", " ")}</strong>
+          {reviewNotes && <span>{reviewNotes}</span>}
+        </div>
+      )}
+      <p className="profile-info-note">
+        Enter your business and beneficial-owner details, then complete the
+        secure Sumsub business-verification flow.
+      </p>
       <form className="setup-form" onSubmit={(event) => void saveProfile(event)}>
-        <label>Legal business name<input value={profile.legalBusinessName} onChange={(event) => updateField("legalBusinessName", event.target.value)} required maxLength={200} /></label>
-        <label>Registration number<input value={profile.registrationNumber} onChange={(event) => updateField("registrationNumber", event.target.value)} required maxLength={200} /></label>
-        <label>Business type<input value={profile.businessType} onChange={(event) => updateField("businessType", event.target.value)} placeholder="Corporation, partnership, sole proprietor" required maxLength={200} /></label>
-        <label>Country<input value={profile.country} onChange={(event) => updateField("country", event.target.value)} required maxLength={200} /></label>
-        <label className="setup-form-wide">Registered business address<textarea value={profile.businessAddress} onChange={(event) => updateField("businessAddress", event.target.value)} required maxLength={200} rows={2} /></label>
-        <label>Beneficial owner full name<input value={profile.ownerFullName} onChange={(event) => updateField("ownerFullName", event.target.value)} required maxLength={200} /></label>
-        <label>Date of birth<input type="date" value={profile.ownerDateOfBirth} onChange={(event) => updateField("ownerDateOfBirth", event.target.value)} required /></label>
-        <label>Owner nationality<input value={profile.ownerNationality} onChange={(event) => updateField("ownerNationality", event.target.value)} required maxLength={200} /></label>
-        <label>Owner email<input type="email" value={profile.ownerEmail} onChange={(event) => updateField("ownerEmail", event.target.value)} required maxLength={200} /></label>
-        <label>Owner phone<input type="tel" value={profile.ownerPhone} onChange={(event) => updateField("ownerPhone", event.target.value)} required maxLength={200} /></label>
-        <Button type="submit" disabled={busy !== "" || status === "APPROVED"}>{busy === "profile" ? "Saving…" : "Save KYB details"}</Button>
+        <label>
+          Legal business name
+          <input
+            value={profile.legalBusinessName}
+            onChange={(event) =>
+              updateField("legalBusinessName", event.target.value)
+            }
+            disabled={profileLocked}
+            required
+            maxLength={200}
+          />
+        </label>
+        <label>
+          Registration number
+          <input
+            value={profile.registrationNumber}
+            onChange={(event) =>
+              updateField("registrationNumber", event.target.value)
+            }
+            disabled={profileLocked}
+            required
+            maxLength={200}
+          />
+        </label>
+        <label>
+          Business type
+          <input
+            value={profile.businessType}
+            onChange={(event) => updateField("businessType", event.target.value)}
+            disabled={profileLocked}
+            placeholder="Corporation, partnership, sole proprietor"
+            required
+            maxLength={200}
+          />
+        </label>
+        <label>
+          Country
+          <input
+            value={profile.country}
+            onChange={(event) => updateField("country", event.target.value)}
+            disabled={profileLocked}
+            required
+            maxLength={200}
+          />
+        </label>
+        <label className="setup-form-wide">
+          Registered business address
+          <textarea
+            value={profile.businessAddress}
+            onChange={(event) =>
+              updateField("businessAddress", event.target.value)
+            }
+            disabled={profileLocked}
+            required
+            maxLength={200}
+            rows={2}
+          />
+        </label>
+        <label>
+          Beneficial owner full name
+          <input
+            value={profile.ownerFullName}
+            onChange={(event) =>
+              updateField("ownerFullName", event.target.value)
+            }
+            disabled={profileLocked}
+            required
+            maxLength={200}
+          />
+        </label>
+        <label>
+          Date of birth
+          <input
+            type="date"
+            value={profile.ownerDateOfBirth}
+            onChange={(event) =>
+              updateField("ownerDateOfBirth", event.target.value)
+            }
+            disabled={profileLocked}
+            required
+          />
+        </label>
+        <label>
+          Owner nationality
+          <input
+            value={profile.ownerNationality}
+            onChange={(event) =>
+              updateField("ownerNationality", event.target.value)
+            }
+            disabled={profileLocked}
+            required
+            maxLength={200}
+          />
+        </label>
+        <label>
+          Owner email
+          <input
+            type="email"
+            value={profile.ownerEmail}
+            onChange={(event) => updateField("ownerEmail", event.target.value)}
+            disabled={profileLocked}
+            required
+            maxLength={200}
+          />
+        </label>
+        <label>
+          Owner phone
+          <input
+            type="tel"
+            value={profile.ownerPhone}
+            onChange={(event) => updateField("ownerPhone", event.target.value)}
+            disabled={profileLocked}
+            required
+            maxLength={200}
+          />
+        </label>
+        <Button
+          type="submit"
+          disabled={
+            busy !== "" ||
+            profileSaved ||
+            profileLocked
+          }
+        >
+          {busy === "profile" ? "Saving…" : "Save business details"}
+        </Button>
       </form>
-      <div className="setup-documents">
-        <h3>Documents</h3>
-        <p className="profile-info-note">Registration and both owner identity sides are required. Address proof is optional. PDF, JPEG, or PNG · maximum 10 MB each.</p>
-        {documentTypes.map(([documentType, label]) => {
-          const existing = documents.find((document) => document.documentType === documentType);
-          return (
-            <div className="setup-document-row" key={documentType}>
-              <div><strong>{label}</strong><small>{existing ? `Uploaded: ${existing.fileName}` : "Not uploaded"}</small></div>
-              <label className="setup-file-button">
-                {files[documentType] ? "Change file" : existing ? "Replace" : "Choose file"}
-                <input
-                  ref={(node) => {
-                    fileInputRefs.current[documentType] = node;
-                  }}
-                  type="file"
-                  accept="application/pdf,image/jpeg,image/png"
-                  disabled={status === "APPROVED"}
-                  onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                    setFiles((current) => ({ ...current, [documentType]: event.target.files?.[0] }));
-                    event.target.value = "";
-                  }}
-                />
-              </label>
-              {files[documentType] && <button className="setup-link-button" type="button" disabled={busy !== ""} onClick={() => void uploadDocument(documentType)}>{busy === documentType ? "Uploading…" : "Upload"}</button>}
-            </div>
-          );
-        })}
-      </div>
-      {error && <p className="setup-error" role="alert">{error}</p>}
-      {notice && <p className="setup-notice" role="status">{notice}</p>}
-      {status === "APPROVED" && <p className="profile-info-note">Your KYB application has been approved. Contact DRPAY support to update your verified information.</p>}
+      <section className="sumsub-verification" aria-label="Sumsub verification">
+        <div className="sumsub-verification-heading">
+          <strong>Sumsub business verification</strong>
+          <span
+            className={`kyb-status status-${sumsubReviewStatus.toLowerCase()}`}
+            role="status"
+          >
+            {sumsubStatusLabels[sumsubReviewStatus]}
+          </span>
+        </div>
+        <p>
+          Sumsub collects required company and owner documents, performs
+          configured registry and screening checks, and can request identity
+          document capture with selfie liveness. The exact checks depend on the
+          KYB level enabled for DRPAY.
+        </p>
+        <label className="sumsub-consent">
+          <input
+            type="checkbox"
+            checked={consent}
+            disabled={providerResultIsFinal || status === "APPROVED"}
+            onChange={(event) => setConsent(event.target.checked)}
+          />
+          <span>
+            I consent to DRPAY and Sumsub processing the business, beneficial
+            owner, identity-document, and biometric information required for
+            KYB. See the{" "}
+            <a href={APP_ROUTES.privacy} target="_blank" rel="noreferrer">
+              Privacy Policy
+            </a>
+            .
+          </span>
+        </label>
+        <div className="sumsub-verification-actions">
+          <Button
+            disabled={
+              busy !== "" ||
+              !profileSaved ||
+              !consent ||
+              status === "APPROVED" ||
+              providerResultIsFinal
+            }
+            onClick={() => void startVerification()}
+          >
+            {busy === "sumsub"
+              ? "Connecting to Sumsub…"
+              : sumsubReviewStatus === "RESUBMISSION_REQUIRED"
+                ? "Continue verification"
+                : sumsubReviewStatus === "IN_PROGRESS"
+                  ? "Resume verification"
+                  : "Start verification"}
+          </Button>
+          <Button
+            variant="secondary"
+            disabled={busy !== ""}
+            onClick={() => void refreshKybStatus()}
+          >
+            Refresh status
+          </Button>
+          {sdkVisible && (
+            <Button variant="secondary" onClick={closeVerification}>
+              Close verification
+            </Button>
+          )}
+        </div>
+        <div
+          ref={sdkContainerRef}
+          className="sumsub-sdk-container"
+          hidden={!sdkVisible}
+        />
+        {sumsubReviewStatus === "APPROVED" && (
+          <p className="sumsub-approval-note">
+            Sumsub checks passed. DRPAY will review the application separately;
+            e-wallet access is enabled only after DRPAY approval and account
+            activation.
+          </p>
+        )}
+      </section>
+      {error && (
+        <p className="setup-error" role="alert">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p className="setup-notice" role="status">
+          {notice}
+        </p>
+      )}
+      {status === "APPROVED" && (
+        <p className="profile-info-note">
+          Your KYB application has been approved. Contact DRPAY support to
+          update your verified information.
+        </p>
+      )}
     </div>
-  );
+  )
 }
 
 export function DeveloperSetupPanel({ refreshVersion }: { refreshVersion: number }) {

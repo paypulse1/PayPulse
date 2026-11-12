@@ -237,6 +237,23 @@ export async function ensureMerchantKybDocumentSchema(pool) {
   `)
 
   await pool.query(`
+    ALTER TABLE merchant_kyb_profiles
+      ADD COLUMN IF NOT EXISTS sumsub_external_user_id TEXT,
+      ADD COLUMN IF NOT EXISTS sumsub_applicant_id TEXT,
+      ADD COLUMN IF NOT EXISTS sumsub_review_status TEXT NOT NULL DEFAULT 'NOT_STARTED',
+      ADD COLUMN IF NOT EXISTS sumsub_review_answer TEXT,
+      ADD COLUMN IF NOT EXISTS sumsub_last_event_type TEXT,
+      ADD COLUMN IF NOT EXISTS sumsub_consent_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS sumsub_consent_version TEXT;
+    CREATE UNIQUE INDEX IF NOT EXISTS merchant_kyb_sumsub_external_user_idx
+      ON merchant_kyb_profiles (sumsub_external_user_id)
+      WHERE sumsub_external_user_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS merchant_kyb_sumsub_applicant_idx
+      ON merchant_kyb_profiles (sumsub_applicant_id)
+      WHERE sumsub_applicant_id IS NOT NULL;
+  `)
+
+  await pool.query(`
     DO $$
     BEGIN
       IF EXISTS (

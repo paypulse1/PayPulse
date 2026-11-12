@@ -102,6 +102,11 @@ import {
 import { createPinnedLookup } from "./pinned-lookup.js"
 import { getPrivateDocumentUploadUrl } from "./private-document-upload.js"
 import {
+  createSumsubSdkAccessToken,
+  mapSumsubWebhook,
+  verifySumsubWebhookDigest,
+} from "./sumsub-kyb.js"
+import {
   ensureMerchantKybDocumentSchema,
   ensureMerchantRegistrationDocumentSchema,
 } from "./registration-document-schema.js"
@@ -148,6 +153,8 @@ app.use(
           "https://accounts.google.com",
           "https://www.google.com",
           "https://oauth.telegram.org",
+          "https://api.sumsub.com",
+          "https://in.sumsub.com",
         ],
         imgSrc: ["'self'", "data:", "https:"],
         connectSrc: [
@@ -155,6 +162,9 @@ app.use(
           "https://accounts.google.com",
           "https://apis.google.com",
           "https://oauth.telegram.org",
+          "https://api.sumsub.com",
+          "https://in.sumsub.com",
+          "https://static.sumsub.com",
           "https://drpay-merchant-production.up.railway.app",
           "https://api.live.denpay.cc",
           "https://api.sandbox.denpay.cc",
@@ -163,6 +173,97 @@ app.use(
       },
     },
   }),
+)
+app.post(
+  "/v1/webhooks/sumsub",
+  express.raw({ type: "application/json", limit: "1mb" }),
+  async (req, res) => {
+    const secretKey = process.env.SUMSUB_WEBHOOK_SECRET
+    if (!secretKey) {
+      return res.status(503).json({
+        error: "Sumsub webhooks are not configured on this server.",
+      })
+    }
+    if (!Buffer.isBuffer(req.body)) {
+      return res.status(400).json({ error: "Invalid webhook payload." })
+    }
+
+    const validDigest = verifySumsubWebhookDigest({
+      rawBody: req.body,
+      digest: req.get("x-payload-digest"),
+      algorithm: req.get("x-payload-digest-alg") || "HMAC_SHA256_HEX",
+      secretKey,
+    })
+    if (!validDigest) {
+      return res.status(401).json({ error: "Invalid webhook signature." })
+    }
+
+    let payload
+    try {
+      payload = JSON.parse(req.body.toString("utf8"))
+    } catch {
+      return res.status(400).json({ error: "Invalid webhook payload." })
+    }
+
+    const event = mapSumsubWebhook(payload)
+    if (!event) return res.sendStatus(200)
+    if (!event.applicantId) {
+      return res.status(400).json({ error: "Webhook applicant is missing." })
+    }
+
+    const client = await pool.connect()
+    try {
+      await client.query("BEGIN")
+      await client.query(
+        `UPDATE merchant_kyb_profiles
+       SET sumsub_applicant_id = COALESCE(sumsub_applicant_id, $2),
+           sumsub_review_status = CASE
+             WHEN sumsub_review_status IN ('APPROVED', 'REJECTED')
+             THEN sumsub_review_status
+             ELSE $3
+           END,
+           sumsub_review_answer = COALESCE($4, sumsub_review_answer),
+           sumsub_last_event_type = $5,
+           updated_at = NOW()
+       WHERE sumsub_external_user_id = $1
+         AND (sumsub_applicant_id IS NULL OR sumsub_applicant_id = $2)`,
+        [
+          event.externalUserId,
+          event.applicantId,
+          event.reviewStatus,
+          event.reviewAnswer,
+          event.type,
+        ],
+      )
+      await client.query(
+        `UPDATE merchant_registration_otps
+         SET sumsub_applicant_id = COALESCE(sumsub_applicant_id, $2),
+             sumsub_review_status = CASE
+               WHEN sumsub_review_status IN ('APPROVED', 'REJECTED')
+               THEN sumsub_review_status
+               ELSE $3
+             END,
+             sumsub_review_answer = COALESCE($4, sumsub_review_answer),
+             sumsub_last_event_type = $5
+         WHERE sumsub_external_user_id = $1
+           AND (sumsub_applicant_id IS NULL OR sumsub_applicant_id = $2)`,
+        [
+          event.externalUserId,
+          event.applicantId,
+          event.reviewStatus,
+          event.reviewAnswer,
+          event.type,
+        ],
+      )
+      await client.query("COMMIT")
+    } catch (error) {
+      await client.query("ROLLBACK")
+      throw error
+    } finally {
+      client.release()
+    }
+    return res.sendStatus(200)
+  },
 )
 app.use(express.static(clientBuildDirectory))
 app.use(express.json({ limit: "24kb" }))
@@ -275,13 +376,13 @@ const googleAuthClient = googleClientId
   : null
 const configuredTelegramLoginClientId =
   process.env.DRPAY_TELEGRAM_LOGIN_CLIENT_ID?.trim() || ""
-const telegramLoginClientId = /^\d{1,20}$/.test(
-  configuredTelegramLoginClientId,
-)
+const telegramLoginClientId = /^\d{1,20}$/.test(configuredTelegramLoginClientId)
   ? configuredTelegramLoginClientId
   : ""
 if (configuredTelegramLoginClientId && !telegramLoginClientId) {
-  console.error("DRPAY_TELEGRAM_LOGIN_CLIENT_ID must be a numeric BotFather client ID.")
+  console.error(
+    "DRPAY_TELEGRAM_LOGIN_CLIENT_ID must be a numeric BotFather client ID.",
+  )
 }
 const telegramJwks = createRemoteJWKSet(
   new URL("https://oauth.telegram.org/.well-known/jwks.json"),
@@ -435,6 +536,13 @@ const cryptoWalletLimiter = rateLimit({
   standardHeaders: "draft-8",
   legacyHeaders: false,
   keyGenerator: (req) => req.merchantEmail,
+})
+const sumsubKybLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  keyGenerator: (req) => req.merchantEmail || "sumsub-kyb",
 })
 const publicCheckoutLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -798,7 +906,11 @@ async function sendMerchantAccessReadyEmails(merchants) {
   })
 }
 
-async function sendMerchantKybReviewNotification(merchant, status, reviewNotes) {
+async function sendMerchantKybReviewNotification(
+  merchant,
+  status,
+  reviewNotes,
+) {
   const portalUrl = new URL("/login", frontendOrigin).toString()
   await sendMerchantEmails({
     from: resendFromEmail,
@@ -808,9 +920,7 @@ async function sendMerchantKybReviewNotification(merchant, status, reviewNotes) 
         to: merchant.email,
         email: createMerchantKybReviewEmail({
           contactPerson:
-            merchant.contactPerson ||
-            merchant.businessName ||
-            merchant.email,
+            merchant.contactPerson || merchant.businessName || merchant.email,
           status,
           reviewNotes: reviewNotes || "",
           accessEnabled: merchant.active,
@@ -1682,6 +1792,18 @@ async function initializeDatabase() {
       ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ;
     ALTER TABLE merchant_registration_otps
       ADD COLUMN IF NOT EXISTS referral_code TEXT;
+    ALTER TABLE merchant_registration_otps
+      ADD COLUMN IF NOT EXISTS sumsub_external_user_id TEXT,
+      ADD COLUMN IF NOT EXISTS sumsub_applicant_id TEXT,
+      ADD COLUMN IF NOT EXISTS sumsub_review_status TEXT NOT NULL DEFAULT 'NOT_STARTED',
+      ADD COLUMN IF NOT EXISTS sumsub_review_answer TEXT,
+      ADD COLUMN IF NOT EXISTS sumsub_last_event_type TEXT,
+      ADD COLUMN IF NOT EXISTS sumsub_consent_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS sumsub_consent_version TEXT,
+      ADD COLUMN IF NOT EXISTS sumsub_registration_data JSONB;
+    CREATE UNIQUE INDEX IF NOT EXISTS merchant_registration_sumsub_external_user_idx
+      ON merchant_registration_otps (sumsub_external_user_id)
+      WHERE sumsub_external_user_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS merchant_registration_otps_email_created_idx
       ON merchant_registration_otps (email, created_at DESC);
     CREATE TABLE IF NOT EXISTS merchant_registration_documents (
@@ -3004,189 +3126,456 @@ app.post(
   "/v1/auth/registration/otp/request",
   registrationOtpLimiter,
   async (req, res) => {
-  const email =
-    typeof req.body?.email === "string"
-      ? req.body.email.trim().toLowerCase()
-      : ""
-  const phoneNumber =
-    typeof req.body?.phoneNumber === "string"
-      ? req.body.phoneNumber.trim()
-      : ""
-  const referralCode =
-    typeof req.body?.referralCode === "string"
-      ? req.body.referralCode.trim().toUpperCase()
-      : ""
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
-    return res.status(400).json({ error: "Enter a valid email address." })
-  }
-  if (!/^\+?[0-9()\-\s]{7,40}$/.test(phoneNumber)) {
-    return res.status(400).json({
-      error: "Enter a valid mobile number.",
-    })
-  }
-  if (referralCode && !/^[A-Z0-9]{16}$/.test(referralCode)) {
-    return res.status(400).json({ error: "Enter a valid merchant referral code." })
-  }
-  if (referralCode) {
-    const referrer = await pool.query(
-      "SELECT email FROM merchant_accounts WHERE referral_code = $1 AND active = TRUE",
-      [referralCode],
-    )
-    if (!referrer.rowCount) {
+    const email =
+      typeof req.body?.email === "string"
+        ? req.body.email.trim().toLowerCase()
+        : ""
+    const phoneNumber =
+      typeof req.body?.phoneNumber === "string"
+        ? req.body.phoneNumber.trim()
+        : ""
+    const referralCode =
+      typeof req.body?.referralCode === "string"
+        ? req.body.referralCode.trim().toUpperCase()
+        : ""
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+      return res.status(400).json({ error: "Enter a valid email address." })
+    }
+    if (!/^\+?[0-9()\-\s]{7,40}$/.test(phoneNumber)) {
       return res.status(400).json({
-        error: "This merchant referral code is invalid or inactive.",
+        error: "Enter a valid mobile number.",
       })
     }
-  }
-  const account = await pool.query(
-    "SELECT email FROM merchant_accounts WHERE email = $1",
-    [email],
-  )
-  if (account.rowCount) {
-    return res.status(409).json({
-      error: "An account or registration already exists for this email.",
-    })
-  }
-  await pool.query(
-    "DELETE FROM merchant_registration_otps WHERE created_at < NOW() - INTERVAL '24 hours'",
-  )
-  const recentRequest = await pool.query(
-    `SELECT id, referral_code FROM merchant_registration_otps
+    if (referralCode && !/^[A-Z0-9]{16}$/.test(referralCode)) {
+      return res
+        .status(400)
+        .json({ error: "Enter a valid merchant referral code." })
+    }
+    if (referralCode) {
+      const referrer = await pool.query(
+        "SELECT email FROM merchant_accounts WHERE referral_code = $1 AND active = TRUE",
+        [referralCode],
+      )
+      if (!referrer.rowCount) {
+        return res.status(400).json({
+          error: "This merchant referral code is invalid or inactive.",
+        })
+      }
+    }
+    const account = await pool.query(
+      "SELECT email FROM merchant_accounts WHERE email = $1",
+      [email],
+    )
+    if (account.rowCount) {
+      return res.status(409).json({
+        error: "An account or registration already exists for this email.",
+      })
+    }
+    await pool.query(
+      `DELETE FROM merchant_registration_otps
+     WHERE created_at < NOW() - INTERVAL '24 hours'
+       AND (sumsub_external_user_id IS NULL OR consumed_at IS NOT NULL)`,
+    )
+    await pool.query(
+      `DELETE FROM merchant_registration_otps
+     WHERE created_at < NOW() - INTERVAL '30 days'`,
+    )
+    const recentRequest = await pool.query(
+      `SELECT id, referral_code FROM merchant_registration_otps
      WHERE email = $1 AND created_at > NOW() - INTERVAL '60 seconds'
      ORDER BY created_at DESC LIMIT 1`,
-    [email],
-  )
-  if (recentRequest.rowCount) {
-    if ((recentRequest.rows[0].referral_code || "") !== referralCode) {
-      return res.status(409).json({
-        error:
-          "A verification code was already sent with a different referral code. Continue with that code or try again in one minute.",
+      [email],
+    )
+    if (recentRequest.rowCount) {
+      if ((recentRequest.rows[0].referral_code || "") !== referralCode) {
+        return res.status(409).json({
+          error:
+            "A verification code was already sent with a different referral code. Continue with that code or try again in one minute.",
+        })
+      }
+      return res.set("Cache-Control", "no-store").json({
+        challengeId: recentRequest.rows[0].id,
+        message: "A verification code has already been sent. Check your email.",
       })
     }
-    return res.set("Cache-Control", "no-store").json({
-      challengeId: recentRequest.rows[0].id,
-      message: "A verification code has already been sent. Check your email.",
-    })
-  }
-  const recentRequests = await pool.query(
-    `SELECT COUNT(*)::int AS count FROM merchant_registration_otps
+    const recentRequests = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM merchant_registration_otps
      WHERE email = $1 AND created_at > NOW() - INTERVAL '15 minutes'`,
-    [email],
-  )
-  if (recentRequests.rows[0].count >= 5) {
-    return res.status(429).json({
-      error: "Too many verification codes requested. Try again in 15 minutes.",
-    })
-  }
-  const challengeId = randomUUID()
-  const code = String(randomInt(100_000, 1_000_000))
-  const codeHash = createHmac("sha256", jwtSecretValue)
-    .update(`${challengeId}:${email}:${code}`)
-    .digest("hex")
-  await pool.query(
-    `UPDATE merchant_registration_otps SET consumed_at = NOW()
+      [email],
+    )
+    if (recentRequests.rows[0].count >= 5) {
+      return res.status(429).json({
+        error:
+          "Too many verification codes requested. Try again in 15 minutes.",
+      })
+    }
+    const challengeId = randomUUID()
+    const code = String(randomInt(100_000, 1_000_000))
+    const codeHash = createHmac("sha256", jwtSecretValue)
+      .update(`${challengeId}:${email}:${code}`)
+      .digest("hex")
+    await pool.query(
+      `UPDATE merchant_registration_otps SET consumed_at = NOW()
      WHERE email = $1 AND consumed_at IS NULL`,
-    [email],
-  )
-  await pool.query(
-    `INSERT INTO merchant_registration_otps
+      [email],
+    )
+    await pool.query(
+      `INSERT INTO merchant_registration_otps
        (id, email, phone_number, code_hash, referral_code, expires_at)
      VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '10 minutes')`,
-    [challengeId, email, phoneNumber, codeHash, referralCode || null],
-  )
-  try {
-    await sendMerchantOtp(email, code, "registration")
-  } catch {
-    await pool.query("DELETE FROM merchant_registration_otps WHERE id = $1", [
-      challengeId,
-    ])
-    return res.status(503).json({
-      error: "Verification email could not be sent. Try again later.",
-    })
-  }
-  return res
-    .set("Cache-Control", "no-store")
-    .json({ challengeId, message: "A verification code has been sent." })
-})
+      [challengeId, email, phoneNumber, codeHash, referralCode || null],
+    )
+    try {
+      await sendMerchantOtp(email, code, "registration")
+    } catch {
+      await pool.query("DELETE FROM merchant_registration_otps WHERE id = $1", [
+        challengeId,
+      ])
+      return res.status(503).json({
+        error: "Verification email could not be sent. Try again later.",
+      })
+    }
+    return res
+      .set("Cache-Control", "no-store")
+      .json({ challengeId, message: "A verification code has been sent." })
+  },
+)
 
 app.post(
   "/v1/auth/registration/otp/verify",
   registrationLimiter,
   async (req, res) => {
-  const email =
-    typeof req.body?.email === "string"
-      ? req.body.email.trim().toLowerCase()
-      : ""
-  const code = typeof req.body?.code === "string" ? req.body.code.trim() : ""
-  const challengeId =
-    typeof req.body?.challengeId === "string" ? req.body.challengeId : ""
-  if (
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
-    email.length > 254 ||
-    !/^\d{6}$/.test(code) ||
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      challengeId,
-    )
-  ) {
-    return res
-      .status(400)
-      .json({ error: "Enter the six-digit email verification code." })
-  }
-  const client = await pool.connect()
-  try {
-    await client.query("BEGIN")
-    const challenge = await client.query(
-      `SELECT code_hash
+    const email =
+      typeof req.body?.email === "string"
+        ? req.body.email.trim().toLowerCase()
+        : ""
+    const code = typeof req.body?.code === "string" ? req.body.code.trim() : ""
+    const challengeId =
+      typeof req.body?.challengeId === "string" ? req.body.challengeId : ""
+    if (
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+      email.length > 254 ||
+      !/^\d{6}$/.test(code) ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        challengeId,
+      )
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Enter the six-digit email verification code." })
+    }
+    const client = await pool.connect()
+    try {
+      await client.query("BEGIN")
+      const challenge = await client.query(
+        `SELECT code_hash
        FROM merchant_registration_otps
        WHERE id = $1 AND email = $2 AND consumed_at IS NULL
          AND verified_at IS NULL AND expires_at > NOW() AND attempts < 5
        FOR UPDATE`,
+        [challengeId, email],
+      )
+      const record = challenge.rows[0]
+      if (!record) {
+        await client.query("ROLLBACK")
+        return res
+          .status(401)
+          .json({
+            error: "That code is invalid or expired. Request a new code.",
+          })
+      }
+      await client.query(
+        "UPDATE merchant_registration_otps SET attempts = attempts + 1 WHERE id = $1",
+        [challengeId],
+      )
+      const expectedHash = createHmac("sha256", jwtSecretValue)
+        .update(`${challengeId}:${email}:${code}`)
+        .digest()
+      const actualHash = Buffer.from(record.code_hash, "hex")
+      if (
+        actualHash.length !== expectedHash.length ||
+        !timingSafeEqual(actualHash, expectedHash)
+      ) {
+        await client.query("COMMIT")
+        return res.status(401).json({
+          error: "That code is incorrect. Check your email and try again.",
+        })
+      }
+      await client.query(
+        "UPDATE merchant_registration_otps SET verified_at = NOW() WHERE id = $1",
+        [challengeId],
+      )
+      await client.query("COMMIT")
+      return res
+        .set("Cache-Control", "no-store")
+        .json({ email, status: "verified" })
+    } catch (error) {
+      await client.query("ROLLBACK")
+      if (error.code === "23505") {
+        return res.status(409).json({
+          error: "An account or registration already exists for this email.",
+        })
+      }
+      throw error
+    } finally {
+      client.release()
+    }
+  },
+)
+
+app.post(
+  "/v1/auth/registration/sumsub/access-token",
+  registrationLimiter,
+  async (req, res) => {
+    const appToken = process.env.SUMSUB_APP_TOKEN
+    const secretKey = process.env.SUMSUB_SECRET_KEY
+    const levelName = process.env.SUMSUB_KYB_LEVEL_NAME
+    const webhookSecret = process.env.SUMSUB_WEBHOOK_SECRET
+    if (!appToken || !secretKey || !levelName || !webhookSecret) {
+      return res.status(503).json({
+        error: "Sumsub verification is not configured. Contact DRPAY support.",
+      })
+    }
+
+    const email =
+      typeof req.body?.email === "string"
+        ? req.body.email.trim().toLowerCase()
+        : ""
+    const challengeId =
+      typeof req.body?.challengeId === "string" ? req.body.challengeId : ""
+    const ownerEmail =
+      typeof req.body?.ownerEmail === "string"
+        ? req.body.ownerEmail.trim().toLowerCase()
+        : ""
+    const ownerPhone =
+      typeof req.body?.ownerPhone === "string" ? req.body.ownerPhone.trim() : ""
+    const registrationData = {
+      businessName:
+        typeof req.body?.businessName === "string"
+          ? req.body.businessName.trim()
+          : "",
+      registrationNumber:
+        typeof req.body?.registrationNumber === "string"
+          ? req.body.registrationNumber.trim()
+          : "",
+      businessType:
+        typeof req.body?.businessType === "string"
+          ? req.body.businessType.trim()
+          : "",
+      country:
+        typeof req.body?.country === "string" ? req.body.country.trim() : "",
+      businessAddress:
+        typeof req.body?.businessAddress === "string"
+          ? req.body.businessAddress.trim()
+          : "",
+      ownerFullName:
+        typeof req.body?.ownerFullName === "string"
+          ? req.body.ownerFullName.trim()
+          : "",
+      ownerDateOfBirth:
+        typeof req.body?.ownerDateOfBirth === "string"
+          ? req.body.ownerDateOfBirth.trim()
+          : "",
+      ownerNationality:
+        typeof req.body?.ownerNationality === "string"
+          ? req.body.ownerNationality.trim()
+          : "",
+      ownerEmail,
+      ownerPhone,
+    }
+    if (
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+      email.length > 254 ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        challengeId,
+      ) ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail) ||
+      ownerEmail.length > 200 ||
+      !/^\+?[0-9()\-\s]{7,40}$/.test(ownerPhone) ||
+      !registrationData.businessName ||
+      registrationData.businessName.length > 160 ||
+      !registrationData.registrationNumber ||
+      registrationData.registrationNumber.length > 200 ||
+      !registrationData.businessType ||
+      registrationData.businessType.length > 200 ||
+      !registrationData.country ||
+      registrationData.country.length > 200 ||
+      !registrationData.businessAddress ||
+      registrationData.businessAddress.length > 200 ||
+      !registrationData.ownerFullName ||
+      registrationData.ownerFullName.length > 200 ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(registrationData.ownerDateOfBirth) ||
+      !registrationData.ownerNationality ||
+      registrationData.ownerNationality.length > 200 ||
+      req.body?.consent !== true
+    ) {
+      return res.status(400).json({
+        error:
+          "Complete your business and owner details, then accept the Sumsub verification consent.",
+      })
+    }
+
+    const client = await pool.connect()
+    let externalUserId
+    let reviewStatus
+    try {
+      await client.query("BEGIN")
+      const challenge = await client.query(
+        `SELECT sumsub_external_user_id AS "externalUserId",
+                sumsub_review_status AS "reviewStatus",
+                sumsub_registration_data IS NULL AS "registrationDataEmpty",
+                sumsub_registration_data = $3::jsonb AS "registrationDataMatches"
+         FROM merchant_registration_otps
+         WHERE id = $1 AND email = $2 AND verified_at IS NOT NULL
+           AND consumed_at IS NULL
+           AND (
+             verified_at > NOW() - INTERVAL '24 hours'
+             OR (
+               sumsub_external_user_id IS NOT NULL
+               AND created_at > NOW() - INTERVAL '30 days'
+             )
+           )
+         FOR UPDATE`,
+        [challengeId, email, JSON.stringify(registrationData)],
+      )
+      if (!challenge.rowCount) {
+        await client.query("ROLLBACK")
+        return res.status(401).json({
+          error: "Verify your email again before starting Sumsub verification.",
+        })
+      }
+      reviewStatus = challenge.rows[0].reviewStatus
+      if (["APPROVED", "REJECTED"].includes(reviewStatus)) {
+        await client.query("ROLLBACK")
+        return res.status(409).json({
+          error:
+            "This Sumsub result is final. Contact DRPAY support if you need to appeal.",
+        })
+      }
+      if (
+        !challenge.rows[0].registrationDataEmpty &&
+        !challenge.rows[0].registrationDataMatches
+      ) {
+        await client.query("ROLLBACK")
+        return res.status(409).json({
+          error:
+            "Your business or owner details changed after verification started. Request a new email code to restart.",
+        })
+      }
+      externalUserId = challenge.rows[0].externalUserId || randomUUID()
+      await client.query(
+        `UPDATE merchant_registration_otps
+         SET sumsub_external_user_id = $2,
+             sumsub_consent_at = COALESCE(sumsub_consent_at, NOW()),
+             sumsub_consent_version = 'sumsub-kyb-v1',
+             sumsub_registration_data =
+               COALESCE(sumsub_registration_data, $3::jsonb)
+         WHERE id = $1`,
+        [challengeId, externalUserId, JSON.stringify(registrationData)],
+      )
+      await client.query("COMMIT")
+    } catch (error) {
+      await client.query("ROLLBACK")
+      throw error
+    } finally {
+      client.release()
+    }
+
+    let accessToken
+    try {
+      accessToken = await createSumsubSdkAccessToken({
+        appToken,
+        secretKey,
+        levelName,
+        externalUserId,
+        email: ownerEmail,
+        phone: ownerPhone,
+      })
+    } catch (error) {
+      console.error("Sumsub registration access-token request failed", {
+        name: error instanceof Error ? error.name : typeof error,
+        status:
+          error && typeof error === "object" && "status" in error
+            ? error.status
+            : null,
+        providerErrorName:
+          error && typeof error === "object" && "providerErrorName" in error
+            ? error.providerErrorName
+            : null,
+      })
+      return res.status(502).json({
+        error: "Sumsub is temporarily unavailable. Try again shortly.",
+      })
+    }
+
+    const updatedChallenge = await pool.query(
+      `UPDATE merchant_registration_otps
+       SET sumsub_review_status = CASE
+             WHEN sumsub_review_status IN ('NOT_STARTED', 'IN_PROGRESS')
+               THEN 'IN_PROGRESS'
+             ELSE sumsub_review_status
+           END
+       WHERE id = $1 AND sumsub_external_user_id = $2
+         AND sumsub_review_status NOT IN ('APPROVED', 'REJECTED')
+       RETURNING sumsub_review_status AS "reviewStatus"`,
+      [challengeId, externalUserId],
+    )
+    if (!updatedChallenge.rowCount) {
+      return res.status(409).json({
+        error:
+          "Your verification changed while connecting to Sumsub. Refresh and try again.",
+      })
+    }
+    return res.set("Cache-Control", "no-store").json({
+      accessToken,
+      sumsubReviewStatus: updatedChallenge.rows[0].reviewStatus,
+    })
+  },
+)
+
+app.post(
+  "/v1/auth/registration/sumsub/status",
+  registrationLimiter,
+  async (req, res) => {
+    const email =
+      typeof req.body?.email === "string"
+        ? req.body.email.trim().toLowerCase()
+        : ""
+    const challengeId =
+      typeof req.body?.challengeId === "string" ? req.body.challengeId : ""
+    if (
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+      email.length > 254 ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        challengeId,
+      )
+    ) {
+      return res.status(400).json({ error: "Verify your email to continue." })
+    }
+    const result = await pool.query(
+      `SELECT sumsub_review_status AS "reviewStatus"
+       FROM merchant_registration_otps
+       WHERE id = $1 AND email = $2 AND verified_at IS NOT NULL
+         AND consumed_at IS NULL
+         AND (
+           verified_at > NOW() - INTERVAL '24 hours'
+           OR (
+             sumsub_external_user_id IS NOT NULL
+             AND created_at > NOW() - INTERVAL '30 days'
+           )
+         )`,
       [challengeId, email],
     )
-    const record = challenge.rows[0]
-    if (!record) {
-      await client.query("ROLLBACK")
-      return res
-        .status(401)
-        .json({ error: "That code is invalid or expired. Request a new code." })
-    }
-    await client.query(
-      "UPDATE merchant_registration_otps SET attempts = attempts + 1 WHERE id = $1",
-      [challengeId],
-    )
-    const expectedHash = createHmac("sha256", jwtSecretValue)
-      .update(`${challengeId}:${email}:${code}`)
-      .digest()
-    const actualHash = Buffer.from(record.code_hash, "hex")
-    if (
-      actualHash.length !== expectedHash.length ||
-      !timingSafeEqual(actualHash, expectedHash)
-    ) {
-      await client.query("COMMIT")
+    if (!result.rowCount) {
       return res.status(401).json({
-        error: "That code is incorrect. Check your email and try again.",
+        error: "Verify your email again before checking Sumsub status.",
       })
     }
-    await client.query(
-      "UPDATE merchant_registration_otps SET verified_at = NOW() WHERE id = $1",
-      [challengeId],
-    )
-    await client.query("COMMIT")
-    return res
-      .set("Cache-Control", "no-store")
-      .json({ email, status: "verified" })
-  } catch (error) {
-    await client.query("ROLLBACK")
-    if (error.code === "23505") {
-      return res.status(409).json({
-        error: "An account or registration already exists for this email.",
-      })
-    }
-    throw error
-  } finally {
-    client.release()
-  }
-})
+    return res.set("Cache-Control", "no-store").json({
+      sumsubReviewStatus: result.rows[0].reviewStatus,
+    })
+  },
+)
 
 app.post(
   "/v1/auth/registration/documents/presign",
@@ -3203,7 +3592,10 @@ app.post(
     const fileName =
       typeof req.body?.fileName === "string" ? req.body.fileName.trim() : ""
     const contentType = req.body?.contentType
-    const normalizedContentType = normalizeDocumentContentType(fileName, contentType)
+    const normalizedContentType = normalizeDocumentContentType(
+      fileName,
+      contentType,
+    )
     const sizeBytes = Number(req.body?.sizeBytes)
     if (
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
@@ -3336,7 +3728,8 @@ app.post(
       !hasValidDocumentSignature(contentType, bytes)
     ) {
       return res.status(400).json({
-        error: "Choose a valid PDF, JPEG, or PNG document no larger than 10 MB.",
+        error:
+          "Choose a valid PDF, JPEG, or PNG document no larger than 10 MB.",
       })
     }
     const reservationResult = await pool.query(
@@ -3499,257 +3892,298 @@ app.post(
   "/v1/auth/registration/submit",
   registrationLimiter,
   async (req, res) => {
-  const email =
-    typeof req.body?.email === "string"
-      ? req.body.email.trim().toLowerCase()
-      : ""
-  const challengeId =
-    typeof req.body?.challengeId === "string" ? req.body.challengeId : ""
-  const businessName =
-    typeof req.body?.businessName === "string"
-      ? req.body.businessName.trim()
-      : ""
-  const contactPerson =
-    typeof req.body?.contactPerson === "string"
-      ? req.body.contactPerson.trim()
-      : ""
-  const businessAddress =
-    typeof req.body?.businessAddress === "string"
-      ? req.body.businessAddress.trim()
-      : ""
-  const registrationNumber =
-    typeof req.body?.registrationNumber === "string"
-      ? req.body.registrationNumber.trim()
-      : ""
-  const businessType =
-    typeof req.body?.businessType === "string"
-      ? req.body.businessType.trim()
-      : ""
-  const country =
-    typeof req.body?.country === "string" ? req.body.country.trim() : ""
-  const ownerFullName =
-    typeof req.body?.ownerFullName === "string"
-      ? req.body.ownerFullName.trim()
-      : ""
-  const ownerDateOfBirth =
-    typeof req.body?.ownerDateOfBirth === "string"
-      ? req.body.ownerDateOfBirth.trim()
-      : ""
-  const ownerNationality =
-    typeof req.body?.ownerNationality === "string"
-      ? req.body.ownerNationality.trim()
-      : ""
-  const ownerEmail =
-    typeof req.body?.ownerEmail === "string"
-      ? req.body.ownerEmail.trim().toLowerCase()
-      : ""
-  const ownerPhone =
-    typeof req.body?.ownerPhone === "string"
-      ? req.body.ownerPhone.trim()
-      : ""
-  const bankName =
-    typeof req.body?.bankName === "string" ? req.body.bankName.trim() : ""
-  const accountName =
-    typeof req.body?.accountName === "string" ? req.body.accountName.trim() : ""
-  const accountNumber =
-    typeof req.body?.accountNumber === "string"
-      ? req.body.accountNumber.replace(/\s+/g, "")
-      : ""
-  const pin = typeof req.body?.pin === "string" ? req.body.pin : ""
-  if (
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
-    email.length > 254 ||
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      challengeId,
-    )
-  ) {
-    return res.status(400).json({ error: "Verify your email to continue." })
-  }
-  if (
-    !businessName ||
-    businessName.length > 160 ||
-    !contactPerson ||
-    contactPerson.length > 120 ||
-    !businessAddress ||
-    businessAddress.length > 200 ||
-    !registrationNumber ||
-    registrationNumber.length > 200 ||
-    !businessType ||
-    businessType.length > 200 ||
-    !country ||
-    country.length > 200 ||
-    !ownerFullName ||
-    ownerFullName.length > 200 ||
-    !/^\d{4}-\d{2}-\d{2}$/.test(ownerDateOfBirth) ||
-    Number.isNaN(Date.parse(`${ownerDateOfBirth}T00:00:00Z`)) ||
-    new Date(`${ownerDateOfBirth}T00:00:00Z`).toISOString().slice(0, 10) !==
-      ownerDateOfBirth ||
-    new Date(`${ownerDateOfBirth}T00:00:00Z`) >
-      new Date(Date.now() - 18 * 365.25 * 24 * 60 * 60 * 1000) ||
-    !ownerNationality ||
-    ownerNationality.length > 200 ||
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail) ||
-    ownerEmail.length > 200 ||
-    !/^\+?[0-9()\-\s]{7,40}$/.test(ownerPhone) ||
-    !bankName ||
-    bankName.length < 2 ||
-    bankName.length > 100 ||
-    !accountName ||
-    accountName.length < 2 ||
-    accountName.length > 120 ||
-    !/^[A-Za-z0-9-]{4,34}$/.test(accountNumber) ||
-    !/^\d{4}$/.test(pin)
-  ) {
-    return res.status(400).json({
-      error: "Complete each required business, owner, payout, and MPIN field.",
-    })
-  }
-  const client = await pool.connect()
-  try {
-    await client.query("BEGIN")
-    const challenge = await client.query(
-      `SELECT phone_number, referral_code FROM merchant_registration_otps
-       WHERE id = $1 AND email = $2 AND verified_at IS NOT NULL
-         AND verified_at > NOW() - INTERVAL '24 hours'
-         AND consumed_at IS NULL
-       FOR UPDATE`,
-      [challengeId, email],
-    )
-    if (!challenge.rowCount) {
-      await client.query("ROLLBACK")
-      return res.status(401).json({
-        error: "Verify your email before submitting your application.",
+    const email =
+      typeof req.body?.email === "string"
+        ? req.body.email.trim().toLowerCase()
+        : ""
+    const challengeId =
+      typeof req.body?.challengeId === "string" ? req.body.challengeId : ""
+    const businessName =
+      typeof req.body?.businessName === "string"
+        ? req.body.businessName.trim()
+        : ""
+    const contactPerson =
+      typeof req.body?.contactPerson === "string"
+        ? req.body.contactPerson.trim()
+        : ""
+    const businessAddress =
+      typeof req.body?.businessAddress === "string"
+        ? req.body.businessAddress.trim()
+        : ""
+    const registrationNumber =
+      typeof req.body?.registrationNumber === "string"
+        ? req.body.registrationNumber.trim()
+        : ""
+    const businessType =
+      typeof req.body?.businessType === "string"
+        ? req.body.businessType.trim()
+        : ""
+    const country =
+      typeof req.body?.country === "string" ? req.body.country.trim() : ""
+    const ownerFullName =
+      typeof req.body?.ownerFullName === "string"
+        ? req.body.ownerFullName.trim()
+        : ""
+    const ownerDateOfBirth =
+      typeof req.body?.ownerDateOfBirth === "string"
+        ? req.body.ownerDateOfBirth.trim()
+        : ""
+    const ownerNationality =
+      typeof req.body?.ownerNationality === "string"
+        ? req.body.ownerNationality.trim()
+        : ""
+    const ownerEmail =
+      typeof req.body?.ownerEmail === "string"
+        ? req.body.ownerEmail.trim().toLowerCase()
+        : ""
+    const ownerPhone =
+      typeof req.body?.ownerPhone === "string" ? req.body.ownerPhone.trim() : ""
+    const bankName =
+      typeof req.body?.bankName === "string" ? req.body.bankName.trim() : ""
+    const accountName =
+      typeof req.body?.accountName === "string"
+        ? req.body.accountName.trim()
+        : ""
+    const accountNumber =
+      typeof req.body?.accountNumber === "string"
+        ? req.body.accountNumber.replace(/\s+/g, "")
+        : ""
+    const pin = typeof req.body?.pin === "string" ? req.body.pin : ""
+    if (
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+      email.length > 254 ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        challengeId,
+      )
+    ) {
+      return res.status(400).json({ error: "Verify your email to continue." })
+    }
+    if (
+      !businessName ||
+      businessName.length > 160 ||
+      !contactPerson ||
+      contactPerson.length > 120 ||
+      !businessAddress ||
+      businessAddress.length > 200 ||
+      !registrationNumber ||
+      registrationNumber.length > 200 ||
+      !businessType ||
+      businessType.length > 200 ||
+      !country ||
+      country.length > 200 ||
+      !ownerFullName ||
+      ownerFullName.length > 200 ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(ownerDateOfBirth) ||
+      Number.isNaN(Date.parse(`${ownerDateOfBirth}T00:00:00Z`)) ||
+      new Date(`${ownerDateOfBirth}T00:00:00Z`).toISOString().slice(0, 10) !==
+        ownerDateOfBirth ||
+      new Date(`${ownerDateOfBirth}T00:00:00Z`) >
+        new Date(Date.now() - 18 * 365.25 * 24 * 60 * 60 * 1000) ||
+      !ownerNationality ||
+      ownerNationality.length > 200 ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail) ||
+      ownerEmail.length > 200 ||
+      !/^\+?[0-9()\-\s]{7,40}$/.test(ownerPhone) ||
+      !bankName ||
+      bankName.length < 2 ||
+      bankName.length > 100 ||
+      !accountName ||
+      accountName.length < 2 ||
+      accountName.length > 120 ||
+      !/^[A-Za-z0-9-]{4,34}$/.test(accountNumber) ||
+      !/^\d{4}$/.test(pin)
+    ) {
+      return res.status(400).json({
+        error:
+          "Complete each required business, owner, payout, and MPIN field.",
       })
     }
-    let referredByEmail = null
-    if (challenge.rows[0].referral_code) {
-      const referrer = await client.query(
-        `SELECT email FROM merchant_accounts
-         WHERE referral_code = $1 AND active = TRUE`,
-        [challenge.rows[0].referral_code],
+    const submittedVerificationData = {
+      businessName,
+      registrationNumber,
+      businessType,
+      country,
+      businessAddress,
+      ownerFullName,
+      ownerDateOfBirth,
+      ownerNationality,
+      ownerEmail,
+      ownerPhone,
+    }
+    const client = await pool.connect()
+    try {
+      await client.query("BEGIN")
+      const challenge = await client.query(
+        `SELECT phone_number, referral_code,
+              sumsub_external_user_id AS "sumsubExternalUserId",
+              sumsub_applicant_id AS "sumsubApplicantId",
+              sumsub_review_status AS "sumsubReviewStatus",
+              sumsub_review_answer AS "sumsubReviewAnswer",
+              sumsub_last_event_type AS "sumsubLastEventType",
+              sumsub_consent_at AS "sumsubConsentAt",
+              sumsub_consent_version AS "sumsubConsentVersion",
+              sumsub_registration_data = $3::jsonb AS "sumsubRegistrationDataMatches"
+       FROM merchant_registration_otps
+       WHERE id = $1 AND email = $2 AND verified_at IS NOT NULL
+         AND (
+           verified_at > NOW() - INTERVAL '24 hours'
+           OR (
+             sumsub_external_user_id IS NOT NULL
+             AND created_at > NOW() - INTERVAL '30 days'
+           )
+         )
+         AND consumed_at IS NULL
+       FOR UPDATE`,
+        [challengeId, email, JSON.stringify(submittedVerificationData)],
       )
-      if (!referrer.rowCount) {
+      if (!challenge.rowCount) {
         await client.query("ROLLBACK")
-        return res.status(400).json({
-          error: "This merchant referral code is no longer active.",
+        return res.status(401).json({
+          error: "Verify your email before submitting your application.",
         })
       }
-      referredByEmail = referrer.rows[0].email
-    }
-    const documents = await client.query(
-      `SELECT id, document_type, object_key, file_name, content_type, size_bytes
+      if (!challenge.rows[0].sumsubRegistrationDataMatches) {
+        await client.query("ROLLBACK")
+        return res.status(409).json({
+          error:
+            "Your business or owner details do not match the information verified by Sumsub. Restart verification before applying.",
+        })
+      }
+      if (
+        !challenge.rows[0].sumsubExternalUserId ||
+        !challenge.rows[0].sumsubConsentAt ||
+        !["IN_REVIEW", "ON_HOLD", "APPROVED"].includes(
+          challenge.rows[0].sumsubReviewStatus,
+        )
+      ) {
+        await client.query("ROLLBACK")
+        return res.status(409).json({
+          error:
+            "Submit your business verification to Sumsub before submitting your DRPAY application.",
+        })
+      }
+      let referredByEmail = null
+      if (challenge.rows[0].referral_code) {
+        const referrer = await client.query(
+          `SELECT email FROM merchant_accounts
+         WHERE referral_code = $1 AND active = TRUE`,
+          [challenge.rows[0].referral_code],
+        )
+        if (!referrer.rowCount) {
+          await client.query("ROLLBACK")
+          return res.status(400).json({
+            error: "This merchant referral code is no longer active.",
+          })
+        }
+        referredByEmail = referrer.rows[0].email
+      }
+      const documents = await client.query(
+        `SELECT id, document_type, object_key, file_name, content_type, size_bytes
        FROM merchant_registration_documents
        WHERE challenge_id = $1 AND completed_at IS NOT NULL
        FOR UPDATE`,
-      [challengeId],
-    )
-    const requiredDocuments = [
-      "business_registration",
-      "identity_front",
-      "identity_back",
-    ]
-    if (
-      requiredDocuments.some(
-        (type) => !documents.rows.some((document) => document.document_type === type),
+        [challengeId],
       )
-    ) {
-      await client.query("ROLLBACK")
-      return res.status(400).json({
-        error:
-          "Upload the business registration certificate and both sides of the owner’s identity document.",
-      })
-    }
-    await client.query(
-      `INSERT INTO merchant_accounts
+      await client.query(
+        `INSERT INTO merchant_accounts
          (email, active, registration_pending, business_name, contact_person,
           phone_number, business_address, referred_by_email)
        VALUES ($1, FALSE, TRUE, $2, $3, $4, $5, $6)`,
-      [
-        email,
-        businessName,
-        contactPerson,
-        challenge.rows[0].phone_number,
-        businessAddress,
-        referredByEmail,
-      ],
-    )
-    const pinSalt = randomBytes(16).toString("hex")
-    const pinHash = scryptSync(pin, pinSalt, 64).toString("hex")
-    await client.query(
-      `INSERT INTO merchant_security (email, pin_salt, pin_hash)
-       VALUES ($1, $2, $3)`,
-      [email, pinSalt, pinHash],
-    )
-    await client.query(
-      `INSERT INTO merchant_kyb_profiles (
-         merchant_email, legal_business_name, registration_number, business_type,
-         country, business_address, owner_full_name, owner_date_of_birth,
-         owner_nationality, owner_email, owner_phone
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-      [
-        email,
-        businessName,
-        registrationNumber,
-        businessType,
-        country,
-        businessAddress,
-        ownerFullName,
-        ownerDateOfBirth,
-        ownerNationality,
-        ownerEmail,
-        ownerPhone,
-      ],
-    )
-    await client.query(
-      `INSERT INTO merchant_payout_accounts
-         (merchant_email, bank_name, account_name, account_number)
-       VALUES ($1, $2, $3, $4)`,
-      [email, bankName, accountName, accountNumber],
-    )
-    await recordAdminAuditEvent(client, {
-      eventKey: `merchant-registration:${email}`,
-      category: "Merchant account",
-      action: "Merchant registration submitted",
-      target: email,
-      actor: null,
-      summary: "A verified merchant application was submitted for review.",
-    })
-    for (const document of documents.rows) {
-      await client.query(
-        `INSERT INTO merchant_kyb_documents
-           (id, merchant_email, document_type, object_key, file_name, content_type, size_bytes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [
-          document.id,
           email,
-          document.document_type,
-          document.object_key,
-          document.file_name,
-          document.content_type,
-          document.size_bytes,
+          businessName,
+          contactPerson,
+          challenge.rows[0].phone_number,
+          businessAddress,
+          referredByEmail,
         ],
       )
-    }
-    await client.query(
-      "UPDATE merchant_registration_otps SET consumed_at = NOW() WHERE id = $1",
-      [challengeId],
-    )
-    await client.query("COMMIT")
-    return res
-      .set("Cache-Control", "no-store")
-      .status(202)
-      .json({ email, status: "pending_review" })
-  } catch (error) {
-    await client.query("ROLLBACK")
-    if (error.code === "23505") {
-      return res.status(409).json({
-        error: "An account or registration already exists for this email.",
+      const pinSalt = randomBytes(16).toString("hex")
+      const pinHash = scryptSync(pin, pinSalt, 64).toString("hex")
+      await client.query(
+        `INSERT INTO merchant_security (email, pin_salt, pin_hash)
+       VALUES ($1, $2, $3)`,
+        [email, pinSalt, pinHash],
+      )
+      await client.query(
+        `INSERT INTO merchant_kyb_profiles (
+         merchant_email, legal_business_name, registration_number, business_type,
+         country, business_address, owner_full_name, owner_date_of_birth,
+         owner_nationality, owner_email, owner_phone, sumsub_external_user_id,
+         sumsub_applicant_id, sumsub_review_status, sumsub_review_answer,
+         sumsub_last_event_type, sumsub_consent_at, sumsub_consent_version
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+        [
+          email,
+          businessName,
+          registrationNumber,
+          businessType,
+          country,
+          businessAddress,
+          ownerFullName,
+          ownerDateOfBirth,
+          ownerNationality,
+          ownerEmail,
+          ownerPhone,
+          challenge.rows[0].sumsubExternalUserId,
+          challenge.rows[0].sumsubApplicantId,
+          challenge.rows[0].sumsubReviewStatus,
+          challenge.rows[0].sumsubReviewAnswer,
+          challenge.rows[0].sumsubLastEventType,
+          challenge.rows[0].sumsubConsentAt,
+          challenge.rows[0].sumsubConsentVersion,
+        ],
+      )
+      await client.query(
+        `INSERT INTO merchant_payout_accounts
+         (merchant_email, bank_name, account_name, account_number)
+       VALUES ($1, $2, $3, $4)`,
+        [email, bankName, accountName, accountNumber],
+      )
+      await recordAdminAuditEvent(client, {
+        eventKey: `merchant-registration:${email}`,
+        category: "Merchant account",
+        action: "Merchant registration submitted",
+        target: email,
+        actor: null,
+        summary: "A verified merchant application was submitted for review.",
       })
+      for (const document of documents.rows) {
+        await client.query(
+          `INSERT INTO merchant_kyb_documents
+           (id, merchant_email, document_type, object_key, file_name, content_type, size_bytes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [
+            document.id,
+            email,
+            document.document_type,
+            document.object_key,
+            document.file_name,
+            document.content_type,
+            document.size_bytes,
+          ],
+        )
+      }
+      await client.query(
+        "UPDATE merchant_registration_otps SET consumed_at = NOW() WHERE id = $1",
+        [challengeId],
+      )
+      await client.query("COMMIT")
+      return res
+        .set("Cache-Control", "no-store")
+        .status(202)
+        .json({ email, status: "pending_review" })
+    } catch (error) {
+      await client.query("ROLLBACK")
+      if (error.code === "23505") {
+        return res.status(409).json({
+          error: "An account or registration already exists for this email.",
+        })
+      }
+      throw error
+    } finally {
+      client.release()
     }
-    throw error
-  } finally {
-    client.release()
-  }
   },
 )
 
@@ -4140,8 +4574,7 @@ app.post("/v1/auth/device/pin", loginLimiter, async (req, res) => {
     typeof req.body?.provider === "string" ? req.body.provider : ""
   const hasProviderStepUp = Boolean(providerChallengeId || provider)
   const stepUpChallenge =
-    hasProviderStepUp &&
-    ["google", "telegram", "passkey"].includes(provider)
+    hasProviderStepUp && ["google", "telegram", "passkey"].includes(provider)
       ? await getMerchantAuthChallenge(providerChallengeId, provider, "login")
       : null
   if (hasProviderStepUp && !stepUpChallenge?.merchantEmail) {
@@ -4149,7 +4582,8 @@ app.post("/v1/auth/device/pin", loginLimiter, async (req, res) => {
       error: "Verify your identity again before entering your MPIN.",
     })
   }
-  const email = stepUpChallenge?.merchantEmail ||
+  const email =
+    stepUpChallenge?.merchantEmail ||
     (typeof req.body?.email === "string"
       ? req.body.email.trim().toLowerCase()
       : "")
@@ -4236,8 +4670,7 @@ app.post("/v1/auth/device/biometric", loginLimiter, async (req, res) => {
     typeof req.body?.provider === "string" ? req.body.provider : ""
   const hasProviderStepUp = Boolean(providerChallengeId || provider)
   const stepUpChallenge =
-    hasProviderStepUp &&
-    ["google", "telegram", "passkey"].includes(provider)
+    hasProviderStepUp && ["google", "telegram", "passkey"].includes(provider)
       ? await getMerchantAuthChallenge(providerChallengeId, provider, "login")
       : null
   if (hasProviderStepUp && !stepUpChallenge?.merchantEmail) {
@@ -4245,7 +4678,8 @@ app.post("/v1/auth/device/biometric", loginLimiter, async (req, res) => {
       error: "Verify your identity again before using biometrics.",
     })
   }
-  const email = stepUpChallenge?.merchantEmail ||
+  const email =
+    stepUpChallenge?.merchantEmail ||
     (typeof req.body?.email === "string"
       ? req.body.email.trim().toLowerCase()
       : "")
@@ -4344,11 +4778,9 @@ app.post(
       !/^[0-9a-f-]{36}$/i.test(id) ||
       !["completed", "rejected"].includes(decision)
     ) {
-      return res
-        .status(400)
-        .json({
-          error: "Choose a valid crypto withdrawal request and decision.",
-        })
+      return res.status(400).json({
+        error: "Choose a valid crypto withdrawal request and decision.",
+      })
     }
     const transactionId =
       typeof req.body?.transactionId === "string"
@@ -4382,11 +4814,9 @@ app.post(
       }
       if (request.rows[0].status !== "PENDING") {
         await client.query("ROLLBACK")
-        return res
-          .status(409)
-          .json({
-            error: "This crypto withdrawal request has already been reviewed.",
-          })
+        return res.status(409).json({
+          error: "This crypto withdrawal request has already been reviewed.",
+        })
       }
       const nextStatus = decision === "completed" ? "COMPLETED" : "REJECTED"
       const updated = await client.query(
@@ -5505,8 +5935,7 @@ app.post("/v1/admin/merchants/activate", async (req, res) => {
         activationEmailFailureCount = activated.rows.length
         console.error("Merchant access-ready email delivery failed", {
           recipientCount: activated.rows.length,
-          error:
-            error instanceof Error ? error.name : "email provider error",
+          error: error instanceof Error ? error.name : "email provider error",
         })
       }
     }
@@ -5526,37 +5955,42 @@ async function sendMerchantInvitation(merchant) {
   const settingsResult = await pool.query(
     `SELECT setting_key, setting_value FROM system_settings
      WHERE setting_key = ANY($1)`,
-    [["collection_fee_percent", "transfer_fee_fixed", "agreement_activation_fee"]],
+    [
+      [
+        "collection_fee_percent",
+        "transfer_fee_fixed",
+        "agreement_activation_fee",
+      ],
+    ],
   )
   const settings = Object.fromEntries(
     settingsResult.rows.map((row) => [row.setting_key, row.setting_value]),
   )
   const createdAt = new Date()
   const agreementId = randomUUID()
-  const [merchantAgreement, alipayPlusAgreement] =
-    await Promise.all([
-      createMerchantAgreementPdf({
-        agreementId,
-        merchantEmail: merchant.email,
-        businessName: merchant.businessName,
-        contactPerson: merchant.contactPerson,
-        businessAddress: merchant.businessAddress,
-        phoneNumber: merchant.phoneNumber,
-        collectionFeePercent: Number(settings.collection_fee_percent ?? 0.5),
-        transferFeeFixed: Number(settings.transfer_fee_fixed ?? 15),
-        activationFee: Number(settings.agreement_activation_fee ?? 5000),
-        createdAt,
-      }),
-      createAlipayPlusAgreementPdf({
-        agreementId: `alipay-${agreementId}`,
-        merchantName: merchant.businessName,
-        merchantEmail: merchant.email,
-        merchantAddress: merchant.businessAddress,
-        contactPerson: merchant.contactPerson,
-        phoneNumber: merchant.phoneNumber,
-        createdAt,
-      }),
-    ])
+  const [merchantAgreement, alipayPlusAgreement] = await Promise.all([
+    createMerchantAgreementPdf({
+      agreementId,
+      merchantEmail: merchant.email,
+      businessName: merchant.businessName,
+      contactPerson: merchant.contactPerson,
+      businessAddress: merchant.businessAddress,
+      phoneNumber: merchant.phoneNumber,
+      collectionFeePercent: Number(settings.collection_fee_percent ?? 0.5),
+      transferFeeFixed: Number(settings.transfer_fee_fixed ?? 15),
+      activationFee: Number(settings.agreement_activation_fee ?? 5000),
+      createdAt,
+    }),
+    createAlipayPlusAgreementPdf({
+      agreementId: `alipay-${agreementId}`,
+      merchantName: merchant.businessName,
+      merchantEmail: merchant.email,
+      merchantAddress: merchant.businessAddress,
+      contactPerson: merchant.contactPerson,
+      phoneNumber: merchant.phoneNumber,
+      createdAt,
+    }),
+  ])
   const attachments = [
     ["Merchant-Services-Agreement.pdf", merchantAgreement],
     ["Alipay-Plus-Service-Addendum.pdf", alipayPlusAgreement],
@@ -6131,9 +6565,7 @@ app.post("/v1/admin/merchants", async (req, res) => {
       ? req.body.businessAddress.trim()
       : ""
   const phoneNumber =
-    typeof req.body?.phoneNumber === "string"
-      ? req.body.phoneNumber.trim()
-      : ""
+    typeof req.body?.phoneNumber === "string" ? req.body.phoneNumber.trim() : ""
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
     return res
       .status(400)
@@ -6222,9 +6654,7 @@ app.post("/v1/admin/merchants/:email/invitation", async (req, res) => {
     [email],
   )
   if (!result.rowCount) {
-    return res
-      .status(404)
-      .json({ error: "Active merchant account not found." })
+    return res.status(404).json({ error: "Active merchant account not found." })
   }
   try {
     await sendMerchantInvitation(result.rows[0])
@@ -6234,7 +6664,8 @@ app.post("/v1/admin/merchants/:email/invitation", async (req, res) => {
       error: error instanceof Error ? error.message : "unknown error",
     })
     return res.status(503).json({
-      error: "The merchant invitation email could not be sent. Try again later.",
+      error:
+        "The merchant invitation email could not be sent. Try again later.",
     })
   }
   return res.json({ email, invitationEmailStatus: "sent" })
@@ -6574,8 +7005,7 @@ app.patch("/v1/admin/merchants/:email", async (req, res) => {
       } catch (error) {
         activationEmailStatus = "failed"
         console.error("Merchant access-ready email delivery failed", {
-          error:
-            error instanceof Error ? error.name : "email provider error",
+          error: error instanceof Error ? error.name : "email provider error",
         })
       }
     }
@@ -6599,6 +7029,7 @@ app.get("/v1/admin/kyb", async (_req, res) => {
        p.business_address AS "businessAddress", p.owner_full_name AS "ownerFullName",
        p.owner_date_of_birth::text AS "ownerDateOfBirth", p.owner_nationality AS "ownerNationality",
        p.owner_email AS "ownerEmail", p.owner_phone AS "ownerPhone", p.status, p.review_notes AS "reviewNotes",
+       p.sumsub_review_status AS "sumsubReviewStatus", p.sumsub_applicant_id AS "sumsubApplicantId",
        p.created_at AS "createdAt", p.updated_at AS "updatedAt",
        COALESCE(json_agg(json_build_object(
          'id', d.id, 'documentType', d.document_type, 'fileName', d.file_name,
@@ -6677,17 +7108,15 @@ app.patch("/v1/admin/kyb/:email", async (req, res) => {
     })
   }
   if (status === "APPROVED") {
-    const requiredDocuments = await pool.query(
-      `SELECT COUNT(DISTINCT document_type)::int AS count
-       FROM merchant_kyb_documents
-       WHERE merchant_email = $1
-         AND document_type IN ('business_registration', 'identity_front', 'identity_back')`,
+    const providerVerification = await pool.query(
+      `SELECT sumsub_review_status AS status
+       FROM merchant_kyb_profiles WHERE merchant_email = $1`,
       [email],
     )
-    if (requiredDocuments.rows[0].count !== 3) {
+    if (providerVerification.rows[0]?.status !== "APPROVED") {
       return res.status(409).json({
         error:
-          "A business registration certificate and both owner identity images are required before approval.",
+          "Sumsub must complete and approve business verification before DRPAY can approve this KYB application.",
       })
     }
   }
@@ -6841,9 +7270,13 @@ app.get(
     let status = row.status
     let statusCheckUnavailable = false
     if (
-      !["EXECUTED", "MANUALLY_PAID", "CANCELED", "REJECTED", "EXPIRED"].includes(
-        status,
-      )
+      ![
+        "EXECUTED",
+        "MANUALLY_PAID",
+        "CANCELED",
+        "REJECTED",
+        "EXPIRED",
+      ].includes(status)
     ) {
       try {
         const { data } = await swiftPayPaymentRequest(
@@ -6941,8 +7374,7 @@ app.post(
   "/v1/security/auth-methods/google/challenge",
   loginLimiter,
   async (req, res) => {
-    if (!googleAuthClient)
-      return res.status(503).json({
+    if (!googleAuthClient) return res.status(503).json({
         error: "Google sign-in is not configured for this service.",
       })
     const nonce = randomBytes(32).toString("base64url")
@@ -6956,10 +7388,7 @@ app.post(
   },
 )
 
-app.post(
-  "/v1/security/auth-methods/google",
-  loginLimiter,
-  async (req, res) => {
+app.post("/v1/security/auth-methods/google", loginLimiter, async (req, res) => {
   const challenge = await consumeMerchantAuthChallenge(
     req.body?.challengeId,
     "google",
@@ -6976,8 +7405,7 @@ app.post(
   } catch {
     return res.status(401).json({
       error: "Google sign-in could not be verified. Try again.",
-      },
-    )
+    })
   }
   try {
     return res
@@ -7012,22 +7440,22 @@ app.post(
   "/v1/security/auth-methods/telegram/challenge",
   loginLimiter,
   async (req, res) => {
-  if (!telegramLoginClientId)
-    return res
-      .status(503)
-      .json({ error: "Telegram sign-in is not configured for this service." })
-  const nonce = randomBytes(32).toString("base64url")
-  const challengeId = await createMerchantAuthChallenge(
-    "telegram",
-    "link",
-    req.merchantEmail,
-    nonce,
-  )
-  return res.set("Cache-Control", "no-store").json({
-    challengeId,
-    nonce,
-    clientId: telegramLoginClientId,
-  })
+    if (!telegramLoginClientId)
+      return res
+        .status(503)
+        .json({ error: "Telegram sign-in is not configured for this service." })
+    const nonce = randomBytes(32).toString("base64url")
+    const challengeId = await createMerchantAuthChallenge(
+      "telegram",
+      "link",
+      req.merchantEmail,
+      nonce,
+    )
+    return res.set("Cache-Control", "no-store").json({
+      challengeId,
+      nonce,
+      clientId: telegramLoginClientId,
+    })
   },
 )
 
@@ -7035,41 +7463,41 @@ app.post(
   "/v1/security/auth-methods/telegram",
   loginLimiter,
   async (req, res) => {
-  const challenge = await consumeMerchantAuthChallenge(
-    req.body?.challengeId,
-    "telegram",
-    "link",
-  )
-  if (!challenge || challenge.merchantEmail !== req.merchantEmail)
-    return res
-      .status(401)
-      .json({ error: "Telegram linking expired. Try again." })
-  let identity
-  try {
-    identity = await verifyTelegramIdentityToken(
-      req.body?.idToken,
-      challenge.challenge,
+    const challenge = await consumeMerchantAuthChallenge(
+      req.body?.challengeId,
+      "telegram",
+      "link",
     )
-  } catch {
-    return res.status(401).json({
-      error: "Telegram sign-in could not be verified. Try again.",
-    })
-  }
-  try {
-    return res
-      .set("Cache-Control", "no-store")
-      .json(
-        await linkMerchantAuthIdentity(
-          req.merchantEmail,
-          "telegram",
-          identity.subject,
-        ),
+    if (!challenge || challenge.merchantEmail !== req.merchantEmail)
+      return res
+        .status(401)
+        .json({ error: "Telegram linking expired. Try again." })
+    let identity
+    try {
+      identity = await verifyTelegramIdentityToken(
+        req.body?.idToken,
+        challenge.challenge,
       )
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("already linked"))
-      return res.status(409).json({ error: error.message })
-    throw error
-  }
+    } catch {
+      return res.status(401).json({
+        error: "Telegram sign-in could not be verified. Try again.",
+      })
+    }
+    try {
+      return res
+        .set("Cache-Control", "no-store")
+        .json(
+          await linkMerchantAuthIdentity(
+            req.merchantEmail,
+            "telegram",
+            identity.subject,
+          ),
+        )
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("already linked"))
+        return res.status(409).json({ error: error.message })
+      throw error
+    }
   },
 )
 
@@ -7077,38 +7505,38 @@ app.post(
   "/v1/security/passkeys/register/options",
   loginLimiter,
   async (req, res) => {
-  if (!passkeyRpId || !passkeyExpectedOrigin)
-    return res
-      .status(503)
-      .json({ error: "Passkey linking is not configured for this service." })
-  const existing = await pool.query(
-    `SELECT credential_id AS id, transports FROM merchant_passkeys
+    if (!passkeyRpId || !passkeyExpectedOrigin)
+      return res
+        .status(503)
+        .json({ error: "Passkey linking is not configured for this service." })
+    const existing = await pool.query(
+      `SELECT credential_id AS id, transports FROM merchant_passkeys
      WHERE merchant_email = $1`,
-    [req.merchantEmail],
-  )
-  const options = await generateRegistrationOptions({
-    rpName: "DRPAY Merchant",
-    rpID: passkeyRpId,
-    userName: req.merchantEmail,
-    userDisplayName: req.merchantEmail,
-    userID: createHash("sha256").update(req.merchantEmail).digest(),
-    attestationType: "none",
-    authenticatorSelection: {
-      residentKey: "required",
-      userVerification: "required",
-    },
-    excludeCredentials: existing.rows.map((row) => ({
-      id: row.id,
-      transports: row.transports,
-    })),
-  })
-  const challengeId = await createMerchantAuthChallenge(
-    "passkey",
-    "register",
-    req.merchantEmail,
-    options.challenge,
-  )
-  return res.set("Cache-Control", "no-store").json({ challengeId, options })
+      [req.merchantEmail],
+    )
+    const options = await generateRegistrationOptions({
+      rpName: "DRPAY Merchant",
+      rpID: passkeyRpId,
+      userName: req.merchantEmail,
+      userDisplayName: req.merchantEmail,
+      userID: createHash("sha256").update(req.merchantEmail).digest(),
+      attestationType: "none",
+      authenticatorSelection: {
+        residentKey: "required",
+        userVerification: "required",
+      },
+      excludeCredentials: existing.rows.map((row) => ({
+        id: row.id,
+        transports: row.transports,
+      })),
+    })
+    const challengeId = await createMerchantAuthChallenge(
+      "passkey",
+      "register",
+      req.merchantEmail,
+      options.challenge,
+    )
+    return res.set("Cache-Control", "no-store").json({ challengeId, options })
   },
 )
 
@@ -7116,58 +7544,61 @@ app.post(
   "/v1/security/passkeys/register/verify",
   loginLimiter,
   async (req, res) => {
-  const challenge = await consumeMerchantAuthChallenge(
-    req.body?.challengeId,
-    "passkey",
-    "register",
-  )
-  if (!challenge || challenge.merchantEmail !== req.merchantEmail)
-    return res.status(401).json({ error: "Passkey setup expired. Try again." })
-  if (!passkeyRpId || !passkeyExpectedOrigin)
-    return res
-      .status(503)
-      .json({ error: "Passkey linking is not configured for this service." })
-  let verification
-  try {
-    verification = await verifyRegistrationResponse({
-      response: req.body?.credential,
-      expectedChallenge: challenge.challenge,
-      expectedOrigin: passkeyExpectedOrigin,
-      expectedRPID: passkeyRpId,
-      requireUserVerification: true,
-    })
-  } catch {
-    return res
-      .status(400)
-      .json({ error: "Passkey setup could not be verified." })
-  }
-  if (!verification.verified)
-    return res
-      .status(400)
-      .json({ error: "Passkey setup could not be verified." })
-  const { credential } = verification.registrationInfo
-  try {
-    await pool.query(
-      `INSERT INTO merchant_passkeys
+    const challenge = await consumeMerchantAuthChallenge(
+      req.body?.challengeId,
+      "passkey",
+      "register",
+    )
+    if (!challenge || challenge.merchantEmail !== req.merchantEmail)
+      return res
+        .status(401)
+        .json({ error: "Passkey setup expired. Try again." })
+    if (!passkeyRpId || !passkeyExpectedOrigin)
+      return res
+        .status(503)
+        .json({ error: "Passkey linking is not configured for this service." })
+    let verification
+    try {
+      verification = await verifyRegistrationResponse({
+        response: req.body?.credential,
+        expectedChallenge: challenge.challenge,
+        expectedOrigin: passkeyExpectedOrigin,
+        expectedRPID: passkeyRpId,
+        requireUserVerification: true,
+      })
+    } catch {
+      return res
+        .status(400)
+        .json({ error: "Passkey setup could not be verified." })
+    }
+    if (!verification.verified)
+      return res
+        .status(400)
+        .json({ error: "Passkey setup could not be verified." })
+    const { credential } = verification.registrationInfo
+    try {
+      await pool.query(
+        `INSERT INTO merchant_passkeys
          (credential_id, merchant_email, public_key, counter, transports)
        VALUES ($1, $2, $3, $4, $5)`,
-      [
-        credential.id,
-        req.merchantEmail,
-        Buffer.from(credential.publicKey),
-        credential.counter,
-        JSON.stringify(credential.transports || []),
-      ],
-    )
-  } catch (error) {
-    if (error.code === "23505")
-      return res
-        .status(409)
-        .json({ error: "This passkey is already registered." })
-    throw error
-  }
-  return res.set("Cache-Control", "no-store").json({ registered: true })
-})
+        [
+          credential.id,
+          req.merchantEmail,
+          Buffer.from(credential.publicKey),
+          credential.counter,
+          JSON.stringify(credential.transports || []),
+        ],
+      )
+    } catch (error) {
+      if (error.code === "23505")
+        return res
+          .status(409)
+          .json({ error: "This passkey is already registered." })
+      throw error
+    }
+    return res.set("Cache-Control", "no-store").json({ registered: true })
+  },
+)
 
 app.delete("/v1/security/passkeys/:credentialId", async (req, res) => {
   const credentialId = req.params.credentialId
@@ -7314,7 +7745,8 @@ async function fetchMainnetUsdtBalance(address) {
     throw new Error("Tatum did not return a valid TRC20 contract result.")
   }
   const balance = formatTokenBalance(rawBalance, tronMainnetUsdtDecimals)
-  if (balance === null) throw new Error("Tatum returned an invalid token balance.")
+  if (balance === null)
+    throw new Error("Tatum returned an invalid token balance.")
   return balance
 }
 
@@ -7377,13 +7809,15 @@ async function getMerchantActivation(email) {
           [email],
         )
         assigned.starting_balance = latest.rows[0]?.starting_balance ?? null
-        assigned.assigned_at = latest.rows[0]?.assigned_at ?? assigned.assigned_at
+        assigned.assigned_at =
+          latest.rows[0]?.assigned_at ?? assigned.assigned_at
       }
     }
   }
   const qualifyingBalance = getPostAssignmentUsdtBalance(
     currentBalance,
-    assigned?.starting_balance === null || assigned?.starting_balance === undefined
+    assigned?.starting_balance === null ||
+      assigned?.starting_balance === undefined
       ? null
       : String(assigned.starting_balance),
   )
@@ -7455,7 +7889,8 @@ app.get("/v1/crypto/usdt-wallet", cryptoWalletLimiter, async (req, res) => {
       error.name || "RPC error",
     )
     return res.status(503).set("Cache-Control", "no-store").json({
-      error: "Could not retrieve your wallet activation status. Try again shortly.",
+      error:
+        "Could not retrieve your wallet activation status. Try again shortly.",
     })
   }
 })
@@ -7710,7 +8145,9 @@ app.get("/v1/kyb", async (req, res) => {
          business_type AS "businessType", country, business_address AS "businessAddress",
          owner_full_name AS "ownerFullName", owner_date_of_birth::text AS "ownerDateOfBirth",
          owner_nationality AS "ownerNationality", owner_email AS "ownerEmail", owner_phone AS "ownerPhone",
-         status, review_notes AS "reviewNotes", updated_at AS "updatedAt"
+         status, review_notes AS "reviewNotes", updated_at AS "updatedAt",
+         sumsub_review_status AS "sumsubReviewStatus",
+         sumsub_applicant_id AS "sumsubApplicantId"
        FROM merchant_kyb_profiles WHERE merchant_email = $1`,
       [req.merchantEmail],
     ),
@@ -7726,14 +8163,139 @@ app.get("/v1/kyb", async (req, res) => {
     .json({ profile: profile.rows[0] || null, documents: documents.rows })
 })
 
+app.post("/v1/kyb/sumsub/access-token", sumsubKybLimiter, async (req, res) => {
+  const appToken = process.env.SUMSUB_APP_TOKEN
+  const secretKey = process.env.SUMSUB_SECRET_KEY
+  const levelName = process.env.SUMSUB_KYB_LEVEL_NAME
+  const webhookSecret = process.env.SUMSUB_WEBHOOK_SECRET
+  if (!appToken || !secretKey || !levelName || !webhookSecret) {
+    return res.status(503).json({
+      error: "Sumsub KYB is not configured on this server.",
+    })
+  }
+  if (req.body?.consent !== true) {
+    return res.status(400).json({
+      error: "Consent is required before starting Sumsub verification.",
+    })
+  }
+
+  const client = await pool.connect()
+  let externalUserId
+  let ownerEmail
+  let ownerPhone
+  try {
+    await client.query("BEGIN")
+    const profile = await client.query(
+      `SELECT owner_email AS "ownerEmail", owner_phone AS "ownerPhone",
+              sumsub_external_user_id AS "externalUserId",
+              sumsub_review_status AS "reviewStatus", status
+       FROM merchant_kyb_profiles WHERE merchant_email = $1 FOR UPDATE`,
+      [req.merchantEmail],
+    )
+    if (!profile.rowCount) {
+      await client.query("ROLLBACK")
+      return res.status(409).json({
+        error: "Save your business and beneficial-owner details first.",
+      })
+    }
+    if (profile.rows[0].status === "APPROVED") {
+      await client.query("ROLLBACK")
+      return res.status(409).json({
+        error: "Your KYB application is already approved.",
+      })
+    }
+    if (["APPROVED", "REJECTED"].includes(profile.rows[0].reviewStatus)) {
+      await client.query("ROLLBACK")
+      return res.status(409).json({
+        error:
+          "This Sumsub result is final. Contact DRPAY support if you need to appeal.",
+      })
+    }
+    externalUserId = profile.rows[0].externalUserId || randomUUID()
+    ownerEmail = profile.rows[0].ownerEmail
+    ownerPhone = profile.rows[0].ownerPhone
+    await client.query(
+      `UPDATE merchant_kyb_profiles
+       SET sumsub_external_user_id = $2,
+           sumsub_consent_at = NOW(),
+           sumsub_consent_version = 'sumsub-kyb-v1',
+           updated_at = NOW()
+       WHERE merchant_email = $1`,
+      [req.merchantEmail, externalUserId],
+    )
+    await client.query("COMMIT")
+  } catch (error) {
+    await client.query("ROLLBACK")
+    throw error
+  } finally {
+    client.release()
+  }
+
+  let accessToken
+  try {
+    accessToken = await createSumsubSdkAccessToken({
+      appToken,
+      secretKey,
+      levelName,
+      externalUserId,
+      email: ownerEmail,
+      phone: ownerPhone,
+    })
+  } catch (error) {
+    console.error("Sumsub access-token request failed", {
+      name: error instanceof Error ? error.name : typeof error,
+      status:
+        error && typeof error === "object" && "status" in error
+          ? error.status
+          : null,
+      providerErrorName:
+        error && typeof error === "object" && "providerErrorName" in error
+          ? error.providerErrorName
+          : null,
+    })
+    return res.status(502).json({
+      error: "Sumsub is temporarily unavailable. Try again shortly.",
+    })
+  }
+
+  const updatedProfile = await pool.query(
+    `UPDATE merchant_kyb_profiles
+     SET sumsub_review_status = CASE
+           WHEN sumsub_review_status IN ('NOT_STARTED', 'IN_PROGRESS')
+             THEN 'IN_PROGRESS'
+           ELSE sumsub_review_status
+         END,
+         updated_at = NOW()
+     WHERE merchant_email = $1 AND sumsub_external_user_id = $2
+       AND sumsub_review_status NOT IN ('APPROVED', 'REJECTED')
+     RETURNING sumsub_review_status AS "reviewStatus"`,
+    [req.merchantEmail, externalUserId],
+  )
+  if (!updatedProfile.rowCount) {
+    return res.status(409).json({
+      error:
+        "Your verification changed while connecting to Sumsub. Refresh the KYB status and try again.",
+    })
+  }
+  return res.set("Cache-Control", "no-store").json({
+    accessToken,
+    sumsubReviewStatus: updatedProfile.rows[0].reviewStatus,
+  })
+})
+
 app.put("/v1/kyb", async (req, res) => {
-  const approved = await pool.query(
-    "SELECT 1 FROM merchant_kyb_profiles WHERE merchant_email = $1 AND status = 'APPROVED'",
+  const lockedProfile = await pool.query(
+    `SELECT status, sumsub_review_status AS "sumsubReviewStatus"
+     FROM merchant_kyb_profiles WHERE merchant_email = $1`,
     [req.merchantEmail],
   )
-  if (approved.rowCount) return res.status(409).json({
+  if (
+    lockedProfile.rows[0]?.status === "APPROVED" ||
+    ["APPROVED", "REJECTED"].includes(lockedProfile.rows[0]?.sumsubReviewStatus)
+  )
+    return res.status(409).json({
       error:
-        "Your KYB profile is approved. Contact DRPAY support to request a verified profile change.",
+        "Your verification result is final. Contact DRPAY support to request a review or profile change.",
     })
   const fields = {
     legalBusinessName: req.body?.legalBusinessName,
@@ -7784,7 +8346,11 @@ app.put("/v1/kyb", async (req, res) => {
        owner_nationality = EXCLUDED.owner_nationality,
        owner_email = EXCLUDED.owner_email,
        owner_phone = EXCLUDED.owner_phone,
-       status = 'PENDING', review_notes = NULL, reviewed_by = NULL, reviewed_at = NULL, updated_at = NOW()
+       status = 'PENDING', review_notes = NULL, reviewed_by = NULL, reviewed_at = NULL,
+       sumsub_external_user_id = NULL, sumsub_applicant_id = NULL,
+       sumsub_review_status = 'NOT_STARTED', sumsub_review_answer = NULL,
+       sumsub_last_event_type = NULL, sumsub_consent_at = NULL,
+       sumsub_consent_version = NULL, updated_at = NOW()
      RETURNING status, updated_at AS "updatedAt"`,
     [req.merchantEmail, ...Object.values(fields)],
   )
@@ -8340,9 +8906,7 @@ app.post("/v1/notifications/push-token", async (req, res) => {
   if (token.length < 32 || token.length > 4096)
     return res.status(400).json({ error: "A valid push token is required." })
   const appId =
-    typeof req.body?.appId === "string"
-      ? req.body.appId
-      : "ph.drpays.merchant"
+    typeof req.body?.appId === "string" ? req.body.appId : "ph.drpays.merchant"
   if (!["ph.drpays.merchant", "ph.drpays.merchant.public"].includes(appId))
     return res.status(400).json({ error: "A valid app ID is required." })
   await pool.query(
@@ -9159,7 +9723,12 @@ async function reconcilePending() {
       }),
       ...transfers.rows.map(async (row) => {
         if (row.status === "REVERSED") {
-          await updateDisbursementStatus(row.id, row.swiftpay_id, "REVERSED", null)
+          await updateDisbursementStatus(
+            row.id,
+            row.swiftpay_id,
+            "REVERSED",
+            null,
+          )
           return
         }
         let data
@@ -9220,25 +9789,19 @@ function startNotificationWorker() {
     )
   } else {
     void scanTelegramUsdtDeposits().catch((error) => {
-      console.error(
-        "Telegram USDT deposit scan failed",
-        {
-          error: error instanceof Error ? error.message : String(error),
-          errorName: error?.name,
-          errorCode: error?.code,
-        },
-      )
+      console.error("Telegram USDT deposit scan failed", {
+        error: error instanceof Error ? error.message : String(error),
+        errorName: error?.name,
+        errorCode: error?.code,
+      })
     })
     const telegramDepositTimer = setInterval(() => {
       void scanTelegramUsdtDeposits().catch((error) => {
-        console.error(
-          "Telegram USDT deposit scan failed",
-          {
-            error: error instanceof Error ? error.message : String(error),
-            errorName: error?.name,
-            errorCode: error?.code,
-          },
-        )
+        console.error("Telegram USDT deposit scan failed", {
+          error: error instanceof Error ? error.message : String(error),
+          errorName: error?.name,
+          errorCode: error?.code,
+        })
       })
     }, 5 * 60_000)
     telegramDepositTimer.unref()
@@ -9318,16 +9881,14 @@ async function getRefundTransferDetails(paymentId, merchantEmail) {
   const previousStatus = previousRefund.rows[0]?.status
   if (
     previousStatus &&
-      ![
-        "REJECTED",
-        "ERROR",
-        "FAILED",
-        "CANCELED",
-        "CANCELLED",
-        "REVERSED",
-      ].includes(
-      previousStatus.toUpperCase(),
-    )
+    ![
+      "REJECTED",
+      "ERROR",
+      "FAILED",
+      "CANCELED",
+      "CANCELLED",
+      "REVERSED",
+    ].includes(previousStatus.toUpperCase())
   ) {
     const error = new Error(
       "A refund transfer for this collection is already in progress or complete.",
@@ -9650,8 +10211,7 @@ app.post("/v1/payment-links", paymentLinkLimiter, async (req, res) => {
     typeof req.body?.institutionName === "string"
       ? req.body.institutionName.trim()
       : ""
-  const isVirtualAccount =
-    institutionCode === VIRTUAL_ACCOUNT_INSTITUTION_CODE
+  const isVirtualAccount = institutionCode === VIRTUAL_ACCOUNT_INSTITUTION_CODE
   const submittedLogoUrl = req.body?.institutionLogoUrl
   const hasInstitution = [
     req.body?.institutionCode,
@@ -10362,9 +10922,7 @@ app.post("/v1/disbursements", transferLimiter, async (req, res) => {
           "CANCELED",
           "CANCELLED",
           "REVERSED",
-        ].includes(
-          previousStatus.toUpperCase(),
-        )
+        ].includes(previousStatus.toUpperCase())
       ) {
         await client.query("ROLLBACK")
         return res.status(409).json({

@@ -2,21 +2,33 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
-  FileCheck2,
   LoaderCircle,
   Mail,
   ShieldCheck,
 } from "lucide-react"
-import { useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Button } from "./AppPrimitives"
 import MerchantAuthLayout from "./MerchantAuthLayout"
+import { APP_ROUTES } from "./lib/routes"
 import {
-  documentRequirements,
+  startMerchantRegistrationSumsubVerification,
+  type SumsubKybStatus,
+} from "./lib/swiftpay"
+import {
   registrationStageCopy,
-  requiredDocumentTypes,
   useMerchantRegistration,
   type RegistrationStage,
 } from "./useMerchantRegistration"
+
+const sumsubStatusLabels: Record<SumsubKybStatus, string> = {
+  NOT_STARTED: "Not started",
+  IN_PROGRESS: "In progress",
+  IN_REVIEW: "Submitted — waiting for Sumsub review",
+  ON_HOLD: "Additional review in progress",
+  RESUBMISSION_REQUIRED: "More information is required",
+  APPROVED: "Sumsub checks passed",
+  REJECTED: "Unable to verify — contact DRPAY support",
+}
 
 const registrationStageTitles: Record<Exclude<RegistrationStage, "submitted">, string> =
   {
@@ -26,7 +38,7 @@ const registrationStageTitles: Record<Exclude<RegistrationStage, "submitted">, s
     business: "Business information",
     payout: "Payout account",
     security: "Create your MPIN",
-    documents: "Upload documents",
+    verification: "Verify your business",
   }
 
 type RegistrationProgressStep = {
@@ -92,8 +104,9 @@ function RegistrationComplete({
         progressIndex={1}
       />
       <p>
-        We’ll review your application and email{" "}
-        <strong>{email}</strong> when merchant access is ready.
+        Your verification has been submitted. DRPAY will review your
+        application separately and email <strong>{email}</strong> when merchant
+        access is ready.
       </p>
       <div className="registration-review-note">
         <ShieldCheck size={17} />
@@ -119,40 +132,123 @@ export default function MerchantRegistration({
 }: {
   onBack: () => void
 }) {
-  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  const sdkContainerRef = useRef<HTMLDivElement | null>(null)
+  const sdkInstanceRef = useRef<{ destroy: () => void } | null>(null)
+  const [consent, setConsent] = useState(false)
+  const [sdkVisible, setSdkVisible] = useState(false)
+  const [verificationBusy, setVerificationBusy] = useState(false)
+  const [verificationError, setVerificationError] = useState("")
+  const [verificationNotice, setVerificationNotice] = useState("")
   const {
     application,
     busy,
+    challengeId,
     code,
     confirmPin,
     contact,
     error,
-    handleFileChange,
     nextStage,
     pin,
     progressIndex,
     requestCode,
     sendCode,
-    selectedFiles,
     setCode,
     setConfirmPin,
     setPin,
     stage,
     stages,
+    sumsubReviewStatus,
     submitSecurity,
     submitApplication,
     updateApplication,
     updateContact,
-    uploadedDocuments,
-    uploadDocument,
-    uploadingDocument,
     verifyCode,
+    refreshSumsubStatus,
     maximumOwnerDateOfBirth,
   } = useMerchantRegistration()
 
-  const clearDocumentInput = (documentType: string) => {
-    const input = fileInputRefs.current[documentType]
-    if (input) input.value = ""
+  useEffect(
+    () => () => {
+      sdkInstanceRef.current?.destroy()
+    },
+    [],
+  )
+
+  const startVerification = async () => {
+    if (!consent) {
+      setVerificationError(
+        "Please review and accept the verification consent first.",
+      )
+      return
+    }
+    setVerificationBusy(true)
+    setVerificationError("")
+    setVerificationNotice("")
+    try {
+      const details = {
+        ...application,
+        ownerEmail: application.ownerEmail || contact.email,
+        ownerPhone: application.ownerPhone || contact.phoneNumber,
+      }
+      const { accessToken } = await startMerchantRegistrationSumsubVerification(
+        {
+          email: contact.email.trim().toLowerCase(),
+          challengeId,
+          details,
+          consent: true,
+        },
+      )
+      await refreshSumsubStatus()
+      const { default: snsWebSdk } = await import("@sumsub/websdk")
+      sdkInstanceRef.current?.destroy()
+      const instance = snsWebSdk
+        .init(accessToken, async () => {
+          const refreshed = await startMerchantRegistrationSumsubVerification({
+            email: contact.email.trim().toLowerCase(),
+            challengeId,
+            details,
+            consent: true,
+          })
+          return refreshed.accessToken
+        })
+        .withConf({ lang: "en", theme: "light" })
+        .withOptions({ addViewportTag: false, adaptIframeHeight: true })
+        .on("idCheck.onApplicantSubmitted", () => {
+          setVerificationNotice(
+            "Your verification was submitted. Refresh the status for the latest provider update.",
+          )
+          void refreshSumsubStatus().catch((statusError) => {
+            setVerificationError(
+              statusError instanceof Error
+                ? statusError.message
+                : "Could not refresh Sumsub status.",
+            )
+          })
+        })
+        .on("idCheck.onError", () => {
+          setVerificationError(
+            "Sumsub verification could not continue. Please retry or contact DRPAY support.",
+          )
+        })
+        .build()
+      sdkInstanceRef.current = instance
+      setSdkVisible(true)
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve())
+      })
+      if (!sdkContainerRef.current) {
+        throw new Error("The Sumsub verification panel could not be opened.")
+      }
+      instance.launch(sdkContainerRef.current)
+    } catch (startError) {
+      setVerificationError(
+        startError instanceof Error
+          ? startError.message
+          : "Could not start Sumsub verification.",
+      )
+    } finally {
+      setVerificationBusy(false)
+    }
   }
 
   return (
@@ -176,8 +272,8 @@ export default function MerchantRegistration({
         },
         {
           icon: <ShieldCheck size={16} />,
-          title: "Protected information",
-          description: "Documents are uploaded to private storage",
+          title: "Business verification",
+          description: "Verify your business and owners with Sumsub",
         },
       ]}
       eyebrow="MERCHANT ACCOUNT"
@@ -627,99 +723,109 @@ export default function MerchantRegistration({
             </form>
           )}
 
-          {stage === "documents" && (
+          {stage === "verification" && (
             <form onSubmit={(event) => void submitApplication(event)}>
               <p className="registration-document-note">
-                PDF, JPEG, or PNG · up to 10 MB per file. Required documents are
-                marked.
+                Sumsub will guide you through the checks enabled for your
+                business, including documents and owner identity checks. DRPAY
+                reviews your application separately before account access.
               </p>
-              <div className="registration-documents">
-                {documentRequirements.map((document) => {
-                  const uploadedName = uploadedDocuments[document.type]
-                  const selectedFile = selectedFiles[document.type]
-                  const isUploading = uploadingDocument === document.type
-                  return (
-                    <div className="registration-document" key={document.type}>
-                      <div className="registration-document-heading">
-                        <span className="registration-document-icon">
-                          {uploadedName ? (
-                            <FileCheck2 size={18} />
-                          ) : (
-                            <ShieldCheck size={18} />
-                          )}
-                        </span>
-                        <span>
-                          <strong>{document.title}</strong>
-                          <small>{document.description}</small>
-                        </span>
-                        <span
-                          className={
-                            uploadedName
-                              ? "registration-document-status uploaded"
-                              : document.required
-                                ? "registration-document-status required"
-                                : "registration-document-status"
-                          }
-                        >
-                          {uploadedName
-                            ? "Ready"
-                            : document.required
-                              ? "Required"
-                              : "Optional"}
-                        </span>
-                      </div>
-                      {uploadedName ? (
-                        <small className="registration-uploaded-name">
-                          {uploadedName}
-                        </small>
+              <div className="sumsub-verification">
+                <div className="sumsub-verification-heading">
+                  <ShieldCheck size={18} />
+                  <span>
+                    <strong>Secure business verification</strong>
+                    <small>
+                      Powered by Sumsub; DRPAY receives the verification result.
+                    </small>
+                  </span>
+                </div>
+                <label className="sumsub-consent">
+                  <input
+                    type="checkbox"
+                    checked={consent}
+                    onChange={(event) => setConsent(event.target.checked)}
+                  />
+                  <span>
+                    I consent to DRPAY and Sumsub processing the business,
+                    beneficial-owner, identity, and biometric data required for
+                    verification. See the{" "}
+                    <a
+                      href={APP_ROUTES.privacy}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Privacy Policy
+                    </a>
+                    .
+                  </span>
+                </label>
+                <div
+                  className={`kyb-status status-${sumsubReviewStatus.toLowerCase()}`}
+                  role="status"
+                >
+                  {sumsubStatusLabels[sumsubReviewStatus]}
+                </div>
+                {verificationNotice && (
+                  <p className="registration-step-hint" role="status">
+                    {verificationNotice}
+                  </p>
+                )}
+                {verificationError && (
+                  <div className="inline-error" role="alert">
+                    {verificationError}
+                  </div>
+                )}
+                <div className="sumsub-verification-actions">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={
+                      verificationBusy ||
+                      ["APPROVED", "REJECTED", "IN_REVIEW", "ON_HOLD"].includes(
+                        sumsubReviewStatus,
+                      )
+                    }
+                    onClick={() => void startVerification()}
+                    icon={
+                      verificationBusy ? (
+                        <LoaderCircle className="spin" size={16} />
                       ) : (
-                        <div className="registration-document-action">
-                          <input
-                            ref={(node) => {
-                              fileInputRefs.current[document.type] = node
-                            }}
-                            type="file"
-                            accept="application/pdf,image/jpeg,image/png"
-                            disabled={isUploading}
-                            onChange={(event) =>
-                              handleFileChange(document.type, event)
-                            }
-                          />
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            disabled={!selectedFile || isUploading}
-                            onClick={async () => {
-                              if (!selectedFile) return
-                              try {
-                                await uploadDocument(
-                                  document.type,
-                                  selectedFile,
-                                )
-                              } finally {
-                                clearDocumentInput(document.type)
-                              }
-                            }}
-                            icon={
-                              isUploading ? (
-                                <LoaderCircle className="spin" size={16} />
-                              ) : (
-                                <ArrowRight size={16} />
-                              )
-                            }
-                          >
-                            {isUploading ? "Uploading…" : "Upload"}
-                          </Button>
-                        </div>
-                      )}
-                      {selectedFile && !uploadedName && (
-                        <small className="registration-uploaded-name">
-                          Selected: {selectedFile.name}
-                        </small>
-                      )}
-                    </div>
-                  )
-                })}
+                        <ArrowRight size={16} />
+                      )
+                    }
+                  >
+                    {verificationBusy
+                      ? "Connecting to Sumsub…"
+                      : sumsubReviewStatus === "RESUBMISSION_REQUIRED"
+                        ? "Continue verification"
+                        : "Start verification"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={busy || verificationBusy}
+                    onClick={() => {
+                      setVerificationError("")
+                      void refreshSumsubStatus().catch((statusError) => {
+                        setVerificationError(
+                          statusError instanceof Error
+                            ? statusError.message
+                            : "Could not refresh Sumsub status.",
+                        )
+                      })
+                    }}
+                  >
+                    Refresh status
+                  </Button>
+                </div>
+                {sdkVisible && (
+                  <div
+                    ref={sdkContainerRef}
+                    className="sumsub-sdk-container"
+                    aria-label="Sumsub verification"
+                  />
+                )}
               </div>
               {error && (
                 <div className="inline-error" role="alert">
@@ -730,8 +836,10 @@ export default function MerchantRegistration({
                 type="submit"
                 disabled={
                   busy ||
-                  uploadingDocument !== null ||
-                  requiredDocumentTypes.some((type) => !uploadedDocuments[type])
+                  verificationBusy ||
+                  !["IN_REVIEW", "ON_HOLD", "APPROVED"].includes(
+                    sumsubReviewStatus,
+                  )
                 }
                 icon={
                   busy ? (

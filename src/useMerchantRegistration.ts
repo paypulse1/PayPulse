@@ -1,15 +1,15 @@
-import { useState, type ChangeEvent, type FormEvent } from "react"
+import { useState, type FormEvent } from "react"
 import {
+  getMerchantRegistrationSumsubStatus,
   requestMerchantRegistrationOtp,
   submitMerchantRegistration,
-  uploadMerchantRegistrationDocument,
   verifyMerchantRegistrationOtp,
   type MerchantBusinessDetails,
   type MerchantRegistrationInput,
-  type RegistrationDocumentType,
+  type SumsubKybStatus,
 } from "./lib/swiftpay"
 
-export type RegistrationStage = "contact" | "verify" | "owner" | "business" | "payout" | "security" | "documents" | "submitted"
+export type RegistrationStage = "contact" | "verify" | "owner" | "business" | "payout" | "security" | "verification" | "submitted"
 
 const initialContact: MerchantRegistrationInput = {
   email: "",
@@ -34,42 +34,6 @@ const initialApplication: MerchantBusinessDetails = {
   accountNumber: "",
 }
 
-export const documentRequirements: {
-  type: RegistrationDocumentType
-  title: string
-  description: string
-  required: boolean
-}[] = [
-  {
-    type: "business_registration",
-    title: "Business registration certificate",
-    description: "Certificate or government-issued business registration",
-    required: true,
-  },
-  {
-    type: "identity_front",
-    title: "Owner ID — front",
-    description: "A clear image of the beneficial owner’s ID",
-    required: true,
-  },
-  {
-    type: "identity_back",
-    title: "Owner ID — back",
-    description: "The reverse side of the same identity document",
-    required: true,
-  },
-  {
-    type: "proof_of_address",
-    title: "Business address proof",
-    description: "Optional utility bill or other address document",
-    required: false,
-  },
-]
-
-export const requiredDocumentTypes = documentRequirements
-  .filter((document) => document.required)
-  .map((document) => document.type)
-
 export function normalizeReferralCode(value: string) {
   return value.trim().toUpperCase()
 }
@@ -86,7 +50,7 @@ const stages: RegistrationStep[] = [
   { id: "business", label: "Business" },
   { id: "payout", label: "Payout" },
   { id: "security", label: "Security" },
-  { id: "documents", label: "Documents" },
+  { id: "verification", label: "Verify" },
 ]
 
 export const registrationStageCopy: Record<Exclude<RegistrationStage, "submitted">, string> =
@@ -97,7 +61,8 @@ export const registrationStageCopy: Record<Exclude<RegistrationStage, "submitted
     business: "Enter your registered business information.",
     payout: "Add the bank account for merchant settlements.",
     security: "Create a four-digit MPIN for your DRPAY account.",
-    documents: "Upload the documents needed to review your application.",
+    verification:
+      "Verify your business and beneficial owners securely with Sumsub.",
   }
 
 const maximumOwnerDateOfBirth = new Date(
@@ -119,12 +84,8 @@ export function useMerchantRegistration() {
   const [code, setCode] = useState("")
   const [pin, setPin] = useState("")
   const [confirmPin, setConfirmPin] = useState("")
-  const [selectedFiles, setSelectedFiles] =
-    useState<Partial<Record<RegistrationDocumentType, File>>>({})
-  const [uploadedDocuments, setUploadedDocuments] =
-    useState<Partial<Record<RegistrationDocumentType, string>>>({})
-  const [uploadingDocument, setUploadingDocument] =
-    useState<RegistrationDocumentType | null>(null)
+  const [sumsubReviewStatus, setSumsubReviewStatus] =
+    useState<SumsubKybStatus>("NOT_STARTED")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
 
@@ -137,8 +98,7 @@ export function useMerchantRegistration() {
   ) {
     setContact((current) => ({
       ...current,
-      [field]:
-        field === "referralCode" ? normalizeReferralCode(value) : value,
+      [field]: field === "referralCode" ? normalizeReferralCode(value) : value,
     }))
   }
 
@@ -198,27 +158,13 @@ export function useMerchantRegistration() {
     }
   }
 
-  async function uploadDocument(
-    documentType: RegistrationDocumentType,
-    file: File,
-  ) {
-    setUploadingDocument(documentType)
-    setError("")
-    try {
-      await uploadMerchantRegistrationDocument(challengeId, documentType, file)
-      setUploadedDocuments((current) => ({
-        ...current,
-        [documentType]: file.name,
-      }))
-    } catch (uploadError) {
-      setError(
-        uploadError instanceof Error
-          ? uploadError.message
-          : "Could not upload this document.",
-      )
-    } finally {
-      setUploadingDocument(null)
-    }
+  async function refreshSumsubStatus() {
+    const response = await getMerchantRegistrationSumsubStatus(
+      contact.email.trim().toLowerCase(),
+      challengeId,
+    )
+    setSumsubReviewStatus(response.sumsubReviewStatus)
+    return response.sumsubReviewStatus
   }
 
   async function submitApplication(event: FormEvent<HTMLFormElement>) {
@@ -227,9 +173,9 @@ export function useMerchantRegistration() {
       setError("The MPINs do not match.")
       return
     }
-    if (requiredDocumentTypes.some((type) => !uploadedDocuments[type])) {
+    if (!["IN_REVIEW", "ON_HOLD", "APPROVED"].includes(sumsubReviewStatus)) {
       setError(
-        "Upload the business certificate and both sides of the owner ID.",
+        "Complete and submit your Sumsub verification before submitting this application.",
       )
       return
     }
@@ -264,7 +210,7 @@ export function useMerchantRegistration() {
       setError("The MPINs do not match.")
       return
     }
-    nextStage("documents")
+    nextStage("verification")
   }
 
   function nextStage(next: RegistrationStage) {
@@ -272,43 +218,31 @@ export function useMerchantRegistration() {
     setStage(next)
   }
 
-  function handleFileChange(
-    documentType: RegistrationDocumentType,
-    event: ChangeEvent<HTMLInputElement>,
-  ) {
-    const file = event.target.files?.[0]
-    if (!file) return
-    setSelectedFiles((current) => ({ ...current, [documentType]: file }))
-    event.target.value = ""
-  }
-
   return {
     application,
     busy,
+    challengeId,
     code,
     confirmPin,
     contact,
     error,
-    handleFileChange,
     nextStage,
     pin,
     progressIndex,
     requestCode,
     sendCode,
-    selectedFiles,
     setCode,
     setConfirmPin,
     setPin,
     stage,
     stages,
+    sumsubReviewStatus,
     submitSecurity,
     submitApplication,
     updateApplication,
     updateContact,
-    uploadedDocuments,
-    uploadDocument,
-    uploadingDocument,
     verifyCode,
+    refreshSumsubStatus,
     maximumOwnerDateOfBirth,
   }
 }

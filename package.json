@@ -31,6 +31,7 @@
     "@capgo/capacitor-native-biometric": "^8.9.1",
     "@simplewebauthn/browser": "^14.0.0",
     "@simplewebauthn/server": "^14.1.0",
+    "@sumsub/websdk": "^2.9.1",
     "@zxing/browser": "^0.2.1",
     "cors": "^2.8.5",
     "express": "^5.1.0",

@@ -1,6 +1,6 @@
 import { Button } from "../AppPrimitives"
 import type { AdminKybApplication } from "../lib/swiftpay"
-import { hasRequiredKybDocuments } from "./useAdminConsoleViewModel"
+import { hasPassedSumsubKyb } from "./useAdminConsoleViewModel"
 
 export type KybReviewStatus = "IN_REVIEW" | "APPROVED" | "REJECTED"
 
@@ -19,7 +19,7 @@ export default function KybApplicationCard({
   onOpenDocument: (documentType: string) => void
   onReview: (status: KybReviewStatus) => void
 }) {
-  const canApprove = hasRequiredKybDocuments(application)
+  const canApprove = hasPassedSumsubKyb(application)
 
   return (
     <article className="admin-kyb-application">
@@ -32,6 +32,15 @@ export default function KybApplicationCard({
         </div>
       </div>
       <dl>
+        <div>
+          <dt>Sumsub verification</dt>
+          <dd>
+            {application.sumsubReviewStatus.replace(/_/g, " ")}
+            {application.sumsubApplicantId
+              ? ` · Applicant ${application.sumsubApplicantId}`
+              : ""}
+          </dd>
+        </div>
         <div>
           <dt>Registration</dt>
           <dd>
@@ -59,6 +68,10 @@ export default function KybApplicationCard({
         </div>
       </dl>
       <div className="admin-kyb-documents">
+        <span>
+          Review the detailed provider checks in Sumsub using the applicant ID
+          above.
+        </span>
         {application.documents.map((document) => (
           <button
             key={document.id}
@@ -70,7 +83,7 @@ export default function KybApplicationCard({
           </button>
         ))}
         {application.documents.length === 0 && (
-          <span>No documents submitted</span>
+          <span>No separate DRPAY documents submitted</span>
         )}
       </div>
       <label className="admin-kyb-notes">
@@ -106,8 +119,8 @@ export default function KybApplicationCard({
       </div>
       {!canApprove && (
         <small className="admin-kyb-missing">
-          Approval requires the registration certificate and both identity
-          images.
+          DRPAY approval requires a positive Sumsub business-verification
+          result.
         </small>
       )}
     </article>
