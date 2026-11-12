@@ -1068,13 +1068,14 @@ export async function uploadMerchantRegistrationDocument(
       sizeBytes: file.size,
     }),
   })
-  const upload = await fetch(signed.uploadUrl, {
-    method: "PUT",
-    headers: signed.headers,
-    body: file,
-  })
-  if (!upload.ok)
-    throw new Error(`Private document upload failed (${upload.status}).`)
+  await publicRequest<{ uploaded: true }>(
+    `/v1/auth/registration/documents/${encodeURIComponent(signed.documentId)}/upload?challengeId=${encodeURIComponent(challengeId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": contentType },
+      body: file,
+    },
+  )
   return publicRequest<{ uploaded: true; documentType: string }>(
     "/v1/auth/registration/documents/complete",
     {

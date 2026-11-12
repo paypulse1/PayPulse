@@ -360,6 +360,24 @@ function normalizeDocumentContentType(fileName, contentType) {
   return ""
 }
 
+function hasValidDocumentSignature(contentType, bytes) {
+  return contentType === "application/pdf"
+    ? bytes.subarray(0, 5).toString("ascii") === "%PDF-"
+    : contentType === "image/jpeg"
+      ? bytes.length >= 3 &&
+        bytes[0] === 0xff &&
+        bytes[1] === 0xd8 &&
+        bytes[2] === 0xff
+      : contentType === "image/png"
+        ? bytes.length >= 8 &&
+          bytes
+            .subarray(0, 8)
+            .equals(
+              Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+            )
+        : false
+}
+
 const liveMoneyAcknowledgement = process.env.SWIFTPAY_LIVE_MONEY_ACKNOWLEDGED
 const swiftPayBaseUrl =
   swiftPayEnvironment === "production"
@@ -3279,6 +3297,99 @@ app.post(
       return res.status(503).json({
         error: "Private document upload is temporarily unavailable.",
       })
+    }
+  },
+)
+
+app.post(
+  "/v1/auth/registration/documents/:documentId/upload",
+  registrationLimiter,
+  express.raw({
+    type: ["application/pdf", "image/jpeg", "image/png"],
+    limit: kybDocumentMaxBytes,
+  }),
+  async (req, res) => {
+    if (!r2Client || !r2BucketName) {
+      return res.status(503).json({
+        error: "Private document storage is not configured on this server.",
+      })
+    }
+    const documentId = req.params.documentId
+    const challengeId =
+      typeof req.query.challengeId === "string" ? req.query.challengeId : ""
+    const bytes = req.body
+    const contentType = normalizeDocumentContentType(
+      "",
+      req.get("content-type"),
+    )
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        documentId,
+      ) ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        challengeId,
+      ) ||
+      !Buffer.isBuffer(bytes) ||
+      bytes.length === 0 ||
+      bytes.length > kybDocumentMaxBytes ||
+      !allowedDocumentContentTypes.has(contentType) ||
+      !hasValidDocumentSignature(contentType, bytes)
+    ) {
+      return res.status(400).json({
+        error: "Choose a valid PDF, JPEG, or PNG document no larger than 10 MB.",
+      })
+    }
+    const reservationResult = await pool.query(
+      `SELECT object_key, content_type, size_bytes
+       FROM merchant_registration_documents
+       WHERE id = $1 AND challenge_id = $2 AND completed_at IS NULL`,
+      [documentId, challengeId],
+    )
+    const reservation = reservationResult.rows[0]
+    if (
+      !reservation ||
+      reservation.content_type !== contentType ||
+      Number(reservation.size_bytes) !== bytes.length
+    ) {
+      return res.status(409).json({
+        error:
+          "This document upload is invalid or expired. Choose the file again.",
+      })
+    }
+    const challenge = await pool.query(
+      `SELECT id FROM merchant_registration_otps
+       WHERE id = $1 AND verified_at > NOW() - INTERVAL '24 hours'
+         AND consumed_at IS NULL`,
+      [challengeId],
+    )
+    if (!challenge.rowCount) {
+      return res.status(401).json({
+        error: "Verify your email again before uploading documents.",
+      })
+    }
+    try {
+      await r2Client.send(
+        new PutObjectCommand({
+          Bucket: r2BucketName,
+          Key: reservation.object_key,
+          Body: bytes,
+          ContentType: contentType,
+          ContentLength: bytes.length,
+          Metadata: { "document-id": documentId },
+        }),
+      )
+      return res.set("Cache-Control", "no-store").json({ uploaded: true })
+    } catch (error) {
+      console.error("Could not store private registration document", {
+        name: error instanceof Error ? error.name : typeof error,
+        code:
+          error && typeof error === "object" && "code" in error
+            ? String(error.code)
+            : null,
+      })
+      return res
+        .status(503)
+        .json({ error: "Private document upload is temporarily unavailable." })
     }
   },
 )
@@ -7863,21 +7974,7 @@ app.post("/v1/kyb/documents/complete", async (req, res) => {
       }),
     )
     const bytes = Buffer.from(await prefix.Body.transformToByteArray())
-    const validSignature =
-      normalizedContentType === "application/pdf"
-        ? bytes.subarray(0, 5).toString("ascii") === "%PDF-"
-        : normalizedContentType === "image/jpeg"
-          ? bytes.length >= 3 &&
-            bytes[0] === 0xff &&
-            bytes[1] === 0xd8 &&
-            bytes[2] === 0xff
-          : bytes.length >= 8 &&
-            bytes
-              .subarray(0, 8)
-              .equals(
-                Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-              )
-    if (!validSignature) {
+    if (!hasValidDocumentSignature(normalizedContentType, bytes)) {
       await r2Client.send(
         new DeleteObjectCommand({ Bucket: r2BucketName, Key: objectKey }),
       )

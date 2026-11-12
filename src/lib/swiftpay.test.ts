@@ -514,7 +514,7 @@ test("merchant registration verifies contact before submitting business details"
   )
 })
 
-test("merchant registration uploads identity documents through a signed private URL", async () => {
+test("merchant registration uploads identity documents through the API to private storage", async () => {
   vi.stubEnv("VITE_DRPAY_BACKEND_URL", "https://api.example.test")
   vi.stubGlobal("window", {
     location: {
@@ -528,8 +528,6 @@ test("merchant registration uploads identity documents through a signed private 
     async (input: RequestInfo | URL, options?: RequestInit) => {
       const url = input.toString()
       requests.push({ url, options })
-      if (url === "https://storage.example.test/signed-upload")
-        return new Response(null, { status: 200 })
       const response = url.endsWith("/presign")
         ? {
             documentId: "document-id",
@@ -541,7 +539,9 @@ test("merchant registration uploads identity documents through a signed private 
               "x-amz-meta-document-id": "document-id",
             },
           }
-        : { uploaded: true, documentType: "identity_front" }
+        : url.includes("/documents/document-id/upload")
+          ? { uploaded: true }
+          : { uploaded: true, documentType: "identity_front" }
       return new Response(JSON.stringify(response), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -569,8 +569,8 @@ test("merchant registration uploads identity documents through a signed private 
         method: "POST",
       },
       {
-        url: "https://storage.example.test/signed-upload",
-        method: "PUT",
+        url: "https://api.example.test/v1/auth/registration/documents/document-id/upload?challengeId=registration-challenge",
+        method: "POST",
       },
       {
         url: "https://api.example.test/v1/auth/registration/documents/complete",
@@ -579,10 +579,7 @@ test("merchant registration uploads identity documents through a signed private 
     ],
   )
   assert.equal(requests[1].options?.body, file)
-  assert.deepEqual(requests[1].options?.headers, {
-    "Content-Type": "image/png",
-    "x-amz-meta-document-id": "document-id",
-  })
+  assert.deepEqual(requests[1].options?.headers, { "Content-Type": "image/png" })
   assert.deepEqual(JSON.parse(String(requests[2].options?.body)), {
     challengeId: "registration-challenge",
     documentId: "document-id",

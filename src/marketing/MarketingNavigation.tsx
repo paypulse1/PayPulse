@@ -54,6 +54,7 @@ function BrandLink() {
 
 export default function MarketingNavigation() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const MenuToggleIcon = isMobileMenuOpen ? X : Menu
 
   function closeMobileMenu() {
     setIsMobileMenuOpen(false)
@@ -79,11 +80,7 @@ export default function MarketingNavigation() {
           aria-controls="drpay-mobile-menu"
           onClick={() => setIsMobileMenuOpen((isOpen) => !isOpen)}
         >
-          {isMobileMenuOpen ? (
-            <X size={19} aria-hidden="true" />
-          ) : (
-            <Menu size={19} aria-hidden="true" />
-          )}
+          <MenuToggleIcon size={19} aria-hidden="true" />
         </button>
         <div
           className="drpay-mobile-menu"
