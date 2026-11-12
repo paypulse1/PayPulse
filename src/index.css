@@ -223,7 +223,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .all-access-group .profile-menu-heading { margin-top: 0; }
 .all-access-list { padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; border: 0; background: transparent; box-shadow: none; }
 .all-access-list > .all-access-item, .all-access-list > .all-access-item:last-child { min-width: 0; min-height: 88px; padding: 11px; display: grid; grid-template-columns: minmax(0, 1fr) 16px; grid-template-rows: 36px auto; align-items: start; gap: 5px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-card); text-align: left; }
-.all-access-item-sticker { grid-column: 1; grid-row: 1; width: 36px; height: 36px; display: grid; place-items: center; filter: drop-shadow(0 1px 0 #fff) drop-shadow(0 2px 2px rgb(16 35 61 / 18%)); transform: rotate(-4deg); }
+.all-access-item-icon { grid-column: 1; grid-row: 1; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 11px; background: #edf3fb; color: #2857a5; }
 .all-access-list .all-access-item-copy { min-width: 0; grid-column: 1 / -1; grid-row: 2; align-self: start; }
 .all-access-list .all-access-item-copy strong { display: block; color: var(--ink); font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; }
 .all-access-item-chevron { grid-column: 2; grid-row: 1; margin-top: 10px; color: var(--muted); }

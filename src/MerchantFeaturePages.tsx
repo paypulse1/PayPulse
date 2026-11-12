@@ -1,14 +1,29 @@
 import { useEffect, useState } from "react"
 import { Capacitor } from "@capacitor/core"
 import {
+  ArrowLeftRight,
+  Bell,
+  Code2,
   ChevronLeft,
   ChevronRight,
+  FileText,
+  HandCoins,
+  Landmark,
+  LayoutDashboard,
+  LifeBuoy,
+  Link,
+  Link2,
   LogOut,
+  Palette,
+  Shield,
+  ShieldCheck,
   Store,
+  Users,
+  WalletCards,
+  type LucideIcon,
 } from "lucide-react"
 import { Brand, Button } from "./AppPrimitives"
 import { APP_ROUTES } from "./lib/routes"
-import StickerIcon, { type StickerKind } from "./StickerIcon"
 import {
   getMerchantKyb,
   type DashboardData,
@@ -22,7 +37,7 @@ import type { AppTab } from "./AppNavigation"
 type AccessMenuItem = {
   label: string
   description: string
-  sticker: StickerKind
+  icon: LucideIcon
   action: () => void
 }
 
@@ -32,6 +47,8 @@ type AccessMenuSection = {
 }
 
 function AccessMenuButton({ item }: { item: AccessMenuItem }) {
+  const Icon = item.icon
+
   return (
     <button
       type="button"
@@ -39,8 +56,8 @@ function AccessMenuButton({ item }: { item: AccessMenuItem }) {
       onClick={item.action}
       aria-label={`${item.label}: ${item.description}`}
     >
-      <span className="all-access-item-sticker" aria-hidden="true">
-        <StickerIcon kind={item.sticker} size={36} />
+      <span className="all-access-item-icon" aria-hidden="true">
+        <Icon size={18} strokeWidth={1.8} />
       </span>
       <span className="all-access-item-copy">
         <strong>{item.label}</strong>
@@ -257,7 +274,7 @@ export function AllAccessView({
           {
             label: "Payment link",
             description: "Create and share a branded checkout link.",
-            sticker: "link",
+            icon: Link2,
             action: onPaymentLink,
           },
         ]
@@ -269,19 +286,19 @@ export function AllAccessView({
         {
           label: "Dashboard",
           description: "View your balance and recent activity.",
-          sticker: "dashboard",
+          icon: LayoutDashboard,
           action: () => onNavigate("Home"),
         },
         {
           label: "Wallet",
           description: "Review balances and wallet activity.",
-          sticker: "wallet",
+          icon: WalletCards,
           action: () => onNavigate("Wallet"),
         },
         {
           label: "Statements",
           description: "View and download wallet activity.",
-          sticker: "statement",
+          icon: FileText,
           action: () => onInfo("Statements"),
         },
       ],
@@ -292,14 +309,14 @@ export function AllAccessView({
         {
           label: "Collect payment",
           description: "Create a payment request for a customer.",
-          sticker: "collect",
+          icon: HandCoins,
           action: onCollect,
         },
         ...paymentLinkItems,
         {
           label: "Transfers",
           description: "Review outgoing transfers.",
-          sticker: "transfer",
+          icon: ArrowLeftRight,
           action: () => onNavigate("Transfer"),
         },
         {
@@ -307,7 +324,7 @@ export function AllAccessView({
           description: Capacitor.isNativePlatform()
             ? "View supported InstaPay banks."
             : "View supported InstaPay and PESONet banks.",
-          sticker: "bank",
+          icon: Landmark,
           action: () => onInfo("Transfer banks"),
         },
       ],
@@ -318,25 +335,25 @@ export function AllAccessView({
         {
           label: "Merchant profile",
           description: "View your business and account details.",
-          sticker: "merchant",
+          icon: Store,
           action: () => onInfo("Merchant profile"),
         },
         {
           label: "KYB verification",
           description: "Manage business and owner verification.",
-          sticker: "kyb",
+          icon: ShieldCheck,
           action: () => onInfo("KYB verification"),
         },
         {
           label: "Merchant downline",
           description: "Share your referral code and view referred merchants.",
-          sticker: "team",
+          icon: Users,
           action: () => onInfo("Merchant downline"),
         },
         {
           label: "Checkout & email branding",
           description: "Customize checkout details and payment emails.",
-          sticker: "branding",
+          icon: Palette,
           action: () => onInfo("Checkout & email branding"),
         },
       ],
@@ -347,32 +364,32 @@ export function AllAccessView({
         {
           label: "Notifications",
           description: "Manage email and push alerts.",
-          sticker: "notification",
+          icon: Bell,
           action: () => onInfo("Notifications"),
         },
         {
           label: "Social accounts",
           description:
             "Link Google or Telegram sign-in to your merchant account.",
-          sticker: "link",
+          icon: Link,
           action: () => onInfo("Social accounts"),
         },
         {
           label: "Security",
           description: "Manage session and device protection.",
-          sticker: "security",
+          icon: Shield,
           action: () => onInfo("Security"),
         },
         {
           label: "Developer hub",
           description: "Manage API access, webhooks, and integration docs.",
-          sticker: "developer",
+          icon: Code2,
           action: () => onInfo("Developer hub"),
         },
         {
           label: "Help center",
           description: "Contact DRPAY merchant support.",
-          sticker: "support",
+          icon: LifeBuoy,
           action: () => onInfo("Help center"),
         },
       ],
