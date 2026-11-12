@@ -8,16 +8,18 @@ export default function VirtualAccountInformation({
   showReference?: boolean
 }) {
   const hasBankAccountNumber = Boolean(information?.bankAccountNumber)
-  const hasBankCode = Boolean(information?.instapayBankCode)
-  const hasCompleteBankDetails = hasBankAccountNumber && hasBankCode
 
   return (
-    <section className="virtual-account-info" aria-label="Virtual Account information">
+    <section
+      className="virtual-account-info"
+      aria-label="Virtual Account information"
+    >
       <h3>Virtual Account Information</h3>
-      {!hasCompleteBankDetails && (
+      {!hasBankAccountNumber && (
         <p className="virtual-account-info-warning" role="alert">
-          SwiftPay did not return all Virtual Account details for this QR. Confirm
-          the bank details with the merchant before sending a bank transfer.
+          SwiftPay did not return the Virtual Account number for this QR.
+          Confirm the bank details with the merchant before sending a bank
+          transfer.
         </p>
       )}
       <dl>
@@ -27,12 +29,10 @@ export default function VirtualAccountInformation({
             <dd>{information.bankAccountNumber}</dd>
           </div>
         )}
-        {information?.instapayBankCode && (
-          <div>
-            <dt>InstaPay bank code</dt>
-            <dd>{information.instapayBankCode}</dd>
-          </div>
-        )}
+        <div>
+          <dt>Virtual Bank Name</dt>
+          <dd>Netbank (Rural Bank of Romblon)</dd>
+        </div>
         {showReference && information?.referenceNo && (
           <div>
             <dt>Payment reference</dt>
