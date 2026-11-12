@@ -1,29 +1,9 @@
 import { useEffect, useState } from "react"
 import { Capacitor } from "@capacitor/core"
-import {
-  ArrowLeftRight,
-  Bell,
-  Code2,
-  ChevronLeft,
-  ChevronRight,
-  FileText,
-  HandCoins,
-  Landmark,
-  LayoutDashboard,
-  LifeBuoy,
-  Link,
-  Link2,
-  LogOut,
-  Palette,
-  Shield,
-  ShieldCheck,
-  Store,
-  Users,
-  WalletCards,
-  type LucideIcon,
-} from "lucide-react"
+import { ChevronLeft, ChevronRight, LogOut, Store } from "lucide-react"
 import { Brand, Button } from "./AppPrimitives"
 import { APP_ROUTES } from "./lib/routes"
+import MenuIcon, { type MenuIconKind, type MenuIconTone } from "./MenuIcon"
 import {
   getMerchantKyb,
   type DashboardData,
@@ -37,7 +17,8 @@ import type { AppTab } from "./AppNavigation"
 type AccessMenuItem = {
   label: string
   description: string
-  icon: LucideIcon
+  icon: MenuIconKind
+  tone: MenuIconTone
   action: () => void
 }
 
@@ -47,8 +28,6 @@ type AccessMenuSection = {
 }
 
 function AccessMenuButton({ item }: { item: AccessMenuItem }) {
-  const Icon = item.icon
-
   return (
     <button
       type="button"
@@ -56,8 +35,12 @@ function AccessMenuButton({ item }: { item: AccessMenuItem }) {
       onClick={item.action}
       aria-label={`${item.label}: ${item.description}`}
     >
-      <span className="all-access-item-icon" aria-hidden="true">
-        <Icon size={18} strokeWidth={1.8} />
+      <span
+        className="all-access-item-icon"
+        data-tone={item.tone}
+        aria-hidden="true"
+      >
+        <MenuIcon kind={item.icon} tone={item.tone} />
       </span>
       <span className="all-access-item-copy">
         <strong>{item.label}</strong>
@@ -274,7 +257,8 @@ export function AllAccessView({
           {
             label: "Payment link",
             description: "Create and share a branded checkout link.",
-            icon: Link2,
+            icon: "link",
+            tone: "payments",
             action: onPaymentLink,
           },
         ]
@@ -286,19 +270,22 @@ export function AllAccessView({
         {
           label: "Dashboard",
           description: "View your balance and recent activity.",
-          icon: LayoutDashboard,
+          icon: "dashboard",
+          tone: "overview",
           action: () => onNavigate("Home"),
         },
         {
           label: "Wallet",
           description: "Review balances and wallet activity.",
-          icon: WalletCards,
+          icon: "wallet",
+          tone: "overview",
           action: () => onNavigate("Wallet"),
         },
         {
           label: "Statements",
           description: "View and download wallet activity.",
-          icon: FileText,
+          icon: "activity",
+          tone: "overview",
           action: () => onInfo("Statements"),
         },
       ],
@@ -309,14 +296,16 @@ export function AllAccessView({
         {
           label: "Collect payment",
           description: "Create a payment request for a customer.",
-          icon: HandCoins,
+          icon: "collect",
+          tone: "payments",
           action: onCollect,
         },
         ...paymentLinkItems,
         {
           label: "Transfers",
           description: "Review outgoing transfers.",
-          icon: ArrowLeftRight,
+          icon: "transfer",
+          tone: "payments",
           action: () => onNavigate("Transfer"),
         },
         {
@@ -324,7 +313,8 @@ export function AllAccessView({
           description: Capacitor.isNativePlatform()
             ? "View supported InstaPay banks."
             : "View supported InstaPay and PESONet banks.",
-          icon: Landmark,
+          icon: "bank",
+          tone: "payments",
           action: () => onInfo("Transfer banks"),
         },
       ],
@@ -335,25 +325,29 @@ export function AllAccessView({
         {
           label: "Merchant profile",
           description: "View your business and account details.",
-          icon: Store,
+          icon: "building",
+          tone: "business",
           action: () => onInfo("Merchant profile"),
         },
         {
           label: "KYB verification",
           description: "Manage business and owner verification.",
-          icon: ShieldCheck,
+          icon: "verified",
+          tone: "business",
           action: () => onInfo("KYB verification"),
         },
         {
           label: "Merchant downline",
           description: "Share your referral code and view referred merchants.",
-          icon: Users,
+          icon: "network",
+          tone: "business",
           action: () => onInfo("Merchant downline"),
         },
         {
           label: "Checkout & email branding",
           description: "Customize checkout details and payment emails.",
-          icon: Palette,
+          icon: "branding",
+          tone: "business",
           action: () => onInfo("Checkout & email branding"),
         },
       ],
@@ -364,32 +358,37 @@ export function AllAccessView({
         {
           label: "Notifications",
           description: "Manage email and push alerts.",
-          icon: Bell,
+          icon: "notification",
+          tone: "account",
           action: () => onInfo("Notifications"),
         },
         {
           label: "Social accounts",
           description:
             "Link Google or Telegram sign-in to your merchant account.",
-          icon: Link,
+          icon: "link",
+          tone: "account",
           action: () => onInfo("Social accounts"),
         },
         {
           label: "Security",
           description: "Manage session and device protection.",
-          icon: Shield,
+          icon: "security",
+          tone: "account",
           action: () => onInfo("Security"),
         },
         {
           label: "Developer hub",
           description: "Manage API access, webhooks, and integration docs.",
-          icon: Code2,
+          icon: "developer",
+          tone: "account",
           action: () => onInfo("Developer hub"),
         },
         {
           label: "Help center",
           description: "Contact DRPAY merchant support.",
-          icon: LifeBuoy,
+          icon: "support",
+          tone: "account",
           action: () => onInfo("Help center"),
         },
       ],

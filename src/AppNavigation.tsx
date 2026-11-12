@@ -1,25 +1,30 @@
-import {
-  ArrowLeftRight,
-  HandCoins,
-  LayoutDashboard,
-  UserRound,
-  WalletCards,
-  type LucideIcon,
-} from "lucide-react"
+import MenuIcon, { type MenuIconKind, type MenuIconTone } from "./MenuIcon"
 
 export type AppTab = "Home" | "Wallet" | "Transfer" | "Profile"
 
 const tabs: {
   label: string
   tab: AppTab | null
-  icon: LucideIcon
+  icon: MenuIconKind
+  tone: MenuIconTone
   featured?: boolean
 }[] = [
-  { label: "Home", tab: "Home", icon: LayoutDashboard },
-  { label: "Wallet", tab: "Wallet", icon: WalletCards },
-  { label: "Collect", tab: null, icon: HandCoins, featured: true },
-  { label: "Transfer", tab: "Transfer", icon: ArrowLeftRight },
-  { label: "Profile", tab: "Profile", icon: UserRound },
+  { label: "Home", tab: "Home", icon: "dashboard", tone: "overview" },
+  { label: "Wallet", tab: "Wallet", icon: "wallet", tone: "overview" },
+  {
+    label: "Collect",
+    tab: null,
+    icon: "collect",
+    tone: "payments",
+    featured: true,
+  },
+  {
+    label: "Transfer",
+    tab: "Transfer",
+    icon: "transfer",
+    tone: "payments",
+  },
+  { label: "Profile", tab: "Profile", icon: "building", tone: "business" },
 ]
 
 export default function AppNavigation({
@@ -33,7 +38,7 @@ export default function AppNavigation({
 }) {
   return (
     <nav className="bottom-nav" aria-label="App navigation">
-      {tabs.map(({ label, tab, icon: Icon, featured }) => {
+      {tabs.map(({ label, tab, icon, tone, featured }) => {
         const isActive = tab !== null && activeTab === tab
         return (
           <button
@@ -48,8 +53,8 @@ export default function AppNavigation({
               else onNavigate(tab)
             }}
           >
-            <span className="nav-icon">
-              <Icon size={20} strokeWidth={2} aria-hidden="true" />
+            <span className="nav-icon" data-tone={tone}>
+              <MenuIcon kind={icon} tone={tone} size={20} />
             </span>
             <small>{label}</small>
           </button>

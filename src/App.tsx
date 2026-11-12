@@ -121,7 +121,7 @@ import { parseUsdtAmount } from "./lib/tronLink"
 import ScreenTitle from "./ScreenTitle"
 import { getMerchantScreenTitle } from "./lib/screenTitles"
 import MerchantAuthMethods from "./MerchantAuthMethods"
-import StickerIcon, { type StickerKind } from "./StickerIcon"
+import MenuIcon, { type MenuIconKind, type MenuIconTone } from "./MenuIcon"
 import TransferReceiptActions from "./TransferReceiptActions"
 import VirtualAccountInformation from "./VirtualAccountInformation"
 import MerchantDownlineView from "./MerchantDownlineView"
@@ -450,18 +450,20 @@ function AvailableBalanceCard({
 }
 
 function QuickAction({
-  sticker,
+  icon,
+  tone,
   label,
   onClick,
 }: {
-  sticker: StickerKind
+  icon: MenuIconKind
+  tone: MenuIconTone
   label: string
   onClick?: () => void
 }) {
   return (
     <button className="quick-action" onClick={onClick}>
-      <span className="quick-action-sticker" aria-hidden="true">
-        <StickerIcon kind={sticker} size={52} />
+      <span className="quick-action-icon" data-tone={tone}>
+        <MenuIcon kind={icon} tone={tone} size={22} />
       </span>
       <strong>{label}</strong>
     </button>
@@ -3219,37 +3221,44 @@ function HomeView({
 
       <section className="quick-actions" aria-label="Quick actions">
         <QuickAction
-          sticker="collect"
+          icon="collect"
+          tone="payments"
           label="Collect"
           onClick={onRequestPayment}
         />
         <QuickAction
-          sticker="transfer"
+          icon="transfer"
+          tone="payments"
           label="Transfer"
           onClick={onTransfer}
         />
         <QuickAction
-          sticker="qr"
+          icon="scan"
+          tone="payments"
           label="Scan QR"
           onClick={onScan}
         />
         <QuickAction
-          sticker="statement"
+          icon="activity"
+          tone="overview"
           label="Activity"
           onClick={onActivity}
         />
         <QuickAction
-          sticker="crypto"
+          icon="crypto"
+          tone="account"
           label="Crypto"
           onClick={onCrypto}
         />
         <QuickAction
-          sticker="pending"
+          icon="pending"
+          tone="overview"
           label="Pendings"
           onClick={onPendings}
         />
         <QuickAction
-          sticker="toolbox"
+          icon="allAccess"
+          tone="business"
           label="All access"
           onClick={onAllAccess}
         />
