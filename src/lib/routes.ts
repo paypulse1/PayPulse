@@ -11,7 +11,8 @@ export const APP_ROUTES = {
   merchantSignIn:
     import.meta.env.VITE_DRPAY_MERCHANT_SIGNIN_URL ||
     "https://merchant.denpay.cc/login",
-  androidDownload: "/drpay.apk",
+  androidAppListing:
+    "https://play.google.com/store/apps/details?id=ph.drpays.merchant.public&pcampaignid=web_share",
   capabilities: "#capabilities",
   workflow: "#workflow",
   security: "#security",

@@ -32,8 +32,9 @@ function NavigationActions({ onNavigate }: { onNavigate?: () => void }) {
       </a>
       <a
         className="drpay-button drpay-button-small"
-        href={APP_ROUTES.androidDownload}
-        download
+        href={APP_ROUTES.androidAppListing}
+        target="_blank"
+        rel="noopener noreferrer"
         onClick={onNavigate}
       >
         Download app <ArrowRight size={15} aria-hidden="true" />

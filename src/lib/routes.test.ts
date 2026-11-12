@@ -11,8 +11,11 @@ test("super-admin route uses the bossd path", () => {
   assert.equal(APP_ROUTES.admin, "/bossd")
 })
 
-test("marketing Android download serves the public APK asset", () => {
-  assert.equal(APP_ROUTES.androidDownload, "/drpay.apk")
+test("marketing Android app links use the public Google Play listing", () => {
+  assert.equal(
+    APP_ROUTES.androidAppListing,
+    "https://play.google.com/store/apps/details?id=ph.drpays.merchant.public&pcampaignid=web_share",
+  )
 })
 
 test("USDT payment links use the public checkout host for each environment", () => {

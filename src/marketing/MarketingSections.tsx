@@ -242,8 +242,9 @@ export function DownloadSection() {
       <div className="drpay-cta-actions">
         <a
           className="drpay-button drpay-button-light"
-          href={APP_ROUTES.androidDownload}
-          download
+          href={APP_ROUTES.androidAppListing}
+          target="_blank"
+          rel="noopener noreferrer"
         >
           Download DRPAY for Android
           <ArrowRight size={17} aria-hidden="true" />
@@ -266,8 +267,9 @@ export function MarketingFooter() {
       <p>Merchant payments, made clearer.</p>
       <a
         className="drpay-footer-play"
-        href={APP_ROUTES.androidDownload}
-        download
+        href={APP_ROUTES.androidAppListing}
+        target="_blank"
+        rel="noopener noreferrer"
         aria-label="Download the DRPAY Android app"
       >
         <span>DOWNLOAD</span>
