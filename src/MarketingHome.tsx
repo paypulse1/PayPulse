@@ -14,8 +14,7 @@ import {
 import "./marketing-home.css";
 import LegalPage, { getLegalPage } from "./LegalPages";
 
-const apkUrl = import.meta.env.VITE_ANDROID_APK_URL?.trim()
-  || "https://github.com/blackhorsecn/drpay-merchant/releases/latest/download/drpay.apk";
+const appUrl = "https://play.google.com/store/apps/details?id=ph.drpays.merchant.public&pcampaignid=web_share";
 
 function Brand() {
   return (
@@ -86,11 +85,9 @@ export default function MarketingHome() {
           <p>Create hosted payment links and QR Ph checkouts, track provider-confirmed activity, and understand your balances in one merchant workspace.</p>
           <div className="hero-actions">
             <a className="hero-primary" href="/app">Open merchant workspace <ArrowRight size={17} /></a>
-            {apkUrl ? (
-              <a className="hero-download" href={apkUrl}><Download size={17} />Get the Android app</a>
-            ) : (
-              <span className="hero-download unavailable" aria-label="Android app is not available"><Download size={17} />Android app unavailable</span>
-            )}
+            <a className="hero-download" href={appUrl} target="_blank" rel="noopener noreferrer">
+              <Download size={17} />Get it on Google Play
+            </a>
           </div>
           <div className="hero-assurance"><LockKeyhole size={15} /><span>Email-verified new devices · MPIN-protected transfers · optional biometrics on supported Android devices.</span></div>
         </div>
@@ -159,7 +156,7 @@ export default function MarketingHome() {
         <div className="footer-link-column">
           <strong>DRPAY</strong>
           <a href="/app">Merchant sign in</a>
-          {apkUrl && <a href={apkUrl}>Android app <Download size={13} /></a>}
+          <a href={appUrl} target="_blank" rel="noopener noreferrer">Android app <Download size={13} /></a>
           <a href="/privacy">Privacy Policy</a>
           <a href="/terms">Terms of Service</a>
           <a href="/contact">Contact Us</a>
