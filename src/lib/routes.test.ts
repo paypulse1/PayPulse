@@ -4,6 +4,7 @@ import { getLegalPage } from "../LegalPages"
 import {
   APP_ROUTES,
   getPublicCheckoutOrigin,
+  shouldGateMerchantMaintenance,
   shouldShowMarketingHome,
 } from "./routes"
 
@@ -76,5 +77,34 @@ test("merchant root and the explicit marketing route show the marketing homepage
   assert.equal(
     shouldShowMarketingHome(`${APP_ROUTES.marketing}/`, "denpay.cc"),
     true,
+  )
+})
+
+test("merchant maintenance does not replace checkout, customer, marketing, or admin pages", () => {
+  assert.equal(shouldGateMerchantMaintenance("/", "merchant.sandbox.denpay.cc"), true)
+  assert.equal(shouldGateMerchantMaintenance("/app/wallet", "merchant.denpay.cc"), true)
+  assert.equal(
+    shouldGateMerchantMaintenance("/", "merchant.denpay.cc", "?checkout=code"),
+    false,
+  )
+  assert.equal(
+    shouldGateMerchantMaintenance("/checkout/abc", "merchant.denpay.cc"),
+    false,
+  )
+  assert.equal(
+    shouldGateMerchantMaintenance("/customer", "merchant.denpay.cc"),
+    false,
+  )
+  assert.equal(
+    shouldGateMerchantMaintenance("/bossd", "merchant.denpay.cc"),
+    false,
+  )
+  assert.equal(
+    shouldGateMerchantMaintenance("/marketing", "merchant.denpay.cc"),
+    false,
+  )
+  assert.equal(
+    shouldGateMerchantMaintenance("/contact", "merchant.denpay.cc"),
+    false,
   )
 })

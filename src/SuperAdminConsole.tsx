@@ -45,6 +45,7 @@ import {
   activateAdminMerchantDownline,
   getAdminPaymentLinks,
   getAdminSettings,
+  getAdminMaintenanceMode,
   getAdminKybApplications,
   createAdminTaxInvoice,
   markAdminPaymentLinkPaid,
@@ -57,6 +58,7 @@ import {
   updateAdminMerchantAccount,
   updateAdminMerchantUsdtWallet,
   updateAdminSettings,
+  setAdminMaintenanceMode,
   type AdminInternalWallet,
   type AdminInternalWalletSummary,
   type AdminMerchantWallet,
@@ -218,6 +220,8 @@ export function SuperAdminConsole({
     onRefresh: loadConsole,
   })
   const [savingSettings, setSavingSettings] = useState(false)
+  const [maintenanceMode, setMaintenanceMode] = useState(false)
+  const [savingMaintenanceMode, setSavingMaintenanceMode] = useState(false)
   const [savingMerchant, setSavingMerchant] = useState(false)
   const [savingUsdtAddress, setSavingUsdtAddress] = useState("")
   const [sendingInvitationEmail, setSendingInvitationEmail] = useState("")
@@ -707,6 +711,7 @@ export function SuperAdminConsole({
     setError("")
     const results = await Promise.allSettled([
       getAdminSettings(),
+      getAdminMaintenanceMode(),
       getAdminMerchantAccounts(),
       getAdminInternalWallets(),
       getAdminFloatingTransferRequests(),
@@ -735,6 +740,7 @@ export function SuperAdminConsole({
     }
     const [
       settingsResult,
+      maintenanceModeResult,
       merchantsResult,
       walletsResult,
       requestsResult,
@@ -748,6 +754,9 @@ export function SuperAdminConsole({
       staffResult,
     ] = results
     applyResult(settingsResult, "Settings", setSettings)
+    applyResult(maintenanceModeResult, "Maintenance mode", (result) =>
+      setMaintenanceMode(result.enabled),
+    )
     applyResult(merchantsResult, "merchants", setMerchants)
     applyResult(walletsResult, "floating balances", (nextWallets) => {
       setInternalWallets(nextWallets)
@@ -853,6 +862,30 @@ export function SuperAdminConsole({
       )
     } finally {
       setSavingSettings(false)
+    }
+  }
+
+  async function toggleMaintenanceMode() {
+    setSavingMaintenanceMode(true)
+    setError("")
+    setNotice("")
+    try {
+      const saved = await setAdminMaintenanceMode(!maintenanceMode)
+      setMaintenanceMode(saved.enabled)
+      setNotice(
+        saved.enabled
+          ? "Maintenance mode is on. Merchant workspaces will display the maintenance screen."
+          : "Maintenance mode is off. Merchant workspaces are available again.",
+      )
+      await refreshAuditEvents()
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not update merchant maintenance mode.",
+      )
+    } finally {
+      setSavingMaintenanceMode(false)
     }
   }
 
@@ -1682,6 +1715,12 @@ export function SuperAdminConsole({
                 pendingKybCount={pendingKybCount}
                 auditEventCount={auditEvents.length}
                 onNavigate={setActivePage}
+                maintenanceMode={maintenanceMode}
+                canManageMaintenance={session.role === "super_admin"}
+                savingMaintenanceMode={savingMaintenanceMode}
+                onToggleMaintenanceMode={() => {
+                  void toggleMaintenanceMode()
+                }}
               />
             )}
             {activePage === "payments" && (

@@ -1,4 +1,4 @@
-import { ArrowUpRight, Clock3, ShieldCheck, Users } from "lucide-react"
+import { ArrowUpRight, Clock3, Power, ShieldCheck, Users } from "lucide-react"
 import type { AdminMerchantAccount, AdminSettings } from "../lib/swiftpay"
 
 type OverviewDestination = "payments" | "kyb" | "requests" | "audit" | "merchants"
@@ -15,6 +15,10 @@ type OverviewAdminSectionProps = {
   pendingKybCount: number
   auditEventCount: number
   onNavigate: (page: OverviewDestination) => void
+  maintenanceMode: boolean
+  canManageMaintenance: boolean
+  savingMaintenanceMode: boolean
+  onToggleMaintenanceMode: () => void
 }
 
 function formatPhpAmount(amount: number) {
@@ -36,12 +40,58 @@ export default function OverviewAdminSection({
   pendingKybCount,
   auditEventCount,
   onNavigate,
+  maintenanceMode,
+  canManageMaintenance,
+  savingMaintenanceMode,
+  onToggleMaintenanceMode,
 }: OverviewAdminSectionProps) {
   const pendingWithdrawalCount =
     pendingTransferCount + pendingCryptoWithdrawalCount
 
   return (
     <>
+      <section className="admin-card">
+        <div className="admin-card-heading">
+          <span className="setting-icon">
+            <Power size={19} />
+          </span>
+          <div>
+            <h2>Merchant maintenance mode</h2>
+            <p>
+              Temporarily replace merchant workspace pages with the maintenance
+              screen. Checkout, customer, and admin pages stay available.
+            </p>
+          </div>
+          <span
+            className={`admin-status-pill ${
+              maintenanceMode ? "disabled" : "active"
+            }`}
+          >
+            {maintenanceMode ? "On" : "Off"}
+          </span>
+        </div>
+        {canManageMaintenance ? (
+          <button
+            className={`button ${
+              maintenanceMode ? "button-secondary" : "button-primary"
+            }`}
+            type="button"
+            aria-pressed={maintenanceMode}
+            disabled={savingMaintenanceMode}
+            onClick={onToggleMaintenanceMode}
+          >
+            {savingMaintenanceMode
+              ? "Updating…"
+              : maintenanceMode
+                ? "Turn maintenance off"
+                : "Turn maintenance on"}
+          </button>
+        ) : (
+          <p className="admin-empty">
+            Only a super admin can change this setting.
+          </p>
+        )}
+      </section>
       <section className="admin-card admin-action-queue">
         <div className="admin-card-heading">
           <span className="setting-icon">

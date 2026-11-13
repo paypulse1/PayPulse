@@ -6071,6 +6071,15 @@ app.post("/v1/auth/device/biometric", loginLimiter, async (req, res) => {
     .json(await issueMerchantSession(email))
 })
 
+app.get("/v1/maintenance-status", async (_req, res) => {
+  const result = await pool.query(
+    "SELECT setting_value FROM system_settings WHERE setting_key = 'merchant_maintenance_mode'",
+  )
+  return res
+    .set("Cache-Control", "no-store")
+    .json({ enabled: result.rows[0]?.setting_value === "true" })
+})
+
 app.use("/v1/admin", requireAdminSession, requireAdminPermission)
 
 async function recordAdminAuditEvent(
@@ -7711,6 +7720,51 @@ app.put("/v1/admin/settings", async (req, res) => {
       transferFeeFixed,
       superAdminFeeWallet: feeWallet.rows[0].balance,
     })
+  } catch (error) {
+    await client.query("ROLLBACK")
+    throw error
+  } finally {
+    client.release()
+  }
+})
+
+app.get("/v1/admin/maintenance-mode", async (_req, res) => {
+  const result = await pool.query(
+    "SELECT setting_value FROM system_settings WHERE setting_key = 'merchant_maintenance_mode'",
+  )
+  return res
+    .set("Cache-Control", "no-store")
+    .json({ enabled: result.rows[0]?.setting_value === "true" })
+})
+
+app.put("/v1/admin/maintenance-mode", async (req, res) => {
+  const enabled = req.body?.enabled
+  if (typeof enabled !== "boolean") {
+    return res
+      .status(400)
+      .json({ error: "Maintenance mode must be enabled or disabled." })
+  }
+
+  const client = await pool.connect()
+  try {
+    await client.query("BEGIN")
+    await client.query(
+      `INSERT INTO system_settings (setting_key, setting_value)
+       VALUES ('merchant_maintenance_mode', $1)
+       ON CONFLICT (setting_key) DO UPDATE
+       SET setting_value = EXCLUDED.setting_value, updated_at = NOW()`,
+      [String(enabled)],
+    )
+    await recordAdminAuditEvent(client, {
+      eventKey: `maintenance-mode:${randomUUID()}`,
+      category: "Settings",
+      action: `Merchant maintenance mode ${enabled ? "enabled" : "disabled"}`,
+      target: "Merchant workspace",
+      actor: req.adminEmail,
+      summary: `Merchant maintenance mode was ${enabled ? "enabled" : "disabled"}.`,
+    })
+    await client.query("COMMIT")
+    return res.set("Cache-Control", "no-store").json({ enabled })
   } catch (error) {
     await client.query("ROLLBACK")
     throw error

@@ -277,6 +277,10 @@ export type AdminSettings = {
   superAdminFeeWallet: number
 }
 
+export type MerchantMaintenanceStatus = {
+  enabled: boolean
+}
+
 export type AdminAuditEvent = {
   id: string
   category: string
@@ -1861,6 +1865,28 @@ export async function getKrwPhpQuote(): Promise<CurrencyQuote> {
 
 export async function getAdminSettings(): Promise<AdminSettings> {
   return backendRequest<AdminSettings>("/v1/admin/settings")
+}
+
+export async function getPublicMaintenanceStatus(): Promise<MerchantMaintenanceStatus> {
+  return publicRequest<MerchantMaintenanceStatus>("/v1/maintenance-status")
+}
+
+export async function getAdminMaintenanceMode(): Promise<MerchantMaintenanceStatus> {
+  return backendRequest<MerchantMaintenanceStatus>(
+    "/v1/admin/maintenance-mode",
+  )
+}
+
+export async function setAdminMaintenanceMode(
+  enabled: boolean,
+): Promise<MerchantMaintenanceStatus> {
+  return backendRequest<MerchantMaintenanceStatus>(
+    "/v1/admin/maintenance-mode",
+    {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    },
+  )
 }
 
 export type AdminApprovalRequest = {

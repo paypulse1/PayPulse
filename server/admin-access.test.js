@@ -63,4 +63,19 @@ describe("operations staff access", () => {
       ),
     ).toBe(false)
   })
+
+  it("allows only super admins to change merchant maintenance mode", () => {
+    expect(
+    canAdminAccess("super_admin", "PUT", "/v1/admin/maintenance-mode"),
+    ).toBe(true)
+    expect(
+    canAdminAccess("finance", "PUT", "/v1/admin/maintenance-mode"),
+    ).toBe(false)
+    expect(
+    canAdminAccess("compliance", "PUT", "/v1/admin/maintenance-mode"),
+    ).toBe(false)
+    expect(
+    canAdminAccess("auditor", "PUT", "/v1/admin/maintenance-mode"),
+    ).toBe(false)
+  })
 })

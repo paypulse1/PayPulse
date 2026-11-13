@@ -66,3 +66,49 @@ export function shouldShowMarketingHome(
     !query.has("checkout") && query.get("signin") !== "1" && !query.has("ref")
   )
 }
+
+export function shouldGateMerchantMaintenance(
+  pathname: string,
+  hostname: string,
+  search = "",
+  isNativePlatform = false,
+) {
+  const normalizedPath = pathname.replace(/\/+$/, "") || "/"
+  const normalizedHostname = hostname.toLowerCase()
+  const query = new URLSearchParams(search)
+  const separateExperience =
+    normalizedPath === "/maintenance" ||
+    normalizedPath === APP_ROUTES.customer ||
+    normalizedPath === APP_ROUTES.admin ||
+    normalizedPath.startsWith(`${APP_ROUTES.admin}/`) ||
+    normalizedPath === APP_ROUTES.checkout ||
+    normalizedPath.startsWith(`${APP_ROUTES.checkout}/`) ||
+    [
+      "/privacy",
+      "/privacy-policy",
+      "/terms",
+      "/terms-of-service",
+      "/contact",
+      "/contact-us",
+    ].includes(normalizedPath) ||
+    query.has("checkout") ||
+    shouldShowMarketingHome(pathname, hostname, search)
+
+  if (separateExperience) return false
+
+  const merchantHost = [
+    "merchant.denpay.cc",
+    "merchant.sandbox.denpay.cc",
+    "live.merchant.swiftpay.site",
+  ].includes(normalizedHostname)
+
+  return (
+    isNativePlatform ||
+    merchantHost ||
+    normalizedPath === "/" ||
+    normalizedPath === APP_ROUTES.merchantLogin ||
+    normalizedPath === APP_ROUTES.app ||
+    normalizedPath.startsWith(`${APP_ROUTES.app}/`) ||
+    query.get("signin") === "1"
+  )
+}
