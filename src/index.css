@@ -1065,6 +1065,57 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .manual-kyb-consent a { color: #1b4f9c; font-weight: 750; }
 .setup-form > .manual-kyb-consent { grid-column: 1 / -1; display: flex; flex-direction: row; align-items: flex-start; gap: 6px; color: var(--ink); font-size: 7px; line-height: 1.5; }
 .setup-form > .manual-kyb-consent input { width: auto; margin: 1px 0 0; }
+.kyb-setup { gap: 14px; color: var(--ink); }
+.kyb-hero { padding: 17px; display: flex; align-items: flex-start; gap: 12px; border: 1px solid #dfe8f3; border-radius: 14px; background: linear-gradient(135deg, #f3f8ff, #fff 72%); }
+.kyb-hero-icon, .kyb-section-icon { flex: 0 0 auto; display: grid; place-items: center; border-radius: 10px; background: #e8f0fc; color: #2257a5; }
+.kyb-hero-icon { width: 40px; height: 40px; }
+.kyb-eyebrow { color: #2257a5; font-size: 7px; font-weight: 800; letter-spacing: .12em; }
+.kyb-hero h2 { margin: 4px 0 5px; font-size: 16px; letter-spacing: -.03em; }
+.kyb-hero p, .kyb-section-heading p { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.55; }
+.kyb-stepper { padding: 11px 9px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.kyb-step { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; color: #8391a3; font-size: 7px; font-weight: 700; text-align: center; }
+.kyb-step-marker { width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid #dbe3ed; border-radius: 50%; background: #f7f9fc; color: #8391a3; }
+.kyb-step.is-current { color: #2257a5; }
+.kyb-step.is-current .kyb-step-marker { border-color: #2257a5; background: #eef4ff; color: #2257a5; }
+.kyb-step.is-complete { color: #16724a; }
+.kyb-step.is-complete .kyb-step-marker { border-color: #b7e0ca; background: #e8f5ee; color: #16724a; }
+.kyb-setup > .kyb-status { padding: 11px 13px; display: flex; align-items: flex-start; gap: 9px; border: 1px solid #f0dfab; border-radius: 11px; font-size: 9px; line-height: 1.5; }
+.kyb-setup > .kyb-status > svg { flex: 0 0 auto; margin-top: 1px; }
+.kyb-setup > .kyb-status > div { display: grid; gap: 2px; }
+.kyb-setup > .kyb-status > div > span { font-size: 8px; }
+.kyb-setup > .kyb-status.status-approved { border-color: #c8e8d5; }
+.kyb-setup > .kyb-status.status-rejected { border-color: #f2c8c0; }
+.kyb-setup .setup-form { padding: 14px; gap: 11px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); }
+.kyb-section-heading { min-width: 0; display: flex; align-items: center; gap: 9px; }
+.kyb-section-icon { width: 30px; height: 30px; }
+.kyb-section-heading h3 { margin: 0 0 3px; color: var(--ink); font-size: 10px; }
+.kyb-section-heading p { font-size: 8px; }
+.kyb-setup .setup-form > .kyb-section-heading { grid-column: 1 / -1; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.kyb-setup .setup-form > .kyb-owner-heading { margin-top: 4px; }
+.kyb-setup .setup-form > label:not(.manual-kyb-consent) { font-size: 8px; }
+.kyb-setup .setup-form input:not([type="checkbox"]), .kyb-setup .setup-form textarea { min-height: 37px; border-color: #dce4ef; border-radius: 8px; font-size: 9px; }
+.kyb-setup .setup-form input:disabled, .kyb-setup .setup-form textarea:disabled { background: #f5f7fa; color: #718096; }
+.kyb-setup .setup-form > .manual-kyb-consent { padding-top: 3px; }
+.kyb-setup .setup-form > .button { min-height: 42px; border-radius: 9px; font-size: 9px; }
+.kyb-setup .manual-kyb-verification { padding: 14px; gap: 10px; border-color: var(--line); border-radius: 13px; background: var(--surface); }
+.kyb-setup .manual-kyb-heading { align-items: center; }
+.kyb-setup .manual-kyb-progress { padding: 6px 8px; background: #eef4ff; color: #2257a5; font-size: 7px; }
+.kyb-setup .manual-kyb-caption { font-size: 8px; line-height: 1.6; }
+.kyb-setup .setup-document-row { min-height: 55px; }
+.kyb-setup .setup-document-row strong { font-size: 8px; }
+.kyb-setup .setup-document-row small { font-size: 7px; }
+.kyb-setup .setup-file-button { padding: 7px 10px; border-color: #cbd9eb; border-radius: 7px; font-size: 8px; }
+.kyb-setup .manual-kyb-verification > .button { min-height: 38px; justify-self: start; border-radius: 8px; font-size: 8px; }
+.kyb-setup .setup-error, .kyb-setup .setup-notice { font-size: 9px; }
+.kyb-setup > .profile-info-note { margin: 0; padding: 10px 12px; border: 1px solid #c8e8d5; border-radius: 10px; background: #f2faf5; color: #16724a; font-size: 8px; line-height: 1.55; }
+@media (max-width: 420px) {
+  .kyb-stepper { padding-inline: 5px; }
+  .kyb-step { font-size: 6px; }
+  .kyb-step-marker { width: 24px; height: 24px; }
+  .kyb-hero { padding: 13px; }
+  .kyb-hero h2 { font-size: 14px; }
+  .kyb-setup .setup-form { padding: 11px; }
+}
 .setup-secret { min-width: 0; padding: 10px; display: grid; gap: 6px; border: 1px solid #e8d6af; border-radius: 9px; background: var(--accent-soft); }
 .setup-secret strong { font-size: 8px; }
 .setup-secret code, .profile-info-note code { overflow-wrap: anywhere; font-size: 8px; }

@@ -1,4 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
+import {
+  Building2,
+  Check,
+  Clock3,
+  FileCheck2,
+  ShieldCheck,
+  UserRound,
+} from "lucide-react";
 import { Button } from "./AppPrimitives";
 import { APP_ROUTES } from "./lib/routes";
 import {
@@ -201,20 +209,88 @@ export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
   const uploadedRequiredDocumentCount = requiredKybDocumentTypes.filter(
     (documentType) => uploadedDocumentTypes.has(documentType),
   ).length
+  const documentsComplete =
+    uploadedRequiredDocumentCount === requiredKybDocumentTypes.length;
+  const reviewStarted = status === "IN_REVIEW" || status === "APPROVED";
+  const firstIncompleteStep = !profileSaved
+    ? 0
+    : !documentsComplete
+      ? 2
+      : !reviewStarted
+        ? 3
+        : -1;
+  const verificationSteps = [
+    { label: "Business details", complete: profileSaved, icon: Building2 },
+    { label: "Owner details", complete: profileSaved, icon: UserRound },
+    { label: "Documents", complete: documentsComplete, icon: FileCheck2 },
+    { label: "Review", complete: reviewStarted, icon: ShieldCheck },
+  ];
 
   return (
-    <div className="merchant-setup">
+    <div className="merchant-setup kyb-setup">
+      <header className="kyb-hero">
+        <div className="kyb-hero-icon" aria-hidden="true">
+          <ShieldCheck size={22} />
+        </div>
+        <div>
+          <span className="kyb-eyebrow">BUSINESS VERIFICATION</span>
+          <h2>Verify your business</h2>
+          <p>
+            Complete these steps to help us verify your business and beneficial
+            owner.
+          </p>
+        </div>
+      </header>
+      <nav className="kyb-stepper" aria-label="Verification progress">
+        {verificationSteps.map(({ label, complete, icon: StepIcon }, index) => (
+          <div
+            className={`kyb-step${complete ? " is-complete" : ""}${
+              !complete && index === firstIncompleteStep ? " is-current" : ""
+            }`}
+            key={label}
+            aria-current={
+              !complete && index === firstIncompleteStep ? "step" : undefined
+            }
+          >
+            <span className="kyb-step-marker">
+              {complete ? <Check size={14} /> : <StepIcon size={14} />}
+            </span>
+            <span>{label}</span>
+          </div>
+        ))}
+      </nav>
       {status && (
         <div className={`kyb-status status-${status.toLowerCase()}`}>
-          <strong>DRPAY review: {status.replace("_", " ")}</strong>
-          {reviewNotes && <span>{reviewNotes}</span>}
+          {status === "IN_REVIEW" || status === "PENDING" ? (
+            <Clock3 size={16} aria-hidden="true" />
+          ) : (
+            <ShieldCheck size={16} aria-hidden="true" />
+          )}
+          <div>
+            <strong>
+              {status === "APPROVED"
+                ? "Verification approved"
+                : status === "REJECTED"
+                  ? "Verification needs attention"
+                  : documentsComplete
+                    ? "Application submitted for review"
+                    : "Application saved"}
+            </strong>
+            <span>DRPAY review · {status.replace("_", " ")}</span>
+            {reviewNotes && <span>{reviewNotes}</span>}
+          </div>
         </div>
       )}
-      <p className="profile-info-note">
-        Provide your business and beneficial-owner details, upload the required
-        documents, and DRPAY staff will manually review your KYB application.
-      </p>
       <form className="setup-form" onSubmit={(event) => void saveProfile(event)}>
+        <div className="kyb-section-heading">
+          <span className="kyb-section-icon" aria-hidden="true">
+            <Building2 size={16} />
+          </span>
+          <div>
+            <h3>Business information</h3>
+            <p>Enter details exactly as they appear on your registration.</p>
+          </div>
+        </div>
         <label>
           Legal business name
           <input
@@ -273,8 +349,17 @@ export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
             rows={2}
           />
         </label>
+        <div className="kyb-section-heading kyb-owner-heading">
+          <span className="kyb-section-icon" aria-hidden="true">
+            <UserRound size={16} />
+          </span>
+          <div>
+            <h3>Beneficial owner</h3>
+            <p>Information for the person who owns or controls the business.</p>
+          </div>
+        </div>
         <label>
-          Beneficial owner full name
+          Full legal name
           <input
             value={profile.ownerFullName}
             onChange={(event) =>
@@ -298,7 +383,7 @@ export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
           />
         </label>
         <label>
-          Owner nationality
+          Nationality
           <input
             value={profile.ownerNationality}
             onChange={(event) =>
@@ -310,7 +395,7 @@ export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
           />
         </label>
         <label>
-          Owner email
+          Email address
           <input
             type="email"
             value={profile.ownerEmail}
@@ -321,7 +406,7 @@ export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
           />
         </label>
         <label>
-          Owner phone
+          Phone number
           <input
             type="tel"
             value={profile.ownerPhone}
@@ -358,22 +443,29 @@ export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
           {busy === "profile"
             ? "Saving…"
             : profileSaved
-              ? "Save KYB consent"
-              : "Save business details"}
+              ? "Save verification details"
+              : "Continue to documents"}
         </Button>
       </form>
       <section className="manual-kyb-verification" aria-label="KYB documents">
         <div className="manual-kyb-heading">
-          <strong>KYB documents</strong>
+          <div className="kyb-section-heading">
+            <span className="kyb-section-icon" aria-hidden="true">
+              <FileCheck2 size={16} />
+            </span>
+            <div>
+              <h3>Supporting documents</h3>
+              <p>Upload clear, valid documents for a faster review.</p>
+            </div>
+          </div>
           <span className="manual-kyb-progress" role="status">
             {uploadedRequiredDocumentCount}/{requiredKybDocumentTypes.length}{" "}
-            required
+            complete
           </span>
         </div>
         <p className="manual-kyb-caption">
-          DRPAY staff review these documents manually. Upload a PDF, JPEG, or
-          PNG up to 10 MB. Do not upload documents for anyone other than the
-          listed business and owner.
+          Accepted formats: PDF, JPEG, or PNG · Maximum 10 MB per file. DRPAY
+          staff will review your documents securely.
         </p>
         <div className="setup-documents">
           {kybDocumentTypes.map(([documentType, label, required]) => {
@@ -443,7 +535,7 @@ export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
       )}
       {status === "APPROVED" && (
         <p className="profile-info-note">
-          Your KYB application has been approved. Contact DRPAY support to
+          Your business verification has been approved. Contact DRPAY support to
           update your verified information.
         </p>
       )}
