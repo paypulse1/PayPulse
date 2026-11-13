@@ -146,6 +146,7 @@ import {
 } from "./lib/biometric"
 const Checkout = lazy(() => import("./Checkout"))
 const UsdtPaymentPage = lazy(() => import("./UsdtPaymentPage"))
+const CustomerPortal = lazy(() => import("./CustomerPortal"))
 const MarketingHome = lazy(() => import("./MarketingHome"))
 const MerchantSignIn = lazy(() => import("./MerchantSignIn"))
 const OperationsSignIn = lazy(() => import("./OperationsSignIn"))
@@ -1257,7 +1258,9 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
                   <p className="accepted-channels">
                     {result.requestEmailStatus === "queue_failed"
                       ? "The checkout was created, but the payment request email could not be queued. Share this link directly."
-                      : result.requestEmailStatus === "sent"
+                        : result.requestEmailStatus === "not_required"
+                          ? "Payment was already confirmed; no payment request was sent."
+                          : result.requestEmailStatus === "sent"
                         ? `The payment request email was sent to ${customerEmail.trim()}. They’ll receive another email when payment is confirmed.`
                         : result.requestEmailStatus === "queued"
                           ? `The payment request email is queued for ${customerEmail.trim()}. They’ll receive another email when payment is confirmed.`
@@ -3073,7 +3076,9 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
               <p className="accepted-channels">
                 {requestEmailStatus === "queue_failed"
                   ? "The checkout was created, but the payment request email could not be queued. Share this link directly."
-                  : requestEmailStatus === "sent"
+                  : requestEmailStatus === "not_required"
+                    ? "Payment was already confirmed; no payment request was sent."
+                    : requestEmailStatus === "sent"
                     ? `The payment request email was sent to ${customerEmail.trim()}. They’ll receive another email when payment is confirmed.`
                     : requestEmailStatus === "queued"
                       ? `The payment request email is queued for ${customerEmail.trim()}. They’ll receive another email when payment is confirmed.`
@@ -5258,6 +5263,8 @@ export default function App() {
   const isAdminConsole =
     window.location.pathname === APP_ROUTES.admin ||
     window.location.pathname.startsWith(`${APP_ROUTES.admin}/`)
+  const isCustomerPortal =
+    window.location.pathname.replace(/\/+$/, "") === APP_ROUTES.customer
   const isDashboard =
     isMerchantHost ||
     Capacitor.isNativePlatform() ||
@@ -5266,7 +5273,7 @@ export default function App() {
     window.location.pathname === APP_ROUTES.app ||
     window.location.pathname.startsWith(`${APP_ROUTES.app}/`)
   const [session, setSession] = useState<Session | null>(() =>
-    isDashboard || isAdminConsole ? getSession() : null,
+    isDashboard || isAdminConsole || isCustomerPortal ? getSession() : null,
   )
   const [data, setData] = useState<DashboardData | null>(null)
   const [securityStatus, setSecurityStatus] =
@@ -5902,7 +5909,8 @@ export default function App() {
   if (isUsdtPaymentPage) return <UsdtPaymentPage />
   if (checkoutCode) return <Checkout code={checkoutCode} />
   if (legalPage) return <LegalPage page={legalPage} />
-  if (!isDashboard && !isAdminConsole) return <MarketingHome />
+  if (!isDashboard && !isAdminConsole && !isCustomerPortal)
+    return <MarketingHome />
 
   if (!isBackendConfigured()) {
     return (
@@ -5918,9 +5926,9 @@ export default function App() {
             <span className="eyebrow">LIVE PAYMENTS DISABLED</span>
             <h1>Backend connection required</h1>
             <p>
-              DRPAY is not connected to a merchant backend. Wallet balances,
-              sign-in, collections, and transfers are unavailable until the
-              backend is configured.
+              {isCustomerPortal
+                ? "DRPAY is not connected to a customer backend. Payment history is unavailable until the backend is configured."
+                : "DRPAY is not connected to a merchant backend. Wallet balances, sign-in, collections, and transfers are unavailable until the backend is configured."}
             </p>
             <div className="inline-error">
               <Lock size={15} />
@@ -5940,7 +5948,11 @@ export default function App() {
 
   if (isAdminConsole) {
     if (!session) return <OperationsSignIn onAuthenticated={setSession} />
-    if (session.role !== "super_admin") {
+    if (
+      !["super_admin", "finance", "compliance", "auditor"].includes(
+        session.role,
+      )
+    ) {
       return (
         <main className="auth-screen">
           <div className="auth-brand">
@@ -5961,6 +5973,37 @@ export default function App() {
       )
     }
     return <SuperAdminConsole session={session} onSignOut={signOut} />
+  }
+
+  if (isCustomerPortal) {
+    return (
+      <CustomerPortal
+        session={session}
+        onAuthenticated={setSession}
+        onSignOut={signOut}
+      />
+    )
+  }
+
+  if (session?.role === "customer") {
+    return (
+      <main className="auth-screen">
+        <div className="auth-brand">
+          <Brand />
+        </div>
+        <section className="auth-card">
+          <span className="auth-mark">
+            <Lock size={25} />
+          </span>
+          <span className="eyebrow">ACCESS DENIED</span>
+          <h1>Customer session</h1>
+          <p>Customer accounts cannot access the merchant workspace.</p>
+          <Button variant="secondary" onClick={signOut}>
+            Sign out
+          </Button>
+        </section>
+      </main>
+    )
   }
 
   if (!session) {

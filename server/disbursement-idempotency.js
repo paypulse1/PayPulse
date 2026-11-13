@@ -1,6 +1,15 @@
+import { parseMinorUnits } from "./money.js"
+
 export function disbursementReplayMatches(row, request) {
+  let amountMatches = false
+  try {
+    amountMatches =
+      parseMinorUnits(row.amount) === parseMinorUnits(request.amount)
+  } catch {
+    amountMatches = false
+  }
   return (
-    Math.round(Number(row.amount) * 100) === Math.round(request.amount * 100) &&
+    amountMatches &&
     row.channel === request.channel &&
     row.institution_code === request.institutionCode &&
     String(row.recipient_account_number || "").replace(/\s/g, "") ===

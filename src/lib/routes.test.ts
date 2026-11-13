@@ -11,6 +11,10 @@ test("super-admin route uses the bossd path", () => {
   assert.equal(APP_ROUTES.admin, "/bossd")
 })
 
+test("customer history has an isolated route", () => {
+  assert.equal(APP_ROUTES.customer, "/customer")
+})
+
 test("marketing Android app links use the public Google Play listing", () => {
   assert.equal(
     APP_ROUTES.androidAppListing,
@@ -27,10 +31,7 @@ test("USDT payment links use the public checkout host for each environment", () 
     "https://pay.sandbox.denpay.cc",
   )
   assert.equal(
-    getPublicCheckoutOrigin(
-      "merchant.denpay.cc",
-      "https://merchant.denpay.cc",
-    ),
+    getPublicCheckoutOrigin("merchant.denpay.cc", "https://merchant.denpay.cc"),
     "https://pay.live.denpay.cc",
   )
   assert.equal(
@@ -65,7 +66,10 @@ test("merchant root and the explicit marketing route show the marketing homepage
     shouldShowMarketingHome("/", "merchant.denpay.cc", "?ref=A1B2C3D4E5F6G7H8"),
     false,
   )
-  assert.equal(shouldShowMarketingHome("/", "merchant.sandbox.denpay.cc"), false)
+  assert.equal(
+    shouldShowMarketingHome("/", "merchant.sandbox.denpay.cc"),
+    false,
+  )
   assert.equal(shouldShowMarketingHome("/app", "merchant.denpay.cc"), false)
   assert.equal(shouldShowMarketingHome("/login", "merchant.denpay.cc"), false)
   assert.equal(shouldShowMarketingHome(APP_ROUTES.marketing, "denpay.cc"), true)

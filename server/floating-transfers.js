@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto"
-import { calculateTransferRequestAvailableBalance } from "./ledger.js"
+import {
+  addMinorUnits,
+  formatMinorUnits,
+  parseMinorUnits,
+  subtractMinorUnits,
+} from "./money.js"
 
 function requestError(status, message) {
   const error = new Error(message)
@@ -22,8 +27,17 @@ export async function createFloatingTransferRequest(
     const transferFeeSetting = await client.query(
       "SELECT setting_value FROM system_settings WHERE setting_key = 'transfer_fee_fixed'",
     )
-    const transferFee = Number(transferFeeSetting.rows[0]?.setting_value || 0)
-    if (!Number.isFinite(transferFee) || transferFee < 0) {
+    let transferFee
+    try {
+      transferFee = parseMinorUnits(
+        transferFeeSetting.rows[0]?.setting_value || "0",
+      )
+    } catch {
+      throw new Error(
+        "The configured floating-balance transfer fee is invalid.",
+      )
+    }
+    if (transferFee < 0n) {
       throw new Error(
         "The configured floating-balance transfer fee is invalid.",
       )
@@ -49,11 +63,15 @@ export async function createFloatingTransferRequest(
         "Save a payout bank account in your merchant profile before requesting a transfer.",
       )
     }
-    const available = calculateTransferRequestAvailableBalance(
-      totals.rows[0].balance,
-      totals.rows[0].reserved,
+    const available = subtractMinorUnits(
+      parseMinorUnits(totals.rows[0].balance),
+      parseMinorUnits(totals.rows[0].reserved),
     )
-    if (amount + transferFee > available) {
+    const amountMinor = parseMinorUnits(amount)
+    if (
+      addMinorUnits(amountMinor, transferFee) >
+      available
+    ) {
       throw requestError(
         400,
         "The requested amount plus the transfer fee exceeds your available floating balance.",
@@ -71,8 +89,8 @@ export async function createFloatingTransferRequest(
       [
         randomUUID(),
         merchantEmail,
-        amount.toFixed(2),
-        transferFee.toFixed(2),
+        formatMinorUnits(amountMinor),
+        formatMinorUnits(transferFee),
         payout.bankName,
         payout.accountName,
         payout.accountNumber,

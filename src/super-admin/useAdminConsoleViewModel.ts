@@ -8,6 +8,8 @@ import {
   ShieldCheck,
   Users,
   WalletCards,
+  CheckCheck,
+  ListChecks,
   type LucideIcon,
 } from "lucide-react"
 import type {
@@ -16,11 +18,13 @@ import type {
   AdminKybApplication,
   AdminMerchantAccount,
   AdminPaymentLink,
+  AdminApprovalRequest,
   FloatingTransferRequest,
   UsdtWithdrawalRequest,
+  Session,
 } from "../lib/swiftpay"
 
-export type AdminPage = "overview" | "payments" | "merchants" | "kyb" | "ledger" | "requests" | "audit" | "settings"
+export type AdminPage = "overview" | "payments" | "merchants" | "kyb" | "ledger" | "requests" | "reconciliation" | "approvals" | "audit" | "settings"
 
 export type MerchantFilter = "all" | "pending" | "active" | "disabled"
 
@@ -60,6 +64,18 @@ export const ADMIN_PAGE_METADATA: Record<AdminPage, {
     title: "Withdrawal requests",
     description: "Review bank transfers and merchant USDT withdrawal requests.",
     exportLabel: "withdrawal requests",
+  },
+  approvals: {
+    title: "Dual-approval queue",
+    description:
+      "Review sensitive financial actions requested by another operations user.",
+    exportLabel: "approval requests",
+  },
+  reconciliation: {
+    title: "Financial reconciliation",
+    description:
+      "Compare provider and bank statement records without automatically posting unmatched items.",
+    exportLabel: "reconciliation",
   },
   audit: {
     title: "Audit history",
@@ -106,6 +122,8 @@ export function useAdminConsoleViewModel({
   paymentLinks,
   kybApplications,
   auditEvents,
+  approvalRequests,
+  role,
   merchantSearch,
   merchantFilter,
   selectedMerchantEmails,
@@ -125,6 +143,8 @@ export function useAdminConsoleViewModel({
   paymentLinks: AdminPaymentLink[]
   kybApplications: AdminKybApplication[]
   auditEvents: AdminAuditEvent[]
+  approvalRequests: AdminApprovalRequest[]
+  role: Session["role"]
   merchantSearch: string
   merchantFilter: MerchantFilter
   selectedMerchantEmails: string[]
@@ -185,8 +205,11 @@ export function useAdminConsoleViewModel({
   ).length
   const pendingWithdrawalCount =
     pendingTransferRequests.length + pendingCryptoWithdrawalRequests.length
+  const pendingApprovalCount = approvalRequests.filter(
+    (request) => request.status === "pending",
+  ).length
 
-  const adminNavigationGroups: {
+  const allAdminNavigationGroups: {
     label: string
     items: {
       page: AdminPage
@@ -214,6 +237,7 @@ export function useAdminConsoleViewModel({
           icon: Send,
           pendingCount: pendingWithdrawalCount,
         },
+        { page: "reconciliation", label: "Reconciliation", icon: ListChecks },
         { page: "ledger", label: "Floating balance", icon: WalletCards },
       ],
     },
@@ -231,13 +255,64 @@ export function useAdminConsoleViewModel({
     },
     {
       label: "Oversight",
-      items: [{ page: "audit", label: "Audit history", icon: Activity }],
+      items: [
+        {
+          page: "approvals",
+          label: "Dual approvals",
+          icon: CheckCheck,
+          pendingCount: pendingApprovalCount,
+        },
+        { page: "audit", label: "Audit history", icon: Activity },
+      ],
     },
     {
       label: "Configuration",
       items: [{ page: "settings", label: "Settings", icon: Settings }],
     },
   ]
+  const pagesByRole: Partial<Record<Session["role"], AdminPage[]>> = {
+    super_admin: [
+      "overview",
+      "payments",
+      "requests",
+      "reconciliation",
+      "ledger",
+      "merchants",
+      "kyb",
+      "approvals",
+      "audit",
+      "settings",
+    ],
+    finance: [
+      "overview",
+      "payments",
+      "requests",
+      "reconciliation",
+      "ledger",
+      "approvals",
+      "audit",
+    ],
+    compliance: ["overview", "merchants", "kyb", "approvals", "audit"],
+    auditor: [
+      "overview",
+      "payments",
+      "requests",
+      "reconciliation",
+      "ledger",
+      "merchants",
+      "kyb",
+      "approvals",
+      "audit",
+    ],
+  }
+  const adminNavigationGroups = allAdminNavigationGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) =>
+        (pagesByRole[role] || []).includes(item.page),
+      ),
+    }))
+    .filter((group) => group.items.length > 0)
 
   const filteredPayments = useMemo(() => {
     const query = paymentSearch.trim().toLowerCase()

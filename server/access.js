@@ -22,6 +22,15 @@ export function isMerchantSession(payload) {
   )
 }
 
+export function isCustomerSession(payload) {
+  return (
+    typeof payload?.sub === "string" &&
+    payload.sub.length > 0 &&
+    payload.role === "customer" &&
+    payload.aud === "drpay-customer"
+  )
+}
+
 export function isOperationsSession(payload, configuredEmail) {
   return (
     typeof configuredEmail === "string" &&

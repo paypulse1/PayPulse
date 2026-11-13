@@ -21,6 +21,17 @@ import {
 } from "lucide-react"
 import {
   getAdminAuditEvents,
+  getAdminApprovalRequests,
+  getAdminReconciliationCases,
+  getAdminSuspenseItems,
+  claimAdminSuspenseItem,
+  resolveAdminSuspenseItem,
+  inviteAdminStaff,
+  getAdminStaff,
+  disableAdminStaff,
+  runAdminSwiftPayReconciliation,
+  reviewAdminApprovalRequest,
+  uploadAdminBankCsv,
   createAdminInternalWalletAdjustment,
   createAdminMerchantWalletAdjustment,
   createAdminMerchantAccount,
@@ -50,6 +61,10 @@ import {
   type AdminInternalWalletSummary,
   type AdminMerchantWallet,
   type AdminAuditEvent,
+  type AdminApprovalRequest,
+  type AdminStaffMember,
+  type AdminReconciliationCase,
+  type AdminSuspenseItem,
   type AdminKybApplication,
   type AdminMerchantAccount,
   type AdminPaymentLink,
@@ -131,6 +146,25 @@ export function SuperAdminConsole({
     useState<UsdtWithdrawalRequest[]>([])
   const [paymentLinks, setPaymentLinks] = useState<AdminPaymentLink[]>([])
   const [auditEvents, setAuditEvents] = useState<AdminAuditEvent[]>([])
+  const [approvalRequests, setApprovalRequests] = useState<
+    AdminApprovalRequest[]
+  >([])
+  const [reconciliationCases, setReconciliationCases] = useState<
+    AdminReconciliationCase[]
+  >([])
+  const [suspenseItems, setSuspenseItems] = useState<AdminSuspenseItem[]>([])
+  const [bankCsvFile, setBankCsvFile] = useState<File | null>(null)
+  const [reconciliationBusy, setReconciliationBusy] = useState(false)
+  const [suspenseBusyId, setSuspenseBusyId] = useState("")
+  const [suspenseResolutionNotes, setSuspenseResolutionNotes] = useState<
+    Record<string, string>
+  >({})
+  const [staffInviteEmail, setStaffInviteEmail] = useState("")
+  const [staffMembers, setStaffMembers] = useState<AdminStaffMember[]>([])
+  const [staffInviteRole, setStaffInviteRole] = useState<
+    "finance" | "compliance" | "auditor"
+  >("finance")
+  const [sendingStaffInvitation, setSendingStaffInvitation] = useState(false)
   const [paymentVerificationNotes, setPaymentVerificationNotes] =
     useState<Record<string, string>>({})
   const [kybApplications, setKybApplications] = useState<AdminKybApplication[]>(
@@ -231,6 +265,8 @@ export function SuperAdminConsole({
     paymentLinks,
     kybApplications,
     auditEvents,
+    approvalRequests,
+    role: session.role,
     merchantSearch,
     merchantFilter,
     selectedMerchantEmails,
@@ -252,6 +288,211 @@ export function SuperAdminConsole({
           ? `Action saved, but audit history could not be refreshed: ${requestError.message}`
           : "Action saved, but audit history could not be refreshed.",
       )
+    }
+  }
+
+  async function refreshApprovalRequests() {
+    setApprovalRequests(await getAdminApprovalRequests("pending"))
+  }
+
+  async function showApprovalPending(approvalRequestId: string) {
+    setActivePage("approvals")
+    setNotice(
+      `Action submitted for dual approval (${approvalRequestId}). A different staff member must approve it before you retry the action.`,
+    )
+    try {
+      await refreshApprovalRequests()
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? `The approval was submitted, but the queue could not be refreshed: ${requestError.message}`
+          : "The approval was submitted, but the queue could not be refreshed.",
+      )
+    }
+  }
+
+  async function decideApproval(
+    request: AdminApprovalRequest,
+    decision: "approve" | "reject",
+  ) {
+    if (request.requestedBy === session.email) {
+      setError("You cannot review your own approval request.")
+      return
+    }
+    setReviewingRequestId(request.id)
+    setError("")
+    setNotice("")
+    try {
+      await reviewAdminApprovalRequest(request.id, decision)
+      setApprovalRequests((current) =>
+        current.filter((item) => item.id !== request.id),
+      )
+      setNotice(
+        decision === "approve"
+          ? "Approval recorded. The requester can now retry the exact action."
+          : "The sensitive action was rejected.",
+      )
+      await refreshAuditEvents()
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not review this approval request.",
+      )
+    } finally {
+      setReviewingRequestId("")
+    }
+  }
+
+  async function inviteStaff(event: FormEvent) {
+    event.preventDefault()
+    setSendingStaffInvitation(true)
+    setError("")
+    setNotice("")
+    try {
+      const email = staffInviteEmail.trim().toLowerCase()
+      await inviteAdminStaff(email, staffInviteRole)
+      setStaffMembers(await getAdminStaff())
+      setStaffInviteEmail("")
+      setNotice(`Invitation sent to ${email}.`)
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not invite operations staff.",
+      )
+    } finally {
+      setSendingStaffInvitation(false)
+    }
+  }
+
+  async function disableStaffMember(staff: AdminStaffMember) {
+    if (
+      staff.role === "super_admin" ||
+      !window.confirm(`Disable operations access for ${staff.email}?`)
+    ) {
+      return
+    }
+    setReviewingRequestId(staff.email)
+    setError("")
+    setNotice("")
+    try {
+      await disableAdminStaff(staff.email)
+      setStaffMembers((current) =>
+        current.map((member) =>
+          member.email === staff.email
+            ? { ...member, status: "disabled" }
+            : member,
+        ),
+      )
+      setNotice(`Operations access disabled for ${staff.email}.`)
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not disable this staff account.",
+      )
+    } finally {
+      setReviewingRequestId("")
+    }
+  }
+
+  async function importBankCsv(event: FormEvent) {
+    event.preventDefault()
+    if (!bankCsvFile) return
+    setReconciliationBusy(true)
+    setError("")
+    setNotice("")
+    try {
+      const result = await uploadAdminBankCsv(bankCsvFile)
+      setBankCsvFile(null)
+      const [cases, suspense] = await Promise.all([
+        getAdminReconciliationCases(),
+        getAdminSuspenseItems(),
+        session.role === "super_admin" ? getAdminStaff() : Promise.resolve([]),
+      ])
+      setReconciliationCases(cases)
+      setSuspenseItems(suspense)
+      const suspenseCount = Object.entries(result.counts)
+        .filter(([status]) => status !== "matched")
+        .reduce((total, [, count]) => total + count, 0)
+      setNotice(
+        `${result.duplicate ? "This statement was already imported. " : ""}${result.importedRows} rows reviewed; ${suspenseCount} unmatched records sent to suspense. No statement rows were auto-posted.`,
+      )
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not import the bank statement.",
+      )
+    } finally {
+      setReconciliationBusy(false)
+    }
+  }
+
+  async function runSwiftPayReconciliation() {
+    setReconciliationBusy(true)
+    setError("")
+    setNotice("")
+    try {
+      await runAdminSwiftPayReconciliation()
+      const [cases, suspense] = await Promise.all([
+        getAdminReconciliationCases(),
+        getAdminSuspenseItems(),
+      ])
+      setReconciliationCases(cases)
+      setSuspenseItems(suspense)
+      setNotice("SwiftPay reconciliation scan completed.")
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not run SwiftPay reconciliation.",
+      )
+    } finally {
+      setReconciliationBusy(false)
+    }
+  }
+
+  async function claimSuspenseItem(id: string) {
+    setSuspenseBusyId(id)
+    setError("")
+    setNotice("")
+    try {
+      await claimAdminSuspenseItem(id)
+      setSuspenseItems(await getAdminSuspenseItems())
+      setNotice("Suspense item assigned to you.")
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not claim the suspense item.",
+      )
+    } finally {
+      setSuspenseBusyId("")
+    }
+  }
+
+  async function resolveSuspenseItem(id: string) {
+    const note = suspenseResolutionNotes[id]?.trim() || ""
+    setSuspenseBusyId(id)
+    setError("")
+    setNotice("")
+    try {
+      await resolveAdminSuspenseItem(id, note)
+      setSuspenseItems(await getAdminSuspenseItems())
+      setSuspenseResolutionNotes((current) => ({ ...current, [id]: "" }))
+      setNotice(
+        "Suspense investigation marked resolved; no ledger posting was made.",
+      )
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not resolve the suspense item.",
+      )
+    } finally {
+      setSuspenseBusyId("")
     }
   }
 
@@ -345,6 +586,35 @@ export function SuperAdminConsole({
       addRequests(filteredTransferRequests)
       addCryptoWithdrawalRequests(filteredCryptoWithdrawalRequests)
     } else if (activePage === "audit") addAudit(filteredAuditEvents)
+    else if (activePage === "approvals") {
+      rows.push(
+        ...approvalRequests.map((request) => ({
+          section: "Sensitive action approval",
+          record: request.id,
+          merchant: request.targetKey,
+          status: request.status,
+          amount: "",
+          currency: "",
+          date: request.requestedAt,
+          actor: request.requestedBy,
+          summary: request.actionKey,
+        })),
+      )
+    } else if (activePage === "reconciliation") {
+      rows.push(
+        ...reconciliationCases.map((item) => ({
+          section: `${item.sourceType} reconciliation`,
+          record: item.externalReference,
+          merchant: item.internalReference || "",
+          status: item.status,
+          amount: item.amount,
+          currency: item.currency,
+          date: item.createdAt,
+          actor: item.createdBy || "",
+          summary: `${item.direction} · ${item.externalStatus}`,
+        })),
+      )
+    }
     else if (activePage === "merchants") {
       rows.push(
         ...filteredMerchants.map((merchant) => ({
@@ -444,6 +714,10 @@ export function SuperAdminConsole({
       getAdminPaymentLinks(),
       getAdminKybApplications(),
       getAdminAuditEvents(),
+      getAdminApprovalRequests("pending"),
+      getAdminReconciliationCases(),
+      getAdminSuspenseItems(),
+      session.role === "super_admin" ? getAdminStaff() : Promise.resolve([]),
     ])
     const failures: string[] = []
     const applyResult = <T,>(
@@ -468,6 +742,10 @@ export function SuperAdminConsole({
       paymentLinksResult,
       kybResult,
       auditResult,
+      approvalResult,
+      reconciliationResult,
+      suspenseResult,
+      staffResult,
     ] = results
     applyResult(settingsResult, "Settings", setSettings)
     applyResult(merchantsResult, "merchants", setMerchants)
@@ -488,6 +766,16 @@ export function SuperAdminConsole({
     applyResult(paymentLinksResult, "payment links", setPaymentLinks)
     applyResult(kybResult, "KYB", setKybApplications)
     applyResult(auditResult, "audit history", setAuditEvents)
+    applyResult(approvalResult, "approval requests", setApprovalRequests)
+    applyResult(
+      reconciliationResult,
+      "reconciliation cases",
+      setReconciliationCases,
+    )
+    applyResult(suspenseResult, "suspense items", setSuspenseItems)
+    if (session.role === "super_admin") {
+      applyResult(staffResult, "operations staff", setStaffMembers)
+    }
     if (failures.length) {
       setError(
         `Could not load ${failures.join("; ")}. Pull down to retry; if your session has expired, sign in again.`,
@@ -887,10 +1175,14 @@ export function SuperAdminConsole({
     setError("")
     setNotice("")
     try {
-      await createAdminInternalWalletAdjustment(selectedWalletEmail, {
+      const adjustment = await createAdminInternalWalletAdjustment(selectedWalletEmail, {
         amount: Number(adjustmentAmount),
         reason: adjustmentReason,
       })
+      if ("approvalRequired" in adjustment) {
+        await showApprovalPending(adjustment.approvalRequestId)
+        return
+      }
       setAdjustmentAmount("")
       setAdjustmentReason("")
       const [wallet, wallets] = await Promise.all([
@@ -928,6 +1220,10 @@ export function SuperAdminConsole({
           reason: merchantAdjustmentReason,
         },
       )
+      if ("approvalRequired" in adjustment) {
+        await showApprovalPending(adjustment.approvalRequestId)
+        return
+      }
       setMerchantAdjustmentAmount("")
       setMerchantAdjustmentReason("")
       setMerchantWallet((current) =>
@@ -987,6 +1283,10 @@ export function SuperAdminConsole({
           ? { reason }
           : { payoutReference: payoutRef, payoutNote: payoutNote.trim() },
       )
+      if ("approvalRequired" in reviewed) {
+        await showApprovalPending(reviewed.approvalRequestId)
+        return
+      }
       setTransferRequests((current) =>
         current.map((item) => (item.id === reviewed.id ? reviewed : item)),
       )
@@ -1053,6 +1353,10 @@ export function SuperAdminConsole({
         decision,
         decision === "completed" ? { transactionId } : { reason },
       )
+      if ("approvalRequired" in reviewed) {
+        await showApprovalPending(reviewed.approvalRequestId)
+        return
+      }
       setCryptoWithdrawalRequests((current) =>
         current.map((item) => (item.id === reviewed.id ? reviewed : item)),
       )
@@ -1101,6 +1405,10 @@ export function SuperAdminConsole({
         payment.id,
         verificationNote,
       )
+      if ("approvalRequired" in updated) {
+        await showApprovalPending(updated.approvalRequestId)
+        return
+      }
       setPaymentLinks((current) =>
         current.map((item) => (item.id === payment.id ? updated : item)),
       )
@@ -1154,7 +1462,9 @@ export function SuperAdminConsole({
         ? "Tax invoice created and payment email queued."
         : result.requestEmailStatus === "sent"
           ? "Tax invoice created; its payment email was already sent."
-          : "Tax invoice created, but its payment email could not be queued.",
+          : result.requestEmailStatus === "not_required"
+            ? "Tax invoice created; payment was already confirmed."
+            : "Tax invoice created, but its payment email could not be queued.",
     )
     try {
       setPaymentLinks(await getAdminPaymentLinks())
@@ -2286,7 +2596,291 @@ export function SuperAdminConsole({
                 onSearchChange={setAuditSearch}
               />
             )}
+            {activePage === "reconciliation" && (
+              <>
+                <section className="admin-card">
+                  <div className="admin-card-heading">
+                    <span className="setting-icon">
+                      <ShieldCheck size={19} />
+                    </span>
+                    <div>
+                      <h2>Reconciliation controls</h2>
+                      <p>
+                        Imported bank statement rows are compared with internal
+                        references only. Unmatched or inconsistent entries go
+                        to suspense and are never auto-posted.
+                      </p>
+                    </div>
+                  </div>
+                  {(session.role === "super_admin" ||
+                    session.role === "finance") && (
+                    <>
+                      <form className="admin-invite-form" onSubmit={importBankCsv}>
+                        <label>
+                          <span>Bank statement CSV (maximum 2 MB)</span>
+                          <input
+                            type="file"
+                            accept=".csv,text/csv,application/csv"
+                            onChange={(event) =>
+                              setBankCsvFile(event.target.files?.[0] || null)
+                            }
+                          />
+                        </label>
+                        <small>
+                          Required headers: reference, amount, currency,
+                          direction (IN/OUT), status, occurred_at.
+                        </small>
+                        <Button
+                          type="submit"
+                          disabled={reconciliationBusy || !bankCsvFile}
+                        >
+                          {reconciliationBusy
+                            ? "Importing…"
+                            : "Import and reconcile statement"}
+                        </Button>
+                      </form>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={reconciliationBusy}
+                        onClick={() => void runSwiftPayReconciliation()}
+                      >
+                        {reconciliationBusy
+                          ? "Scanning…"
+                          : "Run SwiftPay status reconciliation"}
+                      </Button>
+                    </>
+                  )}
+                  {reconciliationCases.length === 0 ? (
+                    <p className="admin-empty">No reconciliation cases yet.</p>
+                  ) : (
+                    <div className="admin-adjustment-list">
+                      <strong>Recent cases · {reconciliationCases.length}</strong>
+                      {reconciliationCases.map((item) => (
+                        <div className="admin-adjustment-row" key={item.id}>
+                          <span
+                            className={
+                              item.status === "matched" ? "credit" : "debit"
+                            }
+                          >
+                            {item.status.replace(/_/g, " ")}
+                          </span>
+                          <div>
+                            <strong>
+                              {item.sourceType} · {item.externalReference}
+                            </strong>
+                            <small>
+                              {item.direction} {item.currency} {item.amount} ·{" "}
+                              {item.externalStatus}
+                              {item.internalReference
+                                ? ` · internal ${item.internalReference}`
+                                : ""}
+                            </small>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+                <section className="admin-card">
+                  <div className="admin-card-heading">
+                    <span className="setting-icon">
+                      <AlertCircle size={19} />
+                    </span>
+                    <div>
+                      <h2>Accounting suspense</h2>
+                      <p>
+                        Open items require an assigned finance owner and a
+                        written resolution. Resolving an investigation never
+                        creates a journal entry or wallet credit.
+                      </p>
+                    </div>
+                  </div>
+                  {!suspenseItems.length ? (
+                    <p className="admin-empty">No open suspense items.</p>
+                  ) : (
+                    <div className="admin-adjustment-list">
+                      {suspenseItems.map((item) => (
+                        <div className="admin-adjustment-row" key={item.id}>
+                          <span
+                            className={
+                              item.status === "open" ? "debit" : "credit"
+                            }
+                          >
+                            {item.status.toUpperCase()}
+                          </span>
+                          <div>
+                            <strong>
+                              {item.sourceType} · {item.externalReference}
+                            </strong>
+                            <small>
+                              {item.direction} {item.currency} {item.amount} ·{" "}
+                              {item.externalStatus} ·{" "}
+                              {new Date(item.createdAt).toLocaleString()}
+                            </small>
+                            <small>
+                              Owner: {item.ownerEmail || "Unassigned"}
+                              {item.resolvedBy
+                                ? ` · Resolved by ${item.resolvedBy}`
+                                : ""}
+                            </small>
+                            {item.resolutionNote && (
+                              <small>Resolution: {item.resolutionNote}</small>
+                            )}
+                            {item.events.map((event, index) => (
+                              <small key={`${event.eventType}-${index}`}>
+                                {event.eventType === "assigned"
+                                  ? `Assigned to ${event.ownerEmail || "unknown"}`
+                                  : `Resolved by ${event.actorEmail}`}
+                                {" · "}
+                                {new Date(event.createdAt).toLocaleString()}
+                                {event.note ? ` · ${event.note}` : ""}
+                              </small>
+                            ))}
+                            {item.status === "open" &&
+                              (session.role === "finance" ||
+                                session.role === "super_admin") && (
+                                <div className="admin-invite-form">
+                                  {!item.ownerEmail && (
+                                    <Button
+                                      type="button"
+                                      variant="secondary"
+                                      disabled={suspenseBusyId === item.id}
+                                      onClick={() =>
+                                        void claimSuspenseItem(item.id)
+                                      }
+                                    >
+                                      {suspenseBusyId === item.id
+                                        ? "Assigning…"
+                                        : "Assign to me"}
+                                    </Button>
+                                  )}
+                                  {(session.role === "super_admin" ||
+                                    item.ownerEmail === session.email) && (
+                                    <>
+                                      <label>
+                                        <span>Resolution note</span>
+                                        <textarea
+                                          rows={2}
+                                          maxLength={2000}
+                                          value={
+                                            suspenseResolutionNotes[item.id] ||
+                                            ""
+                                          }
+                                          onChange={(event) =>
+                                            setSuspenseResolutionNotes(
+                                              (current) => ({
+                                                ...current,
+                                                [item.id]: event.target.value,
+                                              }),
+                                            )
+                                          }
+                                        />
+                                      </label>
+                                      <Button
+                                        type="button"
+                                        variant="secondary"
+                                        disabled={
+                                          suspenseBusyId === item.id ||
+                                          (suspenseResolutionNotes[item.id] ||
+                                            "").trim().length < 10
+                                        }
+                                        onClick={() =>
+                                          void resolveSuspenseItem(item.id)
+                                        }
+                                      >
+                                        {suspenseBusyId === item.id
+                                          ? "Resolving…"
+                                          : "Resolve investigation"}
+                                      </Button>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              </>
+            )}
+            {activePage === "approvals" && (
+              <section className="admin-card">
+                <div className="admin-card-heading">
+                  <span className="setting-icon">
+                    <ShieldCheck size={19} />
+                  </span>
+                  <div>
+                    <h2>Pending sensitive actions</h2>
+                    <p>
+                      Review the exact request and payload. The requester must
+                      retry the action after approval.
+                    </p>
+                  </div>
+                </div>
+                {!approvalRequests.length ? (
+                  <p className="admin-empty">No pending approvals.</p>
+                ) : (
+                  <div className="admin-adjustment-list">
+                    {approvalRequests.map((request) => (
+                      <article className="admin-adjustment-row" key={request.id}>
+                        <div>
+                          <strong>
+                            {request.actionKey.replace(/_/g, " ")}
+                          </strong>
+                          <small>
+                            Requested by {request.requestedBy} ·{" "}
+                            {new Date(request.requestedAt).toLocaleString()}
+                          </small>
+                          <small>Target: {request.targetKey}</small>
+                          <pre
+                            className="admin-approval-payload"
+                            style={{
+                              whiteSpace: "pre-wrap",
+                              overflowWrap: "anywhere",
+                            }}
+                          >
+                            {JSON.stringify(request.payload, null, 2)}
+                          </pre>
+                        </div>
+                        <div className="admin-header-actions">
+                          <Button
+                            type="button"
+                            disabled={
+                              session.role === "auditor" ||
+                              request.requestedBy === session.email ||
+                              reviewingRequestId === request.id
+                            }
+                            onClick={() =>
+                              void decideApproval(request, "approve")
+                            }
+                          >
+                            Approve
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            disabled={
+                              session.role === "auditor" ||
+                              request.requestedBy === session.email ||
+                              reviewingRequestId === request.id
+                            }
+                            onClick={() =>
+                              void decideApproval(request, "reject")
+                            }
+                          >
+                            Reject
+                          </Button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
             {activePage === "settings" && (
+              <>
               <section className="admin-card">
                 <div className="admin-card-heading">
                   <span className="setting-icon">
@@ -2301,6 +2895,7 @@ export function SuperAdminConsole({
                     </p>
                   </div>
                 </div>
+                {session.role === "super_admin" ? (
                 <form onSubmit={saveSettings}>
                   <div className="admin-card-heading">
                     <span className="setting-icon">
@@ -2490,7 +3085,94 @@ export function SuperAdminConsole({
                     {savingSettings ? "Saving…" : "Save configuration"}
                   </Button>
                 </form>
+                ) : (
+                  <p className="admin-empty">
+                    Configuration is read-only for your operations role.
+                  </p>
+                )}
               </section>
+              {session.role === "super_admin" && (
+                <section className="admin-card">
+                  <div className="admin-card-heading">
+                    <span className="setting-icon">
+                      <UserPlus size={19} />
+                    </span>
+                    <div>
+                      <h2>Invite operations staff</h2>
+                      <p>
+                        Staff must create a unique password and enroll an
+                        authenticator before they can use the console.
+                      </p>
+                    </div>
+                  </div>
+                  <form className="admin-invite-form" onSubmit={inviteStaff}>
+                    <label>
+                      <span>Work email</span>
+                      <input
+                        type="email"
+                        value={staffInviteEmail}
+                        onChange={(event) =>
+                          setStaffInviteEmail(event.target.value)
+                        }
+                        maxLength={254}
+                        required
+                      />
+                    </label>
+                    <label>
+                      <span>Operations role</span>
+                      <select
+                        value={staffInviteRole}
+                        onChange={(event) =>
+                          setStaffInviteRole(
+                            event.target.value as
+                              | "finance"
+                              | "compliance"
+                              | "auditor",
+                          )
+                        }
+                      >
+                        <option value="finance">Finance</option>
+                        <option value="compliance">Compliance</option>
+                        <option value="auditor">Auditor (read-only)</option>
+                      </select>
+                    </label>
+                    <Button
+                      type="submit"
+                      disabled={sendingStaffInvitation || !staffInviteEmail}
+                    >
+                      {sendingStaffInvitation
+                        ? "Sending invitation…"
+                        : "Invite staff member"}
+                    </Button>
+                  </form>
+                  <div className="admin-adjustment-list">
+                    <strong>Operations staff</strong>
+                    {staffMembers.map((staff) => (
+                      <div className="admin-adjustment-row" key={staff.email}>
+                        <div>
+                          <strong>{staff.email}</strong>
+                          <small>
+                            {staff.role.replace(/_/g, " ")} · {staff.status} ·{" "}
+                            {staff.mfaEnabled ? "MFA enabled" : "MFA not enrolled"}
+                          </small>
+                        </div>
+                        {staff.role !== "super_admin" &&
+                          staff.status !== "disabled" && (
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              disabled={reviewingRequestId === staff.email}
+                              onClick={() => void disableStaffMember(staff)}
+                            >
+                              Disable access
+                            </Button>
+                          )}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+              </>
             )}
 
             {activePage === "merchants" && (

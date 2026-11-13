@@ -1,4 +1,13 @@
 import { randomUUID } from "node:crypto"
+import { postBalancedJournal } from "./accounting.js"
+import {
+  addMinorUnits,
+  formatMinorUnits,
+  minorUnitsToNumber,
+  multiplyMinorUnitsByPercent,
+  parseMinorUnits,
+  subtractMinorUnits,
+} from "./money.js"
 
 export const PLATFORM_FEE_LEDGER_SOURCE_TYPES = [
   "COLLECTION",
@@ -39,66 +48,98 @@ export function isTerminalDisbursementStatus(status) {
 }
 
 export function calculateCollectionFee(amount, feePercent) {
-  const grossAmount = Number(amount)
-  const percent = Number(feePercent)
-  if (!Number.isFinite(grossAmount) || grossAmount <= 0) {
+  let grossAmount
+  let percent
+  try {
+    grossAmount = parseMinorUnits(amount)
+  } catch {
     throw new Error("The collection amount is invalid.")
   }
-  if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+  try {
+    percent = parseMinorUnits(feePercent)
+  } catch {
     throw new Error("The configured collection fee percentage is invalid.")
   }
-  return Math.round(grossAmount * percent) / 100
+  if (grossAmount <= 0n) {
+    throw new Error("The collection amount is invalid.")
+  }
+  if (percent < 0n || percent > 10_000n) {
+    throw new Error("The configured collection fee percentage is invalid.")
+  }
+  return minorUnitsToNumber(multiplyMinorUnitsByPercent(grossAmount, feePercent))
 }
 
 export function calculateDownlineCommission(netAmount, commissionPercent) {
-  const amount = Number(netAmount)
-  const percent = Number(commissionPercent)
-  if (!Number.isFinite(amount) || amount < 0) {
+  let amount
+  let percent
+  try {
+    amount = parseMinorUnits(netAmount)
+  } catch {
     throw new Error("The downline collection amount is invalid.")
   }
-  if (
-    !Number.isFinite(percent) ||
-    percent < 0 ||
-    percent > MAX_DOWNLINE_COMMISSION_PERCENT
-  ) {
+  try {
+    percent = parseMinorUnits(commissionPercent)
+  } catch {
     throw new Error("The configured downline commission percentage is invalid.")
   }
-  return Math.round(amount * percent) / 100
+  if (amount < 0n) {
+    throw new Error("The downline collection amount is invalid.")
+  }
+  if (percent < 0n || percent > BigInt(MAX_DOWNLINE_COMMISSION_PERCENT * 100)) {
+    throw new Error("The configured downline commission percentage is invalid.")
+  }
+  return minorUnitsToNumber(
+    multiplyMinorUnitsByPercent(amount, commissionPercent),
+  )
 }
 
 export function calculateTransferDebit(amount, feeAmount) {
-  const transferAmount = Number(amount)
-  const fee = Number(feeAmount)
-  if (!Number.isFinite(transferAmount) || transferAmount <= 0) {
+  let transferAmount
+  let fee
+  try {
+    transferAmount = parseMinorUnits(amount)
+    fee = parseMinorUnits(feeAmount)
+  } catch {
+    throw new Error("The transfer amount or configured fee is invalid.")
+  }
+  if (transferAmount <= 0n) {
     throw new Error("The transfer amount is invalid.")
   }
-  if (!Number.isFinite(fee) || fee < 0) {
+  if (fee < 0n) {
     throw new Error("The configured transfer fee is invalid.")
   }
-  return Math.round((transferAmount + fee) * 100) / 100
+  return minorUnitsToNumber(addMinorUnits(transferAmount, fee))
 }
 
 export function calculateRefundLedgerReversal(amount, feeAmount) {
-  const grossAmount = Number(amount)
-  const fee = Number(feeAmount)
-  const netAmount = Math.round((grossAmount - fee) * 100) / 100
-  if (!Number.isFinite(netAmount) || netAmount < 0) {
+  let netAmount
+  try {
+    netAmount = subtractMinorUnits(
+      parseMinorUnits(amount),
+      parseMinorUnits(feeAmount),
+    )
+  } catch {
     throw new Error("The collection refund ledger amount is invalid.")
   }
-  return netAmount
+  if (netAmount < 0n) {
+    throw new Error("The collection refund ledger amount is invalid.")
+  }
+  return minorUnitsToNumber(netAmount)
 }
 
 export function calculateTransferRequestAvailableBalance(balance, reserved) {
-  const postedBalance = Number(balance)
-  const reservedAmount = Number(reserved)
-  if (
-    !Number.isFinite(postedBalance) ||
-    !Number.isFinite(reservedAmount) ||
-    reservedAmount < 0
-  ) {
+  let postedBalance
+  let reservedAmount
+  try {
+    postedBalance = parseMinorUnits(balance)
+    reservedAmount = parseMinorUnits(reserved)
+  } catch {
     throw new Error("The floating-balance totals are invalid.")
   }
-  return postedBalance - reservedAmount
+  if (reservedAmount < 0n) {
+    throw new Error("The floating-balance totals are invalid.")
+  }
+  return minorUnitsToNumber(subtractMinorUnits(postedBalance, reservedAmount))
 }
 
 export function createLedgerService({
@@ -134,9 +175,11 @@ export function createLedgerService({
          WHERE d.merchant_email = $1
            AND d.status NOT IN ('EXECUTED', 'SUCCESS', 'COMPLETED', 'REJECTED', 'ERROR', 'FAILED', 'CANCELED', 'CANCELLED', 'EXPIRED', 'REVERSED')
        )
-       SELECT ledger.balance::float8 AS balance,
+       SELECT        ledger.balance::text AS balance_exact,
+         ledger.balance::float8 AS balance,
          ledger.collection_credits::float8 AS collection_credits,
          collections.completed_krw::float8 AS completed_krw,
+         reservations.reserved::text AS reserved_exact,
          reservations.reserved::float8 AS reserved
        FROM ledger CROSS JOIN collections CROSS JOIN reservations`,
       [merchantEmail],
@@ -170,19 +213,24 @@ export function createLedgerService({
         if (ownsClient) await client.query("COMMIT")
         return {
           paid: true,
-          amount: Math.abs(Number(existingFee.rows[0].amount)),
+          amount: Math.abs(
+            minorUnitsToNumber(parseMinorUnits(existingFee.rows[0].amount)),
+          ),
           availableBalance: null,
         }
       }
       const feeSetting = await client.query(
         "SELECT setting_value FROM system_settings WHERE setting_key = 'agreement_activation_fee'",
       )
-      const activationFee = Number(feeSetting.rows[0]?.setting_value ?? 5000)
-      if (
-        !Number.isFinite(activationFee) ||
-        activationFee < 0 ||
-        Math.abs(activationFee * 100 - Math.round(activationFee * 100)) > 1e-7
-      ) {
+      let activationFee
+      try {
+        activationFee = parseMinorUnits(
+          feeSetting.rows[0]?.setting_value ?? "5000",
+        )
+      } catch {
+        throw new Error("The configured merchant activation fee is invalid.")
+      }
+      if (activationFee < 0n) {
         throw new Error("The configured merchant activation fee is invalid.")
       }
       const wallet = await client.query(
@@ -212,15 +260,17 @@ export function createLedgerService({
          FROM ledger CROSS JOIN reservations`,
         [merchantEmail],
       )
-      const availableBalance =
-        Math.round(
-          (Number(wallet.rows[0]?.balance || 0) -
-            Number(wallet.rows[0]?.reserved || 0)) *
-            100,
-        ) / 100
-      if (availableBalance + 0.000001 < activationFee) {
+      const availableBalance = subtractMinorUnits(
+        parseMinorUnits(wallet.rows[0]?.balance || "0"),
+        parseMinorUnits(wallet.rows[0]?.reserved || "0"),
+      )
+      if (availableBalance < activationFee) {
         if (ownsClient) await client.query("COMMIT")
-        return { paid: false, amount: activationFee, availableBalance }
+        return {
+          paid: false,
+          amount: minorUnitsToNumber(activationFee),
+          availableBalance: minorUnitsToNumber(availableBalance),
+        }
       }
       const sourceId = randomUUID()
       await client.query(
@@ -232,7 +282,7 @@ export function createLedgerService({
           randomUUID(),
           merchantEmail,
           sourceId,
-          (-activationFee).toFixed(2),
+          formatMinorUnits(-activationFee),
           "DRPAY-ACTIVATION",
         ],
       )
@@ -241,10 +291,31 @@ export function createLedgerService({
            (id, source_type, source_id, merchant_email, amount)
          VALUES ($1, 'ACTIVATION_FEE', $2, $3, $4)
          ON CONFLICT (source_type, source_id) DO NOTHING`,
-        [randomUUID(), sourceId, merchantEmail, activationFee.toFixed(2)],
+        [randomUUID(), sourceId, merchantEmail, formatMinorUnits(activationFee)],
       )
+      await postBalancedJournal(client, {
+        sourceType: "ACTIVATION_FEE",
+        sourceId,
+        reference: "DRPAY-ACTIVATION",
+        lines: [
+          {
+            accountCode: "MERCHANT_PAYABLE",
+            side: "debit",
+            amount: formatMinorUnits(activationFee),
+          },
+          {
+            accountCode: "PLATFORM_FEE_REVENUE",
+            side: "credit",
+            amount: formatMinorUnits(activationFee),
+          },
+        ],
+      })
       if (ownsClient) await client.query("COMMIT")
-      return { paid: true, amount: activationFee, availableBalance }
+      return {
+        paid: true,
+        amount: minorUnitsToNumber(activationFee),
+        availableBalance: minorUnitsToNumber(availableBalance),
+      }
     } catch (error) {
       if (ownsClient) await client.query("ROLLBACK")
       throw error
@@ -278,43 +349,54 @@ export function createLedgerService({
       const feeSetting = await client.query(
         "SELECT setting_value FROM system_settings WHERE setting_key = 'collection_fee_percent'",
       )
-      const feeAmount = calculateCollectionFee(
-        row.amount,
-        feeSetting.rows[0]?.setting_value || 0,
+      const grossAmount = parseMinorUnits(row.amount)
+      let feePercent
+      try {
+        feePercent = parseMinorUnits(
+          feeSetting.rows[0]?.setting_value || "0",
+        )
+      } catch {
+        throw new Error("The configured collection fee percentage is invalid.")
+      }
+      if (feePercent < 0n || feePercent > 10_000n) {
+        throw new Error("The configured collection fee percentage is invalid.")
+      }
+      const feeAmount = multiplyMinorUnitsByPercent(
+        grossAmount,
+        feePercent,
       )
       await client.query(
         `INSERT INTO platform_fee_ledger (id, source_type, source_id, merchant_email, amount)
          VALUES ($1, 'COLLECTION', $2, $3, $4)
          ON CONFLICT (source_type, source_id) DO NOTHING`,
-        [randomUUID(), paymentId, row.merchant_email, feeAmount.toFixed(2)],
+        [randomUUID(), paymentId, row.merchant_email, formatMinorUnits(feeAmount)],
       )
       const fee = await client.query(
         "SELECT amount FROM platform_fee_ledger WHERE source_type = 'COLLECTION' AND source_id = $1",
         [paymentId],
       )
-      const netAmount = Math.max(
-        0,
-        Math.round((Number(row.amount) - Number(fee.rows[0].amount)) * 100) /
-          100,
-      )
+      const netAmount =
+        subtractMinorUnits(grossAmount, parseMinorUnits(fee.rows[0].amount)) > 0n
+          ? subtractMinorUnits(grossAmount, parseMinorUnits(fee.rows[0].amount))
+          : 0n
       const commissionResult = await client.query(
         `SELECT referrer_email, amount::numeric AS amount
          FROM downline_commissions WHERE payment_id = $1 FOR UPDATE`,
         [paymentId],
       )
-      let commissionAmount = 0
+      let commissionAmount = 0n
       let referral = commissionResult.rows[0]
       if (!referral) {
         const account = await client.query(
-          `SELECT referred_by_email, downline_commission_rate::float8 AS rate
+          `SELECT referred_by_email, downline_commission_rate::numeric AS rate
            FROM merchant_accounts WHERE email = $1 FOR UPDATE`,
           [row.merchant_email],
         )
-        const rate = Number(account.rows[0]?.rate || 0)
+        const rate = account.rows[0]?.rate || "0"
         const referrerEmail = account.rows[0]?.referred_by_email
         commissionAmount = referrerEmail
-          ? calculateDownlineCommission(netAmount, rate)
-          : 0
+          ? multiplyMinorUnitsByPercent(netAmount, rate)
+          : 0n
         if (referrerEmail) {
           const inserted = await client.query(
             `INSERT INTO downline_commissions
@@ -327,8 +409,8 @@ export function createLedgerService({
               paymentId,
               referrerEmail,
               row.merchant_email,
-              rate.toFixed(2),
-              commissionAmount.toFixed(2),
+              rate,
+              formatMinorUnits(commissionAmount),
             ],
           )
           referral =
@@ -342,11 +424,11 @@ export function createLedgerService({
             ).rows[0]
         }
       }
-      if (referral) commissionAmount = Number(referral.amount)
-      const merchantCredit = Math.max(
-        0,
-        Math.round((netAmount - commissionAmount) * 100) / 100,
-      )
+      if (referral) commissionAmount = parseMinorUnits(referral.amount)
+      const merchantCredit =
+        subtractMinorUnits(netAmount, commissionAmount) > 0n
+          ? subtractMinorUnits(netAmount, commissionAmount)
+          : 0n
       await client.query(
         `INSERT INTO merchant_wallet_ledger (id, merchant_email, source_type, source_id, amount, reference_no)
          VALUES ($1, $2, 'COLLECTION', $3, $4, $5)
@@ -355,11 +437,11 @@ export function createLedgerService({
           randomUUID(),
           row.merchant_email,
           paymentId,
-          merchantCredit.toFixed(2),
+          formatMinorUnits(merchantCredit),
           row.reference_no,
         ],
       )
-      if (referral && commissionAmount > 0) {
+      if (referral && commissionAmount > 0n) {
         await client.query(
           `INSERT INTO merchant_wallet_ledger
              (id, merchant_email, source_type, source_id, amount, reference_no)
@@ -369,12 +451,54 @@ export function createLedgerService({
             randomUUID(),
             referral.referrer_email,
             paymentId,
-            commissionAmount.toFixed(2),
+            formatMinorUnits(commissionAmount),
             row.reference_no,
           ],
         )
       }
       await chargeMerchantActivationFee(row.merchant_email, client)
+      const journalLines = [
+        {
+          accountCode: "SWIFTPAY_CLEARING",
+          side: "debit",
+          amount: formatMinorUnits(grossAmount),
+        },
+        ...(merchantCredit > 0n
+          ? [
+              {
+                accountCode: "MERCHANT_PAYABLE",
+                side: "credit",
+                amount: formatMinorUnits(merchantCredit),
+              },
+            ]
+          : []),
+        ...(commissionAmount > 0n
+          ? [
+              {
+                accountCode: "REFERRER_PAYABLE",
+                side: "credit",
+                amount: formatMinorUnits(commissionAmount),
+              },
+            ]
+          : []),
+        ...(parseMinorUnits(fee.rows[0].amount) > 0n
+          ? [
+              {
+                accountCode: "PLATFORM_FEE_REVENUE",
+                side: "credit",
+                amount: formatMinorUnits(
+                  parseMinorUnits(fee.rows[0].amount),
+                ),
+              },
+            ]
+          : []),
+      ]
+      await postBalancedJournal(client, {
+        sourceType: "COLLECTION",
+        sourceId: paymentId,
+        reference: row.reference_no,
+        lines: journalLines,
+      })
       if (ownsClient) await client.query("COMMIT")
     } catch (error) {
       if (ownsClient) await client.query("ROLLBACK")
@@ -454,10 +578,10 @@ export function createLedgerService({
             )
           : null
         const amount = refundPaymentId
-          ? -Number(walletAmount.rows[0]?.amount || 0)
-          : -calculateTransferDebit(
-              updated.rows[0].amount,
-              updated.rows[0].transfer_fee || 0,
+          ? -parseMinorUnits(walletAmount.rows[0]?.amount || "0")
+          : -addMinorUnits(
+              parseMinorUnits(updated.rows[0].amount),
+              parseMinorUnits(updated.rows[0].transfer_fee || "0"),
             )
         await client.query(
           `INSERT INTO merchant_wallet_ledger (id, merchant_email, source_type, source_id, amount, reference_no)
@@ -467,12 +591,44 @@ export function createLedgerService({
             randomUUID(),
             updated.rows[0].merchant_email,
             id,
-            amount.toFixed(2),
+            formatMinorUnits(amount),
             updated.rows[0].merchant_reference_no,
           ],
         )
-        const transferFee = Number(updated.rows[0].transfer_fee || 0)
-        if (!refundPaymentId && transferFee > 0) {
+        const transferFee = parseMinorUnits(
+          updated.rows[0].transfer_fee || "0",
+        )
+        if (!refundPaymentId) {
+          const payoutAmount = parseMinorUnits(updated.rows[0].amount)
+          const payoutLines = [
+            {
+              accountCode: "MERCHANT_PAYABLE",
+              side: "debit",
+              amount: formatMinorUnits(addMinorUnits(payoutAmount, transferFee)),
+            },
+            {
+              accountCode: "BANK_CLEARING",
+              side: "credit",
+              amount: formatMinorUnits(payoutAmount),
+            },
+            ...(transferFee > 0n
+              ? [
+                  {
+                    accountCode: "PLATFORM_FEE_REVENUE",
+                    side: "credit",
+                    amount: formatMinorUnits(transferFee),
+                  },
+                ]
+              : []),
+          ]
+          await postBalancedJournal(client, {
+            sourceType: "DISBURSEMENT",
+            sourceId: id,
+            reference: updated.rows[0].merchant_reference_no,
+            lines: payoutLines,
+          })
+        }
+        if (!refundPaymentId && transferFee > 0n) {
           await client.query(
             `INSERT INTO platform_fee_ledger (id, source_type, source_id, merchant_email, amount)
              VALUES ($1, 'DISBURSEMENT', $2, $3, $4)
@@ -481,7 +637,7 @@ export function createLedgerService({
               randomUUID(),
               id,
               updated.rows[0].merchant_email,
-              transferFee.toFixed(2),
+              formatMinorUnits(transferFee),
             ],
           )
         }
@@ -508,13 +664,18 @@ export function createLedgerService({
         if (!row.refund_ledger_reversed_at) {
           calculateRefundLedgerReversal(
             row.amount,
-            Number(row.fee_amount) + Number(row.commission_amount),
+            formatMinorUnits(
+              addMinorUnits(
+                parseMinorUnits(row.fee_amount),
+                parseMinorUnits(row.commission_amount),
+              ),
+            ),
           )
           await client.query(
             "UPDATE disbursements SET refund_ledger_reversed_at = NOW() WHERE id = $1",
             [id],
           )
-          if (Number(row.commission_amount) > 0 && row.referrer_email) {
+          if (parseMinorUnits(row.commission_amount) > 0n && row.referrer_email) {
             await client.query(
               `INSERT INTO merchant_wallet_ledger
                  (id, merchant_email, source_type, source_id, amount, reference_no)
@@ -524,7 +685,7 @@ export function createLedgerService({
                 randomUUID(),
                 row.referrer_email,
                 id,
-                (-Number(row.commission_amount)).toFixed(2),
+                formatMinorUnits(-parseMinorUnits(row.commission_amount)),
                 row.merchant_reference_no,
               ],
             )
@@ -534,12 +695,60 @@ export function createLedgerService({
               [refundPaymentId],
             )
           }
+          const refundGross = parseMinorUnits(row.amount)
+          const refundFee = parseMinorUnits(row.fee_amount)
+          const refundCommission = parseMinorUnits(row.commission_amount)
+          const refundMerchantNet = subtractMinorUnits(
+            subtractMinorUnits(refundGross, refundFee),
+            refundCommission,
+          )
+          await postBalancedJournal(client, {
+            sourceType: "DISBURSEMENT",
+            sourceId: id,
+            reference: row.merchant_reference_no,
+            lines: [
+              ...(refundMerchantNet > 0n
+                ? [
+                    {
+                      accountCode: "MERCHANT_PAYABLE",
+                      side: "debit",
+                      amount: formatMinorUnits(refundMerchantNet),
+                    },
+                  ]
+                : []),
+              ...(refundCommission > 0n
+                ? [
+                    {
+                      accountCode: "REFERRER_PAYABLE",
+                      side: "debit",
+                      amount: formatMinorUnits(refundCommission),
+                    },
+                  ]
+                : []),
+              ...(refundFee > 0n
+                ? [
+                    {
+                      accountCode: "PLATFORM_FEE_REVENUE",
+                      side: "debit",
+                      amount: formatMinorUnits(refundFee),
+                    },
+                  ]
+                : []),
+              {
+                accountCode: "BANK_CLEARING",
+                side: "credit",
+                amount: formatMinorUnits(refundGross),
+              },
+            ],
+          })
         }
       }
       if (isReversingSettlement && updated.rows[0]?.merchant_email) {
         if (refundPaymentId) {
           const refund = await client.query(
-            `SELECT GREATEST(p.amount - COALESCE(f.amount, 0) - COALESCE(commission.amount, 0), 0)::numeric AS net_amount,
+            `SELECT p.amount::numeric AS gross_amount,
+               COALESCE(f.amount, 0)::numeric AS fee_amount,
+               GREATEST(p.amount - COALESCE(f.amount, 0) - COALESCE(commission.amount, 0), 0)::numeric AS net_amount,
                COALESCE(commission.amount, 0)::numeric AS commission_amount,
                commission.referrer_email
              FROM payment_links p
@@ -562,12 +771,12 @@ export function createLedgerService({
               randomUUID(),
               updated.rows[0].merchant_email,
               id,
-              Number(refundRow.net_amount).toFixed(2),
+              formatMinorUnits(parseMinorUnits(refundRow.net_amount)),
               updated.rows[0].merchant_reference_no,
             ],
           )
           if (
-            Number(refundRow.commission_amount) > 0 &&
+            parseMinorUnits(refundRow.commission_amount) > 0n &&
             refundRow.referrer_email
           ) {
             await client.query(
@@ -579,7 +788,7 @@ export function createLedgerService({
                 randomUUID(),
                 refundRow.referrer_email,
                 id,
-                Number(refundRow.commission_amount).toFixed(2),
+                formatMinorUnits(parseMinorUnits(refundRow.commission_amount)),
                 updated.rows[0].merchant_reference_no,
               ],
             )
@@ -589,10 +798,57 @@ export function createLedgerService({
               [refundPaymentId],
             )
           }
+          const refundGross = parseMinorUnits(refundRow.gross_amount)
+          const refundFee = parseMinorUnits(refundRow.fee_amount)
+          const refundCommission = parseMinorUnits(
+            refundRow.commission_amount,
+          )
+          const refundMerchantNet = parseMinorUnits(refundRow.net_amount)
+          await postBalancedJournal(client, {
+            sourceType: "DISBURSEMENT_REVERSAL",
+            sourceId: id,
+            reference: updated.rows[0].merchant_reference_no,
+            lines: [
+              {
+                accountCode: "BANK_CLEARING",
+                side: "debit",
+                amount: formatMinorUnits(refundGross),
+              },
+              ...(refundMerchantNet > 0n
+                ? [
+                    {
+                      accountCode: "MERCHANT_PAYABLE",
+                      side: "credit",
+                      amount: formatMinorUnits(refundMerchantNet),
+                    },
+                  ]
+                : []),
+              ...(refundCommission > 0n
+                ? [
+                    {
+                      accountCode: "REFERRER_PAYABLE",
+                      side: "credit",
+                      amount: formatMinorUnits(refundCommission),
+                    },
+                  ]
+                : []),
+              ...(refundFee > 0n
+                ? [
+                    {
+                      accountCode: "PLATFORM_FEE_REVENUE",
+                      side: "credit",
+                      amount: formatMinorUnits(refundFee),
+                    },
+                  ]
+                : []),
+            ],
+          })
         } else {
-          const transferFee = Number(updated.rows[0].transfer_fee || 0)
-          const restoredAmount = calculateTransferDebit(
-            updated.rows[0].amount,
+          const transferFee = parseMinorUnits(
+            updated.rows[0].transfer_fee || "0",
+          )
+          const restoredAmount = addMinorUnits(
+            parseMinorUnits(updated.rows[0].amount),
             transferFee,
           )
           await client.query(
@@ -604,11 +860,11 @@ export function createLedgerService({
               randomUUID(),
               updated.rows[0].merchant_email,
               id,
-              restoredAmount.toFixed(2),
+              formatMinorUnits(restoredAmount),
               updated.rows[0].merchant_reference_no,
             ],
           )
-          if (transferFee > 0) {
+          if (transferFee > 0n) {
             await client.query(
               `INSERT INTO platform_fee_ledger
                  (id, source_type, source_id, merchant_email, amount)
@@ -618,10 +874,38 @@ export function createLedgerService({
                 randomUUID(),
                 id,
                 updated.rows[0].merchant_email,
-                (-transferFee).toFixed(2),
+                formatMinorUnits(-transferFee),
               ],
             )
           }
+          await postBalancedJournal(client, {
+            sourceType: "DISBURSEMENT_REVERSAL",
+            sourceId: id,
+            reference: updated.rows[0].merchant_reference_no,
+            lines: [
+              {
+                accountCode: "BANK_CLEARING",
+                side: "debit",
+                amount: formatMinorUnits(
+                  parseMinorUnits(updated.rows[0].amount),
+                ),
+              },
+              ...(transferFee > 0n
+                ? [
+                    {
+                      accountCode: "PLATFORM_FEE_REVENUE",
+                      side: "debit",
+                      amount: formatMinorUnits(transferFee),
+                    },
+                  ]
+                : []),
+              {
+                accountCode: "MERCHANT_PAYABLE",
+                side: "credit",
+                amount: formatMinorUnits(restoredAmount),
+              },
+            ],
+          })
         }
       }
       await client.query("COMMIT")

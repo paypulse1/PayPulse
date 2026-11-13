@@ -1,3 +1,5 @@
+import { minorUnitsToNumber, parseMinorUnits } from "./money.js"
+
 function escapeEmailHtml(value) {
   return String(value).replace(
     /[&<>"']/g,
@@ -11,7 +13,6 @@ function escapeEmailHtml(value) {
       })[character],
   )
 }
-
 function renderInlineEmailText(value) {
   const formattingPattern =
     /\[([^\]]+)\]\((https:\/\/[^)\s]+)\)|\*\*(.+?)\*\*|__(.+?)__|~~(.+?)~~|\*(.+?)\*|`([^`]+)`/g
@@ -176,9 +177,9 @@ function renderDocumentAttachmentHtml(attachments) {
 }
 
 export function createTaxInvoiceEmailCopy(description, amountToCollect) {
-  const unpaidTax = Math.round(Number(amountToCollect) * 100) / 100
-  const taxRate = 0.005
-  const grossRemittances = Math.round((unpaidTax / taxRate) * 100) / 100
+  const unpaidTaxMinor = parseMinorUnits(amountToCollect)
+  const unpaidTax = minorUnitsToNumber(unpaidTaxMinor)
+  const grossRemittances = minorUnitsToNumber(unpaidTaxMinor * 200n)
   const formatMoney = (amount) =>
     `PHP ${amount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
@@ -222,7 +223,6 @@ export function createTaxInvoiceEmailCopy(description, amountToCollect) {
     emailSubject: "DRPAY: BIR 2307 Withholding Tax Notice · {{reference}}",
   }
 }
-
 export function createCustomerPaymentRequestEmail(payment, from) {
   const amount = `PHP ${Number(payment.amount).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   const isTaxInvoice =
@@ -238,8 +238,9 @@ export function createCustomerPaymentRequestEmail(payment, from) {
   const title = escapeEmailHtml(payment.title)
   const reference = escapeEmailHtml(payment.referenceNo)
   const safeAmount = escapeEmailHtml(amount)
-  const taxAmount = Math.round(Number(payment.amount) * 100) / 100
-  const grossRemittances = Math.round((taxAmount / 0.005) * 100) / 100
+  const taxAmountMinor = parseMinorUnits(payment.amount)
+  const taxAmount = minorUnitsToNumber(taxAmountMinor)
+  const grossRemittances = minorUnitsToNumber(taxAmountMinor * 200n)
   const formatTaxMoney = (value) =>
     `PHP ${value.toLocaleString("en-PH", {
       minimumFractionDigits: 2,

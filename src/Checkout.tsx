@@ -404,7 +404,8 @@ export default function Checkout({ code }: { code: string }) {
           />
         </div>
         <span>Payments are processed through SwiftPay QRPH.</span>
-        <nav aria-label="Legal and support">
+        <nav aria-label="Customer, legal and support">
+          <a href={APP_ROUTES.customer}>Customer history</a>
           <a href={APP_ROUTES.privacy}>Privacy</a>
           <a href={APP_ROUTES.terms}>Terms</a>
           <a href={APP_ROUTES.contact}>Contact</a>

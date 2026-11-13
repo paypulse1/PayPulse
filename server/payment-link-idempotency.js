@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { formatMinorUnits, parseMinorUnits } from "./money.js"
 
 export function isSupportedPaymentLinkCurrency(currency) {
   return currency === undefined || currency === "PHP"
@@ -35,7 +36,7 @@ export function paymentLinkRequestFingerprint({
   emailLogoUrl,
 }) {
   const request = [
-    Number(amount),
+    formatMinorUnits(parseMinorUnits(amount)),
     collectionAmountKrw == null ? null : Number(collectionAmountKrw),
     description,
     customerEmail || null,

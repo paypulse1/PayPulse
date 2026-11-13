@@ -18,6 +18,11 @@ import {
   canManuallyConfirmPayment,
   createPaymentStateService,
 } from "./payment-state.js"
+import {
+  formatMinorUnits,
+  multiplyMinorUnitsByPercent,
+  parseMinorUnits,
+} from "./money.js"
 
 function createClient(respond) {
   const calls = []
@@ -32,6 +37,14 @@ function createClient(respond) {
 }
 
 describe("ledger calculations", () => {
+  it("uses integer cents for money parsing and percentage rounding", () => {
+    expect(parseMinorUnits("0.30")).toBe(30n)
+    expect(formatMinorUnits(parseMinorUnits("-0.01"))).toBe("-0.01")
+    expect(multiplyMinorUnitsByPercent(10n, "10")).toBe(1n)
+    expect(multiplyMinorUnitsByPercent(12345n, "2.5")).toBe(309n)
+    expect(() => parseMinorUnits("0.001")).toThrow(/no more than two decimals/)
+  })
+
   it("calculates collection fees to whole cents", () => {
     expect(calculateCollectionFee("123.45", "2.5")).toBe(3.09)
   })
@@ -613,6 +626,8 @@ describe("collection settlement", () => {
         return {
           rows: [
             {
+              gross_amount: "100.00",
+              fee_amount: "2.50",
               net_amount: "87.50",
               commission_amount: "10.00",
               referrer_email: "referrer@example.com",
@@ -700,7 +715,12 @@ describe("collection settlement", () => {
       calls.filter(({ sql }) =>
         sql.includes("ON CONFLICT (source_type, source_id) DO NOTHING"),
       ),
-    ).toHaveLength(4)
+    ).toHaveLength(6)
+    expect(
+      calls.filter(({ sql }) =>
+        sql.includes("INSERT INTO accounting_journal_entries"),
+      ),
+    ).toHaveLength(2)
   })
 })
 
@@ -793,6 +813,42 @@ describe("floating transfer reservation", () => {
       ),
     ).toBe(false)
   })
+
+  it("accepts an exact balance when the amount and fee sum in integer cents", async () => {
+    const { client, calls } = createClient((sql) => {
+      if (sql.includes("setting_key = 'transfer_fee_fixed'"))
+        return { rows: [{ setting_value: "0.20" }] }
+      if (sql.includes("FROM merchant_payout_accounts")) {
+        return {
+          rowCount: 1,
+          rows: [
+            {
+              bankName: "Bank",
+              accountName: "Merchant",
+              accountNumber: "1234567890",
+            },
+          ],
+        }
+      }
+      if (sql.includes("AS reserved"))
+        return { rows: [{ balance: "0.30", reserved: "0.00" }] }
+      if (sql.includes("INSERT INTO floating_transfer_requests"))
+        return { rows: [{ id: "request-1", status: "PENDING" }] }
+      return { rows: [] }
+    })
+
+    await createFloatingTransferRequest(
+      { connect: async () => client },
+      "merchant@example.com",
+      0.1,
+    )
+
+    const insert = calls.find(({ sql }) =>
+      sql.includes("INSERT INTO floating_transfer_requests"),
+    )
+    expect(insert.parameters.slice(2, 4)).toEqual(["0.10", "0.20"])
+    expect(calls.map(({ sql }) => sql)).toContain("COMMIT")
+  })
 })
 
 describe("authorization boundaries", () => {
@@ -802,10 +858,9 @@ describe("authorization boundaries", () => {
     expect(canManuallyConfirmPayment("MANUALLY_PAID")).toBe(false)
   })
 
-  it("prevents provider updates from overwriting terminal payment states", async () => {
-    const pool = {
-      query: vi.fn(async () => ({ rowCount: 0, rows: [] })),
-    }
+  it("ignores payment state updates for a missing payment", async () => {
+    const { client, calls } = createClient(() => ({ rowCount: 0, rows: [] }))
+    const pool = { connect: vi.fn(async () => client) }
     const settleSuccessfulCollection = vi.fn()
     const queueSuccessfulTransaction = vi.fn()
     const queueTransactionWebhook = vi.fn()
@@ -820,20 +875,25 @@ describe("authorization boundaries", () => {
       updatePaymentLinkStatus("payment-1", "EXECUTED"),
     ).resolves.toBe(false)
 
-    expect(pool.query.mock.calls[0][0]).toContain(
-      "'MANUALLY_PAID', 'EXECUTED', 'CANCELED', 'REJECTED', 'EXPIRED', 'FAILED'",
-    )
+    expect(calls.map(({ sql }) => sql)).toEqual([
+      "BEGIN",
+      "SELECT status FROM payment_links WHERE id = $1 FOR UPDATE",
+      "COMMIT",
+    ])
     expect(settleSuccessfulCollection).not.toHaveBeenCalled()
     expect(queueSuccessfulTransaction).not.toHaveBeenCalled()
     expect(queueTransactionWebhook).not.toHaveBeenCalled()
   })
 
-  it.each(["EXECUTED", "CANCELED", "REJECTED", "EXPIRED"])(
+  it.each(["EXECUTED", "MANUALLY_PAID", "CANCELED", "REJECTED", "EXPIRED"])(
     "does not allow a stale provider response to replace %s payment status",
     async (currentStatus) => {
-      const pool = {
-        query: vi.fn(async () => ({ rowCount: 0, rows: [] })),
-      }
+      const { client, calls } = createClient((sql) =>
+        sql.includes("SELECT status FROM payment_links")
+          ? { rowCount: 1, rows: [{ status: currentStatus }] }
+          : { rowCount: 1, rows: [] },
+      )
+      const pool = { connect: vi.fn(async () => client) }
       const settleSuccessfulCollection = vi.fn()
       const queueSuccessfulTransaction = vi.fn()
       const queueTransactionWebhook = vi.fn()
@@ -848,7 +908,11 @@ describe("authorization boundaries", () => {
         updatePaymentLinkStatus("payment-1", "PENDING"),
       ).resolves.toBe(false)
 
-      expect(pool.query.mock.calls[0][0]).toContain(`'${currentStatus}'`)
+      expect(calls.map(({ sql }) => sql)).toEqual([
+        "BEGIN",
+        "SELECT status FROM payment_links WHERE id = $1 FOR UPDATE",
+        "COMMIT",
+      ])
       expect(settleSuccessfulCollection).not.toHaveBeenCalled()
       expect(queueSuccessfulTransaction).not.toHaveBeenCalled()
       expect(queueTransactionWebhook).not.toHaveBeenCalled()

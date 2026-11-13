@@ -9,7 +9,13 @@ export type Session = {
   accessToken: string
   expiresAt: number
   email: string
-  role: "customer" | "merchant" | "super_admin"
+  role:
+    | "customer"
+    | "merchant"
+    | "super_admin"
+    | "finance"
+    | "compliance"
+    | "auditor"
 }
 
 export function normalizeDocumentContentType(
@@ -196,7 +202,12 @@ export type PaymentLinkResult = {
   amount?: number
   currency?: string
   virtualAccountInfo?: VirtualAccountInfo
-  requestEmailStatus?: "queued" | "sent" | "no_customer_email" | "queue_failed"
+  requestEmailStatus?:
+    | "queued"
+    | "sent"
+    | "no_customer_email"
+    | "queue_failed"
+    | "not_required"
 }
 
 export type MerchantCheckoutPreferences = {
@@ -735,7 +746,10 @@ function isSession(value: unknown): value is Session {
     session.email.length > 0 &&
     (session.role === "customer" ||
       session.role === "merchant" ||
-      session.role === "super_admin")
+      session.role === "super_admin" ||
+      session.role === "finance" ||
+      session.role === "compliance" ||
+      session.role === "auditor")
   )
 }
 
@@ -920,24 +934,172 @@ async function backendRequest<T>(
   return parseResponse<T>(response, expireSessionOnUnauthorized)
 }
 
-export async function login(email: string, password: string): Promise<Session> {
+export type AdminLoginChallenge = {
+  accessToken: string
+  expiresInSeconds: number
+  email: string
+  role: "super_admin" | "finance" | "compliance" | "auditor"
+  requiresMfaSetup: boolean
+  requiresMfa: boolean
+}
+
+function sessionFromResponse(
+  response: {
+    accessToken: string
+    expiresInSeconds: number
+    email?: string
+    role?: Session["role"]
+  },
+  fallbackEmail: string,
+) {
+  const session: Session = {
+    accessToken: response.accessToken,
+    expiresAt: Date.now() + response.expiresInSeconds * 1000,
+    email: response.email || fallbackEmail,
+    role: response.role || "merchant",
+  }
+  saveSession(session)
+  return session
+}
+
+export type CustomerPaymentHistoryItem = {
+  referenceNo: string
+  title: string
+  amount: string
+  currency: string
+  status: "PENDING" | "COMPLETED"
+  createdAt: string
+}
+
+export async function requestCustomerOtp(
+  email: string,
+): Promise<{ challengeId: string; message: string }> {
+  return publicRequest<{ challengeId: string; message: string }>(
+    "/v1/customer/auth/request-otp",
+    {
+      method: "POST",
+      body: JSON.stringify({ email: email.trim().toLowerCase() }),
+    },
+  )
+}
+
+export async function verifyCustomerOtp(
+  email: string,
+  challengeId: string,
+  code: string,
+): Promise<Session> {
+  const response = await publicRequest<{
+    accessToken: string
+    expiresInSeconds: number
+    email: string
+    role: "customer"
+  }>("/v1/customer/auth/verify-otp", {
+    method: "POST",
+    body: JSON.stringify({
+      email: email.trim().toLowerCase(),
+      challengeId,
+      code: code.trim(),
+    }),
+  })
+  return sessionFromResponse(response, email)
+}
+
+export async function getCustomerPaymentHistory(): Promise<
+  CustomerPaymentHistoryItem[]
+> {
+  const response = await backendRequest<{
+    payments: CustomerPaymentHistoryItem[]
+  }>("/v1/customer/payment-history")
+  return response.payments
+}
+
+export async function login(
+  email: string,
+  password: string,
+): Promise<Session | AdminLoginChallenge> {
   const response = await publicRequest<{
     accessToken: string
     expiresInSeconds: number
     email?: string
     role?: Session["role"]
+    authenticated?: boolean
+    requiresMfaSetup?: boolean
+    requiresMfa?: boolean
   }>("/v1/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
   })
-  const session: Session = {
-    accessToken: response.accessToken,
-    expiresAt: Date.now() + response.expiresInSeconds * 1000,
-    email: response.email || email,
-    role: response.role || "merchant",
+  if (response.authenticated) {
+    return sessionFromResponse(response, email)
   }
-  saveSession(session)
-  return session
+  return {
+    accessToken: response.accessToken,
+    expiresInSeconds: response.expiresInSeconds,
+    email: response.email || email,
+    role:
+      response.role === "finance" ||
+      response.role === "compliance" ||
+      response.role === "auditor"
+        ? response.role
+        : "super_admin",
+    requiresMfaSetup: Boolean(response.requiresMfaSetup),
+    requiresMfa: Boolean(response.requiresMfa),
+  }
+}
+
+export async function setupAdminMfa(accessToken: string) {
+  return publicRequest<{ secret: string; provisioningUri: string }>(
+    "/v1/auth/admin/mfa/setup",
+    {
+      method: "POST",
+      body: JSON.stringify({ accessToken }),
+    },
+  )
+}
+
+export async function verifyAdminMfa(
+  accessToken: string,
+  code: string,
+): Promise<Session> {
+  const response = await publicRequest<{
+    accessToken: string
+    expiresInSeconds: number
+    email: string
+    role: Session["role"]
+    authenticated: boolean
+  }>("/v1/auth/admin/mfa/verify", {
+    method: "POST",
+    body: JSON.stringify({ accessToken, code }),
+  })
+  return sessionFromResponse(response, response.email)
+}
+
+export async function inspectAdminInvitation(token: string) {
+  return publicRequest<{ email: string; role: AdminLoginChallenge["role"] }>(
+    "/v1/auth/admin/invitation/inspect",
+    {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    },
+  )
+}
+
+export async function acceptAdminInvitation(
+  token: string,
+  password: string,
+): Promise<AdminLoginChallenge> {
+  const response = await publicRequest<AdminLoginChallenge>(
+    "/v1/auth/admin/invitation/accept",
+    {
+      method: "POST",
+      body: JSON.stringify({ token, password }),
+    },
+  )
+  return {
+    ...response,
+    requiresMfaSetup: true,
+    requiresMfa: false,
+  }
 }
 
 function saveMerchantSession(
@@ -1743,8 +1905,235 @@ export async function getAdminSettings(): Promise<AdminSettings> {
   return backendRequest<AdminSettings>("/v1/admin/settings")
 }
 
+export type AdminApprovalRequest = {
+  id: string
+  actionKey: string
+  targetKey: string
+  payload: Record<string, unknown>
+  requestedBy: string
+  approvedBy: string | null
+  status: "pending" | "approved" | "rejected" | "consumed"
+  requestedAt: string
+  reviewedAt: string | null
+  consumedAt: string | null
+}
+
+export type AdminStaffMember = {
+  email: string
+  role: "super_admin" | "finance" | "compliance" | "auditor"
+  status: "invited" | "active" | "disabled"
+  invitedBy: string | null
+  mfaEnabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export type AdminReconciliationCase = {
+  id: string
+  sourceType: "SWIFTPAY" | "BANK_CSV"
+  batchId: string | null
+  lineNumber: number | null
+  externalReference: string
+  direction: "IN" | "OUT"
+  amount: string
+  currency: string
+  externalStatus: string
+  internalId: string | null
+  internalReference: string | null
+  status:
+    | "matched"
+    | "amount_mismatch"
+    | "currency_mismatch"
+    | "status_mismatch"
+    | "unmatched_suspense"
+    | "provider_retry"
+  details: Record<string, unknown>
+  createdBy: string | null
+  createdAt: string
+}
+
+export type AdminSuspenseItem = {
+  id: string
+  status: "open" | "resolved"
+  resolutionNote: string | null
+  ownerEmail: string | null
+  resolvedBy: string | null
+  resolvedAt: string | null
+  createdAt: string
+  sourceType: "SWIFTPAY" | "BANK_CSV"
+  externalReference: string
+  direction: "IN" | "OUT"
+  amount: string
+  currency: string
+  externalStatus: string
+  details: Record<string, unknown>
+  events: {
+    eventType: "assigned" | "resolved"
+    actorEmail: string
+    ownerEmail: string | null
+    note: string | null
+    createdAt: string
+  }[]
+}
+
+export type AdminApprovalRequired = {
+  approvalRequired: true
+  approvalRequestId: string
+  status: "pending"
+}
+
+export type AdminActionResult<T> = T | AdminApprovalRequired
+
+async function submitAdminApprovalAction<T>(
+  actionKey: string,
+  targetKey: string,
+  path: string,
+  input: Record<string, unknown>,
+): Promise<AdminActionResult<T>> {
+  const sessionEmail = getSession()?.email || "unknown"
+  const storageKey = `drpay_admin_approval_${sessionEmail}_${actionKey}_${targetKey}`
+  const inputFingerprint = JSON.stringify(input)
+  let approvalRequestId: string | undefined
+  const storedValue = readStorageItem("session", storageKey)
+  if (storedValue) {
+    try {
+      const stored = JSON.parse(storedValue) as {
+        approvalRequestId?: string
+        inputFingerprint?: string
+      }
+      if (stored.inputFingerprint === inputFingerprint) {
+        approvalRequestId = stored.approvalRequestId
+      } else {
+        removeStorageItem("session", storageKey)
+      }
+    } catch {
+      removeStorageItem("session", storageKey)
+    }
+  }
+  const result = await backendRequest<T | AdminApprovalRequired>(path, {
+    method: "POST",
+    body: JSON.stringify({
+      ...input,
+      ...(approvalRequestId ? { approvalRequestId } : {}),
+    }),
+  })
+  if (
+    typeof result === "object" &&
+    result !== null &&
+    "approvalRequired" in result &&
+    result.approvalRequired === true &&
+    "approvalRequestId" in result &&
+    typeof result.approvalRequestId === "string"
+  ) {
+    writeStorageItem(
+      "session",
+      storageKey,
+      JSON.stringify({
+        approvalRequestId: result.approvalRequestId,
+        inputFingerprint,
+      }),
+    )
+    return result
+  }
+  removeStorageItem("session", storageKey)
+  return result
+}
+
 export async function getAdminAuditEvents(): Promise<AdminAuditEvent[]> {
   return backendRequest<AdminAuditEvent[]>("/v1/admin/audit")
+}
+
+export async function getAdminApprovalRequests(
+  status?: AdminApprovalRequest["status"],
+): Promise<AdminApprovalRequest[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : ""
+  return backendRequest<AdminApprovalRequest[]>(
+    `/v1/admin/approval-requests${query}`,
+  )
+}
+
+export async function reviewAdminApprovalRequest(
+  id: string,
+  decision: "approve" | "reject",
+): Promise<{ id: string; status: "approved" | "rejected"; reviewedBy: string }> {
+  return backendRequest(
+    `/v1/admin/approval-requests/${encodeURIComponent(id)}/${decision}`,
+    { method: "POST" },
+  )
+}
+
+export async function inviteAdminStaff(
+  email: string,
+  role: "finance" | "compliance" | "auditor",
+): Promise<{ email: string; role: string; expiresInHours: number }> {
+  return backendRequest("/v1/admin/staff/invitations", {
+    method: "POST",
+    body: JSON.stringify({ email, role }),
+  })
+}
+
+export async function getAdminStaff(): Promise<AdminStaffMember[]> {
+  return backendRequest("/v1/admin/staff")
+}
+
+export async function disableAdminStaff(email: string) {
+  return backendRequest<{ email: string; status: "disabled" }>(
+    `/v1/admin/staff/${encodeURIComponent(email)}/disable`,
+    { method: "POST" },
+  )
+}
+
+export async function getAdminReconciliationCases(): Promise<
+  AdminReconciliationCase[]
+> {
+  return backendRequest("/v1/admin/reconciliation/cases")
+}
+
+export async function getAdminSuspenseItems(): Promise<AdminSuspenseItem[]> {
+  return backendRequest("/v1/admin/reconciliation/suspense")
+}
+
+export async function claimAdminSuspenseItem(id: string) {
+  return backendRequest<{ id: string; ownerEmail: string }>(
+    `/v1/admin/reconciliation/suspense/${encodeURIComponent(id)}/claim`,
+    { method: "POST" },
+  )
+}
+
+export async function resolveAdminSuspenseItem(id: string, note: string) {
+  return backendRequest<{ id: string; status: "resolved" }>(
+    `/v1/admin/reconciliation/suspense/${encodeURIComponent(id)}/resolve`,
+    {
+      method: "POST",
+      body: JSON.stringify({ note }),
+    },
+  )
+}
+
+export async function uploadAdminBankCsv(file: File) {
+  const content = await file.text()
+  return backendRequest<{
+    batchId: string
+    filename: string
+    importedRows: number
+    counts: Record<string, number>
+    autoPosted: false
+    duplicate?: boolean
+  }>("/v1/admin/reconciliation/bank-csv", {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/csv",
+      "X-Filename": file.name.replace(/[^\w.-]/g, "_").slice(0, 120),
+    },
+    body: content,
+  })
+}
+
+export async function runAdminSwiftPayReconciliation() {
+  return backendRequest<{
+    cases: { status: string; count: number }[]
+    scannedAt: string
+  }>("/v1/admin/reconciliation/swiftpay/scan", { method: "POST" })
 }
 
 export async function getAdminPaymentLinks(): Promise<AdminPaymentLink[]> {
@@ -1816,13 +2205,12 @@ export async function createAdminTaxInvoice(
 export async function markAdminPaymentLinkPaid(
   id: string,
   verificationNote: string,
-): Promise<AdminPaymentLink> {
-  return backendRequest<AdminPaymentLink>(
+): Promise<AdminActionResult<AdminPaymentLink>> {
+  return submitAdminApprovalAction<AdminPaymentLink>(
+    "manual_payment_confirmation",
+    id,
     `/v1/admin/payment-links/${encodeURIComponent(id)}/mark-paid`,
-    {
-      method: "POST",
-      body: JSON.stringify({ verificationNote }),
-    },
+    { verificationNote },
   )
 }
 
@@ -1931,12 +2319,14 @@ export async function reviewAdminUsdtWithdrawalRequest(
   id: string,
   decision: "completed" | "rejected",
   input: { transactionId?: string; reason?: string },
-): Promise<UsdtWithdrawalRequest> {
-  return backendRequest<UsdtWithdrawalRequest>(
+): Promise<AdminActionResult<UsdtWithdrawalRequest>> {
+  return submitAdminApprovalAction<UsdtWithdrawalRequest>(
+    "crypto_withdrawal_decision",
+    id,
     `/v1/admin/crypto/usdt-withdrawals/${encodeURIComponent(id)}/${decision}`,
     {
-      method: "POST",
-      body: JSON.stringify(input),
+      transactionId: input.transactionId || "",
+      reason: input.reason || "",
     },
   )
 }
@@ -1966,13 +2356,12 @@ export async function getAdminMerchantWallet(
 export async function createAdminMerchantWalletAdjustment(
   email: string,
   input: { amount: number; reason: string },
-): Promise<AdminMerchantWalletTransaction> {
-  return backendRequest<AdminMerchantWalletTransaction>(
+): Promise<AdminActionResult<AdminMerchantWalletTransaction>> {
+  return submitAdminApprovalAction<AdminMerchantWalletTransaction>(
+    "merchant_wallet_adjustment",
+    email.trim().toLowerCase(),
     `/v1/admin/merchants/${encodeURIComponent(email)}/wallet/adjustments`,
-    {
-      method: "POST",
-      body: JSON.stringify(input),
-    },
+    input,
   )
 }
 
@@ -1990,12 +2379,16 @@ export async function reviewAdminFloatingTransferRequest(
     payoutReference?: string
     payoutNote?: string
   } = {},
-): Promise<FloatingTransferRequest> {
-  return backendRequest<FloatingTransferRequest>(
+): Promise<AdminActionResult<FloatingTransferRequest>> {
+  return submitAdminApprovalAction<FloatingTransferRequest>(
+    "floating_transfer_decision",
+    id,
     `/v1/admin/floating-transfer-requests/${encodeURIComponent(id)}/${decision}`,
     {
-      method: "POST",
-      body: JSON.stringify(input),
+      reason: decision === "failed" ? input.reason || "" : "",
+      payoutReference:
+        decision === "successful" ? input.payoutReference || "" : "",
+      payoutNote: decision === "successful" ? input.payoutNote || "" : "",
     },
   )
 }
@@ -2003,10 +2396,12 @@ export async function reviewAdminFloatingTransferRequest(
 export async function createAdminInternalWalletAdjustment(
   email: string,
   input: { amount: number; reason: string },
-): Promise<InternalWalletAdjustment> {
-  return backendRequest<InternalWalletAdjustment>(
+): Promise<AdminActionResult<InternalWalletAdjustment>> {
+  return submitAdminApprovalAction<InternalWalletAdjustment>(
+    "internal_wallet_adjustment",
+    email.trim().toLowerCase(),
     `/v1/admin/internal-wallets/${encodeURIComponent(email)}/adjustments`,
-    { method: "POST", body: JSON.stringify(input) },
+    input,
   )
 }
 

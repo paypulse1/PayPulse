@@ -1,6 +1,7 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib"
 import { readFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
+import { minorUnitsToNumber, parseMinorUnits } from "./money.js"
 
 const birSealPath = fileURLToPath(
   new URL("../public/checkout-badges/bir-seal.png", import.meta.url),
@@ -546,9 +547,9 @@ function drawInvoiceDetails({
     borderWidth: 1,
   })
   if (isBirTaxDocument) {
-    const taxAmount = parseAmount(amount)
+    const taxAmountMinor = parseMinorUnits(parseAmount(amount))
     const grossRemittances = formatMoney(
-      Math.round((taxAmount / 0.005) * 100) / 100,
+      minorUnitsToNumber(taxAmountMinor * 200n),
     )
     const rows = [
       ["Tax period", String(title)],

@@ -3,6 +3,7 @@ export const APP_ROUTES = {
   marketing: "/marketing",
   merchantLogin: "/login",
   app: "/app",
+  customer: "/customer",
   admin: "/bossd",
   checkout: "/checkout",
   privacy: "/privacy",
@@ -62,8 +63,6 @@ export function shouldShowMarketingHome(
   }
   const query = new URLSearchParams(search)
   return (
-    !query.has("checkout") &&
-    query.get("signin") !== "1" &&
-    !query.has("ref")
+    !query.has("checkout") && query.get("signin") !== "1" && !query.has("ref")
   )
 }

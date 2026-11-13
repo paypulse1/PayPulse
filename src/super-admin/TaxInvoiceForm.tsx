@@ -479,6 +479,8 @@ export default function TaxInvoiceForm({
               ? "created and email queued."
               : createdInvoice.requestEmailStatus === "sent"
                 ? "created; its email was already sent."
+                : createdInvoice.requestEmailStatus === "not_required"
+                  ? "created; payment was already confirmed."
                 : "created, but email could not be queued."}
           </span>
           <a href={createdInvoice.paymentUrl} target="_blank" rel="noreferrer">
