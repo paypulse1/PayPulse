@@ -73,14 +73,6 @@ services:
         sync: false
       - key: R2_BUCKET_NAME
         sync: false
-      - key: SUMSUB_APP_TOKEN
-        sync: false
-      - key: SUMSUB_SECRET_KEY
-        sync: false
-      - key: SUMSUB_KYB_LEVEL_NAME
-        sync: false
-      - key: SUMSUB_WEBHOOK_SECRET
-        sync: false
       - key: TRON_USDT_NETWORK
         value: disabled
   - type: web
@@ -158,14 +150,6 @@ services:
       - key: R2_SECRET_ACCESS_KEY
         sync: false
       - key: R2_BUCKET_NAME
-        sync: false
-      - key: SUMSUB_APP_TOKEN
-        sync: false
-      - key: SUMSUB_SECRET_KEY
-        sync: false
-      - key: SUMSUB_KYB_LEVEL_NAME
-        sync: false
-      - key: SUMSUB_WEBHOOK_SECRET
         sync: false
       - key: TATUM_API_KEY
         sync: false

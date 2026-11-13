@@ -136,6 +136,10 @@ import {
   ensureMerchantKybDocumentSchema,
   ensureMerchantRegistrationDocumentSchema,
 } from "./registration-document-schema.js"
+import {
+  getMissingRequiredKybDocuments,
+  requiredKybDocumentTypes,
+} from "./kyb-review.js"
 
 const { Pool } = pg
 function tryParseMinorUnits(value) {
@@ -187,8 +191,6 @@ app.use(
           "https://accounts.google.com",
           "https://www.google.com",
           "https://oauth.telegram.org",
-          "https://api.sumsub.com",
-          "https://in.sumsub.com",
         ],
         imgSrc: ["'self'", "data:", "https:"],
         connectSrc: [
@@ -196,9 +198,6 @@ app.use(
           "https://accounts.google.com",
           "https://apis.google.com",
           "https://oauth.telegram.org",
-          "https://api.sumsub.com",
-          "https://in.sumsub.com",
-          "https://static.sumsub.com",
           "https://drpay-merchant-production.up.railway.app",
           "https://api.live.denpay.cc",
           "https://api.sandbox.denpay.cc",
@@ -478,7 +477,6 @@ const allowedKybDocuments = new Set([
   "identity_back",
   "proof_of_address",
 ])
-
 function normalizeDocumentContentType(fileName, contentType) {
   const normalized =
     typeof contentType === "string" ? contentType.trim().toLowerCase() : ""
@@ -5373,75 +5371,30 @@ app.post(
       accountName.length < 2 ||
       accountName.length > 120 ||
       !/^[A-Za-z0-9-]{4,34}$/.test(accountNumber) ||
-      !/^\d{4}$/.test(pin)
+      !/^\d{4}$/.test(pin) ||
+      req.body?.kybConsent !== true
     ) {
       return res.status(400).json({
         error:
-          "Complete each required business, owner, payout, and MPIN field.",
+          "Complete each required business, owner, payout, and MPIN field, then confirm the KYB review consent.",
       })
-    }
-    const submittedVerificationData = {
-      businessName,
-      registrationNumber,
-      businessType,
-      country,
-      businessAddress,
-      ownerFullName,
-      ownerDateOfBirth,
-      ownerNationality,
-      ownerEmail,
-      ownerPhone,
     }
     const client = await pool.connect()
     try {
       await client.query("BEGIN")
       const challenge = await client.query(
-        `SELECT phone_number, referral_code,
-              sumsub_external_user_id AS "sumsubExternalUserId",
-              sumsub_applicant_id AS "sumsubApplicantId",
-              sumsub_review_status AS "sumsubReviewStatus",
-              sumsub_review_answer AS "sumsubReviewAnswer",
-              sumsub_last_event_type AS "sumsubLastEventType",
-              sumsub_consent_at AS "sumsubConsentAt",
-              sumsub_consent_version AS "sumsubConsentVersion",
-              sumsub_registration_data = $3::jsonb AS "sumsubRegistrationDataMatches"
+        `SELECT phone_number, referral_code
        FROM merchant_registration_otps
        WHERE id = $1 AND email = $2 AND verified_at IS NOT NULL
-         AND (
-           verified_at > NOW() - INTERVAL '24 hours'
-           OR (
-             sumsub_external_user_id IS NOT NULL
-             AND created_at > NOW() - INTERVAL '30 days'
-           )
-         )
+         AND verified_at > NOW() - INTERVAL '24 hours'
          AND consumed_at IS NULL
        FOR UPDATE`,
-        [challengeId, email, JSON.stringify(submittedVerificationData)],
+        [challengeId, email],
       )
       if (!challenge.rowCount) {
         await client.query("ROLLBACK")
         return res.status(401).json({
           error: "Verify your email before submitting your application.",
-        })
-      }
-      if (!challenge.rows[0].sumsubRegistrationDataMatches) {
-        await client.query("ROLLBACK")
-        return res.status(409).json({
-          error:
-            "Your business or owner details do not match the information verified by Sumsub. Restart verification before applying.",
-        })
-      }
-      if (
-        !challenge.rows[0].sumsubExternalUserId ||
-        !challenge.rows[0].sumsubConsentAt ||
-        !["IN_REVIEW", "ON_HOLD", "APPROVED"].includes(
-          challenge.rows[0].sumsubReviewStatus,
-        )
-      ) {
-        await client.query("ROLLBACK")
-        return res.status(409).json({
-          error:
-            "Submit your business verification to Sumsub before submitting your DRPAY application.",
         })
       }
       let referredByEmail = null
@@ -5466,6 +5419,15 @@ app.post(
        FOR UPDATE`,
         [challengeId],
       )
+      const missingDocuments = getMissingRequiredKybDocuments(
+        documents.rows.map((document) => document.document_type),
+      )
+      if (missingDocuments.length) {
+        await client.query("ROLLBACK")
+        return res.status(409).json({
+          error: "Upload the business registration and both sides of the owner's ID before submitting.",
+        })
+      }
       await client.query(
         `INSERT INTO merchant_accounts
          (email, active, registration_pending, business_name, contact_person,
@@ -5491,10 +5453,9 @@ app.post(
         `INSERT INTO merchant_kyb_profiles (
          merchant_email, legal_business_name, registration_number, business_type,
          country, business_address, owner_full_name, owner_date_of_birth,
-         owner_nationality, owner_email, owner_phone, sumsub_external_user_id,
-         sumsub_applicant_id, sumsub_review_status, sumsub_review_answer,
-         sumsub_last_event_type, sumsub_consent_at, sumsub_consent_version
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+         owner_nationality, owner_email, owner_phone, kyb_consent_at,
+         kyb_consent_version
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), 'manual-kyb-v1')`,
         [
           email,
           businessName,
@@ -5507,13 +5468,6 @@ app.post(
           ownerNationality,
           ownerEmail,
           ownerPhone,
-          challenge.rows[0].sumsubExternalUserId,
-          challenge.rows[0].sumsubApplicantId,
-          challenge.rows[0].sumsubReviewStatus,
-          challenge.rows[0].sumsubReviewAnswer,
-          challenge.rows[0].sumsubLastEventType,
-          challenge.rows[0].sumsubConsentAt,
-          challenge.rows[0].sumsubConsentVersion,
         ],
       )
       await client.query(
@@ -5528,7 +5482,7 @@ app.post(
         action: "Merchant registration submitted",
         target: email,
         actor: null,
-        summary: "A verified merchant application was submitted for review.",
+        summary: "A merchant KYB application and required documents were submitted for manual review.",
       })
       for (const document of documents.rows) {
         await client.query(
@@ -9151,7 +9105,7 @@ app.get("/v1/admin/kyb", async (_req, res) => {
        p.business_address AS "businessAddress", p.owner_full_name AS "ownerFullName",
        p.owner_date_of_birth::text AS "ownerDateOfBirth", p.owner_nationality AS "ownerNationality",
        p.owner_email AS "ownerEmail", p.owner_phone AS "ownerPhone", p.status, p.review_notes AS "reviewNotes",
-       p.sumsub_review_status AS "sumsubReviewStatus", p.sumsub_applicant_id AS "sumsubApplicantId",
+       (p.kyb_consent_at IS NOT NULL) AS "kybConsentGiven",
        p.created_at AS "createdAt", p.updated_at AS "updatedAt",
        COALESCE(json_agg(json_build_object(
          'id', d.id, 'documentType', d.document_type, 'fileName', d.file_name,
@@ -9229,22 +9183,43 @@ app.patch("/v1/admin/kyb/:email", async (req, res) => {
         "Choose a valid KYB review status. Rejected applications require review notes.",
     })
   }
-  if (status === "APPROVED") {
-    const providerVerification = await pool.query(
-      `SELECT sumsub_review_status AS status
-       FROM merchant_kyb_profiles WHERE merchant_email = $1`,
-      [email],
-    )
-    if (providerVerification.rows[0]?.status !== "APPROVED") {
-      return res.status(409).json({
-        error:
-          "Sumsub must complete and approve business verification before DRPAY can approve this KYB application.",
-      })
-    }
-  }
   const client = await pool.connect()
   try {
     await client.query("BEGIN")
+    const application = await client.query(
+      `SELECT kyb_consent_at AS "consentAt"
+       FROM merchant_kyb_profiles
+       WHERE merchant_email = $1
+       FOR UPDATE`,
+      [email],
+    )
+    if (!application.rowCount) {
+      await client.query("ROLLBACK")
+      return res.status(404).json({ error: "KYB application not found." })
+    }
+    if (status === "APPROVED") {
+      if (!application.rows[0].consentAt) {
+        await client.query("ROLLBACK")
+        return res.status(409).json({
+          error: "The merchant must confirm the KYB review consent before approval.",
+        })
+      }
+      const documents = await client.query(
+        `SELECT document_type
+         FROM merchant_kyb_documents
+         WHERE merchant_email = $1 AND document_type = ANY($2::text[])`,
+        [email, requiredKybDocumentTypes],
+      )
+      const missingDocuments = getMissingRequiredKybDocuments(
+        documents.rows.map((document) => document.document_type),
+      )
+      if (missingDocuments.length) {
+        await client.query("ROLLBACK")
+        return res.status(409).json({
+          error: "Business registration and both sides of the owner's ID are required before approval.",
+        })
+      }
+    }
     const result = await client.query(
       `UPDATE merchant_kyb_profiles
        SET status = $2, review_notes = $3, reviewed_by = $4, reviewed_at = NOW(), updated_at = NOW()
@@ -10270,8 +10245,7 @@ app.get("/v1/kyb", async (req, res) => {
          owner_full_name AS "ownerFullName", owner_date_of_birth::text AS "ownerDateOfBirth",
          owner_nationality AS "ownerNationality", owner_email AS "ownerEmail", owner_phone AS "ownerPhone",
          status, review_notes AS "reviewNotes", updated_at AS "updatedAt",
-         sumsub_review_status AS "sumsubReviewStatus",
-         sumsub_applicant_id AS "sumsubApplicantId"
+         (kyb_consent_at IS NOT NULL) AS "kybConsentGiven"
        FROM merchant_kyb_profiles WHERE merchant_email = $1`,
       [req.merchantEmail],
     ),
@@ -10409,18 +10383,19 @@ app.post("/v1/kyb/sumsub/access-token", sumsubKybLimiter, async (req, res) => {
 
 app.put("/v1/kyb", async (req, res) => {
   const lockedProfile = await pool.query(
-    `SELECT status, sumsub_review_status AS "sumsubReviewStatus"
-     FROM merchant_kyb_profiles WHERE merchant_email = $1`,
+    `SELECT status FROM merchant_kyb_profiles WHERE merchant_email = $1`,
     [req.merchantEmail],
   )
-  if (
-    lockedProfile.rows[0]?.status === "APPROVED" ||
-    ["APPROVED", "REJECTED"].includes(lockedProfile.rows[0]?.sumsubReviewStatus)
-  )
+  if (lockedProfile.rows[0]?.status === "APPROVED")
     return res.status(409).json({
       error:
         "Your verification result is final. Contact DRPAY support to request a review or profile change.",
     })
+  if (req.body?.kybConsent !== true) {
+    return res.status(400).json({
+      error: "Confirm the KYB review consent before saving your application.",
+    })
+  }
   const fields = {
     legalBusinessName: req.body?.legalBusinessName,
     registrationNumber: req.body?.registrationNumber,
@@ -10457,8 +10432,9 @@ app.put("/v1/kyb", async (req, res) => {
   const result = await pool.query(
     `INSERT INTO merchant_kyb_profiles (
        merchant_email, legal_business_name, registration_number, business_type, country, business_address,
-       owner_full_name, owner_date_of_birth, owner_nationality, owner_email, owner_phone, status, updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PENDING', NOW())
+       owner_full_name, owner_date_of_birth, owner_nationality, owner_email, owner_phone,
+       status, kyb_consent_at, kyb_consent_version, updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PENDING', NOW(), 'manual-kyb-v1', NOW())
      ON CONFLICT (merchant_email) DO UPDATE SET
        legal_business_name = EXCLUDED.legal_business_name,
        registration_number = EXCLUDED.registration_number,
@@ -10471,10 +10447,8 @@ app.put("/v1/kyb", async (req, res) => {
        owner_email = EXCLUDED.owner_email,
        owner_phone = EXCLUDED.owner_phone,
        status = 'PENDING', review_notes = NULL, reviewed_by = NULL, reviewed_at = NULL,
-       sumsub_external_user_id = NULL, sumsub_applicant_id = NULL,
-       sumsub_review_status = 'NOT_STARTED', sumsub_review_answer = NULL,
-       sumsub_last_event_type = NULL, sumsub_consent_at = NULL,
-       sumsub_consent_version = NULL, updated_at = NOW()
+       kyb_consent_at = NOW(), kyb_consent_version = 'manual-kyb-v1',
+       updated_at = NOW()
      RETURNING status, updated_at AS "updatedAt"`,
     [req.merchantEmail, ...Object.values(fields)],
   )

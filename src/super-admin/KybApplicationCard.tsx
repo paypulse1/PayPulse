@@ -1,6 +1,6 @@
 import { Button } from "../AppPrimitives"
 import type { AdminKybApplication } from "../lib/swiftpay"
-import { hasPassedSumsubKyb } from "./useAdminConsoleViewModel"
+import { canManuallyApproveKyb } from "./useAdminConsoleViewModel"
 
 export type KybReviewStatus = "IN_REVIEW" | "APPROVED" | "REJECTED"
 
@@ -19,7 +19,7 @@ export default function KybApplicationCard({
   onOpenDocument: (documentType: string) => void
   onReview: (status: KybReviewStatus) => void
 }) {
-  const canApprove = hasPassedSumsubKyb(application)
+  const canApprove = canManuallyApproveKyb(application)
 
   return (
     <article className="admin-kyb-application">
@@ -33,13 +33,8 @@ export default function KybApplicationCard({
       </div>
       <dl>
         <div>
-          <dt>Sumsub verification</dt>
-          <dd>
-            {application.sumsubReviewStatus.replace(/_/g, " ")}
-            {application.sumsubApplicantId
-              ? ` · Applicant ${application.sumsubApplicantId}`
-              : ""}
-          </dd>
+          <dt>Manual KYB review</dt>
+          <dd>{application.status.replace(/_/g, " ")}</dd>
         </div>
         <div>
           <dt>Registration</dt>
@@ -69,8 +64,7 @@ export default function KybApplicationCard({
       </dl>
       <div className="admin-kyb-documents">
         <span>
-          Review the detailed provider checks in Sumsub using the applicant ID
-          above.
+          Review each private document before making a decision.
         </span>
         {application.documents.map((document) => (
           <button
@@ -83,7 +77,7 @@ export default function KybApplicationCard({
           </button>
         ))}
         {application.documents.length === 0 && (
-          <span>No separate DRPAY documents submitted</span>
+          <span>No KYB documents submitted</span>
         )}
       </div>
       <label className="admin-kyb-notes">
@@ -119,8 +113,8 @@ export default function KybApplicationCard({
       </div>
       {!canApprove && (
         <small className="admin-kyb-missing">
-          DRPAY approval requires a positive Sumsub business-verification
-          result.
+          Approval requires recorded KYB consent, the business registration
+          document, and both sides of the owner’s ID.
         </small>
       )}
     </article>

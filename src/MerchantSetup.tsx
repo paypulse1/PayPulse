@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "./AppPrimitives";
 import { APP_ROUTES } from "./lib/routes";
 import {
@@ -12,12 +12,12 @@ import {
   retryMerchantWebhookDelivery,
   revokeMerchantApiKey,
   saveMerchantKybProfile,
+  uploadKybDocument,
   saveMerchantWebhook,
   type KybProfile,
+  type KybDocument,
   type MerchantApiKey,
   type MerchantWebhookSettings,
-  startSumsubKybVerification,
-  type SumsubKybStatus,
   type WebhookDelivery,
 } from "./lib/swiftpay";
 import MerchantApiDocumentation, {
@@ -44,37 +44,37 @@ const webhookEvents = [
   ["disbursement.failed", "Disbursement failed"],
 ] as const;
 
-const sumsubStatusLabels: Record<SumsubKybStatus, string> = {
-  NOT_STARTED: "Not started",
-  IN_PROGRESS: "In progress",
-  IN_REVIEW: "Waiting for Sumsub review",
-  ON_HOLD: "On hold",
-  RESUBMISSION_REQUIRED: "More information required",
-  APPROVED: "Provider checks passed — awaiting DRPAY review",
-  REJECTED: "Provider verification not approved",
-}
+const requiredKybDocumentTypes = [
+  "business_registration",
+  "identity_front",
+  "identity_back",
+] as const
+
+const kybDocumentTypes = [
+  ["business_registration", "Business registration document", true],
+  ["identity_front", "Owner ID — front", true],
+  ["identity_back", "Owner ID — back", true],
+  ["proof_of_address", "Proof of business address", false],
+] as const
 
 export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
   const [profile, setProfile] = useState(initialKyb)
   const [status, setStatus] = useState<KybProfile["status"] | "">("")
-  const [sumsubReviewStatus, setSumsubReviewStatus] =
-    useState<SumsubKybStatus>("NOT_STARTED")
+  const [documents, setDocuments] = useState<KybDocument[]>([])
   const [reviewNotes, setReviewNotes] = useState("")
   const [profileSaved, setProfileSaved] = useState(false)
   const [consent, setConsent] = useState(false)
-  const [sdkVisible, setSdkVisible] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState("")
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
-  const sdkContainerRef = useRef<HTMLDivElement | null>(null)
-  const sdkInstanceRef = useRef<import("@sumsub/websdk").SnsWebSdk | null>(null)
 
   useEffect(() => {
     let active = true
     getMerchantKyb()
-      .then(({ profile: kybProfile }) => {
+      .then(({ profile: kybProfile, documents: kybDocuments }) => {
         if (!active) return
+        setDocuments(kybDocuments)
         if (kybProfile) {
           setProfile({
             legalBusinessName: kybProfile.legalBusinessName,
@@ -89,9 +89,9 @@ export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
             ownerPhone: kybProfile.ownerPhone,
           })
           setStatus(kybProfile.status)
-          setSumsubReviewStatus(kybProfile.sumsubReviewStatus)
           setReviewNotes(kybProfile.reviewNotes || "")
-          setProfileSaved(true)
+          setProfileSaved(kybProfile.kybConsentGiven)
+          setConsent(kybProfile.kybConsentGiven)
         } else {
           setProfileSaved(false)
         }
@@ -110,8 +110,6 @@ export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
       })
     return () => {
       active = false
-      sdkInstanceRef.current?.destroy()
-      sdkInstanceRef.current = null
     }
   }, [refreshVersion])
 
@@ -124,12 +122,13 @@ export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
   async function refreshKybStatus() {
     setError("")
     try {
-      const { profile: kybProfile } = await getMerchantKyb()
+      const { profile: kybProfile, documents: kybDocuments } =
+        await getMerchantKyb()
       if (!kybProfile) return
+      setDocuments(kybDocuments)
       setStatus(kybProfile.status)
-      setSumsubReviewStatus(kybProfile.sumsubReviewStatus)
       setReviewNotes(kybProfile.reviewNotes || "")
-      setNotice("Verification status refreshed.")
+      setNotice("KYB review status refreshed.")
     } catch (refreshError) {
       setError(
         refreshError instanceof Error
@@ -141,17 +140,20 @@ export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
 
   async function saveProfile(event: FormEvent) {
     event.preventDefault()
+    if (!consent) {
+      setError("Confirm the KYB review consent before saving your application.")
+      return
+    }
     setBusy("profile")
     setError("")
     setNotice("")
     try {
-      const result = await saveMerchantKybProfile(profile)
+      const result = await saveMerchantKybProfile(profile, true)
       setStatus(result.status)
-      setSumsubReviewStatus("NOT_STARTED")
       setReviewNotes("")
       setProfileSaved(true)
-      setConsent(false)
-      setNotice("Business and owner details saved. Continue with Sumsub verification.")
+      setConsent(true)
+      setNotice("Business and owner details saved. Upload the required documents for DRPAY review.")
     } catch (saveError) {
       setError(
         saveError instanceof Error
@@ -163,74 +165,42 @@ export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
     }
   }
 
-  async function startVerification() {
-    if (!consent) {
-      setError("Please review and accept the verification consent first.")
-      return
-    }
+  async function uploadDocument(documentType: string, file?: File) {
+    if (!file) return
     if (!profileSaved) {
       setError("Save your business and beneficial-owner details first.")
       return
     }
-    setBusy("sumsub")
+    setBusy(documentType)
     setError("")
     setNotice("")
     try {
-      const { accessToken, sumsubReviewStatus: providerStatus } =
-        await startSumsubKybVerification(true)
-      setSumsubReviewStatus(providerStatus)
-      const { default: snsWebSdk } = await import("@sumsub/websdk")
-      sdkInstanceRef.current?.destroy()
-      const instance = snsWebSdk
-        .init(accessToken, async () => {
-          const refreshed = await startSumsubKybVerification(true)
-          return refreshed.accessToken
-        })
-        .withConf({ lang: "en", theme: "light" })
-        .withOptions({ addViewportTag: false, adaptIframeHeight: true })
-        .on("idCheck.onApplicantSubmitted", () => {
-          setNotice(
-            "Your verification was submitted to Sumsub. Refresh the status for the latest result.",
-          )
-        })
-        .on("idCheck.onError", () => {
-          setError(
-            "Sumsub verification could not continue. Please retry or contact DRPAY support.",
-          )
-        })
-        .build()
-      sdkInstanceRef.current = instance
-      setSdkVisible(true)
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => resolve())
-      })
-      if (!sdkContainerRef.current) {
-        throw new Error("The Sumsub verification panel could not be opened.")
-      }
-      instance.launch(sdkContainerRef.current)
-    } catch (startError) {
+      await uploadKybDocument(documentType, file)
+      const result = await getMerchantKyb()
+      setDocuments(result.documents)
+      setStatus(result.profile?.status || "PENDING")
+      setReviewNotes(result.profile?.reviewNotes || "")
+      setNotice(`${file.name} uploaded securely for manual review.`)
+    } catch (uploadError) {
       setError(
-        startError instanceof Error
-          ? startError.message
-          : "Could not start Sumsub verification.",
+        uploadError instanceof Error
+          ? uploadError.message
+          : "Could not upload this KYB document.",
       )
     } finally {
       setBusy("")
     }
   }
 
-  function closeVerification() {
-    sdkInstanceRef.current?.destroy()
-    sdkInstanceRef.current = null
-    setSdkVisible(false)
-  }
-
   if (loading) return <p className="profile-sheet-state">Loading KYB application…</p>
 
-  const providerResultIsFinal = ["APPROVED", "REJECTED"].includes(
-    sumsubReviewStatus,
+  const profileLocked = status === "APPROVED"
+  const uploadedDocumentTypes = new Set(
+    documents.map((document) => document.documentType),
   )
-  const profileLocked = providerResultIsFinal || status === "APPROVED"
+  const uploadedRequiredDocumentCount = requiredKybDocumentTypes.filter(
+    (documentType) => uploadedDocumentTypes.has(documentType),
+  ).length
 
   return (
     <div className="merchant-setup">
@@ -241,8 +211,8 @@ export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
         </div>
       )}
       <p className="profile-info-note">
-        Enter your business and beneficial-owner details, then complete the
-        secure Sumsub business-verification flow.
+        Provide your business and beneficial-owner details, upload the required
+        documents, and DRPAY staff will manually review your KYB application.
       </p>
       <form className="setup-form" onSubmit={(event) => void saveProfile(event)}>
         <label>
@@ -361,94 +331,105 @@ export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
             maxLength={200}
           />
         </label>
-        <Button
-          type="submit"
-          disabled={
-            busy !== "" ||
-            profileSaved ||
-            profileLocked
-          }
-        >
-          {busy === "profile" ? "Saving…" : "Save business details"}
-        </Button>
-      </form>
-      <section className="sumsub-verification" aria-label="Sumsub verification">
-        <div className="sumsub-verification-heading">
-          <strong>Sumsub business verification</strong>
-          <span
-            className={`kyb-status status-${sumsubReviewStatus.toLowerCase()}`}
-            role="status"
-          >
-            {sumsubStatusLabels[sumsubReviewStatus]}
-          </span>
-        </div>
-        <p>
-          Sumsub collects required company and owner documents, performs
-          configured registry and screening checks, and can request identity
-          document capture with selfie liveness. The exact checks depend on the
-          KYB level enabled for DRPAY.
-        </p>
-        <label className="sumsub-consent">
+        <label className="manual-kyb-consent">
           <input
             type="checkbox"
             checked={consent}
-            disabled={providerResultIsFinal || status === "APPROVED"}
+            disabled={profileLocked}
             onChange={(event) => setConsent(event.target.checked)}
           />
           <span>
-            I consent to DRPAY and Sumsub processing the business, beneficial
-            owner, identity-document, and biometric information required for
-            KYB. See the{" "}
+            I confirm these details are accurate and authorize DRPAY to review
+            the business and owner information and documents for KYB. See the{" "}
             <a href={APP_ROUTES.privacy} target="_blank" rel="noreferrer">
               Privacy Policy
             </a>
             .
           </span>
         </label>
-        <div className="sumsub-verification-actions">
-          <Button
-            disabled={
-              busy !== "" ||
-              !profileSaved ||
-              !consent ||
-              status === "APPROVED" ||
-              providerResultIsFinal
-            }
-            onClick={() => void startVerification()}
-          >
-            {busy === "sumsub"
-              ? "Connecting to Sumsub…"
-              : sumsubReviewStatus === "RESUBMISSION_REQUIRED"
-                ? "Continue verification"
-                : sumsubReviewStatus === "IN_PROGRESS"
-                  ? "Resume verification"
-                  : "Start verification"}
-          </Button>
-          <Button
-            variant="secondary"
-            disabled={busy !== ""}
-            onClick={() => void refreshKybStatus()}
-          >
-            Refresh status
-          </Button>
-          {sdkVisible && (
-            <Button variant="secondary" onClick={closeVerification}>
-              Close verification
-            </Button>
-          )}
+        <Button
+          type="submit"
+          disabled={
+            busy !== "" ||
+            (profileSaved && consent) ||
+            profileLocked
+          }
+        >
+          {busy === "profile"
+            ? "Saving…"
+            : profileSaved
+              ? "Save KYB consent"
+              : "Save business details"}
+        </Button>
+      </form>
+      <section className="manual-kyb-verification" aria-label="KYB documents">
+        <div className="manual-kyb-heading">
+          <strong>KYB documents</strong>
+          <span className="manual-kyb-progress" role="status">
+            {uploadedRequiredDocumentCount}/{requiredKybDocumentTypes.length}{" "}
+            required
+          </span>
         </div>
-        <div
-          ref={sdkContainerRef}
-          className="sumsub-sdk-container"
-          hidden={!sdkVisible}
-        />
-        {sumsubReviewStatus === "APPROVED" && (
-          <p className="sumsub-approval-note">
-            Sumsub checks passed. DRPAY will review the application separately;
-            e-wallet access is enabled only after DRPAY approval and account
-            activation.
+        <p className="manual-kyb-caption">
+          DRPAY staff review these documents manually. Upload a PDF, JPEG, or
+          PNG up to 10 MB. Do not upload documents for anyone other than the
+          listed business and owner.
+        </p>
+        <div className="setup-documents">
+          {kybDocumentTypes.map(([documentType, label, required]) => {
+            const uploadedDocument = documents.find(
+              (document) => document.documentType === documentType,
+            )
+            const isUploading = busy === documentType
+            return (
+              <div className="setup-document-row" key={documentType}>
+                <div>
+                  <strong>{label}</strong>
+                  <small>
+                    {uploadedDocument
+                      ? uploadedDocument.fileName
+                      : required
+                        ? "Required for review"
+                        : "Optional"}
+                  </small>
+                </div>
+                <label className="setup-file-button">
+                  <input
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                    disabled={
+                      !profileSaved ||
+                      profileLocked ||
+                      (busy !== "" && !isUploading)
+                    }
+                    aria-label={`Upload ${label}`}
+                    onChange={(event) => {
+                      void uploadDocument(documentType, event.currentTarget.files?.[0])
+                      event.currentTarget.value = ""
+                    }}
+                  />
+                  {isUploading
+                    ? "Uploading…"
+                    : uploadedDocument
+                      ? "Replace"
+                      : "Upload"}
+                </label>
+              </div>
+            )
+          })}
+        </div>
+        {!profileSaved && (
+          <p className="manual-kyb-caption">
+            Save your details and confirm consent before uploading documents.
           </p>
         )}
+        <Button
+          variant="secondary"
+          disabled={busy !== ""}
+          onClick={() => void refreshKybStatus()}
+        >
+          Refresh review status
+        </Button>
       </section>
       {error && (
         <p className="setup-error" role="alert">

@@ -9,7 +9,6 @@ const financeActions = [
 ]
 
 const complianceActions = [
-  /^\/v1\/admin\/kyb(?:\/|$)/,
   /^\/v1\/admin\/merchants\/[^/]+\/kyb(?:\/|$)/,
   /^\/v1\/admin\/merchant-registrations(?:\/|$)/,
   /^\/v1\/admin\/sumsub(?:\/|$)/,

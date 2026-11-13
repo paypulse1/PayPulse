@@ -245,6 +245,9 @@ export async function ensureMerchantKybDocumentSchema(pool) {
       ADD COLUMN IF NOT EXISTS sumsub_last_event_type TEXT,
       ADD COLUMN IF NOT EXISTS sumsub_consent_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS sumsub_consent_version TEXT;
+    ALTER TABLE merchant_kyb_profiles
+      ADD COLUMN IF NOT EXISTS kyb_consent_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS kyb_consent_version TEXT;
     CREATE UNIQUE INDEX IF NOT EXISTS merchant_kyb_sumsub_external_user_idx
       ON merchant_kyb_profiles (sumsub_external_user_id)
       WHERE sumsub_external_user_id IS NOT NULL;

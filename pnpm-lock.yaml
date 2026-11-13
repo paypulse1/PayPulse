@@ -47,9 +47,6 @@ importers:
       '@simplewebauthn/server':
         specifier: ^14.1.0
         version: 14.1.0
-      '@sumsub/websdk':
-        specifier: ^2.9.1
-        version: 2.9.1
       '@zxing/browser':
         specifier: ^0.2.1
         version: 0.2.1(@zxing/library@0.23.0)
@@ -744,9 +741,6 @@ packages:
   '@smithy/types@4.19.0':
     resolution: {integrity: sha512-r7jh49VJxGerfAcTQA6gXcKc+98zOp/tqRwzYjgOE+iSQsP6cEU1hq2QzbuipmP68QtYdY9wKEhiCQZIzHgZ4Q==}
     engines: {node: '>=18.0.0'}
-
-  '@sumsub/websdk@2.9.1':
-    resolution: {integrity: sha512-Qv1O7czcaw5B7c9/xQrQJ94uJO+VgNwxHMpKrlNns6f0JcBVGjP4oWC23gvqSFa1Hy1LvvXRZeha9OffTzQ9UQ==}
 
   '@tailwindcss/node@4.2.2':
     resolution: {integrity: sha512-pXS+wJ2gZpVXqFaUEjojq7jzMpTGf8rU6ipJz5ovJV6PUGmlJ+jvIwGrzdHdQ80Sg+wmQxUFuoW1UAAwHNEdFA==}
@@ -2816,8 +2810,6 @@ snapshots:
   '@smithy/types@4.19.0':
     dependencies:
       tslib: 2.8.1
-
-  '@sumsub/websdk@2.9.1': {}
 
   '@tailwindcss/node@4.2.2':
     dependencies:

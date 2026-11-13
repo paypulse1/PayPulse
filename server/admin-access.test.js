@@ -34,6 +34,13 @@ describe("operations staff access", () => {
         "/v1/admin/merchants/a@example.com/kyb/status",
       ),
     ).toBe(true)
+    expect(canAdminAccess("compliance", "GET", "/v1/admin/kyb")).toBe(true)
+    expect(canAdminAccess("compliance", "PATCH", "/v1/admin/kyb/a@example.com")).toBe(
+      false,
+    )
+    expect(canAdminAccess("super_admin", "PATCH", "/v1/admin/kyb/a@example.com")).toBe(
+      true,
+    )
     expect(
       canAdminAccess(
         "compliance",

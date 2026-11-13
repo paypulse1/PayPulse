@@ -483,15 +483,6 @@ export type KybDocument = {
   uploadedAt: string
 }
 
-export type SumsubKybStatus =
-  | "NOT_STARTED"
-  | "IN_PROGRESS"
-  | "IN_REVIEW"
-  | "ON_HOLD"
-  | "RESUBMISSION_REQUIRED"
-  | "APPROVED"
-  | "REJECTED"
-
 export type KybProfile = {
   legalBusinessName: string
   registrationNumber: string
@@ -506,8 +497,7 @@ export type KybProfile = {
   status: "PENDING" | "IN_REVIEW" | "APPROVED" | "REJECTED"
   reviewNotes: string | null
   updatedAt: string
-  sumsubReviewStatus: SumsubKybStatus
-  sumsubApplicantId: string | null
+  kybConsentGiven: boolean
 }
 
 export type MerchantApiKey = {
@@ -1200,50 +1190,18 @@ export async function verifyMerchantRegistrationOtp(
   )
 }
 
-export async function startMerchantRegistrationSumsubVerification(input: {
-  email: string
-  challengeId: string
-  details: MerchantBusinessDetails
-  consent: true
-}) {
-  return publicRequest<{
-    accessToken: string
-    sumsubReviewStatus: SumsubKybStatus
-  }>("/v1/auth/registration/sumsub/access-token", {
-    method: "POST",
-    body: JSON.stringify({
-      email: input.email,
-      challengeId: input.challengeId,
-      ...input.details,
-      consent: input.consent,
-    }),
-  })
-}
-
-export async function getMerchantRegistrationSumsubStatus(
-  email: string,
-  challengeId: string,
-) {
-  return publicRequest<{ sumsubReviewStatus: SumsubKybStatus }>(
-    "/v1/auth/registration/sumsub/status",
-    {
-      method: "POST",
-      body: JSON.stringify({ email, challengeId }),
-    },
-  )
-}
-
 export async function submitMerchantRegistration(
   email: string,
   challengeId: string,
   details: MerchantBusinessDetails,
   pin: string,
+  kybConsent: true,
 ) {
   return publicRequest<{ email: string; status: "pending_review" }>(
     "/v1/auth/registration/submit",
     {
       method: "POST",
-      body: JSON.stringify({ email, challengeId, ...details, pin }),
+      body: JSON.stringify({ email, challengeId, ...details, pin, kybConsent }),
     },
   )
 }
@@ -2518,26 +2476,18 @@ export async function getMerchantKyb(): Promise<{
   return backendRequest("/v1/kyb")
 }
 
-export async function startSumsubKybVerification(
-  consent: boolean,
-): Promise<{
-  accessToken: string
-  sumsubReviewStatus: SumsubKybStatus
-}> {
-  return backendRequest("/v1/kyb/sumsub/access-token", {
-    method: "POST",
-    body: JSON.stringify({ consent }),
-  })
-}
-
 export async function saveMerchantKybProfile(
-  input: Omit<KybProfile, "status" | "reviewNotes" | "updatedAt" | "sumsubReviewStatus" | "sumsubApplicantId">,
+  input: Omit<
+    KybProfile,
+    "status" | "reviewNotes" | "updatedAt" | "kybConsentGiven"
+  >,
+  kybConsent: true,
 ) {
   return backendRequest<{ status: KybProfile["status"]; updatedAt: string }>(
     "/v1/kyb",
     {
       method: "PUT",
-      body: JSON.stringify(input),
+      body: JSON.stringify({ ...input, kybConsent }),
     },
   )
 }

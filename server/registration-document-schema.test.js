@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
-import { ensureMerchantRegistrationDocumentSchema } from "./registration-document-schema.js"
+import {
+  ensureMerchantKybDocumentSchema,
+  ensureMerchantRegistrationDocumentSchema,
+} from "./registration-document-schema.js"
 
 describe("merchant registration document schema compatibility", () => {
   it("bootstraps pgcrypto before uuid-based migration logic", () => {
@@ -63,6 +66,25 @@ describe("merchant registration document schema compatibility", () => {
     await ensureMerchantRegistrationDocumentSchema(pool)
 
     expect(calls.join("\n")).toContain("ADD COLUMN IF NOT EXISTS challenge_id")
+  })
+
+  it("adds fields for recorded manual KYB consent", async () => {
+    const calls = []
+    const pool = {
+      query: async (sql) => {
+        calls.push(sql)
+        return { rows: [] }
+      },
+    }
+
+    await ensureMerchantKybDocumentSchema(pool)
+
+    expect(calls.join("\n")).toContain(
+      "ADD COLUMN IF NOT EXISTS kyb_consent_at",
+    )
+    expect(calls.join("\n")).toContain(
+      "ADD COLUMN IF NOT EXISTS kyb_consent_version",
+    )
   })
 
   it("adds the missing document_type column for legacy registration records", async () => {

@@ -1,12 +1,10 @@
 import { useState, type FormEvent } from "react"
 import {
-  getMerchantRegistrationSumsubStatus,
   requestMerchantRegistrationOtp,
   submitMerchantRegistration,
   verifyMerchantRegistrationOtp,
   type MerchantBusinessDetails,
   type MerchantRegistrationInput,
-  type SumsubKybStatus,
 } from "./lib/swiftpay"
 
 export type RegistrationStage = "contact" | "verify" | "owner" | "business" | "payout" | "security" | "verification" | "submitted"
@@ -50,7 +48,7 @@ const stages: RegistrationStep[] = [
   { id: "business", label: "Business" },
   { id: "payout", label: "Payout" },
   { id: "security", label: "Security" },
-  { id: "verification", label: "Verify" },
+  { id: "verification", label: "Documents" },
 ]
 
 export const registrationStageCopy: Record<Exclude<RegistrationStage, "submitted">, string> =
@@ -62,7 +60,7 @@ export const registrationStageCopy: Record<Exclude<RegistrationStage, "submitted
     payout: "Add the bank account for merchant settlements.",
     security: "Create a four-digit MPIN for your DRPAY account.",
     verification:
-      "Verify your business and beneficial owners securely with Sumsub.",
+      "Upload your business and owner documents for DRPAY's manual review.",
   }
 
 const maximumOwnerDateOfBirth = new Date(
@@ -84,8 +82,6 @@ export function useMerchantRegistration() {
   const [code, setCode] = useState("")
   const [pin, setPin] = useState("")
   const [confirmPin, setConfirmPin] = useState("")
-  const [sumsubReviewStatus, setSumsubReviewStatus] =
-    useState<SumsubKybStatus>("NOT_STARTED")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
 
@@ -158,25 +154,17 @@ export function useMerchantRegistration() {
     }
   }
 
-  async function refreshSumsubStatus() {
-    const response = await getMerchantRegistrationSumsubStatus(
-      contact.email.trim().toLowerCase(),
-      challengeId,
-    )
-    setSumsubReviewStatus(response.sumsubReviewStatus)
-    return response.sumsubReviewStatus
-  }
-
-  async function submitApplication(event: FormEvent<HTMLFormElement>) {
+  async function submitApplication(
+    event: FormEvent<HTMLFormElement>,
+    kybConsent: boolean,
+  ) {
     event.preventDefault()
     if (pin !== confirmPin) {
       setError("The MPINs do not match.")
       return
     }
-    if (!["IN_REVIEW", "ON_HOLD", "APPROVED"].includes(sumsubReviewStatus)) {
-      setError(
-        "Complete and submit your Sumsub verification before submitting this application.",
-      )
+    if (!kybConsent) {
+      setError("Confirm the KYB review consent before submitting.")
       return
     }
     setBusy(true)
@@ -191,6 +179,7 @@ export function useMerchantRegistration() {
           ownerPhone: application.ownerPhone || contact.phoneNumber,
         },
         pin,
+        kybConsent,
       )
       setStage("submitted")
     } catch (requestError) {
@@ -236,13 +225,11 @@ export function useMerchantRegistration() {
     setPin,
     stage,
     stages,
-    sumsubReviewStatus,
     submitSecurity,
     submitApplication,
     updateApplication,
     updateContact,
     verifyCode,
-    refreshSumsubStatus,
     maximumOwnerDateOfBirth,
   }
 }

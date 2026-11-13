@@ -107,10 +107,21 @@ export function updateMerchantKybStatus(
   )
 }
 
-export function hasPassedSumsubKyb(
-  application: Pick<AdminKybApplication, "sumsubReviewStatus">,
+export function canManuallyApproveKyb(
+  application: {
+    documents: ReadonlyArray<{ documentType: string }>
+    kybConsentGiven: boolean
+  },
 ) {
-  return application.sumsubReviewStatus === "APPROVED"
+  const uploadedTypes = new Set(
+    application.documents.map((document) => document.documentType),
+  )
+  return (
+    application.kybConsentGiven &&
+    ["business_registration", "identity_front", "identity_back"].every(
+      (documentType) => uploadedTypes.has(documentType),
+    )
+  )
 }
 
 export function useAdminConsoleViewModel({

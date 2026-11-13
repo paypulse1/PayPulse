@@ -3,7 +3,7 @@ import { test } from "vitest"
 import type { AdminMerchantAccount } from "../lib/swiftpay"
 import {
   canActivateMerchant,
-  hasPassedSumsubKyb,
+  canManuallyApproveKyb,
   updateMerchantKybStatus,
 } from "./useAdminConsoleViewModel"
 
@@ -48,16 +48,36 @@ test("approving KYB updates the merchant row so registration can be activated", 
   assert.equal(canActivateMerchant(updatedMerchant), true)
 })
 
-test("KYB approval requires a positive Sumsub verification result", () => {
+test("manual KYB approval requires consent, business registration, and both ID sides", () => {
   assert.equal(
-    hasPassedSumsubKyb({
-      sumsubReviewStatus: "APPROVED",
+    canManuallyApproveKyb({
+      kybConsentGiven: true,
+      documents: [
+        { documentType: "business_registration" },
+        { documentType: "identity_front" },
+        { documentType: "identity_back" },
+      ],
     }),
     true,
   )
   assert.equal(
-    hasPassedSumsubKyb({
-      sumsubReviewStatus: "IN_REVIEW",
+    canManuallyApproveKyb({
+      kybConsentGiven: true,
+      documents: [
+        { documentType: "business_registration" },
+        { documentType: "identity_front" },
+      ],
+    }),
+    false,
+  )
+  assert.equal(
+    canManuallyApproveKyb({
+      kybConsentGiven: false,
+      documents: [
+        { documentType: "business_registration" },
+        { documentType: "identity_front" },
+        { documentType: "identity_back" },
+      ],
     }),
     false,
   )
