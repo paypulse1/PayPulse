@@ -241,8 +241,8 @@ export default function OperationsSignIn({
         <div className="auth-trust">
           <ShieldCheck size={16} />
           <span>
-            Operations access requires a separate account and authenticator
-            verification.
+            Super-admin sign-in does not require TOTP. Other operations roles
+            require authenticator verification.
           </span>
         </div>
       </section>

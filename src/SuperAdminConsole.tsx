@@ -3192,7 +3192,11 @@ export function SuperAdminConsole({
                           <strong>{staff.email}</strong>
                           <small>
                             {staff.role.replace(/_/g, " ")} · {staff.status} ·{" "}
-                            {staff.mfaEnabled ? "MFA enabled" : "MFA not enrolled"}
+                            {staff.role === "super_admin"
+                              ? "TOTP optional"
+                              : staff.mfaEnabled
+                                ? "MFA enabled"
+                                : "MFA not enrolled"}
                           </small>
                         </div>
                         {staff.role !== "super_admin" &&

@@ -3,6 +3,10 @@ import { createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEq
 const BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 const TOTP_PERIOD_SECONDS = 30
 
+export function isTotpRequiredForAdminRole(role) {
+  return role !== "super_admin"
+}
+
 function decodeBase32(value) {
   const normalized = value.replace(/=+$/, "").toUpperCase()
   let bits = ""

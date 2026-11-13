@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   decryptTotpSecret,
   encryptTotpSecret,
+  isTotpRequiredForAdminRole,
   matchingTotpStep,
   totpCodeAt,
   totpProvisioningUri,
@@ -10,6 +11,13 @@ import {
 const secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
 
 describe("operations TOTP", () => {
+  it("keeps TOTP required for operations staff but optional for super admins", () => {
+    expect(isTotpRequiredForAdminRole("super_admin")).toBe(false)
+    expect(isTotpRequiredForAdminRole("finance")).toBe(true)
+    expect(isTotpRequiredForAdminRole("compliance")).toBe(true)
+    expect(isTotpRequiredForAdminRole("auditor")).toBe(true)
+  })
+
   it("generates RFC-compatible SHA-1 codes and rejects replayed steps", () => {
     expect(totpCodeAt(secret, 59_000)).toBe("287082")
     const step = matchingTotpStep(secret, "287082", 59_000)

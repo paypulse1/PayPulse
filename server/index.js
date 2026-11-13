@@ -14,6 +14,7 @@ import {
   decryptTotpSecret,
   encryptTotpSecret,
   generateTotpSecret,
+  isTotpRequiredForAdminRole,
   matchingTotpStep,
   totpProvisioningUri,
 } from "./admin-mfa.js"
@@ -3869,11 +3870,17 @@ async function requireAdminSession(req, res, next) {
       throw new Error("Invalid session")
     }
     const staff = await pool.query(
-      `SELECT role FROM admin_staff
-       WHERE email = $1 AND role = $2 AND status = 'active' AND totp_enabled = TRUE`,
+      `SELECT role, totp_enabled FROM admin_staff
+       WHERE email = $1 AND role = $2 AND status = 'active'`,
       [payload.sub, payload.role],
     )
-    if (!staff.rowCount) throw new Error("Inactive operations session")
+    if (
+      !staff.rowCount ||
+      (isTotpRequiredForAdminRole(staff.rows[0].role) &&
+        !staff.rows[0].totp_enabled)
+    ) {
+      throw new Error("Inactive operations session")
+    }
     req.adminEmail = payload.sub
     req.adminRole = staff.rows[0].role
     return next()
@@ -4318,6 +4325,11 @@ app.post("/v1/auth/login", loginLimiter, async (req, res) => {
     !matchesPasswordHash(password, staff.password_salt, staff.password_hash)
   ) {
     return res.status(401).json({ error: "Email or password is incorrect." })
+  }
+  if (!isTotpRequiredForAdminRole(staff.role)) {
+    return res
+      .set("Cache-Control", "no-store")
+      .json(await issueAdminSession(email, staff.role))
   }
   return res
     .set("Cache-Control", "no-store")
