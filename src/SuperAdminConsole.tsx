@@ -131,7 +131,7 @@ export function SuperAdminConsole({
     usdtNetwork: "",
     collectionFeePercent: 0,
     transferFeeFixed: 0,
-    agreementProviderName: "DRPAY",
+    agreementProviderName: "PulsePay",
     agreementProviderAddress: "",
     agreementProviderRegistration: "",
     agreementActivationFee: 5000,

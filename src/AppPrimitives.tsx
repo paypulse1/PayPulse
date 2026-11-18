@@ -158,11 +158,11 @@ export function Button({
 
 export function Brand() {
   return (
-    <div className="brand" aria-label="DRPAY">
-      <span className="brand-mark">
-        <img src="/drpay-mark.png" alt="" />
+    <div className="brand" aria-label="PulsePay">
+      <span className="brand-mark" aria-hidden="true">
+        <span>P</span>
       </span>
-      <strong>DRPAY</strong>
+      <strong>PulsePay</strong>
     </div>
   )
 }
@@ -174,7 +174,7 @@ export function PoweredByFooter() {
       <span
         className="auth-powered-by-signature"
         role="img"
-        aria-label="DRPAY signature"
+        aria-label="PulsePay signature"
       />
       <ul className="auth-powered-by-partners">
         <li>

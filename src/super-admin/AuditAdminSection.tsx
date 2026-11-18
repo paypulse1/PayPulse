@@ -66,7 +66,7 @@ export default function AuditAdminSection({
                 <p>{event.summary}</p>
                 <small>
                   {event.category} · {event.target} · By{" "}
-                  {event.actor || "DRPAY team"}
+                  {event.actor || "PulsePay team"}
                 </small>
               </div>
             </article>

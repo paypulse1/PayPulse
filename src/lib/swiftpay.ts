@@ -769,7 +769,7 @@ export function getSession(): Session | null {
 
 export function saveSession(session: Session) {
   if (!isSession(session)) {
-    throw new Error("Invalid DRPAY session.")
+    throw new Error("Invalid PulsePay session.")
   }
   writeStorageItem("session", SESSION_KEY, JSON.stringify(session))
 }
@@ -852,7 +852,7 @@ async function parseResponse<T>(
   ) {
     throw new ApiError(
       errorMessage ||
-        "DRPAY is temporarily unavailable. Please try again in a few minutes.",
+        "PulsePay is temporarily unavailable. Please try again in a few minutes.",
       response.status,
       body.requestId,
     )
@@ -877,7 +877,7 @@ async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
   }
 
   throw new ApiError(
-    "DRPAY is temporarily unavailable. Check your connection and try again.",
+    "PulsePay is temporarily unavailable. Check your connection and try again.",
     503,
   )
 }
@@ -889,7 +889,7 @@ async function publicRequest<T>(
   const apiBaseUrl = getConfiguredApiBaseUrl()
   if (!apiBaseUrl)
     throw new Error(
-      "Live transactions are disabled because the DRPAY backend is not configured.",
+      "Live transactions are disabled because the PulsePay backend is not configured.",
     )
   const response = await apiFetch(`${apiBaseUrl.replace(/\/$/, "")}${path}`, {
     ...options,
@@ -906,10 +906,10 @@ async function backendRequest<T>(
   const apiBaseUrl = getConfiguredApiBaseUrl()
   if (!apiBaseUrl)
     throw new Error(
-      "Live transactions are disabled because the DRPAY backend is not configured.",
+      "Live transactions are disabled because the PulsePay backend is not configured.",
     )
   const session = getSession()
-  if (!session) throw new ApiError("A verified DRPAY session is required", 401)
+  if (!session) throw new ApiError("A verified PulsePay session is required", 401)
   const response = await apiFetch(`${apiBaseUrl.replace(/\/$/, "")}${path}`, {
     ...options,
     headers: {

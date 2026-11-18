@@ -134,7 +134,7 @@ function RegistrationComplete({
         progressIndex={1}
       />
       <p>
-        Your application and documents have been submitted for manual DRPAY
+        Your application and documents have been submitted for manual PulsePay
         review. We will email <strong>{email}</strong> when there is an update.
       </p>
       <div className="registration-review-note">
@@ -241,7 +241,7 @@ export default function MerchantRegistration({
   return (
     <MerchantAuthLayout
       registration
-      kicker="DRPAY MERCHANT REGISTRATION"
+      kicker="PulsePay MERCHANT REGISTRATION"
       kickerIcon={<ShieldCheck size={15} />}
       headline={
         <>
@@ -260,7 +260,7 @@ export default function MerchantRegistration({
         {
           icon: <ShieldCheck size={16} />,
           title: "Business verification",
-          description: "Submit documents for direct DRPAY review",
+          description: "Submit documents for direct PulsePay review",
         },
       ]}
       eyebrow="MERCHANT ACCOUNT"
@@ -322,7 +322,7 @@ export default function MerchantRegistration({
                 />
               </label>
               <small className="registration-step-hint">
-                Enter the code from the DRPAY merchant who referred you.
+                Enter the code from the PulsePay merchant who referred you.
               </small>
               <small className="registration-step-hint">
                 A verification code will be sent to your email.
@@ -714,7 +714,7 @@ export default function MerchantRegistration({
             <form onSubmit={handleApplicationSubmit}>
               <p className="registration-document-note">
                 Upload clear copies of your business registration and the
-                beneficial owner’s ID. A DRPAY super admin will review the
+                beneficial owner’s ID. A PulsePay super admin will review the
                 documents and application before merchant access is enabled.
               </p>
               <section
@@ -726,7 +726,7 @@ export default function MerchantRegistration({
                   <span className="manual-kyb-heading-copy">
                     <strong>Secure KYB document review</strong>
                     <small>
-                      Documents are private and reviewed by DRPAY staff.
+                      Documents are private and reviewed by PulsePay staff.
                     </small>
                   </span>
                   <span className="manual-kyb-progress" role="status">
@@ -808,7 +808,7 @@ export default function MerchantRegistration({
                   />
                   <span>
                     I confirm the information and documents are accurate and
-                    authorize DRPAY to review the business and owner details for
+                    authorize PulsePay to review the business and owner details for
                     KYB. See the{" "}
                     <a
                       href={APP_ROUTES.privacy}

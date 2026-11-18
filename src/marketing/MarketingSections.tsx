@@ -46,7 +46,7 @@ const capabilities = [
     number: "03",
     title: "Work from your phone",
     description:
-      "Use the DRPAY Android app to stay close to your merchant operations.",
+      "Use the PulsePay Android app to stay close to your merchant operations.",
     icon: Smartphone,
   },
 ]
@@ -68,7 +68,7 @@ const onboardingSteps = [
     number: "03",
     title: "Manage activity",
     description:
-      "Follow payment status and review your merchant activity in DRPAY.",
+      "Follow payment status and review your merchant activity in PulsePay.",
   },
 ]
 
@@ -246,7 +246,7 @@ export function DownloadSection() {
           target="_blank"
           rel="noopener noreferrer"
         >
-          Download DRPAY for Android
+          Download PulsePay for Android
           <ArrowRight size={17} aria-hidden="true" />
         </a>
         <a className="drpay-cta-login" href={APP_ROUTES.merchantSignIn}>
@@ -260,9 +260,9 @@ export function DownloadSection() {
 export function MarketingFooter() {
   return (
     <footer className="drpay-footer">
-      <a className="drpay-brand" href="#top" aria-label="DRPAY home">
-        <img className="drpay-brand-mark" src="/drpay-mark.svg" alt="" />
-        <span>DRPAY</span>
+      <a className="drpay-brand" href="#top" aria-label="PulsePay home">
+        <span className="drpay-brand-mark pulsepay-brand-mark" aria-hidden="true">P</span>
+        <span>PulsePay</span>
       </a>
       <p>Merchant payments, made clearer.</p>
       <a
@@ -270,7 +270,7 @@ export function MarketingFooter() {
         href={APP_ROUTES.androidAppListing}
         target="_blank"
         rel="noopener noreferrer"
-        aria-label="Download the DRPAY Android app"
+        aria-label="Download the PulsePay Android app"
       >
         <span>DOWNLOAD</span>
         <strong>Android app</strong>
@@ -281,7 +281,6 @@ export function MarketingFooter() {
         <a href={APP_ROUTES.terms}>Terms</a>
         <a href={APP_ROUTES.contact}>Contact</a>
       </nav>
-      <span className="drpay-copyright">© 2026 DRPAY</span>
     </footer>
   )
 }

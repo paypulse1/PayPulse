@@ -58,9 +58,9 @@ export const registrationStageCopy: Record<Exclude<RegistrationStage, "submitted
     owner: "Tell us about the person who owns or controls the business.",
     business: "Enter your registered business information.",
     payout: "Add the bank account for merchant settlements.",
-    security: "Create a four-digit MPIN for your DRPAY account.",
+    security: "Create a four-digit MPIN for your PulsePay account.",
     verification:
-      "Upload your business and owner documents for DRPAY's manual review.",
+      "Upload your business and owner documents for PulsePay's manual review.",
   }
 
 const maximumOwnerDateOfBirth = new Date(

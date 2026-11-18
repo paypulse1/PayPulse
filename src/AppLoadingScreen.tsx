@@ -1,5 +1,5 @@
 export default function AppLoadingScreen({
-  label = "Loading DRPAY",
+  label = "Loading PulsePay",
   description = "Getting your merchant workspace ready…",
 }: {
   label?: string
@@ -15,7 +15,7 @@ export default function AppLoadingScreen({
       <div className="app-loading-content">
         <div className="app-loading-brand">
           <img src="/drpay-mark.png" alt="" />
-          <strong>DRPAY</strong>
+          <strong>PulsePay</strong>
         </div>
         <span className="app-loading-spinner" aria-hidden="true" />
         <div className="app-loading-copy">

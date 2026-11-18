@@ -19,10 +19,10 @@ export default function MaintenanceScreen() {
         <header className="mb-12 flex items-center justify-between">
           <a
             href="/"
-            aria-label="DRPAY home"
+            aria-label="PulsePay home"
             className="text-lg font-extrabold tracking-[-0.06em] text-[#0c2241] no-underline"
           >
-            DRPAY<span className="text-[#d9b866]">.</span>
+            PulsePay<span className="text-[#d9b866]">.</span>
           </a>
           <span className="inline-flex items-center gap-2 rounded-full border border-[#f0e2c7] bg-[#fff9ef] px-3 py-1.5 text-xs font-bold text-[#8c6617]">
             <span className="h-1.5 w-1.5 rounded-full bg-[#d9b866]" />
@@ -44,7 +44,7 @@ export default function MaintenanceScreen() {
           We&apos;re making things better.
         </h1>
         <p className="mb-8 max-w-md text-sm leading-7 text-[#596b82] sm:text-base">
-          DRPAY is temporarily unavailable while we carry out scheduled
+          PulsePay is temporarily unavailable while we carry out scheduled
           maintenance. Your account and payment information remain secure.
         </p>
 

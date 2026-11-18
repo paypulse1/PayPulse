@@ -57,7 +57,7 @@ export async function storeBiometricSecret(email: string, secret: string) {
     server: credentialServer(email),
     accessControl: AccessControl.BIOMETRY_CURRENT_SET,
     authValidityDuration: 0,
-    title: "Enable DRPAY biometric sign-in",
+    title: "Enable PulsePay biometric sign-in",
   });
 }
 
@@ -68,7 +68,7 @@ export async function readBiometricSecret(
   const isTransfer = purpose === "transfer"
   const credentials = await NativeBiometric.getSecureCredentials({
     server: credentialServer(email),
-    title: isTransfer ? "Authorize transfer" : "Sign in to DRPAY",
+    title: isTransfer ? "Authorize transfer" : "Sign in to PulsePay",
     subtitle: isTransfer
       ? "Confirm the transfer with your enrolled biometric"
       : "Confirm your identity to access your merchant account",
