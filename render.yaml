@@ -94,11 +94,11 @@ services:
       - key: DATABASE_SSL
         value: "false"
       - key: DRPAY_FRONTEND_ORIGIN
-        value: https://merchant.denpay.cc
+        value: https://pulse.pay.ph
       - key: DRPAY_ADDITIONAL_FRONTEND_ORIGINS
-        value: https://denpay.cc,https://pay.live.denpay.cc,https://pay.sandbox.denpay.cc,https://live.merchant.swiftpay.site,https://drpay-web.onrender.com
+        value: https://denpay.cc,https://merchant.denpay.cc,https://pay.live.denpay.cc,https://pay.sandbox.denpay.cc,https://live.merchant.swiftpay.site,https://drpay-web.onrender.com,https://www.pulse.pay.ph
       - key: DRPAY_LIVE_CHECKOUT_ORIGIN
-        value: https://pay.live.denpay.cc
+        value: https://pulse.pay.ph
       - key: DRPAY_SANDBOX_CHECKOUT_ORIGIN
         value: https://pay.sandbox.denpay.cc
       - key: DRPAY_PUBLIC_API_ORIGIN
@@ -118,7 +118,7 @@ services:
       - key: DRPAY_TELEGRAM_LOGIN_CLIENT_ID
         sync: false
       - key: DRPAY_PASSKEY_RP_ID
-        value: merchant.denpay.cc
+        value: pulse.pay.ph
       - key: RESEND_API_KEY
         sync: false
       - key: RESEND_FROM_EMAIL
@@ -163,6 +163,9 @@ services:
     runtime: static
     buildCommand: node scripts/download-latest-apk.mjs && corepack enable && corepack prepare pnpm@10.34.3 --activate && pnpm install --frozen-lockfile && pnpm typecheck && pnpm build
     staticPublishPath: dist
+    domains:
+      - pulse.pay.ph
+      - www.pulse.pay.ph
     envVars:
       - key: NODE_VERSION
         value: 22
@@ -171,7 +174,7 @@ services:
       - key: VITE_DRPAY_BACKEND_URL
         value: https://drpay-merchant-production.up.railway.app
       - key: VITE_DRPAY_MERCHANT_SIGNIN_URL
-        value: https://merchant.denpay.cc/login
+        value: https://pulse.pay.ph/login
       - key: VITE_DRPAY_LIVE_BACKEND_URL
         value: https://drpay-merchant-production.up.railway.app
       - key: VITE_DRPAY_SANDBOX_BACKEND_URL

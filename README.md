@@ -6,6 +6,8 @@ Vite marketing site and merchant workspace, with a server-side SwiftPay adapter.
 
 Review `render.yaml` and create its Blueprint in Render. It defines separate production and sandbox static sites and Node APIs, plus isolated persistent PostgreSQL databases. Production services deploy from `Production`; sandbox services deploy from `Sandbox`. The APIs and databases use paid plans; review Render's current pricing before provisioning. Each site publishes `dist` and rewrites application routes to the client app. API health checks use `/readyz` and remain unavailable until the database is initialized.
 
+The production PulsePay frontend is configured for `pulse.pay.ph` and `www.pulse.pay.ph` in the `drpay-web` static site. In Render, verify both custom domains and create the DNS records shown for them. Point the API and application hostnames only after TLS verification. Existing `*.denpay.cc` production origins remain allowed to avoid disrupting the current cutover.
+
 ## Railway production deployment
 
 Deploy the `Production` branch from the repository root as a single Railway service. `railway.json` downloads the latest signed APK from the private GitHub release, installs the pinned pnpm version, runs the API check, typecheck, and Vite production build, then starts the API and serves the built frontend. Set `DRPAY_GITHUB_RELEASE_TOKEN` in Railway Variables to a fine-grained GitHub token with read-only Contents access to this repository. The build verifies the downloaded APK checksum before including it at `/drpay.apk`; the homepage download buttons use that public route. Its `/readyz` health check passes only after the required configuration is present and the database is initialized.

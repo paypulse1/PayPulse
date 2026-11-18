@@ -314,6 +314,8 @@ const allowedOrigins = new Set(
     liveCheckoutOrigin,
     sandboxCheckoutOrigin,
     publicApiOrigin,
+    "https://pulse.pay.ph",
+    "https://www.pulse.pay.ph",
     "https://merchant.denpay.cc",
     "https://drpay-merchant-production.up.railway.app",
     "https://denpay.cc",
