@@ -36,12 +36,16 @@ test("USDT payment links use the public checkout host for each environment", () 
     "https://pay.live.denpay.cc",
   )
   assert.equal(
+    getPublicCheckoutOrigin("pulsepay.live", "https://pulsepay.live"),
+    "https://pulsepay.live",
+  )
+  assert.equal(
     getPublicCheckoutOrigin("localhost", "http://localhost:8443"),
     "http://localhost:8443",
   )
   assert.equal(
     getPublicCheckoutOrigin("localhost", "capacitor://localhost", true),
-    "https://pay.live.denpay.cc",
+    "https://pulsepay.live",
   )
 })
 

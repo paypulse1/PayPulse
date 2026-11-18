@@ -6,7 +6,7 @@ Vite marketing site and merchant workspace, with a server-side SwiftPay adapter.
 
 Review `render.yaml` and create its Blueprint in Render. It defines separate production and sandbox static sites and Node APIs, plus isolated persistent PostgreSQL databases. Production services deploy from `Production`; sandbox services deploy from `Sandbox`. The APIs and databases use paid plans; review Render's current pricing before provisioning. Each site publishes `dist` and rewrites application routes to the client app. API health checks use `/readyz` and remain unavailable until the database is initialized.
 
-The production PulsePay frontend is configured for `pulse.pay.ph` and `www.pulse.pay.ph` in the `drpay-web` static site. In Render, verify both custom domains and create the DNS records shown for them. Point the API and application hostnames only after TLS verification. Existing `*.denpay.cc` production origins remain allowed to avoid disrupting the current cutover.
+The production PulsePay frontend is configured for `pulsepay.live` and `www.pulsepay.live` in the `drpay-web` static site. In Render, verify both custom domains and create the DNS records shown for them. Point the API and application hostnames only after TLS verification. Existing `*.denpay.cc` production origins remain allowed to avoid disrupting the current cutover.
 
 ## Railway production deployment
 
@@ -46,10 +46,10 @@ Set these secrets directly in Render when prompted:
 - `DRPAY_JWT_SECRET`: random signing secret with at least 32 characters.
 - `DRPAY_GOOGLE_CLIENT_ID`: Google OAuth Web client ID. Configure its authorized JavaScript origins for the matching merchant web portal; the API verifies Google ID tokens against this audience.
 - `DRPAY_TELEGRAM_LOGIN_CLIENT_ID`: Telegram Login client ID from BotFather. Register the matching merchant portal origin in BotFather. This is separate from the super-admin notification bot token.
-- `DRPAY_PASSKEY_RP_ID`: the merchant portal's hostname without scheme or path (`merchant.denpay.cc` for production; `merchant.sandbox.denpay.cc` for sandbox). Passkey registration and login are web-only and require HTTPS (localhost is allowed for development).
+- `DRPAY_PASSKEY_RP_ID`: the merchant portal's hostname without scheme or path (`pulsepay.live` for production; `merchant.sandbox.denpay.cc` for sandbox). Passkey registration and login are web-only and require HTTPS (localhost is allowed for development).
 - `RESEND_API_KEY`: API key for sending first-device verification codes, customer payment requests, and payment confirmations through Resend.
 - `RESEND_FROM_EMAIL`: sender address on a domain verified with Resend, used for all outgoing email, including merchant verification codes.
-- `DRPAY_EMAIL_LOGO_URL` (optional): public HTTPS URL for the DRPAY logo shown in all outgoing email templates. Defaults to `https://merchant.denpay.cc/drpay-mark.png`.
+- `DRPAY_EMAIL_LOGO_URL` (optional): public HTTPS URL for the PulsePay logo shown in all outgoing email templates. Defaults to `https://pulsepay.live/drpay-mark.png`.
 - `FCM_PROJECT_ID`, `FCM_SERVICE_ACCOUNT_EMAIL`, and `FCM_SERVICE_ACCOUNT_PRIVATE_KEY`: Firebase Cloud Messaging server credentials for the organization-restricted Android app. Store the private key as a Railway secret; convert escaped `\n` sequences to newlines at runtime.
 - `FCM_PUBLIC_PROJECT_ID` (defaults to `drpay-merchant`), `FCM_PUBLIC_SERVICE_ACCOUNT_EMAIL` (defaults to `firebase-adminsdk-fbsvc@drpay-merchant.iam.gserviceaccount.com`), and `FCM_PUBLIC_SERVICE_ACCOUNT_PRIVATE_KEY`: Firebase Cloud Messaging credentials for the public Android app. Add the private key directly as a Railway secret; never paste it into chat or commit it.
 - `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`: Telegram bot credentials and the super-admin chat destination for confirmed merchant payments, transfers, USDT deposits/withdrawals, and completed floating-balance payouts.
@@ -115,7 +115,7 @@ The organization-restricted Android app ID is `ph.drpays.merchant`. Android push
 
 ## Payment behavior
 
-PHP/KRW merchant collections create a self-hosted DRPAY checkout page with a payment QR and live status updates; merchants can copy or share its payment URL. USDT collection requests provide a shareable instruction page with the assigned TRON mainnet address, amount, and address QR. USDT transfers are not confirmed automatically; merchants must verify the deposit in their wallet. Production links use `pay.live.denpay.cc`, while sandbox links use `pay.sandbox.denpay.cc`. Customer-facing pages are served by the DRPAY frontend.
+PHP/KRW merchant collections create a self-hosted DRPAY checkout page with a payment QR and live status updates; merchants can copy or share its payment URL. USDT collection requests provide a shareable instruction page with the assigned TRON mainnet address, amount, and address QR. USDT transfers are not confirmed automatically; merchants must verify the deposit in their wallet. Production links use `pulsepay.live/checkout/<code>`, while sandbox links use `pay.sandbox.denpay.cc`. Customer-facing pages are served by the DRPAY frontend.
 
 The API submits InstaPay/PESONet disbursements using SwiftPay's HTTP Basic-authenticated `POST /api/disbursements/send` endpoint, with a unique `merchantReferenceNo`; accepted transfers remain pending until SwiftPay reports a terminal status. InstaPay is limited to PHP 50,000 per transfer, and transfer remarks are required and limited to 80 characters. Provider validation errors are returned to the merchant instead of being mislabeled as gateway failures. Payment and payout records are stored in PostgreSQL. The server never accepts card data.
 

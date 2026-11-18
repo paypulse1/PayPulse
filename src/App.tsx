@@ -5257,6 +5257,8 @@ export default function App() {
     (/^[A-Za-z0-9_-]{40,50}$/.test(queryCheckoutCode) ? queryCheckoutCode : "")
   const hostname = window.location.hostname.toLowerCase()
   const isMerchantHost =
+    hostname === "pulsepay.live" ||
+    hostname === "www.pulsepay.live" ||
     hostname === "merchant.denpay.cc" ||
     hostname === "merchant.sandbox.denpay.cc" ||
     hostname === "live.merchant.swiftpay.site"

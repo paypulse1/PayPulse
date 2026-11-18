@@ -11,7 +11,7 @@ export const APP_ROUTES = {
   contact: "/contact",
   merchantSignIn:
     import.meta.env.VITE_DRPAY_MERCHANT_SIGNIN_URL ||
-    "https://merchant.denpay.cc/login",
+    "https://pulsepay.live/login",
   androidAppListing:
     "https://play.google.com/store/apps/details?id=ph.drpays.merchant.public&pcampaignid=web_share",
   capabilities: "#capabilities",
@@ -34,11 +34,15 @@ export function getPublicCheckoutOrigin(
   if (
     normalizedHostname === "merchant.denpay.cc" ||
     normalizedHostname === "pay.live.denpay.cc" ||
-    normalizedHostname === "live.merchant.swiftpay.site"
+    normalizedHostname === "live.merchant.swiftpay.site" ||
+    normalizedHostname === "pulsepay.live" ||
+    normalizedHostname === "www.pulsepay.live"
   ) {
-    return "https://pay.live.denpay.cc"
+    return normalizedHostname === "pulsepay.live" || normalizedHostname === "www.pulsepay.live"
+      ? "https://pulsepay.live"
+      : "https://pay.live.denpay.cc"
   }
-  return isNativePlatform ? "https://pay.live.denpay.cc" : origin
+  return isNativePlatform ? "https://pulsepay.live" : origin
 }
 
 export const LEGAL_ROUTE_ALIASES: Record<"privacy" | "terms" | "contact", readonly string[]> =
@@ -57,7 +61,9 @@ export function shouldShowMarketingHome(
   if (normalizedPath === APP_ROUTES.marketing) return true
   if (
     normalizedPath !== "/" ||
-    hostname.toLowerCase() !== "merchant.denpay.cc"
+    !["pulsepay.live", "www.pulsepay.live", "merchant.denpay.cc"].includes(
+      hostname.toLowerCase(),
+    )
   ) {
     return false
   }
@@ -97,6 +103,8 @@ export function shouldGateMerchantMaintenance(
   if (separateExperience) return false
 
   const merchantHost = [
+    "pulsepay.live",
+    "www.pulsepay.live",
     "merchant.denpay.cc",
     "merchant.sandbox.denpay.cc",
     "live.merchant.swiftpay.site",

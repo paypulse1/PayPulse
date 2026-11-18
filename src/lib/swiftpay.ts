@@ -705,6 +705,8 @@ function getConfiguredApiBaseUrl() {
   )
     return sandboxApiBaseUrl
   if (
+    hostname === "pulsepay.live" ||
+    hostname === "www.pulsepay.live" ||
     hostname === "pay.live.denpay.cc" ||
     hostname === "merchant.denpay.cc" ||
     hostname === "live.merchant.swiftpay.site"

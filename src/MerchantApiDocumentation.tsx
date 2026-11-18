@@ -105,7 +105,7 @@ export default function MerchantApiDocumentation({
     ? "Production / live money"
     : "Sandbox / test money"
   const checkoutHost = isProduction
-    ? "pay.live.denpay.cc"
+    ? "pulsepay.live"
     : "pay.sandbox.denpay.cc"
   const checkoutOrigin = `https://${checkoutHost}`
 
