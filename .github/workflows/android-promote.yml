@@ -56,6 +56,10 @@ jobs:
           ANDROID_APPLICATION_ID: ${{ (github.event_name == 'workflow_dispatch' && inputs.application == 'public' || startsWith(github.ref_name, 'android-public-prod-v')) && 'ph.drpays.merchant.public' || 'com.paypulse.merchant' }}
           ANDROID_RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
+          if [[ -z "$ANDROID_RELEASE_TAG" ]]; then
+            echo "release_tag is required when manually promoting a release." >&2
+            exit 1
+          fi
           python3 -m pip install --disable-pip-version-check "google-auth[requests]>=2,<3"
           python3 android/publish_to_play.py --promote-existing "$ANDROID_RELEASE_TAG"
 

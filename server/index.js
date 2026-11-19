@@ -3858,8 +3858,14 @@ async function cleanExpiredTaxInvoiceUploads() {
 
 async function requireAdminSession(req, res, next) {
   const match = /^Bearer\s+(.+)$/i.exec(req.get("authorization") || "")
-  if (!match || !jwtSecret)
+  if (!match || !jwtSecret) {
+    console.warn("Operations authorization rejected", {
+      path: req.path,
+      reason: match ? "jwt_secret_unavailable" : "missing_bearer",
+    })
     return res.status(401).json({ error: "Restricted sign-in is required." })
+  }
+  let rejectionReason = "invalid_session"
   try {
     const { payload } = await jwtVerify(match[1], jwtSecret, {
       algorithms: ["HS256"],
@@ -3871,6 +3877,7 @@ async function requireAdminSession(req, res, next) {
         payload.role,
       )
     ) {
+      rejectionReason = "invalid_claims"
       throw new Error("Invalid session")
     }
     const staff = await pool.query(
@@ -3883,12 +3890,20 @@ async function requireAdminSession(req, res, next) {
       (isTotpRequiredForAdminRole(staff.rows[0].role) &&
         !staff.rows[0].totp_enabled)
     ) {
+      rejectionReason = "inactive_staff_or_totp_disabled"
       throw new Error("Inactive operations session")
     }
     req.adminEmail = payload.sub
     req.adminRole = staff.rows[0].role
     return next()
-  } catch {
+  } catch (error) {
+    if (rejectionReason === "invalid_session" && error instanceof Error) {
+      rejectionReason = error.name
+    }
+    console.warn("Operations authorization rejected", {
+      path: req.path,
+      reason: rejectionReason,
+    })
     return res
       .status(401)
       .json({ error: "Your session has expired. Sign in again." })
@@ -11692,6 +11707,7 @@ app.get("/v1/wallet/balance", async (req, res) => {
       availableBalance,
       reservedBalance,
       walletMode: "pooled",
+      walletAccounting: "merchant_ledger",
       paymentEnvironment: swiftPayEnvironment,
       cumulativeKrwCollections,
     })

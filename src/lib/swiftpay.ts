@@ -122,6 +122,7 @@ export type DashboardData = {
   successfulPayments: string
   averageTransaction: string
   accountNumber?: string
+  walletAccounting: "merchant_ledger" | "internal_ledger" | "provider_wallet"
   walletMode: "internal" | "pooled" | "customer"
   paymentEnvironment: "sandbox" | "production"
   transactions: Transaction[]
@@ -535,6 +536,7 @@ type WalletBalanceResponse = {
   availableBalance?: number
   reservedBalance?: number
   cumulativeKrwCollections: number
+  walletAccounting?: "merchant_ledger" | "internal_ledger" | "provider_wallet"
   walletMode?: string
   paymentEnvironment?: "sandbox" | "production"
 }
@@ -1829,6 +1831,7 @@ export async function getMerchantDashboard(): Promise<DashboardData> {
     averageTransaction: formatMoney(
       settledCredits.length ? volume / settledCredits.length : 0,
     ),
+    walletAccounting: wallet.walletAccounting ?? "merchant_ledger",
     walletMode: wallet.walletMode === "pooled" ? "pooled" : "internal",
     paymentEnvironment:
       wallet.paymentEnvironment === "production" ? "production" : "sandbox",

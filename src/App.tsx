@@ -4550,7 +4550,17 @@ function MerchantProfileDetails({
         </div>
         <div>
           <dt>Wallet type</dt>
-          <dd>Merchant</dd>
+          <dd>
+            {data.walletAccounting === "merchant_ledger"
+              ? "Merchant-specific DRPAY ledger"
+              : data.walletAccounting === "provider_wallet"
+                ? "Pooled provider wallet"
+                : "Internal ledger"}
+          </dd>
+        </div>
+        <div>
+          <dt>Bank name</dt>
+          <dd>Netbank (Rural Bank of Romblon)</dd>
         </div>
         <div>
           <dt>Available Balance</dt>
