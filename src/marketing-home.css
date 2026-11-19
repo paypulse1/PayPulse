@@ -1448,3 +1448,466 @@
     margin-left: auto;
   }
 }
+
+.drpay-home {
+  --marketing-ink: #102445;
+  --marketing-muted: #60728d;
+  --marketing-blue: #2457eb;
+  --marketing-blue-dark: #1436a2;
+  --marketing-aqua: #28cbbd;
+  --marketing-gold: #bdf5e8;
+  --marketing-line: #dce7f5;
+  --marketing-paper: #fbfdff;
+  --marketing-white: #fff;
+  background:
+    radial-gradient(ellipse at 87% 8%, rgb(91 151 255 / 11%), transparent 34rem),
+    radial-gradient(ellipse at 10% 47%, rgb(40 203 189 / 7%), transparent 30rem),
+    var(--marketing-paper);
+}
+
+.drpay-home a:focus-visible {
+  outline-color: #1fb7ac;
+}
+
+.drpay-header {
+  border-bottom-color: rgb(16 36 69 / 6%);
+  background: rgb(251 253 255 / 88%);
+  box-shadow: 0 8px 30px rgb(22 53 99 / 3%);
+}
+
+.drpay-home .drpay-brand {
+  color: #102445;
+}
+
+.drpay-home .drpay-brand-mark {
+  border-radius: 12px;
+  background: linear-gradient(145deg, #3375ff, #1741bf 66%, #21bdb9);
+  box-shadow: 0 8px 20px rgb(36 87 235 / 24%);
+}
+
+.drpay-nav-links a,
+.drpay-login {
+  color: #526785;
+}
+
+.drpay-nav-links a:hover,
+.drpay-login:hover,
+.drpay-footer nav a:hover {
+  color: var(--marketing-blue);
+}
+
+.drpay-button {
+  border-color: transparent;
+  border-radius: 14px;
+  background: linear-gradient(115deg, #2c67f6, #214bce);
+  box-shadow: 0 10px 24px rgb(36 87 235 / 20%);
+}
+
+.drpay-button:hover {
+  background: linear-gradient(115deg, #2259e8, #173cae);
+  box-shadow: 0 14px 30px rgb(36 87 235 / 28%);
+}
+
+.drpay-hero {
+  min-height: 660px;
+  padding-top: 82px;
+  padding-bottom: 88px;
+}
+
+.drpay-hero::before {
+  top: 18px;
+  right: -180px;
+  width: 720px;
+  height: 720px;
+  border-color: rgb(36 87 235 / 9%);
+}
+
+.drpay-eyebrow {
+  color: #2154d2;
+  letter-spacing: 0.13em;
+}
+
+.drpay-pulse {
+  background: var(--marketing-aqua);
+  box-shadow: 0 0 0 4px rgb(40 203 189 / 16%);
+}
+
+.drpay-hero h1 {
+  letter-spacing: -0.07em;
+}
+
+.drpay-hero h1 span,
+.drpay-section-heading h2 span,
+.drpay-process h2 span,
+.drpay-security h2 span {
+  background: linear-gradient(100deg, #2457eb 8%, #178fce 58%, #19aa9d 100%);
+  background-clip: text;
+  color: transparent;
+}
+
+.drpay-hero-visual {
+  isolation: isolate;
+  padding: 28px 25px 27px 19px;
+  border: 1px solid rgb(255 255 255 / 82%);
+  border-radius: 34px;
+  background:
+    radial-gradient(ellipse at 50% 100%, rgb(92 112 255 / 20%), transparent 53%),
+    radial-gradient(ellipse at 85% 12%, rgb(40 203 189 / 19%), transparent 45%),
+    linear-gradient(145deg, #eaf8ff, #e9efff 56%, #f5f0ff);
+  box-shadow:
+    0 30px 75px rgb(46 83 152 / 11%),
+    inset 0 1px 0 rgb(255 255 255 / 90%);
+}
+
+.drpay-visual-orbit {
+  inset: 5% 2%;
+  border-color: rgb(36 87 235 / 13%);
+}
+
+.drpay-visual-label,
+.drpay-visual-side-note {
+  border-color: rgb(255 255 255 / 85%);
+  border-radius: 12px;
+  background: rgb(255 255 255 / 88%);
+  box-shadow: 0 12px 32px rgb(29 60 112 / 10%);
+  backdrop-filter: blur(14px);
+}
+
+.drpay-visual-label {
+  left: -9px;
+  color: #416184;
+}
+
+.drpay-visual-label-dot {
+  background: var(--marketing-aqua);
+  box-shadow: 0 0 0 4px rgb(40 203 189 / 15%);
+}
+
+.drpay-phone-frame {
+  padding: 8px;
+  border-color: rgb(255 255 255 / 92%);
+  border-radius: 27px;
+  box-shadow:
+    0 35px 75px rgb(27 55 111 / 20%),
+    0 8px 24px rgb(27 55 111 / 10%);
+}
+
+.drpay-phone-frame-banks {
+  transform: rotate(-5deg) translateY(6px);
+}
+
+.drpay-phone-frame-transfer {
+  transform: rotate(4deg) translateY(-4px);
+}
+
+.drpay-phone-frame figcaption {
+  color: #415875;
+}
+
+.drpay-confirmation-mark {
+  background: #e2fbf4;
+  color: #118b76;
+}
+
+.drpay-visual-side-note {
+  color: #526d8e;
+}
+
+.drpay-channel-section {
+  position: relative;
+  padding-top: 80px;
+  padding-bottom: 88px;
+  background:
+    radial-gradient(ellipse at 5% 100%, rgb(43 201 189 / 12%), transparent 36rem),
+    linear-gradient(135deg, #eef7ff, #f3f5ff 58%, #f5fbff);
+}
+
+.drpay-channel-intro h2 {
+  color: #11294d;
+}
+
+.drpay-channel-card {
+  min-height: 124px;
+  border-color: rgb(212 226 244 / 90%);
+  border-radius: 17px;
+  box-shadow: 0 9px 26px rgb(31 66 121 / 4%);
+}
+
+.drpay-channel-card:hover {
+  transform: translateY(-5px);
+  border-color: #b8cef5;
+  box-shadow: 0 18px 34px rgb(31 66 121 / 10%);
+}
+
+.drpay-channel-index {
+  color: #8398b7;
+}
+
+.drpay-channel-arrow {
+  color: #2a66e9;
+  transition: transform 180ms ease;
+}
+
+.drpay-channel-card:hover .drpay-channel-arrow {
+  transform: translateX(4px);
+}
+
+.drpay-capabilities {
+  padding-top: 128px;
+  padding-bottom: 132px;
+}
+
+.drpay-capability-card {
+  min-height: 250px;
+  overflow: hidden;
+  border-color: #e0e9f6;
+  border-radius: 19px;
+  background:
+    radial-gradient(ellipse at 100% 0%, rgb(226 239 255 / 72%), transparent 60%),
+    #fff;
+  box-shadow: 0 12px 34px rgb(28 58 105 / 4%);
+}
+
+.drpay-capability-card-top {
+  color: #2457eb;
+}
+
+.drpay-capability-rule {
+  right: 0;
+  left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #2457eb, #26c9b8 72%, transparent);
+}
+
+.drpay-capability-card:hover {
+  transform: translateY(-7px);
+  border-color: #bbd0f4;
+  box-shadow: 0 22px 44px rgb(28 58 105 / 10%);
+}
+
+.drpay-process {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 90% 4%, rgb(50 130 255 / 26%), transparent 34rem),
+    radial-gradient(ellipse at 10% 95%, rgb(31 184 177 / 17%), transparent 30rem),
+    linear-gradient(120deg, #102750, #102e65 58%, #172e73);
+  color: #fff;
+}
+
+.drpay-process::after {
+  position: absolute;
+  right: 3%;
+  bottom: -180px;
+  width: 420px;
+  height: 420px;
+  border: 1px solid rgb(255 255 255 / 9%);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 44px rgb(255 255 255 / 3%),
+    0 0 0 88px rgb(255 255 255 / 2%);
+  content: "";
+  pointer-events: none;
+}
+
+.drpay-process-intro,
+.drpay-steps {
+  position: relative;
+  z-index: 1;
+}
+
+.drpay-process .drpay-eyebrow {
+  color: #8de5dd;
+}
+
+.drpay-process h2,
+.drpay-process .drpay-step h3 {
+  color: #fff;
+}
+
+.drpay-process h2 span {
+  background: linear-gradient(90deg, #9be8f5, #83e4d7);
+  background-clip: text;
+}
+
+.drpay-process-intro > p:not(.drpay-eyebrow),
+.drpay-step p {
+  color: #c1d0e8;
+}
+
+.drpay-process-link {
+  color: #9ce8df;
+}
+
+.drpay-steps {
+  border-top-color: rgb(218 233 255 / 22%);
+}
+
+.drpay-step {
+  border-bottom-color: rgb(218 233 255 / 22%);
+}
+
+.drpay-step-number {
+  color: #87e2d8;
+}
+
+.drpay-step-check {
+  color: #8ee4d9;
+}
+
+.drpay-step:hover {
+  background: rgb(255 255 255 / 7%);
+}
+
+.drpay-security {
+  padding-top: 112px;
+  padding-bottom: 112px;
+}
+
+.drpay-security-icon {
+  border-color: #d6f1f0;
+  background: linear-gradient(145deg, #e7fbf8, #eaf1ff);
+  color: #2161df;
+}
+
+.drpay-security-copy {
+  border-left-color: #dce7f5;
+}
+
+.drpay-cta {
+  background:
+    radial-gradient(ellipse at 85% 10%, rgb(103 198 255 / 24%), transparent 34rem),
+    linear-gradient(115deg, #1645bf, #245fe8 56%, #167abf);
+}
+
+.drpay-cta .drpay-eyebrow {
+  color: #b9f4e9;
+}
+
+.drpay-cta h2 span {
+  color: #a7f1e4;
+}
+
+.drpay-cta-art span {
+  border-color: rgb(255 255 255 / 14%);
+}
+
+.drpay-button-light {
+  border-color: #fff;
+  background: #fff;
+  box-shadow: 0 10px 30px rgb(8 35 105 / 24%);
+  color: #1745b8 !important;
+}
+
+.drpay-button-light:hover {
+  border-color: #e3f6ff;
+  background: #e3f6ff;
+}
+
+.drpay-cta-login {
+  color: #e1edff !important;
+}
+
+.drpay-footer {
+  min-height: 110px;
+}
+
+.drpay-footer-play {
+  border-radius: 12px;
+}
+
+@media (max-width: 900px) {
+  .drpay-hero {
+    min-height: 0;
+    padding-top: 74px;
+  }
+
+  .drpay-hero-visual {
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+
+  .drpay-channel-section {
+    padding-top: 68px;
+    padding-bottom: 72px;
+  }
+
+  .drpay-process::after {
+    right: -140px;
+  }
+}
+
+@media (max-width: 640px) {
+  .drpay-header {
+    background: rgb(251 253 255 / 94%);
+  }
+
+  .drpay-hero {
+    padding-top: 54px;
+  }
+
+  .drpay-hero-visual {
+    padding: 24px 12px 17px 6px;
+    border-radius: 26px;
+  }
+
+  .drpay-visual-label,
+  .drpay-visual-side-note {
+    border-radius: 10px;
+  }
+
+  .drpay-phone-frame {
+    padding: 5px;
+    border-radius: 19px;
+  }
+
+  .drpay-phone-frame-banks {
+    transform: rotate(-4deg);
+  }
+
+  .drpay-phone-frame-transfer {
+    transform: rotate(3deg);
+  }
+
+  .drpay-channel-section {
+    padding-top: 54px;
+    padding-bottom: 58px;
+  }
+
+  .drpay-channel-card {
+    min-height: 86px;
+    border-radius: 14px;
+  }
+
+  .drpay-capabilities {
+    padding-top: 76px;
+    padding-bottom: 80px;
+  }
+
+  .drpay-capability-card {
+    min-height: 0;
+    border-radius: 16px;
+  }
+
+  .drpay-process {
+    padding-top: 72px;
+    padding-bottom: 74px;
+  }
+
+  .drpay-process::after {
+    right: -260px;
+    bottom: -110px;
+    width: 360px;
+    height: 360px;
+  }
+
+  .drpay-security {
+    padding-top: 72px;
+    padding-bottom: 72px;
+  }
+
+  .drpay-cta {
+    padding-top: 74px;
+    padding-bottom: 77px;
+  }
+}
