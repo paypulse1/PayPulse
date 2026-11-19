@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { ArrowRight, Menu, X } from "lucide-react"
 import { APP_ROUTES } from "../lib/routes"
 import PayPulseLogo from "../PayPulseLogo"
@@ -55,6 +55,7 @@ function BrandLink() {
 
 export default function MarketingNavigation() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const menuToggleRef = useRef<HTMLButtonElement>(null)
   const MenuToggleIcon = isMobileMenuOpen ? X : Menu
 
   function closeMobileMenu() {
@@ -67,30 +68,32 @@ export default function MarketingNavigation() {
         className="drpay-nav"
         aria-label="Main navigation"
         onKeyDown={(event) => {
-          if (event.key === "Escape") closeMobileMenu()
+          if (event.key === "Escape" && isMobileMenuOpen) {
+            closeMobileMenu()
+            menuToggleRef.current?.focus()
+          }
         }}
       >
         <BrandLink />
-        <NavigationLinks />
-        <NavigationActions />
-        <button
-          className="drpay-mobile-menu-toggle"
-          type="button"
-          aria-label={isMobileMenuOpen ? "Close menu" : "Open menu"}
-          aria-expanded={isMobileMenuOpen}
-          aria-controls="drpay-mobile-menu"
-          onClick={() => setIsMobileMenuOpen((isOpen) => !isOpen)}
-        >
-          <MenuToggleIcon size={19} aria-hidden="true" />
-        </button>
         <div
-          className="drpay-mobile-menu"
-          id="drpay-mobile-menu"
-          hidden={!isMobileMenuOpen}
+          className="drpay-nav-panel"
+          id="drpay-nav-panel"
+          data-open={isMobileMenuOpen}
         >
           <NavigationLinks onNavigate={closeMobileMenu} />
           <NavigationActions onNavigate={closeMobileMenu} />
         </div>
+        <button
+          ref={menuToggleRef}
+          className="drpay-mobile-menu-toggle"
+          type="button"
+          aria-label={isMobileMenuOpen ? "Close menu" : "Open menu"}
+          aria-expanded={isMobileMenuOpen}
+          aria-controls="drpay-nav-panel"
+          onClick={() => setIsMobileMenuOpen((isOpen) => !isOpen)}
+        >
+          <MenuToggleIcon size={19} aria-hidden="true" />
+        </button>
       </nav>
     </header>
   )

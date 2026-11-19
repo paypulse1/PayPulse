@@ -1,3 +1,14 @@
+.drpay-nav-panel {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+
+.drpay-nav-panel .drpay-nav-links {
+  margin-left: 0;
+}
+
 .drpay-mobile-menu-toggle {
   display: none;
   align-items: center;
@@ -13,16 +24,8 @@
 
 .drpay-nav a:focus-visible,
 .drpay-mobile-menu-toggle:focus-visible {
-  outline: 3px solid #7a9477;
+  outline: 3px solid #1fb7ac;
   outline-offset: 4px;
-}
-
-.drpay-mobile-menu {
-  display: none;
-}
-
-.drpay-mobile-menu[hidden] {
-  display: none;
 }
 
 @media (max-width: 800px) {
@@ -30,21 +33,17 @@
     z-index: 5;
   }
 
-  .drpay-nav > .drpay-nav-links,
-  .drpay-nav > .drpay-nav-actions {
-    display: none;
-  }
-
   .drpay-mobile-menu-toggle {
     display: inline-flex;
   }
 
-  .drpay-mobile-menu {
+  .drpay-nav-panel {
     position: absolute;
     top: calc(100% - 1px);
     right: 12px;
     left: 12px;
-    display: grid;
+    display: none;
+    align-items: stretch;
     gap: 12px;
     padding: 12px 20px 20px;
     border: 1px solid var(--line);
@@ -53,23 +52,27 @@
     box-shadow: 0 18px 36px rgb(18 20 18 / 12%);
   }
 
-  .drpay-mobile-menu .drpay-nav-links,
-  .drpay-mobile-menu .drpay-nav-actions {
+  .drpay-nav-panel[data-open="true"] {
+    display: grid;
+  }
+
+  .drpay-nav-panel .drpay-nav-links,
+  .drpay-nav-panel .drpay-nav-actions {
     display: grid;
     gap: 0;
   }
 
-  .drpay-mobile-menu .drpay-nav-links a,
-  .drpay-mobile-menu .drpay-login {
+  .drpay-nav-panel .drpay-nav-links a,
+  .drpay-nav-panel .drpay-login {
     padding: 14px 0;
   }
 
-  .drpay-mobile-menu .drpay-nav-links a + a,
-  .drpay-mobile-menu .drpay-nav-actions {
+  .drpay-nav-panel .drpay-nav-links a + a,
+  .drpay-nav-panel .drpay-nav-actions {
     border-top: 1px solid var(--line);
   }
 
-  .drpay-mobile-menu .drpay-nav-actions {
+  .drpay-nav-panel .drpay-nav-actions {
     justify-items: start;
     gap: 12px;
     padding-top: 12px;

@@ -2,30 +2,59 @@ import MenuIcon, { type MenuIconKind, type MenuIconTone } from "./MenuIcon"
 
 export type AppTab = "Home" | "Wallet" | "Transfer" | "Profile"
 
-const tabs: {
+type NavigationItem = {
+  type: "tab"
   label: string
-  tab: AppTab | null
+  tab: AppTab
   icon: MenuIconKind
   tone: MenuIconTone
-  featured?: boolean
-}[] = [
-  { label: "Home", tab: "Home", icon: "dashboard", tone: "overview" },
-  { label: "Wallet", tab: "Wallet", icon: "wallet", tone: "overview" },
+} | {
+  type: "action"
+  label: string
+  action: "collect"
+  icon: MenuIconKind
+  tone: MenuIconTone
+  featured: true
+}
+
+const navigationItems = [
   {
+    type: "tab",
+    label: "Home",
+    tab: "Home",
+    icon: "dashboard",
+    tone: "overview",
+  },
+  {
+    type: "tab",
+    label: "Wallet",
+    tab: "Wallet",
+    icon: "wallet",
+    tone: "overview",
+  },
+  {
+    type: "action",
     label: "Collect",
-    tab: null,
+    action: "collect",
     icon: "collect",
     tone: "payments",
     featured: true,
   },
   {
+    type: "tab",
     label: "Transfer",
     tab: "Transfer",
     icon: "transfer",
     tone: "payments",
   },
-  { label: "Profile", tab: "Profile", icon: "building", tone: "business" },
-]
+  {
+    type: "tab",
+    label: "Profile",
+    tab: "Profile",
+    icon: "building",
+    tone: "business",
+  },
+] as const satisfies readonly NavigationItem[]
 
 export default function AppNavigation({
   activeTab,
@@ -38,25 +67,27 @@ export default function AppNavigation({
 }) {
   return (
     <nav className="bottom-nav" aria-label="App navigation">
-      {tabs.map(({ label, tab, icon, tone, featured }) => {
-        const isActive = tab !== null && activeTab === tab
+      {navigationItems.map((item) => {
+        const isTab = item.type === "tab"
+        const isActive = isTab && activeTab === item.tab
+        const isFeatured = item.type === "action" && item.featured
         return (
           <button
             type="button"
-            key={label}
+            key={item.label}
             className={`${isActive ? "active" : ""} ${
-              featured ? "pay-tab" : ""
+              isFeatured ? "pay-tab" : ""
             }`}
             aria-current={isActive ? "page" : undefined}
             onClick={() => {
-              if (tab === null) onCollect()
-              else onNavigate(tab)
+              if (item.type === "action") onCollect()
+              else onNavigate(item.tab)
             }}
           >
-            <span className="nav-icon" data-tone={tone}>
-              <MenuIcon kind={icon} tone={tone} size={20} />
+            <span className="nav-icon" data-tone={item.tone}>
+              <MenuIcon kind={item.icon} tone={item.tone} size={20} />
             </span>
-            <small>{label}</small>
+            <small>{item.label}</small>
           </button>
         )
       })}
