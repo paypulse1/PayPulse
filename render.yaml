@@ -35,6 +35,8 @@ services:
         sync: false
       - key: DRPAY_PASSWORD_SALT
         sync: false
+      - key: DRPAY_ADMIN_MFA_ENCRYPTION_KEY
+        sync: false
       - key: DRPAY_JWT_SECRET
         sync: false
       - key: DRPAY_GOOGLE_CLIENT_ID
