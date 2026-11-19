@@ -230,7 +230,7 @@ export default function Checkout({ code }: { code: string }) {
             src={
               checkout?.logoUrl?.startsWith("https://")
                 ? checkout.logoUrl
-                : "/drpay-mark.png"
+                : "/paypulse-mark.png"
             }
             alt=""
           />

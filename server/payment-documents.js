@@ -7,7 +7,7 @@ const birSealPath = fileURLToPath(
   new URL("../public/checkout-badges/bir-seal.png", import.meta.url),
 )
 const drpayMarkPath = fileURLToPath(
-  new URL("../public/drpay-mark.png", import.meta.url),
+  new URL("../public/paypulse-mark.png", import.meta.url),
 )
 
 const layout = {

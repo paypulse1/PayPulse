@@ -1,4 +1,4 @@
-package ph.drpays.merchant;
+package com.paypulse.merchant;
 
 import android.os.Bundle;
 import androidx.core.splashscreen.SplashScreen;

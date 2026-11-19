@@ -9,9 +9,9 @@ from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.service_account import Credentials
 
 
-PACKAGE_NAME = os.environ.get("ANDROID_APPLICATION_ID", "ph.drpays.merchant")
+PACKAGE_NAME = os.environ.get("ANDROID_APPLICATION_ID", "com.paypulse.merchant")
 SUPPORTED_PACKAGE_NAMES = {
-    "ph.drpays.merchant",
+    "com.paypulse.merchant",
     "ph.drpays.merchant.public",
 }
 TRACK = "internal"

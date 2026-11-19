@@ -396,7 +396,7 @@ const jwtSecret = jwtSecretValue
 const resendApiKey = process.env.RESEND_API_KEY
 const resendFromEmail = process.env.RESEND_FROM_EMAIL
 const privateFcmConfig = {
-  projectId: process.env.FCM_PROJECT_ID,
+  projectId: process.env.FCM_PROJECT_ID || "paypulse-2a7e0",
   serviceAccountEmail: process.env.FCM_SERVICE_ACCOUNT_EMAIL,
   serviceAccountPrivateKey:
     process.env.FCM_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, "\n"),
@@ -2839,23 +2839,23 @@ async function initializeDatabase() {
     CREATE TABLE IF NOT EXISTS merchant_push_devices (
       token TEXT PRIMARY KEY,
       merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
-      app_id TEXT NOT NULL DEFAULT 'ph.drpays.merchant'
-        CHECK (app_id IN ('ph.drpays.merchant', 'ph.drpays.merchant.public')),
+      app_id TEXT NOT NULL DEFAULT 'com.paypulse.merchant'
+        CHECK (app_id IN ('com.paypulse.merchant', 'ph.drpays.merchant.public')),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     ALTER TABLE merchant_push_devices
-      ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT 'ph.drpays.merchant';
+      ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT 'com.paypulse.merchant';
     DO $migration$
     BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint
-        WHERE conname = 'merchant_push_devices_app_id_check'
-      ) THEN
-        ALTER TABLE merchant_push_devices
-          ADD CONSTRAINT merchant_push_devices_app_id_check
-          CHECK (app_id IN ('ph.drpays.merchant', 'ph.drpays.merchant.public'));
-      END IF;
+      ALTER TABLE merchant_push_devices
+        DROP CONSTRAINT IF EXISTS merchant_push_devices_app_id_check;
+      UPDATE merchant_push_devices
+        SET app_id = 'com.paypulse.merchant'
+        WHERE app_id = 'ph.drpays.merchant';
+      ALTER TABLE merchant_push_devices
+        ADD CONSTRAINT merchant_push_devices_app_id_check
+        CHECK (app_id IN ('com.paypulse.merchant', 'ph.drpays.merchant.public'));
     END
     $migration$;
     CREATE TABLE IF NOT EXISTS merchant_notification_preferences (
@@ -11072,8 +11072,8 @@ app.post("/v1/notifications/push-token", async (req, res) => {
   if (token.length < 32 || token.length > 4096)
     return res.status(400).json({ error: "A valid push token is required." })
   const appId =
-    typeof req.body?.appId === "string" ? req.body.appId : "ph.drpays.merchant"
-  if (!["ph.drpays.merchant", "ph.drpays.merchant.public"].includes(appId))
+    typeof req.body?.appId === "string" ? req.body.appId : "com.paypulse.merchant"
+  if (!["com.paypulse.merchant", "ph.drpays.merchant.public"].includes(appId))
     return res.status(400).json({ error: "A valid app ID is required." })
   await pool.query(
     `INSERT INTO merchant_push_devices (token, merchant_email, app_id)

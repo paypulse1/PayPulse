@@ -16,7 +16,7 @@ const lastUpdated = "October 23, 2026"
 function LegalBrand() {
   return (
     <a className="legal-brand" href={APP_ROUTES.home} aria-label="PayPulse home">
-      <img src="/drpay-mark.png" alt="" />
+      <img src="/paypulse-mark.png" alt="" />
       <strong>PayPulse</strong>
     </a>
   )

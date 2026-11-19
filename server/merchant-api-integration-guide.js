@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 
 const drpayLogoPath = fileURLToPath(
-  new URL("../public/drpay-mark.png", import.meta.url),
+  new URL("../public/paypulse-mark.png", import.meta.url),
 )
 const pageWidth = 612
 const pageHeight = 792

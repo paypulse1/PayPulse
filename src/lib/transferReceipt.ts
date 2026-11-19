@@ -244,7 +244,7 @@ function loadReceiptLogo() {
     logo.onload = () => resolve(logo)
     logo.onerror = () =>
       reject(new Error("Could not load the PayPulse logo for the receipt."))
-    logo.src = "/drpay-mark.png"
+    logo.src = "/paypulse-mark.png"
   })
 }
 

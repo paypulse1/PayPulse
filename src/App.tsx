@@ -5365,7 +5365,7 @@ export default function App() {
       requestController = new AbortController()
       try {
         const appInfo = await CapacitorApp.getInfo()
-        if (appInfo.id !== "ph.drpays.merchant") return
+        if (appInfo.id !== "com.paypulse.merchant") return
         const response = await fetch(
           "https://api.github.com/repos/drltechgroup202/drpay-merchant/releases?per_page=100",
           {

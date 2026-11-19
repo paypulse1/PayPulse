@@ -61,7 +61,7 @@ export default function UsdtPaymentPage() {
     <main className="checkout-screen">
       <section className="checkout-card" aria-labelledby="usdt-checkout-title">
         <header className="checkout-brand">
-          <img src="/drpay-mark.png" alt="" />
+          <img src="/paypulse-mark.png" alt="" />
           <span>PayPulse</span>
           <span className="checkout-secure">
             <ShieldCheck size={14} /> Payment details

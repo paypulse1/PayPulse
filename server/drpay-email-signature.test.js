@@ -20,7 +20,7 @@ describe("PayPulse outgoing email layout", () => {
         `,
         attachments: [{ filename: "agreement.pdf" }],
       },
-      "https://merchant.example.com/drpay-mark.png",
+      "https://merchant.example.com/paypulse-mark.png",
     )
 
     expect(email.text).toContain("Message body")
@@ -28,7 +28,7 @@ describe("PayPulse outgoing email layout", () => {
     expect(email.text).toContain("Never share them")
     expect(email.html.match(/<img\b/g)).toHaveLength(1)
     expect(email.html).toContain(
-      '<img src="https://merchant.example.com/drpay-mark.png" alt="PayPulse logo"',
+      '<img src="https://merchant.example.com/paypulse-mark.png" alt="PayPulse logo"',
     )
     expect(email.html).toContain("max-width:640px")
     expect(email.html).toContain("background:#edf2f7")
@@ -75,7 +75,7 @@ describe("PayPulse outgoing email layout", () => {
           </div>
         `,
       },
-      "https://merchant.example.com/drpay-mark.png",
+      "https://merchant.example.com/paypulse-mark.png",
     )
 
     expect(email.html.match(/PayPulse MERCHANT SERVICES/g)).toHaveLength(1)
@@ -97,7 +97,7 @@ describe("PayPulse outgoing email layout", () => {
     )
     const email = standardizeDrpayEmail(
       source,
-      "https://merchant.example.com/drpay-mark.png",
+      "https://merchant.example.com/paypulse-mark.png",
     )
 
     expect(email.html).toContain("SECURE SERVICE MESSAGE")

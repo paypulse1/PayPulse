@@ -75,7 +75,7 @@ async function appIcon(logo) {
 }
 
 await mkdir(assetsDir, { recursive: true })
-const logo = await dataUri(path.join(publicDir, "drpay-mark.png"), "image/png")
+const logo = await dataUri(path.join(publicDir, "paypulse-mark.png"), "image/png")
 await renderPng(await appIcon(logo), path.join(assetsDir, "icon.png"))
 for (const [index, source] of sources.entries()) {
   const image = await dataUri(path.join(publicDir, source.file), "image/jpeg")

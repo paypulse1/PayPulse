@@ -14,7 +14,7 @@ export default function AppLoadingScreen({
     >
       <div className="app-loading-content">
         <div className="app-loading-brand">
-          <img src="/drpay-mark.png" alt="" />
+          <img src="/paypulse-mark.png" alt="" />
           <strong>PayPulse</strong>
         </div>
         <span className="app-loading-spinner" aria-hidden="true" />
