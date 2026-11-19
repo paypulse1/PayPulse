@@ -1,36 +1,24 @@
 import { lazy, Suspense } from "react"
 import ReactDOM from "react-dom/client"
+import { Capacitor } from "@capacitor/core"
 import "./index.css"
 import AppLoadingScreen from "./AppLoadingScreen"
-import {
-  shouldGateMerchantMaintenance,
-  shouldShowMarketingHome,
-} from "./lib/routes"
+import { resolveAppRoute } from "./lib/routes"
 
 const App = lazy(() => import("./App"))
 const MerchantEntry = lazy(() => import("./MerchantEntry"))
 const MarketingHome = lazy(() => import("./MarketingHome"))
 const MaintenanceScreen = lazy(() => import("./MaintenanceScreen"))
 
-const pathname = window.location.pathname.replace(/\/+$/, "") || "/"
-const isMaintenanceScreen = pathname === "/maintenance"
-const isMarketingHome = shouldShowMarketingHome(
-  window.location.pathname,
-  window.location.hostname,
-  window.location.search,
-)
-const isMerchantWorkspace = shouldGateMerchantMaintenance(
-  window.location.pathname,
-  window.location.hostname,
-  window.location.search,
-)
-const EntryScreen = isMaintenanceScreen
-  ? MaintenanceScreen
-  : isMarketingHome
-    ? MarketingHome
-    : isMerchantWorkspace
-      ? MerchantEntry
-      : App
+const route = resolveAppRoute(window.location, Capacitor.isNativePlatform())
+const EntryScreen =
+  route.type === "maintenance"
+    ? MaintenanceScreen
+    : route.type === "marketing"
+      ? MarketingHome
+      : route.type === "merchant-entry"
+        ? () => <MerchantEntry route={route.target} />
+        : () => <App route={route} />
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <Suspense fallback={<AppLoadingScreen />}>

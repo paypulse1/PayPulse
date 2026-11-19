@@ -2,11 +2,13 @@ import { lazy, useEffect, useState } from "react"
 import { AlertCircle, RefreshCw } from "lucide-react"
 import AppLoadingScreen from "./AppLoadingScreen"
 import MaintenanceScreen from "./MaintenanceScreen"
+import type { AppContentRoute } from "./lib/routes"
 import { getPublicMaintenanceStatus, isBackendConfigured } from "./lib/swiftpay"
 
 const App = lazy(() => import("./App"))
+const MarketingHome = lazy(() => import("./MarketingHome"))
 
-export default function MerchantEntry() {
+export default function MerchantEntry({ route }: { route: AppContentRoute }) {
   const [status, setStatus] =
     useState<"checking" | "ready" | "maintenance" | "error">("checking")
   const [error, setError] = useState("")
@@ -85,5 +87,9 @@ export default function MerchantEntry() {
     )
   }
 
-  return <App />
+  return route.type === "marketing" ? (
+    <MarketingHome />
+  ) : (
+    <App route={route} />
+  )
 }

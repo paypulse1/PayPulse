@@ -151,7 +151,6 @@ import {
 const Checkout = lazy(() => import("./Checkout"))
 const UsdtPaymentPage = lazy(() => import("./UsdtPaymentPage"))
 const CustomerPortal = lazy(() => import("./CustomerPortal"))
-const MarketingHome = lazy(() => import("./MarketingHome"))
 const MerchantSignIn = lazy(() => import("./MerchantSignIn"))
 const OperationsSignIn = lazy(() => import("./OperationsSignIn"))
 const MerchantNotificationInbox = lazy(
@@ -165,8 +164,12 @@ const SuperAdminConsole = lazy(() =>
     default: SuperAdminConsole,
   })),
 )
-import LegalPage, { getLegalPage, supportEmail } from "./LegalPages"
-import { APP_ROUTES, getPublicCheckoutOrigin } from "./lib/routes"
+import LegalPage, { supportEmail } from "./LegalPages"
+import {
+  APP_ROUTES,
+  getPublicCheckoutOrigin,
+  type AppViewRoute,
+} from "./lib/routes"
 import QrPaymentDisplay, { InstitutionLogo } from "./QrPaymentDisplay"
 import InstitutionSelectionScreen from "./InstitutionSelectionScreen"
 import { DeveloperCenter, KybSetupPanel } from "./MerchantSetup"
@@ -5257,36 +5260,12 @@ function ProfileInfoPage({
   )
 }
 
-export default function App() {
-  const isUsdtPaymentPage =
-    window.location.pathname.replace(/\/+$/, "") ===
-    `${APP_ROUTES.checkout}/usdt`
-  const pathCheckoutCode =
-    new RegExp(`^${APP_ROUTES.checkout}/([A-Za-z0-9_-]{40,50})/?$`).exec(
-      window.location.pathname,
-    )?.[1] || ""
-  const queryCheckoutCode =
-    new URLSearchParams(window.location.search).get("checkout") || ""
-  const checkoutCode =
-    pathCheckoutCode ||
-    (/^[A-Za-z0-9_-]{40,50}$/.test(queryCheckoutCode) ? queryCheckoutCode : "")
-  const hostname = window.location.hostname.toLowerCase()
-  const isMerchantHost =
-    hostname === "paypulse.live" ||
-    hostname === "www.paypulse.live" ||
-    hostname === "sandbox.paypulse.live"
-  const isAdminConsole =
-    window.location.pathname === APP_ROUTES.admin ||
-    window.location.pathname.startsWith(`${APP_ROUTES.admin}/`)
-  const isCustomerPortal =
-    window.location.pathname.replace(/\/+$/, "") === APP_ROUTES.customer
-  const isDashboard =
-    isMerchantHost ||
-    Capacitor.isNativePlatform() ||
-    new URLSearchParams(window.location.search).get("signin") === "1" ||
-    window.location.pathname === "/" ||
-    window.location.pathname === APP_ROUTES.app ||
-    window.location.pathname.startsWith(`${APP_ROUTES.app}/`)
+export default function App({ route }: { route: AppViewRoute }) {
+  const isUsdtPaymentPage = route.type === "usdt-payment"
+  const checkoutCode = route.type === "checkout" ? route.code : ""
+  const isAdminConsole = route.type === "admin"
+  const isCustomerPortal = route.type === "customer"
+  const isDashboard = route.type === "merchant-dashboard"
   const [session, setSession] = useState<Session | null>(() =>
     isDashboard || isAdminConsole || isCustomerPortal ? getSession() : null,
   )
@@ -5958,12 +5937,9 @@ export default function App() {
     setUpdateAvailable(null)
   }
 
-  const legalPage = getLegalPage(window.location.pathname)
   if (isUsdtPaymentPage) return <UsdtPaymentPage />
   if (checkoutCode) return <Checkout code={checkoutCode} />
-  if (legalPage) return <LegalPage page={legalPage} />
-  if (!isDashboard && !isAdminConsole && !isCustomerPortal)
-    return <MarketingHome />
+  if (route.type === "legal") return <LegalPage page={route.page} />
 
   if (!isBackendConfigured()) {
     return (

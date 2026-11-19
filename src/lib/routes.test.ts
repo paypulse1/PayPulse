@@ -1,9 +1,10 @@
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { getLegalPage } from "../LegalPages"
 import {
   APP_ROUTES,
   getPublicCheckoutOrigin,
+  getLegalPage,
+  resolveAppRoute,
   shouldGateMerchantMaintenance,
   shouldShowMarketingHome,
 } from "./routes"
@@ -119,5 +120,84 @@ test("merchant maintenance does not replace checkout, customer, marketing, or ad
   assert.equal(
     shouldGateMerchantMaintenance("/contact", "paypulse.live"),
     false,
+  )
+})
+
+test("application routes resolve to the expected page", () => {
+  const cases = [
+    ["/maintenance/", "localhost", "", "maintenance"],
+    ["/", "paypulse.live", "", "marketing"],
+    ["/marketing/", "localhost", "", "marketing"],
+    ["/login", "localhost", "", "merchant-entry"],
+    ["/", "sandbox.paypulse.live", "", "merchant-entry"],
+    ["/checkout/usdt/", "localhost", "", "usdt-payment"],
+    [
+      `/checkout/${"A".repeat(40)}`,
+      "localhost",
+      "",
+      "checkout",
+    ],
+    ["/", "localhost", `?checkout=${"B".repeat(40)}`, "checkout"],
+    ["/privacy-policy/", "localhost", "", "legal"],
+    ["/bossd/users", "localhost", "", "admin"],
+    ["/customer/", "localhost", "", "customer"],
+    ["/app/wallet", "paypulse.live", "", "merchant-entry"],
+    ["/unknown", "localhost", "", "marketing"],
+  ] as const
+
+  for (const [pathname, hostname, search, type] of cases) {
+    assert.equal(
+      resolveAppRoute({ pathname, hostname, search }).type,
+      type,
+      `${hostname}${pathname}${search}`,
+    )
+  }
+})
+
+test("invalid checkout codes preserve the root dashboard route", () => {
+  assert.equal(
+    resolveAppRoute({
+      pathname: "/",
+      hostname: "localhost",
+      search: "?checkout=invalid",
+    }).type,
+    "merchant-dashboard",
+  )
+})
+
+test("native entry routes to merchant sign-in", () => {
+  const route = resolveAppRoute(
+    { pathname: "/unknown", hostname: "localhost", search: "" },
+    true,
+  )
+  assert.equal(route.type, "merchant-entry")
+  if (route.type === "merchant-entry") {
+    assert.equal(route.target.type, "merchant-dashboard")
+  }
+})
+
+test("merchant entry resolves the page to show after its availability check", () => {
+  const productionRoute = resolveAppRoute({
+    pathname: "/login",
+    hostname: "paypulse.live",
+    search: "",
+  })
+  const localRoute = resolveAppRoute({
+    pathname: "/login",
+    hostname: "localhost",
+    search: "",
+  })
+
+  assert.equal(productionRoute.type, "merchant-entry")
+  assert.equal(
+    productionRoute.type === "merchant-entry"
+      ? productionRoute.target.type
+      : null,
+    "merchant-dashboard",
+  )
+  assert.equal(localRoute.type, "merchant-entry")
+  assert.equal(
+    localRoute.type === "merchant-entry" ? localRoute.target.type : null,
+    "marketing",
   )
 })

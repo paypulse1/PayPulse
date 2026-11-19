@@ -6,10 +6,8 @@ import {
   ShieldCheck,
 } from "lucide-react"
 import "./legal-pages.css"
-import { APP_ROUTES, LEGAL_ROUTE_ALIASES } from "./lib/routes"
+import { APP_ROUTES, type LegalPageKind } from "./lib/routes"
 import PayPulseLogo from "./PayPulseLogo"
-
-type LegalPageKind = "privacy" | "terms" | "contact"
 
 export const supportEmail = "support@paypulse.live"
 const lastUpdated = "October 23, 2026"
@@ -302,14 +300,6 @@ function LegalPage({ page }: { page: LegalPageKind }) {
       </footer>
     </main>
   )
-}
-
-export function getLegalPage(pathname: string): LegalPageKind | null {
-  const route = pathname.replace(/\/+$/, "") || "/"
-  if (LEGAL_ROUTE_ALIASES.privacy.includes(route)) return "privacy"
-  if (LEGAL_ROUTE_ALIASES.terms.includes(route)) return "terms"
-  if (LEGAL_ROUTE_ALIASES.contact.includes(route)) return "contact"
-  return null
 }
 
 export default LegalPage
