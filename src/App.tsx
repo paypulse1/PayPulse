@@ -88,6 +88,7 @@ import {
   getPaymentLinkStatus,
   getSession,
   isBackendConfigured,
+  isPaymentEnvironmentConfigured,
   registerPushDevice,
   registerBiometricCredential,
   removeBiometricCredential,
@@ -95,6 +96,7 @@ import {
   resetPaymentLinkIdempotencyKey,
   SESSION_EXPIRED_EVENT,
   setMerchantPin,
+  setPaymentEnvironment,
   type CollectionRefundDetails,
   type DashboardData,
   type MerchantActivityTrendPoint,
@@ -111,6 +113,7 @@ import {
   type PaymentInstitution,
   type PaymentLinkResult,
   type Session,
+  type PaymentEnvironment,
   type Transaction,
   type TransferResult,
   type TransferAuthorizationInput,
@@ -5321,6 +5324,7 @@ export default function App() {
     downloadUrl: string
   } | null>(null)
   const [loading, setLoading] = useState(false)
+  const [switchingEnvironment, setSwitchingEnvironment] = useState(false)
   const [refreshVersion, setRefreshVersion] = useState(0)
   const {
     handlers: pullRefreshHandlers,
@@ -5801,27 +5805,31 @@ export default function App() {
     }
   }, [session?.email, isDashboard, enablePushNotifications])
 
-  function signOut() {
-    clearSession()
+  async function signOut(): Promise<void> {
+    const cleanupTasks: Promise<unknown>[] = []
     if (pushTokenRef.current) {
-      void removePushDevice(pushTokenRef.current).catch(
-        (requestError: unknown) => {
+      const pushToken = pushTokenRef.current
+      pushTokenRef.current = ""
+      cleanupTasks.push(
+        removePushDevice(pushToken).catch((requestError: unknown) => {
           console.error(
             "Could not remove signed-out device push token",
             requestError,
           )
-        },
+        }),
       )
-      pushTokenRef.current = ""
     }
     if (Capacitor.getPlatform() === "android") {
-      void PushNotifications.unregister().catch((requestError: unknown) => {
-        console.error(
-          "Could not unregister signed-out device push notifications",
-          requestError,
-        )
-      })
+      cleanupTasks.push(
+        PushNotifications.unregister().catch((requestError: unknown) => {
+          console.error(
+            "Could not unregister signed-out device push notifications",
+            requestError,
+          )
+        }),
+      )
     }
+    clearSession()
     setPushRegistrationState("idle")
     setPushError("")
     setSession(null)
@@ -5832,6 +5840,39 @@ export default function App() {
     biometricOfferPendingRef.current = false
     setProfileSection("")
     setActiveTab("Home")
+    await Promise.all(cleanupTasks)
+  }
+
+  async function switchPaymentEnvironment() {
+    if (!data || switchingEnvironment) return
+    const currentEnvironment = data.paymentEnvironment
+    const nextEnvironment: PaymentEnvironment =
+      currentEnvironment === "production" ? "sandbox" : "production"
+    const nextLabel = nextEnvironment === "production" ? "Live" : "Sandbox"
+    if (!isPaymentEnvironmentConfigured(nextEnvironment)) return
+    const liveWarning =
+      nextEnvironment === "production"
+        ? "\nLive transactions use real funds."
+        : ""
+    if (
+      !window.confirm(
+        `Switch to ${nextLabel}? You’ll be signed out and must sign in again.${liveWarning}`,
+      )
+    )
+      return
+    setSwitchingEnvironment(true)
+    try {
+      await signOut()
+      setPaymentEnvironment(nextEnvironment)
+      window.location.reload()
+    } catch (switchError) {
+      window.alert(
+        switchError instanceof Error
+          ? switchError.message
+          : "Could not switch environments.",
+      )
+      setSwitchingEnvironment(false)
+    }
   }
 
   async function exportActivity(fromDate = "", toDate = "") {
@@ -6018,6 +6059,18 @@ export default function App() {
     )
   }
 
+  if (switchingEnvironment) {
+    return (
+      <main className="auth-screen" aria-live="polite">
+        <span className="auth-mark">
+          <LoaderCircle size={25} className="spin" />
+        </span>
+        <h1>Switching environments</h1>
+        <p>Signing out before connecting to the selected environment.</p>
+      </main>
+    )
+  }
+
   if (!session) {
     return (
       <>
@@ -6113,6 +6166,41 @@ export default function App() {
             className="app-header-title"
           />
           <div className="header-actions">
+            {session.role === "merchant" && (
+              <button
+                type="button"
+                className="environment-switch"
+                data-environment={data.paymentEnvironment}
+                aria-label={`Switch to ${
+                  data.paymentEnvironment === "production" ? "Sandbox" : "Live"
+                }`}
+                title={
+                  isPaymentEnvironmentConfigured(
+                    data.paymentEnvironment === "production"
+                      ? "sandbox"
+                      : "production",
+                  )
+                    ? `Current environment: ${
+                        data.paymentEnvironment === "production"
+                          ? "Live"
+                          : "Sandbox"
+                      }. Switch environment`
+                    : "The other environment is not configured for this app."
+                }
+                disabled={
+                  switchingEnvironment ||
+                  !isPaymentEnvironmentConfigured(
+                    data.paymentEnvironment === "production"
+                      ? "sandbox"
+                      : "production",
+                  )
+                }
+                onClick={() => void switchPaymentEnvironment()}
+              >
+                {data.paymentEnvironment === "production" ? "Live" : "Sandbox"}
+                <ChevronDown size={13} aria-hidden="true" />
+              </button>
+            )}
             <IconButton
               label={`Notifications${
                 unreadNotificationCount

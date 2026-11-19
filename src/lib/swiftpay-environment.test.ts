@@ -60,3 +60,63 @@ test("does not use the frontend origin as an unconfigured API base URL", async (
   const { getApiBaseUrl } = await import("./swiftpay.ts")
   assert.equal(getApiBaseUrl(), "")
 })
+
+test("persists an explicit environment choice and routes to its API", async () => {
+  vi.stubEnv("VITE_DRPAY_BACKEND_URL", "https://api.default.example.test")
+  vi.stubEnv("VITE_DRPAY_LIVE_BACKEND_URL", "https://api.live.example.test")
+  vi.stubEnv(
+    "VITE_DRPAY_SANDBOX_BACKEND_URL",
+    "https://api.sandbox.example.test",
+  )
+  vi.stubGlobal("window", {
+    location: {
+      hostname: "merchant.denpay.cc",
+      origin: "https://merchant.denpay.cc",
+    },
+  })
+  const localStorage = new Map<string, string>()
+  const sessionStorage = new Map<string, string>()
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => localStorage.get(key) ?? null,
+    setItem: (key: string, value: string) => localStorage.set(key, value),
+    removeItem: (key: string) => localStorage.delete(key),
+  })
+  vi.stubGlobal("sessionStorage", {
+    getItem: (key: string) => sessionStorage.get(key) ?? null,
+    setItem: (key: string, value: string) => sessionStorage.set(key, value),
+    removeItem: (key: string) => sessionStorage.delete(key),
+  })
+
+  const { getApiBaseUrl, getPaymentEnvironment, setPaymentEnvironment } =
+    await import("./swiftpay.ts")
+  setPaymentEnvironment("sandbox")
+
+  assert.equal(getPaymentEnvironment(), "sandbox")
+  assert.equal(getApiBaseUrl(), "https://api.sandbox.example.test")
+  localStorage.set(
+    "drpay_payment_environment_preference",
+    "production",
+  )
+  assert.equal(getApiBaseUrl(), "https://api.sandbox.example.test")
+  sessionStorage.delete("drpay_payment_environment")
+  assert.equal(getApiBaseUrl(), "https://api.live.example.test")
+})
+
+test("refuses to select sandbox when its API is not configured", async () => {
+  vi.stubEnv("VITE_DRPAY_BACKEND_URL", "https://api.live.example.test")
+  vi.stubEnv("VITE_DRPAY_LIVE_BACKEND_URL", "https://api.live.example.test")
+  vi.stubEnv("VITE_DRPAY_SANDBOX_BACKEND_URL", "")
+  vi.stubGlobal("window", {
+    location: {
+      hostname: "merchant.denpay.cc",
+      origin: "https://merchant.denpay.cc",
+    },
+  })
+
+  const { getApiBaseUrl, setPaymentEnvironment } = await import("./swiftpay.ts")
+  assert.throws(
+    () => setPaymentEnvironment("sandbox"),
+    /Sandbox is not configured/,
+  )
+  assert.equal(getApiBaseUrl(), "https://api.live.example.test")
+})

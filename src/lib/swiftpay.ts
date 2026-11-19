@@ -695,17 +695,26 @@ const defaultApiBaseUrl = import.meta.env.VITE_DRPAY_BACKEND_URL || ""
 const liveApiBaseUrl =
   import.meta.env.VITE_DRPAY_LIVE_BACKEND_URL ||
   "https://drpay-merchant-production.up.railway.app"
-const sandboxApiBaseUrl =
-  import.meta.env.VITE_DRPAY_SANDBOX_BACKEND_URL || defaultApiBaseUrl
+const configuredLiveApiBaseUrl = import.meta.env.VITE_DRPAY_LIVE_BACKEND_URL || ""
+const configuredSandboxApiBaseUrl =
+  import.meta.env.VITE_DRPAY_SANDBOX_BACKEND_URL || ""
+const PAYMENT_ENVIRONMENT_SESSION_KEY = "drpay_payment_environment"
+const PAYMENT_ENVIRONMENT_PREFERENCE_KEY = "drpay_payment_environment_preference"
+export type PaymentEnvironment = "production" | "sandbox"
 
-function getConfiguredApiBaseUrl() {
+function getHostname() {
   const hostname =
     typeof window === "undefined" ? "" : window.location.hostname.toLowerCase()
+  return hostname
+}
+
+function getHostnamePaymentEnvironment(): PaymentEnvironment | null {
+  const hostname = getHostname()
   if (
     hostname === "pay.sandbox.denpay.cc" ||
     hostname === "merchant.sandbox.denpay.cc"
   )
-    return sandboxApiBaseUrl
+    return "sandbox"
   if (
     hostname === "pulsepay.live" ||
     hostname === "www.pulsepay.live" ||
@@ -713,7 +722,104 @@ function getConfiguredApiBaseUrl() {
     hostname === "merchant.denpay.cc" ||
     hostname === "live.merchant.swiftpay.site"
   )
-    return liveApiBaseUrl
+    return "production"
+  return null
+}
+
+function getSavedPaymentEnvironment(): PaymentEnvironment | null {
+  const isPaymentEnvironment = (
+    value: string | null,
+  ): value is PaymentEnvironment =>
+    value === "production" || value === "sandbox"
+  const active = readStorageItem("session", PAYMENT_ENVIRONMENT_SESSION_KEY)
+  if (isPaymentEnvironment(active)) return active
+  const preferred = readStorageItem("local", PAYMENT_ENVIRONMENT_PREFERENCE_KEY)
+  if (isPaymentEnvironment(preferred)) {
+    writeStorageItem("session", PAYMENT_ENVIRONMENT_SESSION_KEY, preferred)
+    return preferred
+  }
+  const hostnameEnvironment = getHostnamePaymentEnvironment()
+  if (hostnameEnvironment) {
+    writeStorageItem(
+      "session",
+      PAYMENT_ENVIRONMENT_SESSION_KEY,
+      hostnameEnvironment,
+    )
+    return hostnameEnvironment
+  }
+  const normalize = (url: string) => url.replace(/\/+$/, "")
+  const defaultEnvironment =
+    defaultApiBaseUrl &&
+    configuredSandboxApiBaseUrl &&
+    normalize(defaultApiBaseUrl) === normalize(configuredSandboxApiBaseUrl)
+      ? "sandbox"
+      : defaultApiBaseUrl &&
+          configuredLiveApiBaseUrl &&
+          normalize(defaultApiBaseUrl) === normalize(configuredLiveApiBaseUrl)
+        ? "production"
+        : null
+  if (defaultEnvironment) {
+    writeStorageItem(
+      "session",
+      PAYMENT_ENVIRONMENT_SESSION_KEY,
+      defaultEnvironment,
+    )
+    return defaultEnvironment
+  }
+  return null
+}
+
+function getPaymentEnvironmentApiBaseUrl(environment: PaymentEnvironment) {
+  if (environment === "production") return liveApiBaseUrl
+  if (configuredSandboxApiBaseUrl) return configuredSandboxApiBaseUrl
+  if (getHostnamePaymentEnvironment() === "sandbox") return defaultApiBaseUrl
+  return ""
+}
+
+export function getPaymentEnvironment(): PaymentEnvironment {
+  const saved = getSavedPaymentEnvironment()
+  if (saved) return saved
+  const hostnameEnvironment = getHostnamePaymentEnvironment()
+  if (hostnameEnvironment) return hostnameEnvironment
+  return "production"
+}
+
+export function isPaymentEnvironmentConfigured(
+  environment: PaymentEnvironment,
+) {
+  return Boolean(getPaymentEnvironmentApiBaseUrl(environment))
+}
+
+export function setPaymentEnvironment(environment: PaymentEnvironment) {
+  if (!isPaymentEnvironmentConfigured(environment)) {
+    throw new Error(
+      `${
+        environment === "sandbox" ? "Sandbox" : "Live"
+      } is not configured for this app.`,
+    )
+  }
+  try {
+    globalThis.sessionStorage.setItem(
+      PAYMENT_ENVIRONMENT_SESSION_KEY,
+      environment,
+    )
+    globalThis.localStorage.setItem(
+      PAYMENT_ENVIRONMENT_PREFERENCE_KEY,
+      environment,
+    )
+  } catch {
+    throw new Error("Could not save the environment choice on this device.")
+  }
+}
+
+function getConfiguredApiBaseUrl() {
+  const savedEnvironment = getSavedPaymentEnvironment()
+  if (savedEnvironment) return getPaymentEnvironmentApiBaseUrl(savedEnvironment)
+  const hostnameEnvironment = getHostnamePaymentEnvironment()
+  if (hostnameEnvironment === "sandbox")
+    return getPaymentEnvironmentApiBaseUrl("sandbox")
+  if (hostnameEnvironment === "production")
+    return getPaymentEnvironmentApiBaseUrl("production")
   return defaultApiBaseUrl
 }
 

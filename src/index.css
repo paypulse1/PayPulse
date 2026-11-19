@@ -66,15 +66,18 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .app-header-title { min-width: 0; margin: 0; overflow: hidden; color: var(--ink); font-size: 17px; font-weight: 800; letter-spacing: -.035em; text-overflow: ellipsis; white-space: nowrap; }
 .profile-avatar { display: grid; place-items: center; background: white; color: var(--accent); font-size: 11px; font-weight: 800; }
 .header-actions { display: flex; align-items: center; gap: 8px; }
+.environment-switch { min-height: 36px; padding: 0 9px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); color: var(--brand-blue); font: inherit; font-size: 11px; font-weight: 800; white-space: nowrap; }
+.environment-switch[data-environment="production"] { border-color: #f0d7b0; background: #fff8eb; color: #8a4b08; }
+.environment-switch:disabled { cursor: not-allowed; opacity: .55; }
 .all-access-trigger { min-height: 40px; padding: 0 4px; border: 0; background: transparent; color: var(--brand-blue); font: inherit; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .all-access-trigger:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
 .icon-button { position: relative; width: 36px; height: 36px; padding: 0; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
 .icon-button-icon { display: grid; place-items: center; }
 .button-icon { width: 18px; height: 18px; display: inline-flex; flex: 0 0 18px; align-items: center; justify-content: center; }
 .button-icon svg { display: block; }
-.icon-button, .button, .bottom-nav button, .settings-list > button, .filter-row button, .collection-currencies button, .bank-selection-option, .quick-action-icon { transition: color var(--motion-fast) var(--motion-ease), filter var(--motion-fast) var(--motion-ease), transform var(--motion-fast) var(--motion-ease), opacity var(--motion-fast) var(--motion-ease); }
+.icon-button, .button, .environment-switch, .bottom-nav button, .settings-list > button, .filter-row button, .collection-currencies button, .bank-selection-option, .quick-action-icon { transition: color var(--motion-fast) var(--motion-ease), filter var(--motion-fast) var(--motion-ease), transform var(--motion-fast) var(--motion-ease), opacity var(--motion-fast) var(--motion-ease); }
 .button:active:not(:disabled), .icon-button:active, .filter-row button:active, .collection-currencies button:active:not(:disabled), .bank-selection-option:active:not(:disabled) { transform: scale(.97); }
-.button:focus-visible, .icon-button:focus-visible, .bottom-nav button:focus-visible, .quick-action:focus-visible, .filter-row button:focus-visible, .settings-list > button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.button:focus-visible, .icon-button:focus-visible, .environment-switch:focus-visible, .bottom-nav button:focus-visible, .quick-action:focus-visible, .filter-row button:focus-visible, .settings-list > button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 @media (hover: hover) and (pointer: fine) {
   .icon-button:hover:not(:disabled) { border-color: #bdcbe0; background: #f4f7fc; }
   .all-access-trigger:hover { color: var(--ink); }
