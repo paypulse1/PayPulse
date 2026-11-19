@@ -11,7 +11,7 @@ import PayPulseLogo from "./PayPulseLogo"
 
 type LegalPageKind = "privacy" | "terms" | "contact"
 
-export const supportEmail = "support@denpay.cc"
+export const supportEmail = "support@paypulse.live"
 const lastUpdated = "October 23, 2026"
 
 function LegalBrand() {

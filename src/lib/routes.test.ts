@@ -26,18 +26,18 @@ test("marketing Android app links use the public Google Play listing", () => {
 test("USDT payment links use the public checkout host for each environment", () => {
   assert.equal(
     getPublicCheckoutOrigin(
-      "merchant.sandbox.denpay.cc",
-      "https://merchant.sandbox.denpay.cc",
+      "sandbox.paypulse.live",
+      "https://sandbox.paypulse.live",
     ),
-    "https://pay.sandbox.denpay.cc",
+    "https://sandbox.paypulse.live",
   )
   assert.equal(
-    getPublicCheckoutOrigin("merchant.denpay.cc", "https://merchant.denpay.cc"),
-    "https://pay.live.denpay.cc",
+    getPublicCheckoutOrigin("paypulse.live", "https://paypulse.live"),
+    "https://paypulse.live",
   )
   assert.equal(
-    getPublicCheckoutOrigin("pulsepay.live", "https://pulsepay.live"),
-    "https://pulsepay.live",
+    getPublicCheckoutOrigin("www.paypulse.live", "https://www.paypulse.live"),
+    "https://paypulse.live",
   )
   assert.equal(
     getPublicCheckoutOrigin("localhost", "http://localhost:8443"),
@@ -45,7 +45,7 @@ test("USDT payment links use the public checkout host for each environment", () 
   )
   assert.equal(
     getPublicCheckoutOrigin("localhost", "capacitor://localhost", true),
-    "https://pulsepay.live",
+    "https://paypulse.live",
   )
 })
 
@@ -58,57 +58,57 @@ test("legal routes resolve canonical paths and legacy aliases", () => {
 })
 
 test("merchant root and the explicit marketing route show the marketing homepage", () => {
-  assert.equal(shouldShowMarketingHome("/", "merchant.denpay.cc"), true)
+  assert.equal(shouldShowMarketingHome("/", "paypulse.live"), true)
   assert.equal(
-    shouldShowMarketingHome("/", "merchant.denpay.cc", "?checkout=abc"),
+    shouldShowMarketingHome("/", "paypulse.live", "?checkout=abc"),
     false,
   )
   assert.equal(
-    shouldShowMarketingHome("/", "merchant.denpay.cc", "?signin=1"),
+    shouldShowMarketingHome("/", "paypulse.live", "?signin=1"),
     false,
   )
   assert.equal(
-    shouldShowMarketingHome("/", "merchant.denpay.cc", "?ref=A1B2C3D4E5F6G7H8"),
+    shouldShowMarketingHome("/", "paypulse.live", "?ref=A1B2C3D4E5F6G7H8"),
     false,
   )
   assert.equal(
-    shouldShowMarketingHome("/", "merchant.sandbox.denpay.cc"),
+    shouldShowMarketingHome("/", "sandbox.paypulse.live"),
     false,
   )
-  assert.equal(shouldShowMarketingHome("/app", "merchant.denpay.cc"), false)
-  assert.equal(shouldShowMarketingHome("/login", "merchant.denpay.cc"), false)
-  assert.equal(shouldShowMarketingHome(APP_ROUTES.marketing, "denpay.cc"), true)
+  assert.equal(shouldShowMarketingHome("/app", "paypulse.live"), false)
+  assert.equal(shouldShowMarketingHome("/login", "paypulse.live"), false)
+  assert.equal(shouldShowMarketingHome(APP_ROUTES.marketing, "paypulse.live"), true)
   assert.equal(
-    shouldShowMarketingHome(`${APP_ROUTES.marketing}/`, "denpay.cc"),
+    shouldShowMarketingHome(`${APP_ROUTES.marketing}/`, "paypulse.live"),
     true,
   )
 })
 
 test("merchant maintenance does not replace checkout, customer, marketing, or admin pages", () => {
-  assert.equal(shouldGateMerchantMaintenance("/", "merchant.sandbox.denpay.cc"), true)
-  assert.equal(shouldGateMerchantMaintenance("/app/wallet", "merchant.denpay.cc"), true)
+  assert.equal(shouldGateMerchantMaintenance("/", "sandbox.paypulse.live"), true)
+  assert.equal(shouldGateMerchantMaintenance("/app/wallet", "paypulse.live"), true)
   assert.equal(
-    shouldGateMerchantMaintenance("/", "merchant.denpay.cc", "?checkout=code"),
+    shouldGateMerchantMaintenance("/", "paypulse.live", "?checkout=code"),
     false,
   )
   assert.equal(
-    shouldGateMerchantMaintenance("/checkout/abc", "merchant.denpay.cc"),
+    shouldGateMerchantMaintenance("/checkout/abc", "paypulse.live"),
     false,
   )
   assert.equal(
-    shouldGateMerchantMaintenance("/customer", "merchant.denpay.cc"),
+    shouldGateMerchantMaintenance("/customer", "paypulse.live"),
     false,
   )
   assert.equal(
-    shouldGateMerchantMaintenance("/bossd", "merchant.denpay.cc"),
+    shouldGateMerchantMaintenance("/bossd", "paypulse.live"),
     false,
   )
   assert.equal(
-    shouldGateMerchantMaintenance("/marketing", "merchant.denpay.cc"),
+    shouldGateMerchantMaintenance("/marketing", "paypulse.live"),
     false,
   )
   assert.equal(
-    shouldGateMerchantMaintenance("/contact", "merchant.denpay.cc"),
+    shouldGateMerchantMaintenance("/contact", "paypulse.live"),
     false,
   )
 })

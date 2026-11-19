@@ -254,7 +254,7 @@ export async function createMerchantApiIntegrationGuidePdf({
     "201 RESPONSE PAYLOAD",
     '{\n  "id": "payment-record-uuid",\n  "code": "opaque_checkout_code",\n  "paymentUrl": "' +
       paymentUrl +
-      '/?checkout=opaque_checkout_code",\n  "qrCode": "qrph://...",\n  "qrImageUrl": "' +
+      '/checkout/opaque_checkout_code",\n  "qrCode": "qrph://...",\n  "qrImageUrl": "' +
       baseUrl +
       '/v1/public/checkout/opaque_checkout_code/qr.png",\n  "status": "PENDING",\n  "amount": 125.50,\n  "currency": "PHP",\n  "requestEmailStatus": "queued"\n}',
     127,
@@ -276,7 +276,7 @@ export async function createMerchantApiIntegrationGuidePdf({
     "200 RESPONSE PAYLOAD",
     '{\n  "code": "opaque_checkout_code",\n  "paymentUrl": "' +
       paymentUrl +
-      '/?checkout=opaque_checkout_code",\n  "status": "EXECUTED",\n  "amount": 125.50,\n  "currency": "PHP",\n  "referenceNo": "482731"\n}',
+      '/checkout/opaque_checkout_code",\n  "status": "EXECUTED",\n  "amount": 125.50,\n  "currency": "PHP",\n  "referenceNo": "482731"\n}',
     91,
   )
   drawParagraph(

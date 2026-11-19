@@ -497,7 +497,7 @@ export async function createMerchantAgreementPdf({
     ],
     [
       "12. Notices, changes, and entire agreement",
-      "Notices to the Merchant may be sent to the email address on its account; the Merchant must keep that address current. The Merchant may contact PayPulse at support@denpay.cc. This Agreement and the applicable privacy notice state the agreement between the parties concerning the merchant services and replace prior discussions on that subject. A change to this Agreement is effective only when provided in writing and accepted by both parties, except that PayPulse may make an operational change required by law or a payment provider and will notify the Merchant where required.",
+      "Notices to the Merchant may be sent to the email address on its account; the Merchant must keep that address current. The Merchant may contact PayPulse at support@paypulse.live. This Agreement and the applicable privacy notice state the agreement between the parties concerning the merchant services and replace prior discussions on that subject. A change to this Agreement is effective only when provided in writing and accepted by both parties, except that PayPulse may make an operational change required by law or a payment provider and will notify the Merchant where required.",
     ],
     [
       "13. Applicable law and disputes",

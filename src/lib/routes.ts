@@ -1,5 +1,5 @@
 export const APP_ROUTES = {
-  home: "https://denpay.cc",
+  home: "https://paypulse.live",
   marketing: "/marketing",
   merchantLogin: "/login",
   app: "/app",
@@ -11,7 +11,7 @@ export const APP_ROUTES = {
   contact: "/contact",
   merchantSignIn:
     import.meta.env.VITE_DRPAY_MERCHANT_SIGNIN_URL ||
-    "https://pulsepay.live/login",
+    "https://paypulse.live/login",
   androidAppListing:
     "https://play.google.com/store/apps/details?id=ph.drpays.merchant.public&pcampaignid=web_share",
   capabilities: "#capabilities",
@@ -25,24 +25,14 @@ export function getPublicCheckoutOrigin(
   isNativePlatform = false,
 ) {
   const normalizedHostname = hostname.toLowerCase()
+  if (normalizedHostname === "sandbox.paypulse.live")
+    return "https://sandbox.paypulse.live"
   if (
-    normalizedHostname === "merchant.sandbox.denpay.cc" ||
-    normalizedHostname === "pay.sandbox.denpay.cc"
-  ) {
-    return "https://pay.sandbox.denpay.cc"
-  }
-  if (
-    normalizedHostname === "merchant.denpay.cc" ||
-    normalizedHostname === "pay.live.denpay.cc" ||
-    normalizedHostname === "live.merchant.swiftpay.site" ||
-    normalizedHostname === "pulsepay.live" ||
-    normalizedHostname === "www.pulsepay.live"
-  ) {
-    return normalizedHostname === "pulsepay.live" || normalizedHostname === "www.pulsepay.live"
-      ? "https://pulsepay.live"
-      : "https://pay.live.denpay.cc"
-  }
-  return isNativePlatform ? "https://pulsepay.live" : origin
+    normalizedHostname === "paypulse.live" ||
+    normalizedHostname === "www.paypulse.live"
+  )
+    return "https://paypulse.live"
+  return isNativePlatform ? "https://paypulse.live" : origin
 }
 
 export const LEGAL_ROUTE_ALIASES: Record<"privacy" | "terms" | "contact", readonly string[]> =
@@ -61,7 +51,7 @@ export function shouldShowMarketingHome(
   if (normalizedPath === APP_ROUTES.marketing) return true
   if (
     normalizedPath !== "/" ||
-    !["pulsepay.live", "www.pulsepay.live", "merchant.denpay.cc"].includes(
+    !["paypulse.live", "www.paypulse.live"].includes(
       hostname.toLowerCase(),
     )
   ) {
@@ -103,11 +93,9 @@ export function shouldGateMerchantMaintenance(
   if (separateExperience) return false
 
   const merchantHost = [
-    "pulsepay.live",
-    "www.pulsepay.live",
-    "merchant.denpay.cc",
-    "merchant.sandbox.denpay.cc",
-    "live.merchant.swiftpay.site",
+    "paypulse.live",
+    "www.paypulse.live",
+    "sandbox.paypulse.live",
   ].includes(normalizedHostname)
 
   return (

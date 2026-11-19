@@ -1,13 +1,16 @@
 services:
   - type: web
     name: drpay-api
-    branch: Sandbox
+    repo: https://github.com/drltechgroup202/drpay-merchant
+    branch: main
     runtime: node
     plan: starter
     region: oregon
     buildCommand: corepack enable && corepack prepare pnpm@10.34.3 --activate && pnpm install --frozen-lockfile && pnpm check:api
-    startCommand: pnpm start:api
+    startCommand: node server/index.js
     healthCheckPath: /readyz
+    domains:
+      - api.sandbox.paypulse.live
     envVars:
       - key: NODE_VERSION
         value: "22"
@@ -18,15 +21,15 @@ services:
       - key: DATABASE_SSL
         value: "false"
       - key: DRPAY_FRONTEND_ORIGIN
-        value: https://merchant.sandbox.denpay.cc
+        value: https://sandbox.paypulse.live
       - key: DRPAY_ADDITIONAL_FRONTEND_ORIGINS
-        value: https://denpay.cc,https://pay.live.denpay.cc,https://pay.sandbox.denpay.cc,https://live.merchant.swiftpay.site,https://drpay-web.onrender.com
+        value: https://paypulse.live,https://www.paypulse.live,https://sandbox.paypulse.live,https://drpay-web-iv2y.onrender.com,https://drpay-sandbox-web.onrender.com
       - key: DRPAY_LIVE_CHECKOUT_ORIGIN
-        value: https://pay.live.denpay.cc
+        value: https://paypulse.live
       - key: DRPAY_SANDBOX_CHECKOUT_ORIGIN
-        value: https://pay.sandbox.denpay.cc
+        value: https://sandbox.paypulse.live
       - key: DRPAY_PUBLIC_API_ORIGIN
-        value: https://api.sandbox.denpay.cc
+        value: https://api.sandbox.paypulse.live
       - key: DRPAY_MERCHANT_EMAIL
         sync: false
       - key: DRPAY_SUPER_ADMIN_EMAIL
@@ -42,7 +45,7 @@ services:
       - key: DRPAY_TELEGRAM_LOGIN_CLIENT_ID
         sync: false
       - key: DRPAY_PASSKEY_RP_ID
-        value: merchant.sandbox.denpay.cc
+        value: sandbox.paypulse.live
       - key: RESEND_API_KEY
         sync: false
       - key: RESEND_FROM_EMAIL
@@ -84,6 +87,8 @@ services:
     buildCommand: corepack enable && corepack prepare pnpm@10.34.3 --activate && pnpm install --frozen-lockfile && pnpm check:api
     startCommand: node server/index.js
     healthCheckPath: /readyz
+    domains:
+      - api.paypulse.live
     envVars:
       - key: NODE_VERSION
         value: "22"
@@ -94,15 +99,15 @@ services:
       - key: DATABASE_SSL
         value: "false"
       - key: DRPAY_FRONTEND_ORIGIN
-        value: https://pulsepay.live
+        value: https://paypulse.live
       - key: DRPAY_ADDITIONAL_FRONTEND_ORIGINS
-        value: https://denpay.cc,https://merchant.denpay.cc,https://pay.live.denpay.cc,https://pay.sandbox.denpay.cc,https://live.merchant.swiftpay.site,https://drpay-web.onrender.com,https://www.pulsepay.live,https://pulse.pay.ph,https://www.pulse.pay.ph
+        value: https://paypulse.live,https://www.paypulse.live,https://sandbox.paypulse.live,https://drpay-web-iv2y.onrender.com,https://drpay-sandbox-web.onrender.com
       - key: DRPAY_LIVE_CHECKOUT_ORIGIN
-        value: https://pulsepay.live
+        value: https://paypulse.live
       - key: DRPAY_SANDBOX_CHECKOUT_ORIGIN
-        value: https://pay.sandbox.denpay.cc
+        value: https://sandbox.paypulse.live
       - key: DRPAY_PUBLIC_API_ORIGIN
-        value: https://api.live.denpay.cc
+        value: https://api.paypulse.live
       - key: DRPAY_MERCHANT_EMAIL
         sync: false
       - key: DRPAY_SUPER_ADMIN_EMAIL
@@ -120,7 +125,7 @@ services:
       - key: DRPAY_TELEGRAM_LOGIN_CLIENT_ID
         sync: false
       - key: DRPAY_PASSKEY_RP_ID
-        value: pulsepay.live
+        value: paypulse.live
       - key: RESEND_API_KEY
         sync: false
       - key: RESEND_FROM_EMAIL
@@ -167,8 +172,8 @@ services:
     buildCommand: node scripts/download-latest-apk.mjs && corepack enable && corepack prepare pnpm@10.34.3 --activate && pnpm install --frozen-lockfile && pnpm typecheck && pnpm build
     staticPublishPath: dist
     domains:
-      - pulsepay.live
-      - www.pulsepay.live
+      - paypulse.live
+      - www.paypulse.live
     envVars:
       - key: NODE_VERSION
         value: 22
@@ -177,13 +182,13 @@ services:
       - key: DRPAY_GITHUB_RELEASE_REPOSITORY
         value: drltechgroup202/drpay-merchant
       - key: VITE_DRPAY_BACKEND_URL
-        value: https://api.live.denpay.cc
+        value: https://api.paypulse.live
       - key: VITE_DRPAY_MERCHANT_SIGNIN_URL
-        value: https://pulsepay.live/login
+        value: https://paypulse.live/login
       - key: VITE_DRPAY_LIVE_BACKEND_URL
-        value: https://api.live.denpay.cc
+        value: https://api.paypulse.live
       - key: VITE_DRPAY_SANDBOX_BACKEND_URL
-        value: https://api.sandbox.denpay.cc
+        value: https://api.sandbox.paypulse.live
     routes:
       - type: rewrite
         source: /checkout/*
@@ -223,21 +228,24 @@ services:
         destination: /index.html
   - type: web
     name: drpay-sandbox-web
-    branch: Sandbox
+    repo: https://github.com/drltechgroup202/drpay-merchant
+    branch: main
     runtime: static
     buildCommand: corepack enable && corepack prepare pnpm@10.34.3 --activate && pnpm install --frozen-lockfile && pnpm typecheck && pnpm build
     staticPublishPath: dist
+    domains:
+      - sandbox.paypulse.live
     envVars:
       - key: NODE_VERSION
         value: "22"
       - key: VITE_DRPAY_BACKEND_URL
-        value: https://api.sandbox.denpay.cc
+        value: https://api.sandbox.paypulse.live
       - key: VITE_DRPAY_MERCHANT_SIGNIN_URL
-        value: https://merchant.sandbox.denpay.cc/login
+        value: https://sandbox.paypulse.live/login
       - key: VITE_DRPAY_LIVE_BACKEND_URL
-        value: https://api.live.denpay.cc
+        value: https://api.paypulse.live
       - key: VITE_DRPAY_SANDBOX_BACKEND_URL
-        value: https://api.sandbox.denpay.cc
+        value: https://api.sandbox.paypulse.live
     routes:
       - type: rewrite
         source: /checkout/*

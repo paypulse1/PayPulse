@@ -51,7 +51,9 @@ jobs:
 
       - name: Verify and build web assets
         env:
-          VITE_DRPAY_BACKEND_URL: ${{ vars.DRPAY_API_URL || 'https://drpay-merchant-production.up.railway.app' }}
+          VITE_DRPAY_BACKEND_URL: ${{ vars.DRPAY_API_URL || 'https://api.paypulse.live' }}
+          VITE_DRPAY_LIVE_BACKEND_URL: ${{ vars.DRPAY_LIVE_API_URL || vars.DRPAY_API_URL || 'https://api.paypulse.live' }}
+          VITE_DRPAY_SANDBOX_BACKEND_URL: ${{ vars.DRPAY_SANDBOX_API_URL || 'https://api.sandbox.paypulse.live' }}
         run: |
           pnpm typecheck
           pnpm build
