@@ -5,14 +5,39 @@ import { dirname } from "node:path"
 import { Readable } from "node:stream"
 import { pipeline } from "node:stream/promises"
 
-const repository = "blackhorsecn/drpay-merchant"
+const repository =
+  process.env.DRPAY_GITHUB_RELEASE_REPOSITORY?.trim() ||
+  "drltechgroup202/drpay-merchant"
 const destination = process.argv[2] || "public/drpay.apk"
 const temporaryPath = `${destination}.download`
 const token = process.env.DRPAY_GITHUB_RELEASE_TOKEN
 
+async function hasValidApk(path) {
+  try {
+    const file = await open(path, "r")
+    const signature = Buffer.alloc(4)
+    try {
+      await file.read(signature, 0, signature.length, 0)
+    } finally {
+      await file.close()
+    }
+    if (signature.toString("hex") !== "504b0304") return false
+    const fileStats = await stat(path)
+    return fileStats.size > 1_000_000
+  } catch {
+    return false
+  }
+}
+
 if (!token) {
+  if (await hasValidApk(destination)) {
+    console.warn(
+      "DRPAY_GITHUB_RELEASE_TOKEN is not set; retaining the checked-in APK.",
+    )
+    process.exit(0)
+  }
   throw new Error(
-    "Set DRPAY_GITHUB_RELEASE_TOKEN to a read-only token for the private APK release.",
+    "Set DRPAY_GITHUB_RELEASE_TOKEN or provide a valid public/drpay.apk.",
   )
 }
 
@@ -47,7 +72,15 @@ try {
   )
   const asset = release?.assets?.find(({ name }) => name === "drpay.apk")
   if (!asset?.url || !Number.isSafeInteger(asset.size)) {
-    throw new Error("The latest private GitHub release has no valid drpay.apk.")
+    if (await hasValidApk(destination)) {
+      console.warn(
+        "No published private APK release was found; retaining the checked-in APK.",
+      )
+      process.exit(0)
+    }
+    throw new Error(
+      "No private APK release was found and public/drpay.apk is invalid.",
+    )
   }
 
   const downloadResponse = await request(asset.url, {
@@ -99,5 +132,11 @@ try {
   )
 } catch (error) {
   await rm(temporaryPath, { force: true })
+  if (await hasValidApk(destination)) {
+    console.warn(
+      `Could not refresh the private APK (${error.message}); retaining the checked-in APK.`,
+    )
+    process.exit(0)
+  }
   throw error
 }

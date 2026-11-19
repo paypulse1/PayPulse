@@ -42,7 +42,7 @@ export function useAndroidAppUpdate() {
         const appInfo = await CapacitorApp.getInfo()
         if (appInfo.id !== "ph.drpays.merchant") return
         const response = await fetch(
-          "https://api.github.com/repos/blackhorsecn/drpay-merchant/releases?per_page=100",
+          "https://api.github.com/repos/drltechgroup202/drpay-merchant/releases?per_page=100",
           {
             headers: { Accept: "application/vnd.github+json" },
             cache: "no-store",

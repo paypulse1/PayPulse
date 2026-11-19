@@ -82,7 +82,7 @@ services:
     plan: starter
     region: oregon
     buildCommand: corepack enable && corepack prepare pnpm@10.34.3 --activate && pnpm install --frozen-lockfile && pnpm check:api
-    startCommand: pnpm start:api
+    startCommand: node server/index.js
     healthCheckPath: /readyz
     envVars:
       - key: NODE_VERSION
@@ -110,6 +110,8 @@ services:
       - key: DRPAY_SUPER_ADMIN_PASSWORD
         sync: false
       - key: DRPAY_PASSWORD_SALT
+        sync: false
+      - key: DRPAY_ADMIN_MFA_ENCRYPTION_KEY
         sync: false
       - key: DRPAY_JWT_SECRET
         sync: false
@@ -171,6 +173,8 @@ services:
         value: 22
       - key: DRPAY_GITHUB_RELEASE_TOKEN
         sync: false
+      - key: DRPAY_GITHUB_RELEASE_REPOSITORY
+        value: drltechgroup202/drpay-merchant
       - key: VITE_DRPAY_BACKEND_URL
         value: https://api.live.denpay.cc
       - key: VITE_DRPAY_MERCHANT_SIGNIN_URL
