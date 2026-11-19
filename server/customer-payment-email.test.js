@@ -12,12 +12,12 @@ describe("customer payment request email", () => {
         customerEmail: "customer@example.com",
         ...copy,
         referenceNo: "100004",
-        paymentUrl: "https://pay.live.denpay.cc/checkout/tax-42",
+        paymentUrl: "https://paypulse.live/checkout/tax-42",
       },
-      "PayPulse <payments@denpay.cc>",
+      "PayPulse <payments@paypulse.live>",
     )
 
-    expect(email.from).toBe("PayPulse <no-reply@denpay.cc>")
+    expect(email.from).toBe("PayPulse <no-reply@paypulse.live>")
     expect(email.subject).toBe(
       "PayPulse: BIR 2307 Withholding Tax Notice · 100004",
     )
@@ -71,7 +71,7 @@ describe("customer payment request email", () => {
     expect(email.html).toContain("Tax invoice: &lt;Q3 remittances&gt;")
     expect(email.html).not.toContain("<Q3 remittances>")
     expect(email.html).toContain(
-      'href="https://pay.live.denpay.cc/checkout/tax-42"',
+      'href="https://paypulse.live/checkout/tax-42"',
     )
   })
 
@@ -82,7 +82,7 @@ describe("customer payment request email", () => {
         title: "Tax invoice: WI830 Q3 2026",
         amount: 1250,
         referenceNo: "TAX-42",
-        paymentUrl: "https://pay.live.denpay.cc/checkout/tax-42",
+        paymentUrl: "https://paypulse.live/checkout/tax-42",
         emailSubject: "PayPulse: Tax invoice · {{reference}}",
         attachment: {
           fileName: "tax-support.pdf",
@@ -90,7 +90,7 @@ describe("customer payment request email", () => {
           contentType: "application/pdf",
         },
       },
-      "PayPulse <payments@denpay.cc>",
+      "PayPulse <payments@paypulse.live>",
     )
 
     expect(email.attachments).toEqual([
@@ -109,7 +109,7 @@ describe("customer payment request email", () => {
         title: "Tax invoice: WI830 Q3 2026",
         amount: 1250,
         referenceNo: "TAX-43",
-        paymentUrl: "https://pay.live.denpay.cc/checkout/tax-43",
+        paymentUrl: "https://paypulse.live/checkout/tax-43",
         emailSubject: "PayPulse: BIR 2307 Withholding Tax Notice · TAX-43",
         emailMessage: "A professional tax payment notice.",
         generatedInvoiceAttachment: Buffer.from("invoice-pdf"),
@@ -119,7 +119,7 @@ describe("customer payment request email", () => {
           contentType: "application/pdf",
         },
       },
-      "PayPulse <payments@denpay.cc>",
+      "PayPulse <payments@paypulse.live>",
     )
 
     expect(email.attachments).toEqual([
@@ -152,23 +152,23 @@ describe("customer payment request email", () => {
         title: "Invoice 42",
         amount: 1250,
         referenceNo: "DRP-42",
-        paymentUrl: "https://pay.live.denpay.cc/checkout/secure-code",
+        paymentUrl: "https://paypulse.live/checkout/secure-code",
       },
-      "PayPulse <payments@denpay.cc>",
+      "PayPulse <payments@paypulse.live>",
     )
 
     expect(email).toMatchObject({
-      from: "PayPulse <payments@denpay.cc>",
+      from: "PayPulse <payments@paypulse.live>",
       to: ["customer@example.com"],
       subject: "PayPulse: Payment request · DRP-42",
     })
     expect(email.text).toContain("Payment for: Invoice 42")
     expect(email.text).toContain("PHP 1,250.00")
     expect(email.text).toContain(
-      "https://pay.live.denpay.cc/checkout/secure-code",
+      "https://paypulse.live/checkout/secure-code",
     )
     expect(email.html).toContain(
-      'href="https://pay.live.denpay.cc/checkout/secure-code"',
+      'href="https://paypulse.live/checkout/secure-code"',
     )
   })
 
@@ -179,9 +179,9 @@ describe("customer payment request email", () => {
         title: "<img src=x onerror=alert(1)>",
         amount: 10,
         referenceNo: "<script>",
-        paymentUrl: "https://pay.live.denpay.cc/checkout/code",
+        paymentUrl: "https://paypulse.live/checkout/code",
       },
-      "payments@denpay.cc",
+      "payments@paypulse.live",
     )
 
     expect(email.html).not.toContain("<img")
@@ -195,7 +195,7 @@ describe("customer payment request email", () => {
           referenceNo: "DRP-1",
           paymentUrl: "http://example.com/pay",
         },
-        "payments@denpay.cc",
+        "payments@paypulse.live",
       ),
     ).toThrow(/HTTPS/)
   })
@@ -207,14 +207,14 @@ describe("customer payment request email", () => {
         title: "<Invoice>",
         amount: 25,
         referenceNo: "DRP-25",
-        paymentUrl: "https://pay.live.denpay.cc/checkout/code",
+        paymentUrl: "https://paypulse.live/checkout/code",
         emailSubject: "Please pay {{amount}} for {{title}}",
         emailMessage:
           "Hello {{title}}\nReference {{reference}}\n<a>Pay securely</a>",
         emailBrandColor: "#ab12cd",
         emailLogoUrl: "https://example.com/brand.png",
       },
-      "payments@denpay.cc",
+      "payments@paypulse.live",
     )
 
     expect(email.subject).toBe("Please pay PHP 25.00 for <Invoice>")
@@ -232,10 +232,10 @@ describe("customer payment request email", () => {
         title: "Invoice\nBcc: attacker@example.com",
         amount: 25,
         referenceNo: "DRP-25",
-        paymentUrl: "https://pay.live.denpay.cc/checkout/code",
+        paymentUrl: "https://paypulse.live/checkout/code",
         emailSubject: "{{title}}",
       },
-      "payments@denpay.cc",
+      "payments@paypulse.live",
     )
 
     expect(email.subject).toBe("Invoice Bcc: attacker@example.com")
@@ -249,11 +249,11 @@ describe("customer payment request email", () => {
         title: "Invoice 25",
         amount: 25,
         referenceNo: "DRP-25",
-        paymentUrl: "https://pay.live.denpay.cc/checkout/code",
+        paymentUrl: "https://paypulse.live/checkout/code",
         emailMessage:
           "# Hello {{title}}\n**Bold** *italic* __underlined__ ~~removed~~ `code`\n- First item\n- [Pay now]({{checkout_url}})\n1. One\n2. Two\n> A quote\n[unsafe](javascript:alert(1))\n<img src=x onerror=alert(1)>",
       },
-      "payments@denpay.cc",
+      "payments@paypulse.live",
     )
 
     expect(email.html).toContain("<h3")
@@ -266,7 +266,7 @@ describe("customer payment request email", () => {
     expect(email.html).toContain("<ol")
     expect(email.html).toContain("<blockquote")
     expect(email.html).toContain(
-      'href="https://pay.live.denpay.cc/checkout/code"',
+      'href="https://paypulse.live/checkout/code"',
     )
     expect(email.html).not.toContain('href="javascript:')
     expect(email.html).toContain("&lt;img src=x onerror=alert(1)&gt;")

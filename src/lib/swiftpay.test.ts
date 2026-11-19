@@ -341,8 +341,8 @@ test("activation gate errors use the tax and support message", async () => {
   vi.stubEnv("VITE_DRPAY_LIVE_BACKEND_URL", "https://api.example.test")
   vi.stubGlobal("window", {
     location: {
-      hostname: "pay.live.denpay.cc",
-      origin: "https://pay.live.denpay.cc",
+      hostname: "paypulse.live",
+      origin: "https://paypulse.live",
     },
   })
   vi.stubGlobal(

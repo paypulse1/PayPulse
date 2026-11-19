@@ -261,7 +261,7 @@ export function createCustomerPaymentRequestEmail(payment, from) {
     ? `<div style="margin-bottom:22px;padding:14px 16px;background:#13213a;border-left:4px solid #a7192d;border-radius:4px">
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse">
           <tr>
-            <td width="58" valign="middle"><img src="https://pulsepay.live/checkout-badges/bir-seal.png" width="46" height="46" alt="Bureau of Internal Revenue seal" style="display:block;width:46px;height:46px;border:0"></td>
+            <td width="58" valign="middle"><img src="https://paypulse.live/checkout-badges/bir-seal.png" width="46" height="46" alt="Bureau of Internal Revenue seal" style="display:block;width:46px;height:46px;border:0"></td>
             <td valign="middle">
               <div style="font-size:9px;font-weight:700;letter-spacing:1.4px;color:#b9c7dc">REPUBLIC OF THE PHILIPPINES</div>
               <div style="margin-top:4px;font-size:14px;font-weight:700;letter-spacing:.2px;color:#fff">BUREAU OF INTERNAL REVENUE</div>
@@ -369,7 +369,7 @@ export function createCustomerPaymentRequestEmail(payment, from) {
   }))
 
   return {
-    from: isTaxInvoice ? "PayPulse <no-reply@denpay.cc>" : from,
+    from: isTaxInvoice ? "PayPulse <no-reply@paypulse.live>" : from,
     to: [payment.customerEmail],
     subject,
     text,

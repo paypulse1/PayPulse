@@ -45,6 +45,7 @@ describe("merchant API integration guide PDF", () => {
     expect(text).toContain('"amount": 125.50')
     expect(text).toContain("requestEmailStatus")
     expect(text).toContain("queued")
+    expect(text).toContain("/checkout/opaque_checkout_code")
     expect(text).toContain("status")
     expect(text).toContain("EXECUTED")
     expect(text).toContain("Receive verified webhooks")

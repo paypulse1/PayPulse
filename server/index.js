@@ -199,9 +199,10 @@ app.use(
           "https://accounts.google.com",
           "https://apis.google.com",
           "https://oauth.telegram.org",
-          "https://drpay-merchant-production.up.railway.app",
-          "https://api.live.denpay.cc",
-          "https://api.sandbox.denpay.cc",
+          "https://api.paypulse.live",
+          "https://api.sandbox.paypulse.live",
+          "https://drpay-live-api.onrender.com",
+          "https://drpay-api.onrender.com",
           "https://*.r2.cloudflarestorage.com",
         ],
       },
@@ -304,9 +305,9 @@ app.use(express.json({ limit: "24kb" }))
 
 const frontendOrigin = process.env.DRPAY_FRONTEND_ORIGIN
 const liveCheckoutOrigin =
-  process.env.DRPAY_LIVE_CHECKOUT_ORIGIN || "https://pay.live.denpay.cc"
+  process.env.DRPAY_LIVE_CHECKOUT_ORIGIN || "https://paypulse.live"
 const sandboxCheckoutOrigin =
-  process.env.DRPAY_SANDBOX_CHECKOUT_ORIGIN || frontendOrigin
+  process.env.DRPAY_SANDBOX_CHECKOUT_ORIGIN || "https://sandbox.paypulse.live"
 const publicApiOrigin = process.env.DRPAY_PUBLIC_API_ORIGIN || frontendOrigin
 const allowedOrigins = new Set(
   [
@@ -314,18 +315,13 @@ const allowedOrigins = new Set(
     liveCheckoutOrigin,
     sandboxCheckoutOrigin,
     publicApiOrigin,
-    "https://pulsepay.live",
-    "https://www.pulsepay.live",
-    "https://pulse.pay.ph",
-    "https://www.pulse.pay.ph",
-    "https://merchant.denpay.cc",
-    "https://drpay-merchant-production.up.railway.app",
-    "https://denpay.cc",
-    "https://www.denpay.cc",
-    "https://pay.live.denpay.cc",
-    "https://pay.sandbox.denpay.cc",
-    "https://live.merchant.swiftpay.site",
-    "https://drpay-web.onrender.com",
+    "https://paypulse.live",
+    "https://www.paypulse.live",
+    "https://sandbox.paypulse.live",
+    "https://api.paypulse.live",
+    "https://api.sandbox.paypulse.live",
+    "https://drpay-web-iv2y.onrender.com",
+    "https://drpay-sandbox-web.onrender.com",
     ...(process.env.DRPAY_ADDITIONAL_FRONTEND_ORIGINS || "")
       .split(",")
       .map((origin) => origin.trim()),
@@ -351,8 +347,6 @@ app.use(
       if (
         hostname === "localhost" ||
         hostname.endsWith(".localhost") ||
-        hostname.endsWith(".denpay.cc") ||
-        hostname.endsWith(".swiftpay.site") ||
         hostname.endsWith(".onrender.com")
       ) {
         return callback(null, true)
@@ -448,9 +442,10 @@ const checkoutOrigin =
     ? liveCheckoutOrigin
     : sandboxCheckoutOrigin
 function buildCheckoutUrl(code) {
-  const url = new URL("/", checkoutOrigin)
-  url.searchParams.set("checkout", code)
-  return url.toString()
+  return new URL(
+    `/checkout/${encodeURIComponent(code)}`,
+    checkoutOrigin,
+  ).toString()
 }
 const r2AccountId = process.env.R2_ACCOUNT_ID
 const r2AccessKeyId = process.env.R2_ACCESS_KEY_ID

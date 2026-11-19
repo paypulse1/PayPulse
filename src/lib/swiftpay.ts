@@ -694,7 +694,7 @@ function cacheCollectionInstitution(
 const defaultApiBaseUrl = import.meta.env.VITE_DRPAY_BACKEND_URL || ""
 const liveApiBaseUrl =
   import.meta.env.VITE_DRPAY_LIVE_BACKEND_URL ||
-  "https://drpay-merchant-production.up.railway.app"
+  "https://drpay-live-api.onrender.com"
 const configuredLiveApiBaseUrl = import.meta.env.VITE_DRPAY_LIVE_BACKEND_URL || ""
 const configuredSandboxApiBaseUrl =
   import.meta.env.VITE_DRPAY_SANDBOX_BACKEND_URL || ""
@@ -710,17 +710,11 @@ function getHostname() {
 
 function getHostnamePaymentEnvironment(): PaymentEnvironment | null {
   const hostname = getHostname()
-  if (
-    hostname === "pay.sandbox.denpay.cc" ||
-    hostname === "merchant.sandbox.denpay.cc"
-  )
+  if (hostname === "sandbox.paypulse.live")
     return "sandbox"
   if (
-    hostname === "pulsepay.live" ||
-    hostname === "www.pulsepay.live" ||
-    hostname === "pay.live.denpay.cc" ||
-    hostname === "merchant.denpay.cc" ||
-    hostname === "live.merchant.swiftpay.site"
+    hostname === "paypulse.live" ||
+    hostname === "www.paypulse.live"
   )
     return "production"
   return null

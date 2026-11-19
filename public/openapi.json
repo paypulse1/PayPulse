@@ -7,11 +7,11 @@
   },
   "servers": [
     {
-      "url": "https://drpay-merchant-production.up.railway.app",
+      "url": "https://api.paypulse.live",
       "description": "Production"
     },
     {
-      "url": "https://api.sandbox.denpay.cc",
+      "url": "https://api.sandbox.paypulse.live",
       "description": "Sandbox"
     }
   ],

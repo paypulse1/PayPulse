@@ -105,8 +105,8 @@ export default function MerchantApiDocumentation({
     ? "Production / live money"
     : "Sandbox / test money"
   const checkoutHost = isProduction
-    ? "pulsepay.live"
-    : "pay.sandbox.denpay.cc"
+    ? "paypulse.live"
+    : "sandbox.paypulse.live"
   const checkoutOrigin = `https://${checkoutHost}`
 
   return (
@@ -265,9 +265,9 @@ DRPAY_API_KEY=your_environment_specific_key`}
           code={`{
   "id": "payment-record-uuid",
   "code": "opaque_checkout_code",
-  "paymentUrl": "${checkoutOrigin}/?checkout=opaque_checkout_code",
+  "paymentUrl": "${checkoutOrigin}/checkout/opaque_checkout_code",
   "qrCode": "qrph://...",
-  "qrImageUrl": "https://denpay.cc/v1/public/checkout/opaque_checkout_code/qr.png",
+  "qrImageUrl": "${configuredApiBaseUrl}/v1/public/checkout/opaque_checkout_code/qr.png",
   "status": "PENDING",
   "amount": 125.50,
   "currency": "PHP"
@@ -348,7 +348,7 @@ export async function createInvoiceCheckout({ amount, invoiceId, customerEmail }
           title="Response"
           code={`{
   "code": "opaque_checkout_code",
-  "paymentUrl": "${checkoutOrigin}/?checkout=opaque_checkout_code",
+  "paymentUrl": "${checkoutOrigin}/checkout/opaque_checkout_code",
   "status": "EXECUTED",
   "amount": 125.50,
   "currency": "PHP",
