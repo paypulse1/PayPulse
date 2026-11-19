@@ -365,7 +365,7 @@ function drawDocumentHeader({
     width: 36,
     height: 36,
   })
-  page.drawText("DRPAY", {
+  page.drawText("PayPulse", {
     x: 92,
     y: height - 54,
     size: 20,
@@ -398,8 +398,8 @@ function drawDocumentHeader({
     font: bold,
     color: colors.white,
   })
-  page.drawText("OFFICIAL DRPAY DOCUMENT", {
-    x: 306 - bold.widthOfTextAtSize("OFFICIAL DRPAY DOCUMENT", 7.5) / 2,
+  page.drawText("OFFICIAL PayPulse DOCUMENT", {
+    x: 306 - bold.widthOfTextAtSize("OFFICIAL PayPulse DOCUMENT", 7.5) / 2,
     y: height - 74,
     size: 7.5,
     font: bold,
@@ -513,7 +513,7 @@ function drawInvoiceDetails({
   })
   page.drawText(
     isReceipt
-      ? "Payment received and recorded in DRPAY."
+      ? "Payment received and recorded in PayPulse."
       : "Payment due as itemized below.",
     { x: 48, y: y - 17, size: 8.5, font: regular, color: colors.slate },
   )
@@ -636,14 +636,14 @@ function drawDocumentFooter({
   })
   page.drawText(
     isReceipt
-      ? "This receipt confirms payment status recorded by DRPAY."
+      ? "This receipt confirms payment status recorded by PayPulse."
       : "Please keep this invoice for your payment records.",
     { x: 48, y: 70, size: 8, font: regular, color: colors.slate },
   )
   page.drawText(
     isBirTaxDocument
       ? "BIR FORM 2307  |  CERTIFICATE OF CREDITABLE TAX WITHHELD AT SOURCE"
-      : "DRPAY  |  Secure digital payments",
+      : "PayPulse  |  Secure digital payments",
     { x: 48, y: 48, size: 7.5, font: bold, color: colors.ink },
   )
   rightAlign(

@@ -126,7 +126,7 @@ describe("collection settlement", () => {
     expect(PLATFORM_FEE_LEDGER_SOURCE_TYPES).toContain("ACTIVATION_FEE")
     expect(credit.sql).toContain("'ACTIVATION_FEE'")
     expect(debit.parameters[3]).toBe("-5000.00")
-    expect(debit.parameters[4]).toBe("DRPAY-ACTIVATION")
+    expect(debit.parameters[4]).toBe("PayPulse-ACTIVATION")
     expect(credit.parameters[3]).toBe("5000.00")
     expect(debit.parameters[2]).toBe(credit.parameters[1])
     expect(calls.map(({ sql }) => sql)).toContain("COMMIT")

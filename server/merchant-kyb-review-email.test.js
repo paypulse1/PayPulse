@@ -26,7 +26,7 @@ describe("merchant KYB review emails", () => {
     expect(email.subject).toContain("KYB review is approved")
     expect(email.text).toContain("sign-in access has not been enabled yet")
     expect(email.text).toContain("separate email when your access is ready")
-    expect(email.text).not.toContain("Sign in to DRPAY")
+    expect(email.text).not.toContain("Sign in to PayPulse")
     expect(email.html).not.toContain("Open merchant portal")
   })
 
@@ -40,7 +40,7 @@ describe("merchant KYB review emails", () => {
     })
 
     expect(email.text).toContain("merchant access is enabled")
-    expect(email.html).toContain("Sign in to DRPAY")
+    expect(email.html).toContain("Sign in to PayPulse")
   })
 
   it("escapes review notes and gives rejected applications a clear next step", () => {
@@ -52,7 +52,7 @@ describe("merchant KYB review emails", () => {
       portalUrl: "https://merchant.example.test/login",
     })
 
-    expect(email.text).toContain("contact your DRPAY representative")
+    expect(email.text).toContain("contact your PayPulse representative")
     expect(email.text).toContain("<script>alert(1)</script>")
     expect(email.html).toContain("&lt;script&gt;")
     expect(email.html).not.toContain("<script>")

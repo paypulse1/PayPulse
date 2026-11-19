@@ -11,7 +11,7 @@ describe("merchant email delivery", () => {
   it("uses the single-email endpoint for one notification", async () => {
     let request
     await sendMerchantEmails({
-      from: "DRPAY <accounts@example.com>",
+      from: "PayPulse <accounts@example.com>",
       apiKey: "test-key",
       messages: [
         { to: "merchant@example.com", email: message("Access ready") },

@@ -323,7 +323,7 @@ export default function MerchantSignIn({
             ? providerStepUp
               ? "Identity verified"
               : "Welcome back"
-            : "Sign in to PulsePay"}
+            : "Sign in to PayPulse"}
       </h1>
       <p>
         {stage === "otp"
@@ -409,7 +409,7 @@ export default function MerchantSignIn({
             className="auth-registration-link"
             onClick={() => setRegistering(true)}
           >
-            New to PulsePay? <strong>Start merchant registration</strong>
+            New to PayPulse? <strong>Start merchant registration</strong>
           </button>
           <p className="auth-registration-note">
             Sign in once merchant access is approved and enabled.

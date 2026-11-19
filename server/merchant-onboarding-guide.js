@@ -52,7 +52,7 @@ function formatPhp(value) {
 
 export async function createMerchantOnboardingGuidePdf({
   merchantName,
-  providerName = "DRPAY",
+  providerName = "PayPulse",
   rate,
   rateSource,
   rateUpdatedAt,
@@ -70,7 +70,7 @@ export async function createMerchantOnboardingGuidePdf({
   const document = await PDFDocument.create()
   document.setTitle(`${providerName} Merchant Currency and USDT Guide`)
   document.setSubject("KRW/PHP reference conversion and USDT TRON fee guidance")
-  document.setCreator("DRPAY")
+  document.setCreator("PayPulse")
   const regular = await document.embedFont(StandardFonts.Helvetica)
   const bold = await document.embedFont(StandardFonts.HelveticaBold)
   const [drpayMark, netbankMark] = await Promise.all([
@@ -255,7 +255,7 @@ export async function createMerchantOnboardingGuidePdf({
     `This reference rate was captured when this guide was prepared on ${capturedDate.toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" })} UTC. It is an informational snapshot, not a guaranteed payment or settlement rate.`,
   )
   drawBullet(
-    "When creating a KRW payment request, the merchant enters the amount in KRW. DRPAY uses the active KRW/PHP rate to calculate an estimated PHP checkout amount, rounded to the nearest cent.",
+    "When creating a KRW payment request, the merchant enters the amount in KRW. PayPulse uses the active KRW/PHP rate to calculate an estimated PHP checkout amount, rounded to the nearest cent.",
   )
   drawBullet(
     "The active rate is either a Super Admin configured override or, when no override is set, an external reference rate. The checkout shows the active quote and its source.",
@@ -298,13 +298,13 @@ export async function createMerchantOnboardingGuidePdf({
   y -= 42
   drawSectionHeading("USDT DEPOSITS AND NETWORK FEES")
   drawBullet(
-    "Use only the merchant's DRPAY-assigned TRON mainnet address and send USDT using the TRC20 network. Sending another token or using another network may result in loss of funds.",
+    "Use only the merchant's PayPulse-assigned TRON mainnet address and send USDT using the TRC20 network. Sending another token or using another network may result in loss of funds.",
   )
   drawBullet(
     "The sending wallet or provider sets and displays the network transaction fee at send time. It can vary with network conditions and wallet resources; review the fee and destination address before confirming.",
   )
   drawBullet(
-    "DRPAY does not set a fixed USDT network-fee amount in the merchant console. Do not treat a wallet's quoted network fee as a DRPAY charge.",
+    "PayPulse does not set a fixed USDT network-fee amount in the merchant console. Do not treat a wallet's quoted network fee as a PayPulse charge.",
   )
   drawBullet(
     "The merchant portal displays the on-chain balance and recent confirmed TRC20 deposits. A deposit appears after it is confirmed on TRON.",

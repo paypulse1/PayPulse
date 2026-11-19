@@ -19,8 +19,8 @@ export function createMerchantInvitationEmail({
     greeting: contactPerson,
     paragraphs: [
       `${providerName} has invited ${businessName} to set up a merchant account.`,
-      "Review and sign the attached Merchant Services Agreement. By signing, you agree to its strict confidentiality, non-disclosure, and data-protection obligations covering all non-public information connected with DRPAY, your account, customers, transactions, services, and this relationship.",
-      "Review and sign the attached Alipay+ Service Access and Incorporation Addendum, which is between DRPAY and your business. Any applicable Alipay+, acquirer, or wallet terms will be identified and provided for your review before the related payment service is enabled.",
+      "Review and sign the attached Merchant Services Agreement. By signing, you agree to its strict confidentiality, non-disclosure, and data-protection obligations covering all non-public information connected with PayPulse, your account, customers, transactions, services, and this relationship.",
+      "Review and sign the attached Alipay+ Service Access and Incorporation Addendum, which is between PayPulse and your business. Any applicable Alipay+, acquirer, or wallet terms will be identified and provided for your review before the related payment service is enabled.",
       "Sign in using the email address that received this invitation. When signing in from a new device, enter the one-time verification code sent to your inbox.",
     ],
     action: { label: "Open merchant portal", url: invitationUrl },
@@ -33,7 +33,7 @@ export function createMerchantInvitationEmail({
       {
         name: "Alipay+ Service Access and Incorporation Addendum",
         description:
-          "DRPAY-merchant addendum; third-party service terms are disclosed separately before activation",
+          "PayPulse-merchant addendum; third-party service terms are disclosed separately before activation",
       },
     ],
     footerNotes: [

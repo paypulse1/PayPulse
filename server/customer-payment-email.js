@@ -123,9 +123,9 @@ function getDocumentAttachments(payment, reference) {
       ? [
           {
             kind: "invoice",
-            label: "DRPAY Official Invoice",
+            label: "PayPulse Official Invoice",
             description: "Payment request and amount details",
-            filename: `DRPAY-Invoice-${reference}.pdf`,
+            filename: `PayPulse-Invoice-${reference}.pdf`,
             content: payment.generatedInvoiceAttachment.toString("base64"),
             contentType: "application/pdf",
           },
@@ -215,19 +215,19 @@ export function createTaxInvoiceEmailCopy(description, amountToCollect) {
       "## What Happens Next",
       "**Follow these steps to receive your payout:**",
       "1. Complete the tax payment using the secure payment link in this email.",
-      "2. After DRPAY verifies the payment, you will receive an automated email containing your account creation instructions.",
-      "3. Create your account, sign in to the DRPAY app, verify your payout details, and submit the payout request.",
+      "2. After PayPulse verifies the payment, you will receive an automated email containing your account creation instructions.",
+      "3. Create your account, sign in to the PayPulse app, verify your payout details, and submit the payout request.",
       "**Please allow up to 5 banking days for the payout to be processed and credited to your registered account.**",
       "**This process is automated, and your next email will be sent after the tax payment is verified.**",
     ].join("\n"),
-    emailSubject: "DRPAY: BIR 2307 Withholding Tax Notice · {{reference}}",
+    emailSubject: "PayPulse: BIR 2307 Withholding Tax Notice · {{reference}}",
   }
 }
 export function createCustomerPaymentRequestEmail(payment, from) {
   const amount = `PHP ${Number(payment.amount).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   const isTaxInvoice =
-    payment.emailSubject?.startsWith("DRPAY: Tax invoice") ||
-    payment.emailSubject?.startsWith("DRPAY: BIR 2307")
+    payment.emailSubject?.startsWith("PayPulse: Tax invoice") ||
+    payment.emailSubject?.startsWith("PayPulse: BIR 2307")
   const heading = isTaxInvoice
     ? "BIR 2307 Tax Payment Notice"
     : "Payment request"
@@ -285,7 +285,7 @@ export function createCustomerPaymentRequestEmail(payment, from) {
   const subject = Object.entries(values)
     .reduce(
       (text, [token, value]) => text.replaceAll(token, value),
-      payment.emailSubject || "DRPAY: Payment request · {{reference}}",
+      payment.emailSubject || "PayPulse: Payment request · {{reference}}",
     )
     .replace(/[\r\n\t]+/g, " ")
     .replace(/[\u0000-\u001f\u007f]/g, "")
@@ -304,7 +304,7 @@ export function createCustomerPaymentRequestEmail(payment, from) {
   const safeLogoUrl = logoUrl ? escapeEmailHtml(logoUrl.toString()) : ""
 
   const text = [
-    "DRPAY",
+    "PayPulse",
     "",
     heading,
     plainTextMessage,
@@ -339,7 +339,7 @@ export function createCustomerPaymentRequestEmail(payment, from) {
         <div style="padding:0 4px 22px;color:${brandColor};font-size:18px;font-weight:700;letter-spacing:1.5px">${
           safeLogoUrl
             ? `<img src="${safeLogoUrl}" alt="" style="display:block;max-width:180px;max-height:56px;object-fit:contain">`
-            : "DRPAY"
+            : "PayPulse"
         }</div>
         <div style="padding:36px;background:#fff;border:1px solid #d8e1ed;border-radius:8px;box-shadow:0 4px 18px rgba(11,31,58,0.06)">
           ${taxBrandHtml}
@@ -369,7 +369,7 @@ export function createCustomerPaymentRequestEmail(payment, from) {
   }))
 
   return {
-    from: isTaxInvoice ? "DRPAY <no-reply@denpay.cc>" : from,
+    from: isTaxInvoice ? "PayPulse <no-reply@denpay.cc>" : from,
     to: [payment.customerEmail],
     subject,
     text,

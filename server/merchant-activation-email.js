@@ -6,17 +6,17 @@ export function createMerchantActivationEmail({
   portalUrl,
 }) {
   return createMerchantEmail({
-    subject: "Your DRPAY merchant access is ready",
+    subject: "Your PayPulse merchant access is ready",
     title: "Merchant access enabled",
-    preheader: "Your DRPAY merchant account is active and ready to use.",
+    preheader: "Your PayPulse merchant account is active and ready to use.",
     greeting: contactPerson,
     paragraphs: [
-      `Your DRPAY merchant account for ${businessName} is now active.`,
+      `Your PayPulse merchant account for ${businessName} is now active.`,
       "Sign in using the registered email address. When signing in from a new device, enter the one-time verification code sent to your inbox.",
     ],
     action: { label: "Open merchant portal", url: portalUrl },
     footerNotes: [
-      "For your security, DRPAY will never ask you to disclose a sign-in code or password by email.",
+      "For your security, PayPulse will never ask you to disclose a sign-in code or password by email.",
     ],
   })
 }
@@ -27,7 +27,7 @@ export function createMerchantApiGuideEmail({
   postmanCollectionUrl,
 }) {
   return createMerchantEmail({
-    subject: "Your DRPAY Merchant API integration guide",
+    subject: "Your PayPulse Merchant API integration guide",
     title: "Merchant API integration guide",
     greeting: contactPerson,
     paragraphs: [
@@ -41,7 +41,7 @@ export function createMerchantApiGuideEmail({
         description: "Authentication and request/response payload examples",
       },
       {
-        name: "DRPAY Merchant API Postman Collection",
+        name: "PayPulse Merchant API Postman Collection",
         description: "Ready-to-run API requests",
       },
     ],

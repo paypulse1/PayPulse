@@ -8,7 +8,7 @@ describe("payment document generation", () => {
   it("truncates unusually long titles without blocking the event loop", async () => {
     const pdf = await createPaymentInvoicePdf({
       amount: 125,
-      referenceNo: "DRPAY-TEST",
+      referenceNo: "PayPulse-TEST",
       title: "Long payment title ".repeat(10_000),
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
     })
@@ -20,7 +20,7 @@ describe("payment document generation", () => {
   it("generates payment receipts as PDF documents", async () => {
     const pdf = await createPaymentReceiptPdf({
       amount: 125,
-      referenceNo: "DRPAY-RECEIPT-TEST",
+      referenceNo: "PayPulse-RECEIPT-TEST",
       title: "Test payment",
       status: "PAID",
       createdAt: new Date("2026-01-01T00:00:00.000Z"),

@@ -27,7 +27,7 @@ describe("merchant API integration guide PDF", () => {
     )
     const text = pages.join(" ")
 
-    expect(pdf.getTitle()).toBe("DRPAY Merchant API Integration Guide")
+    expect(pdf.getTitle()).toBe("PayPulse Merchant API Integration Guide")
     expect(pdf.getPageCount()).toBe(5)
     expect(bytes.toString("latin1")).toContain("/Subtype /Image")
     expect(text).toContain("Example Trading Co.")

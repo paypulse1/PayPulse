@@ -103,7 +103,7 @@ export default function CustomerPortal({
       <main className="min-h-screen bg-slate-50 px-4 py-10 text-slate-900">
         <section className="mx-auto max-w-lg rounded-2xl border border-slate-200 bg-white p-7 shadow-sm">
           <p className="text-sm font-bold uppercase tracking-widest text-blue-800">
-            PulsePay Customer
+            PayPulse Customer
           </p>
           <h1 className="mt-3 text-2xl font-bold">Use a customer account</h1>
           <p className="mt-3 text-slate-600">
@@ -129,7 +129,7 @@ export default function CustomerPortal({
           <header className="mb-6 flex items-start justify-between gap-4">
             <div>
               <p className="text-sm font-bold uppercase tracking-widest text-blue-800">
-                PulsePay Customer
+                PayPulse Customer
               </p>
               <h1 className="mt-2 text-3xl font-bold">Payment history</h1>
               <p className="mt-2 text-sm text-slate-600">{session.email}</p>
@@ -211,7 +211,7 @@ export default function CustomerPortal({
     <main className="min-h-screen bg-slate-50 px-4 py-10 text-slate-900">
       <section className="mx-auto max-w-lg rounded-2xl border border-slate-200 bg-white p-7 shadow-sm">
         <p className="text-sm font-bold uppercase tracking-widest text-blue-800">
-          PulsePay Customer
+          PayPulse Customer
         </p>
         <h1 className="mt-3 text-3xl font-bold">View your payment history</h1>
         <p className="mt-3 text-slate-600">

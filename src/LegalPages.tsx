@@ -15,9 +15,9 @@ const lastUpdated = "October 23, 2026"
 
 function LegalBrand() {
   return (
-    <a className="legal-brand" href={APP_ROUTES.home} aria-label="PulsePay home">
+    <a className="legal-brand" href={APP_ROUTES.home} aria-label="PayPulse home">
       <img src="/drpay-mark.png" alt="" />
-      <strong>PulsePay</strong>
+      <strong>PayPulse</strong>
     </a>
   )
 }
@@ -43,7 +43,7 @@ function LegalPage({ page }: { page: LegalPageKind }) {
 
       <div className="legal-content">
         <a className="legal-back-link" href={APP_ROUTES.home}>
-          <ArrowLeft size={15} /> PulsePay home
+          <ArrowLeft size={15} /> PayPulse home
         </a>
         <header className="legal-heading">
           <span className="legal-heading-icon">
@@ -62,15 +62,15 @@ function LegalPage({ page }: { page: LegalPageKind }) {
               <p className="legal-updated">Last updated: {lastUpdated}</p>
               <p>
                 This Privacy Policy describes how DRL TECHS. COMPUTER SOFTWARE
-                TRADING (“PulsePay,” “we,” “us,” or “our”) handles personal
-                information in the PulsePay merchant workspace and hosted payment
+                TRADING (“PayPulse,” “we,” “us,” or “our”) handles personal
+                information in the PayPulse merchant workspace and hosted payment
                 checkout. We process personal information in accordance with
                 applicable Philippine privacy laws, including the Data Privacy
                 Act of 2012.
               </p>
 
               <h2>Information we handle</h2>
-              <p>Depending on how you use PulsePay, information may include:</p>
+              <p>Depending on how you use PayPulse, information may include:</p>
               <ul>
                 <li>
                   Merchant account details, such as email address, account and
@@ -121,11 +121,11 @@ function LegalPage({ page }: { page: LegalPageKind }) {
               <h2>Service providers and sharing</h2>
               <p>
                 Information necessary for a transaction may be shared with the
-                configured PulsePay backend, SwiftPay, and the relevant bank,
+                configured PayPulse backend, SwiftPay, and the relevant bank,
                 wallet, or payment network to provide and confirm that
                 transaction. KYB document files are stored in the configured
                 private Cloudflare R2 bucket and are made available to
-                authorized PulsePay team members for verification. When merchants
+                authorized PayPulse team members for verification. When merchants
                 configure webhook or callback URLs, selected transaction event
                 details are sent to those destinations. We may also disclose
                 information where required by law or necessary to protect users,
@@ -170,8 +170,8 @@ function LegalPage({ page }: { page: LegalPageKind }) {
               <p className="legal-updated">Last updated: {lastUpdated}</p>
               <p>
                 These Terms of Service apply to your access to and use of the
-                PulsePay merchant workspace and hosted payment checkout operated by
-                DRL TECHS. COMPUTER SOFTWARE TRADING (“PulsePay,” “we,” “us,” or
+                PayPulse merchant workspace and hosted payment checkout operated by
+                DRL TECHS. COMPUTER SOFTWARE TRADING (“PayPulse,” “we,” “us,” or
                 “our”). By using the service, you agree to these terms and
                 applicable Philippine law.
               </p>
@@ -181,14 +181,14 @@ function LegalPage({ page }: { page: LegalPageKind }) {
                 Provide accurate information, keep your sign-in details and MPIN
                 confidential, and promptly report suspected unauthorized access.
                 You are responsible for activity authorized through your
-                account. Do not use PulsePay for unlawful transactions,
+                account. Do not use PayPulse for unlawful transactions,
                 impersonation, fraud, or to submit information without the
                 relevant person’s authority.
               </p>
 
               <h2>Payments and transfers</h2>
               <p>
-                PulsePay provides tools to create payment requests, display
+                PayPulse provides tools to create payment requests, display
                 transaction activity, and initiate supported transfers. Payment
                 and transfer services depend on third-party providers, banks,
                 wallets, and networks. Availability, processing time, status
@@ -208,8 +208,8 @@ function LegalPage({ page }: { page: LegalPageKind }) {
               <h2>Fraud and responsibility</h2>
               <p>
                 Users must promptly report suspected fraud to their bank or
-                payment provider and to PulsePay. To the extent permitted by
-                Philippine law, PulsePay is not responsible for losses caused by
+                payment provider and to PayPulse. To the extent permitted by
+                Philippine law, PayPulse is not responsible for losses caused by
                 fraudulent activity involving a payer or payee, except where the
                 loss results from our own breach of these terms or liability
                 that cannot legally be excluded. Nothing in these terms removes
@@ -252,7 +252,7 @@ function LegalPage({ page }: { page: LegalPageKind }) {
                 DRL TECHS. COMPUTER SOFTWARE TRADING · Philippines
               </p>
               <p>
-                Contact PulsePay support for help with your merchant account,
+                Contact PayPulse support for help with your merchant account,
                 payment requests, transfers, or privacy questions.
               </p>
               <a className="legal-contact-card" href={`mailto:${supportEmail}`}>
@@ -274,7 +274,7 @@ function LegalPage({ page }: { page: LegalPageKind }) {
               <h2>Suspected fraud or unauthorized payment</h2>
               <p>
                 Contact your bank or payment provider immediately as well as
-                PulsePay. Keep relevant payment references and messages for their
+                PayPulse. Keep relevant payment references and messages for their
                 review.
               </p>
               <p>

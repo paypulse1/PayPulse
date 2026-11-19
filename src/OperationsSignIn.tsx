@@ -113,7 +113,7 @@ export default function OperationsSignIn({
         ? "Enable authenticator MFA"
         : stage === "verify"
           ? "Verify your sign-in"
-          : "PulsePay team sign in"
+          : "PayPulse team sign in"
   const description =
     stage === "invitation"
       ? `Create a password for your ${inviteRole || "operations"} account.`
@@ -121,7 +121,7 @@ export default function OperationsSignIn({
         ? "Add this secret to your authenticator app, then enter its six-digit code."
         : stage === "verify"
           ? "Enter the current six-digit code from your authenticator app."
-          : "Use your separately configured PulsePay team account."
+          : "Use your separately configured PayPulse team account."
 
   return (
     <main className="auth-screen auth-screen-with-footer">

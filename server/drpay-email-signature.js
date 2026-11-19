@@ -13,7 +13,7 @@ function escapeEmailHtml(value) {
 }
 
 const securityReminder =
-  "DRPAY will never ask for your password, MPIN, or one-time verification code. Never share them. Verify unexpected requests using the official DRPAY app or website."
+  "PayPulse will never ask for your password, MPIN, or one-time verification code. Never share them. Verify unexpected requests using the official PayPulse app or website."
 
 function findDivEnd(html, startIndex) {
   const tags = /<\/?div\b[^>]*>/gi
@@ -45,7 +45,7 @@ function extractEmailContent(html) {
 
   content = content.trim()
   content = content.replace(
-    /<div\b[^>]*>\s*DRPAY(?:\s+MERCHANT SERVICES)?\s*<\/div>/i,
+    /<div\b[^>]*>\s*PayPulse(?:\s+MERCHANT SERVICES)?\s*<\/div>/i,
     "",
   )
   const firstDiv = /^\s*<div\b[^>]*>/i.exec(content)
@@ -56,8 +56,8 @@ function extractEmailContent(html) {
       const blockText = firstBlock.replace(/<[^>]*>/g, "").trim()
       if (
         /<img\b/i.test(firstBlock) ||
-        blockText === "DRPAY" ||
-        blockText === "DRPAY MERCHANT SERVICES"
+        blockText === "PayPulse" ||
+        blockText === "PayPulse MERCHANT SERVICES"
       ) {
         content = content.slice(0, firstDiv.index) + content.slice(firstEnd)
       }
@@ -80,18 +80,18 @@ export function standardizeDrpayEmail(email, logoUrl) {
   try {
     url = new URL(logoUrl)
   } catch {
-    throw new Error("A valid DRPAY email logo URL is required.")
+    throw new Error("A valid PayPulse email logo URL is required.")
   }
   if (url.protocol !== "https:" || url.username || url.password) {
-    throw new Error("The DRPAY email logo URL must use HTTPS.")
+    throw new Error("The PayPulse email logo URL must use HTTPS.")
   }
 
   const signatureText = [
-    "DRPAY",
+    "PayPulse",
     `Security reminder: ${securityReminder}`,
   ].join("\n")
   const messageText = String(email.text || "")
-    .replace(/^\s*DRPAY(?:\s+MERCHANT SERVICES)?\s*(?:\r?\n)+/i, "")
+    .replace(/^\s*PayPulse(?:\s+MERCHANT SERVICES)?\s*(?:\r?\n)+/i, "")
     .trim()
   const content = extractEmailContent(String(email.html || ""))
   const html = `
@@ -100,11 +100,11 @@ export function standardizeDrpayEmail(email, logoUrl) {
         <div style="padding:18px 24px;background:#fff;border:1px solid #d5deea;border-top:4px solid #173b63;border-bottom:0;border-radius:8px 8px 0 0">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse">
             <tr>
-              <td valign="middle"><img src="${escapeEmailHtml(url.toString())}" alt="DRPAY logo" width="112" style="display:block;width:112px;max-width:100%;height:auto;border:0"></td>
+              <td valign="middle"><img src="${escapeEmailHtml(url.toString())}" alt="PayPulse logo" width="112" style="display:block;width:112px;max-width:100%;height:auto;border:0"></td>
               <td align="right" valign="middle" style="color:#53677f;font-size:9px;font-weight:700;letter-spacing:1.2px">SECURE SERVICE MESSAGE</td>
             </tr>
           </table>
-          <div style="margin-top:8px;color:#53677f;font-size:9px;font-weight:700;letter-spacing:1.2px">DRPAY MERCHANT SERVICES</div>
+          <div style="margin-top:8px;color:#53677f;font-size:9px;font-weight:700;letter-spacing:1.2px">PayPulse MERCHANT SERVICES</div>
         </div>
         <div style="padding:30px;background:#fff;border:1px solid #d5deea;border-top:0;border-bottom:0;overflow-wrap:anywhere">
           ${content}
@@ -112,7 +112,7 @@ export function standardizeDrpayEmail(email, logoUrl) {
         <div style="padding:18px 24px;background:#173b63;border-radius:0 0 8px 8px;color:#e8eef5;font-size:11px;line-height:1.6">
           <strong style="color:#fff">Security reminder</strong>
           <p style="margin:6px 0 0;color:#e8eef5">${escapeEmailHtml(securityReminder)}</p>
-          <p style="margin:14px 0 0;padding-top:12px;border-top:1px solid #45617f;color:#c5d2e0">DRPAY · Official service communication</p>
+          <p style="margin:14px 0 0;padding-top:12px;border-top:1px solid #45617f;color:#c5d2e0">PayPulse · Official service communication</p>
         </div>
       </div>
     </div>
@@ -121,7 +121,7 @@ export function standardizeDrpayEmail(email, logoUrl) {
   return {
     ...email,
     text: [
-      "DRPAY | SECURE SERVICE MESSAGE",
+      "PayPulse | SECURE SERVICE MESSAGE",
       "",
       messageText,
       "",

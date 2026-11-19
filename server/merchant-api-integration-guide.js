@@ -66,11 +66,11 @@ export async function createMerchantApiIntegrationGuidePdf({
   }
 
   const document = await PDFDocument.create()
-  document.setTitle("DRPAY Merchant API Integration Guide")
+  document.setTitle("PayPulse Merchant API Integration Guide")
   document.setSubject(
     "Merchant API authentication and payment request payloads",
   )
-  document.setCreator("DRPAY")
+  document.setCreator("PayPulse")
   const regular = await document.embedFont(StandardFonts.Helvetica)
   const bold = await document.embedFont(StandardFonts.HelveticaBold)
   const mono = await document.embedFont(StandardFonts.Courier)
@@ -137,7 +137,7 @@ export async function createMerchantApiIntegrationGuidePdf({
       color: line,
     })
     page.drawText(
-      `DRPAY Merchant API Integration Guide  |  ${pageNumber} of 3`,
+      `PayPulse Merchant API Integration Guide  |  ${pageNumber} of 3`,
       {
         x: left,
         y: 34,
@@ -217,7 +217,7 @@ export async function createMerchantApiIntegrationGuidePdf({
     "Sign in to your active merchant account, open Profile > Developer hub > API access, create a named API key, and select the permissions your integration needs. Choose read to retrieve wallet information and payment status; choose payments:write to create payment links. Select both for the examples in this guide.",
   )
   drawParagraph(
-    "The key is generated for your merchant account and this payment environment. It is shown only once. Store it in your server-side secret manager; never send it in email, browser code, mobile app code, or source control. DRPAY does not include an API key in this message.",
+    "The key is generated for your merchant account and this payment environment. It is shown only once. Store it in your server-side secret manager; never send it in email, browser code, mobile app code, or source control. PayPulse does not include an API key in this message.",
   )
   drawCode("AUTHENTICATION", `${bearerHeader}\nAccept: application/json`, 43)
 
@@ -312,16 +312,16 @@ export async function createMerchantApiIntegrationGuidePdf({
   y = pageHeight - 137
   drawHeading("6. How webhook delivery works")
   drawParagraph(
-    "1. A payment or disbursement reaches a supported success or failure outcome. DRPAY creates an event only when its type is selected in your webhook settings.",
+    "1. A payment or disbursement reaches a supported success or failure outcome. PayPulse creates an event only when its type is selected in your webhook settings.",
   )
   drawParagraph(
-    "2. DRPAY queues the event and sends an HTTPS POST containing the JSON event body and DRPAY-Event and DRPAY-Signature headers. If configured, your callback URL receives the same event too.",
+    "2. PayPulse queues the event and sends an HTTPS POST containing the JSON event body and DRPAY-Event and DRPAY-Signature headers. If configured, your callback URL receives the same event too.",
   )
   drawParagraph(
     "3. Your server verifies the signature against the raw body, deduplicates by event id, durably records the event, and responds with any 2xx status. Process slower business logic asynchronously after acknowledging.",
   )
   drawParagraph(
-    "4. A timeout or non-2xx response is treated as a failed delivery. DRPAY retries with exponential backoff for up to eight attempts. Delivery is at least once, so duplicate events are possible; make processing idempotent. Inspect delivery attempts in Profile > Developer hub > API access and retry exhausted deliveries there.",
+    "4. A timeout or non-2xx response is treated as a failed delivery. PayPulse retries with exponential backoff for up to eight attempts. Delivery is at least once, so duplicate events are possible; make processing idempotent. Inspect delivery attempts in Profile > Developer hub > API access and retry exhausted deliveries there.",
   )
 
   return Buffer.from(await document.save())

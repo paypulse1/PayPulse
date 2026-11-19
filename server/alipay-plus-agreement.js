@@ -105,7 +105,7 @@ export async function createAlipayPlusAgreementPdf({
   merchantAddress = "",
   contactPerson = "",
   phoneNumber = "",
-  providerName = "DRPAY",
+  providerName = "PayPulse",
   providerAddress = "",
   providerRegistrationNumber = "",
   templateVersion = "",
@@ -119,8 +119,8 @@ export async function createAlipayPlusAgreementPdf({
   const svg = await readFile(alipayPlusLogoPath, "utf8")
   const document = await PDFDocument.create()
   document.setTitle("Alipay+ Service Access and Incorporation Addendum")
-  document.setSubject(`DRPAY-merchant addendum ${agreementId}`)
-  document.setCreator("DRPAY")
+  document.setSubject(`PayPulse-merchant addendum ${agreementId}`)
+  document.setCreator("PayPulse")
   const regular = await document.embedFont(StandardFonts.TimesRoman)
   const bold = await document.embedFont(StandardFonts.TimesRomanBold)
   const sans = await document.embedFont(StandardFonts.Helvetica)
@@ -143,7 +143,7 @@ export async function createAlipayPlusAgreementPdf({
         font: bold,
         color: ink,
       })
-      page.drawText("DRPAY-MERCHANT CONTRACT", {
+      page.drawText("PayPulse-MERCHANT CONTRACT", {
         x: left,
         y: pageHeight - 139,
         size: 8,
@@ -204,9 +204,9 @@ export async function createAlipayPlusAgreementPdf({
 
   addPage()
   const details = [
-    providerAddress && `DRPAY address: ${providerAddress}`,
+    providerAddress && `PayPulse address: ${providerAddress}`,
     providerRegistrationNumber &&
-      `DRPAY registration number: ${providerRegistrationNumber}`,
+      `PayPulse registration number: ${providerRegistrationNumber}`,
     `Merchant: ${businessName}`,
     `Merchant contact: ${contactPerson || merchantEmail} (${merchantEmail})`,
     merchantAddress && `Registered address: ${merchantAddress}`,
@@ -214,38 +214,38 @@ export async function createAlipayPlusAgreementPdf({
     `Agreement date: ${agreementDate.toISOString().slice(0, 10)}`,
   ].filter(Boolean)
   drawParagraph(
-    `This Addendum is entered into by ${drpayName} ("DRPAY") and ${businessName} ("Merchant").`,
+    `This Addendum is entered into by ${drpayName} ("PayPulse") and ${businessName} ("Merchant").`,
     { size: 10.5, leading: 15 },
   )
   for (const detail of details) drawParagraph(detail, { size: 8, leading: 10 })
 
   drawSection(
     "1. PURPOSE AND SERVICE MODEL",
-    "This Addendum governs Merchant's conditional access, through DRPAY, to payment services that may use the Alipay+ platform. Alipay+ is a service brand, not a named contracting entity under this Addendum. The particular Alipay+ legal entity, acquirer, payment service provider, wallet operator, and services available to Merchant depend on the written onboarding and service-activation documents supplied for Merchant's market and product.",
+    "This Addendum governs Merchant's conditional access, through PayPulse, to payment services that may use the Alipay+ platform. Alipay+ is a service brand, not a named contracting entity under this Addendum. The particular Alipay+ legal entity, acquirer, payment service provider, wallet operator, and services available to Merchant depend on the written onboarding and service-activation documents supplied for Merchant's market and product.",
   )
   drawSection(
     "2. CONTRACTING PARTIES; NO ALIPAY+ REPRESENTATION",
-    `This Addendum is a contract only between DRPAY and Merchant. Alipay+, Ant International, their affiliates, wallet operators, and acquiring partners are not parties to it and do not assume obligations under it by its execution. DRPAY does not represent that it is Alipay+, its agent, or authorized to bind any such entity. The Alipay+ mark is used only to identify the relevant service. No direct merchant relationship, approval, or endorsement by Alipay+ is represented by this Addendum.`,
+    `This Addendum is a contract only between PayPulse and Merchant. Alipay+, Ant International, their affiliates, wallet operators, and acquiring partners are not parties to it and do not assume obligations under it by its execution. PayPulse does not represent that it is Alipay+, its agent, or authorized to bind any such entity. The Alipay+ mark is used only to identify the relevant service. No direct merchant relationship, approval, or endorsement by Alipay+ is represented by this Addendum.`,
   )
   drawSection(
     "3. INCORPORATION OF IDENTIFIED SERVICE TERMS",
-    "No third-party terms are incorporated merely by reference to the Alipay+ name, logo, or public marketing website. Before Alipay+ transactions are enabled, DRPAY or the relevant acquirer must deliver to Merchant the applicable Alipay+, acquirer, wallet, and payment-network terms, identify each document by its issuing entity, title, version or effective date, and provide a copy or working link. Those identified documents form the Service Terms Schedule to this Addendum only after Merchant has had an opportunity to review and accept them. Until then, Merchant is not treated as having accepted undisclosed third-party terms and DRPAY must not enable Alipay+ transaction processing for Merchant.",
+    "No third-party terms are incorporated merely by reference to the Alipay+ name, logo, or public marketing website. Before Alipay+ transactions are enabled, PayPulse or the relevant acquirer must deliver to Merchant the applicable Alipay+, acquirer, wallet, and payment-network terms, identify each document by its issuing entity, title, version or effective date, and provide a copy or working link. Those identified documents form the Service Terms Schedule to this Addendum only after Merchant has had an opportunity to review and accept them. Until then, Merchant is not treated as having accepted undisclosed third-party terms and PayPulse must not enable Alipay+ transaction processing for Merchant.",
   )
   drawSection(
     "4. SERVICE TERMS SCHEDULE AND CHANGES",
-    "The Service Terms Schedule may be completed in a separate written activation notice that identifies the documents and Merchant's recorded acceptance. The official Alipay+ merchant page at https://www.alipayplus.com/merchant describes services but is informational and is not itself incorporated as a contract. If a third-party provider changes an incorporated document, DRPAY will provide the updated document or link and effective date before applying the change to Merchant, where the provider and law permit. If Merchant does not accept a material change, Merchant may stop using the affected service and terminate that service under this Addendum; accrued obligations remain due.",
+    "The Service Terms Schedule may be completed in a separate written activation notice that identifies the documents and Merchant's recorded acceptance. The official Alipay+ merchant page at https://www.alipayplus.com/merchant describes services but is informational and is not itself incorporated as a contract. If a third-party provider changes an incorporated document, PayPulse will provide the updated document or link and effective date before applying the change to Merchant, where the provider and law permit. If Merchant does not accept a material change, Merchant may stop using the affected service and terminate that service under this Addendum; accrued obligations remain due.",
   )
   drawSection(
     "5. MERCHANT RESPONSIBILITIES",
-    "Merchant will provide complete and accurate onboarding, beneficial-ownership, business, product, and transaction information; maintain required registrations and permissions; use the services only for its approved business; protect credentials and payment data; keep transaction and refund records; and comply with applicable law and the Service Terms Schedule once accepted. Merchant will promptly notify DRPAY of suspected fraud, unauthorized access, material business changes, or a regulatory or security incident affecting the services.",
+    "Merchant will provide complete and accurate onboarding, beneficial-ownership, business, product, and transaction information; maintain required registrations and permissions; use the services only for its approved business; protect credentials and payment data; keep transaction and refund records; and comply with applicable law and the Service Terms Schedule once accepted. Merchant will promptly notify PayPulse of suspected fraud, unauthorized access, material business changes, or a regulatory or security incident affecting the services.",
   )
   drawSection(
     "6. TRANSACTIONS, SETTLEMENT, AND ADJUSTMENTS",
-    "Transaction acceptance, currency, settlement timing, reserves, refunds, reversals, disputes, chargebacks, and service fees are governed by the Merchant Services Agreement and the applicable accepted Service Terms Schedule. This Addendum does not create a settlement promise, guarantee transaction approval, or change the Merchant Services Agreement's disclosed fee schedule. DRPAY will account to Merchant for amounts it actually receives for Merchant, subject to those agreements and applicable law.",
+    "Transaction acceptance, currency, settlement timing, reserves, refunds, reversals, disputes, chargebacks, and service fees are governed by the Merchant Services Agreement and the applicable accepted Service Terms Schedule. This Addendum does not create a settlement promise, guarantee transaction approval, or change the Merchant Services Agreement's disclosed fee schedule. PayPulse will account to Merchant for amounts it actually receives for Merchant, subject to those agreements and applicable law.",
   )
   drawSection(
     "7. CONTROLS AND SERVICE AVAILABILITY",
-    "Alipay+, an acquirer, wallet operator, or DRPAY may reject, delay, review, restrict, or suspend transactions or service access when required by applicable law, an accepted Service Terms Schedule, a security or fraud concern, an operational interruption, or a reasonable compliance review. Where permitted, the responsible party will give notice and the reason for the action. DRPAY will use reasonable efforts to relay notices it receives from a third-party provider but cannot guarantee that provider's availability or decision.",
+    "Alipay+, an acquirer, wallet operator, or PayPulse may reject, delay, review, restrict, or suspend transactions or service access when required by applicable law, an accepted Service Terms Schedule, a security or fraud concern, an operational interruption, or a reasonable compliance review. Where permitted, the responsible party will give notice and the reason for the action. PayPulse will use reasonable efforts to relay notices it receives from a third-party provider but cannot guarantee that provider's availability or decision.",
   )
   drawSection(
     "8. DATA, SECURITY, AND CONFIDENTIALITY",
@@ -257,11 +257,11 @@ export async function createAlipayPlusAgreementPdf({
   )
   drawSection(
     "10. TERM, SUSPENSION, AND TERMINATION",
-    "This Addendum takes effect when signed by both parties and continues while the relevant services are enabled. Either party may terminate the Alipay+ service on written notice, subject to the Merchant Services Agreement and any accepted Service Terms Schedule. DRPAY may suspend access immediately where necessary to address legal, security, fraud, provider, or material breach risks, and will notify Merchant when reasonably practicable. Termination does not affect completed transactions, accrued payment obligations, or clauses that by their nature continue.",
+    "This Addendum takes effect when signed by both parties and continues while the relevant services are enabled. Either party may terminate the Alipay+ service on written notice, subject to the Merchant Services Agreement and any accepted Service Terms Schedule. PayPulse may suspend access immediately where necessary to address legal, security, fraud, provider, or material breach risks, and will notify Merchant when reasonably practicable. Termination does not affect completed transactions, accrued payment obligations, or clauses that by their nature continue.",
   )
   drawSection(
     "11. ORDER OF PRECEDENCE; GENERAL",
-    "Applicable law prevails. For Alipay+ network eligibility and transaction-processing requirements, the applicable accepted Service Terms Schedule controls solely to the extent it cannot be reconciled with this Addendum. This Addendum controls the parties' Alipay+ service-access arrangement; the Merchant Services Agreement controls DRPAY commercial terms, fees, settlement, and other merchant services. Any amendment between DRPAY and Merchant must be in writing. This Addendum may be signed electronically and in counterparts. Governing law and dispute procedures are those stated in the Merchant Services Agreement.",
+    "Applicable law prevails. For Alipay+ network eligibility and transaction-processing requirements, the applicable accepted Service Terms Schedule controls solely to the extent it cannot be reconciled with this Addendum. This Addendum controls the parties' Alipay+ service-access arrangement; the Merchant Services Agreement controls PayPulse commercial terms, fees, settlement, and other merchant services. Any amendment between PayPulse and Merchant must be in writing. This Addendum may be signed electronically and in counterparts. Governing law and dispute procedures are those stated in the Merchant Services Agreement.",
   )
 
   addPage()
@@ -406,7 +406,7 @@ export async function createAlipayPlusAgreementPdf({
   const columnGap = 38
   const columnWidth = (right - left - columnGap) / 2
   for (const column of [
-    { x: left, label: "For DRPAY", name: drpayName },
+    { x: left, label: "For PayPulse", name: drpayName },
     {
       x: left + columnWidth + columnGap,
       label: "For Merchant",
@@ -464,7 +464,7 @@ export async function createAlipayPlusAgreementPdf({
       color: line,
     })
     currentPage.drawText(
-      `DRPAY–Merchant Addendum | ${printableText(agreementId)} | ${agreementDate.toISOString().slice(0, 10)}${
+      `PayPulse–Merchant Addendum | ${printableText(agreementId)} | ${agreementDate.toISOString().slice(0, 10)}${
         templateVersion ? ` | v${printableText(templateVersion)}` : ""
       }`,
       {

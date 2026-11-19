@@ -148,7 +148,7 @@ export default function MerchantAuthMethods() {
       )}
       {nativePlatform && (
         <p className="profile-info-note">
-          Google and Telegram linking are available on the PulsePay merchant web
+          Google and Telegram linking are available on the PayPulse merchant web
           portal. Passkeys can be linked here when supported by this device.
         </p>
       )}

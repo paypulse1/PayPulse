@@ -190,7 +190,7 @@ function getPushReceivePermission(
     return receive
   }
   throw new Error(
-    "Android did not return notification permission status. Update PulsePay and try again.",
+    "Android did not return notification permission status. Update PayPulse and try again.",
   )
 }
 
@@ -275,7 +275,7 @@ function UpdateAvailablePrompt({
         <header className="sheet-header">
           <div>
             <span className="eyebrow">APP UPDATE</span>
-            <h2 id="app-update-title">PulsePay {version} is ready</h2>
+            <h2 id="app-update-title">PayPulse {version} is ready</h2>
           </div>
           <IconButton label="Remind me later" onClick={onDismiss}>
             <X size={19} />
@@ -666,7 +666,7 @@ function BiometricEnrollmentPrompt({
 const DEFAULT_CHECKOUT_BRANDING: MerchantCheckoutPreferences = {
   checkoutInstructions:
     "Open your {bank} or supported banking app.\nOpen your {bank} QR scanner and scan the code above.\nConfirm the PHP amount before completing payment.",
-  emailSubject: "PulsePay: Payment request · {{reference}}",
+  emailSubject: "PayPulse: Payment request · {{reference}}",
   emailMessage:
     "A payment has been requested. Review the details below to continue.",
   emailBrandColor: "#153e2c",
@@ -1163,7 +1163,7 @@ function PaymentSheet({ onClose }: { onClose: () => void }) {
         <span className="sheet-handle" />
         <header className="sheet-header">
           <div>
-            <span className="eyebrow">PulsePay · SELF-HOSTED CHECKOUT</span>
+            <span className="eyebrow">PayPulse · SELF-HOSTED CHECKOUT</span>
             <h2 id="sheet-title">
               {usdtCollection
                 ? "USDT collection"
@@ -1516,7 +1516,7 @@ function TransactionSheet({
     recipientName: transaction.recipientName,
     accountNumber: transaction.recipientAccountNumber,
     remarks: transaction.remarks,
-    sentVia: "PulsePay Wallet",
+    sentVia: "PayPulse Wallet",
     refNo: transaction.reference,
     createdAt: transaction.createdAt || transaction.date,
   }
@@ -1663,7 +1663,7 @@ function TransactionSheet({
             </dt>
             <dd>
               {transaction.rawStatus === "MANUALLY_PAID"
-                ? "Manually verified by the PulsePay team"
+                ? "Manually verified by the PayPulse team"
                 : transaction.rawStatus}
             </dd>
           </div>
@@ -1715,7 +1715,7 @@ function TransactionSheet({
           </div>
         </dl>
         <p className="detail-note">
-          <ShieldCheck size={15} /> Status Verified by PulsePay.
+          <ShieldCheck size={15} /> Status Verified by PayPulse.
         </p>
         {isTransfer && (
           <div className="transaction-receipt-actions">
@@ -2704,7 +2704,7 @@ function ScannerSheet({
             error.name === "PermissionDeniedError")
         ) {
           setCameraError(
-            "Camera access was denied. Allow camera permission for PulsePay in your device settings, then try again.",
+            "Camera access was denied. Allow camera permission for PayPulse in your device settings, then try again.",
           )
         } else if (
           error instanceof DOMException &&
@@ -3071,7 +3071,7 @@ function PaymentLinkSheet({ onClose }: { onClose: () => void }) {
               <Link2 size={23} />
             </div>
             <strong>Payment link ready</strong>
-            <p>Share this PulsePay-hosted checkout page with your customer.</p>
+            <p>Share this PayPulse-hosted checkout page with your customer.</p>
             {customerEmail.trim() && (
               <p className="accepted-channels">
                 {requestEmailStatus === "queue_failed"
@@ -3615,7 +3615,7 @@ function WalletFloatingBalanceCard({
         Math.max(0, available - amount - data.transferFeeFixed),
       )
       setRequestMessage(
-        `${formatPeso(amount)} payout request sent to the PulsePay team for review.`,
+        `${formatPeso(amount)} payout request sent to the PayPulse team for review.`,
       )
     } catch (error) {
       setRequestError(
@@ -3691,7 +3691,7 @@ function WalletFloatingBalanceCard({
           ) : (
             <small>
               {payoutAccountError ||
-                "No payout account saved. Contact the PulsePay team."}
+                "No payout account saved. Contact the PayPulse team."}
             </small>
           )}
         </div>
@@ -3705,9 +3705,9 @@ function WalletFloatingBalanceCard({
         <ShieldCheck size={16} />
         <p>
           {unlocked
-            ? "Unlocked for this merchant. Progress reflects your own completed collections and remaining ledger balance. The PulsePay team will transfer your unsettled funds separately."
+            ? "Unlocked for this merchant. Progress reflects your own completed collections and remaining ledger balance. The PayPulse team will transfer your unsettled funds separately."
             : data.paymentEnvironment !== "production"
-              ? "This progress reflects your merchant's own collections and available ledger balance. You can request a floating-balance transfer before the threshold if PulsePay-provided funds are available. This is a sandbox environment."
+              ? "This progress reflects your merchant's own collections and available ledger balance. You can request a floating-balance transfer before the threshold if PayPulse-provided funds are available. This is a sandbox environment."
               : "Keep at least 1,000,000 KRW from Alipay+ collections in your live wallet to release and transfer unsettled funds into your PHP wallet."}
         </p>
       </div>
@@ -3740,7 +3740,7 @@ function WalletFloatingBalanceCard({
 
 function getUsdtServiceErrorMessage(error: unknown, fallback: string) {
   if (error instanceof ApiError && error.status === 404) {
-    return "The USDT service is unavailable on this API. Deploy the latest PulsePay API backend and verify its configured URL."
+    return "The USDT service is unavailable on this API. Deploy the latest PayPulse API backend and verify its configured URL."
   }
   return error instanceof Error ? error.message : fallback
 }
@@ -4169,7 +4169,7 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
             <small>
               {!wallet?.address
                 ? "A wallet address must be assigned before you can receive USDT."
-                : "This is a testnet address. Ask the PulsePay team to assign a TRON mainnet address before sending real funds."}
+                : "This is a testnet address. Ask the PayPulse team to assign a TRON mainnet address before sending real funds."}
             </small>
           )}
         </div>
@@ -4386,7 +4386,7 @@ function MainnetUsdtWallet({ refreshVersion }: { refreshVersion: number }) {
           <p className="crypto-withdrawal-intro">
             Self-serve crypto trading is not active yet. Use the wallet flow
             above for deposits, withdrawals, and transfer review, then contact
-            the PulsePay team for fiat or OTC assistance.
+            the PayPulse team for fiat or OTC assistance.
           </p>
         </section>
       </section>
@@ -4791,7 +4791,7 @@ function ProfileInfoPage({
   const failedTransactions = data.transactions.filter(
     (transaction) => transaction.status === "Failed",
   )
-  const supportSubject = encodeURIComponent("PulsePay merchant support request")
+  const supportSubject = encodeURIComponent("PayPulse merchant support request")
   const supportBody = encodeURIComponent(
     `Merchant account: ${session.email}\nIssue:\nTransaction reference (if applicable):\nCurrent status (if applicable):\n\nNever include your MPIN, one-time code, or full bank account details.`,
   )
@@ -5147,7 +5147,7 @@ function ProfileInfoPage({
           {notificationPermission === "denied" && (
             <p className="profile-info-note">
               If access is still blocked, enable notifications in Android
-              Settings → Apps → PulsePay → Notifications.
+              Settings → Apps → PayPulse → Notifications.
             </p>
           )}
           <p className="profile-info-note">
@@ -5197,7 +5197,7 @@ function ProfileInfoPage({
                 Don’t submit the transfer again while it is pending. Check the
                 final status in Wallet activity; if it is completed but the
                 recipient is not credited, contact the recipient’s bank and
-                PulsePay with the transfer reference.
+                PayPulse with the transfer reference.
               </p>
             </details>
             <details>
@@ -5215,14 +5215,14 @@ function ProfileInfoPage({
                 Verify a new device with the code sent to your merchant email.
                 On a trusted device, use your MPIN; choose the email-code
                 verification option if you need to recover access. If you can no
-                longer access that email, contact PulsePay support.
+                longer access that email, contact PayPulse support.
               </p>
             </details>
           </div>
           <a className="profile-support-link" href={supportHref}>
             <Mail size={17} />
             <span>
-              <strong>Email PulsePay support</strong>
+              <strong>Email PayPulse support</strong>
               <small>{supportEmail}</small>
             </span>
             <ChevronRight size={17} />
@@ -5458,7 +5458,7 @@ export default function App() {
     try {
       if (!Capacitor.isPluginAvailable("PushNotifications")) {
         throw new Error(
-          "Push notifications are unavailable in this app build. Update PulsePay and try again.",
+          "Push notifications are unavailable in this app build. Update PayPulse and try again.",
         )
       }
       let permission = getPushReceivePermission(
@@ -5468,7 +5468,7 @@ export default function App() {
         setPushPermission("denied")
         setPushRegistrationState("idle")
         setPushError(
-          "Notifications are blocked for PulsePay. Enable them in Android Settings > Apps > PulsePay > Notifications.",
+          "Notifications are blocked for PayPulse. Enable them in Android Settings > Apps > PayPulse > Notifications.",
         )
         return
       }
@@ -5725,7 +5725,7 @@ export default function App() {
       try {
         if (!Capacitor.isPluginAvailable("PushNotifications")) {
           throw new Error(
-            "Push notifications are unavailable in this app build. Update PulsePay and try again.",
+            "Push notifications are unavailable in this app build. Update PayPulse and try again.",
           )
         }
         listeners.push(
@@ -5929,8 +5929,8 @@ export default function App() {
             <h1>Backend connection required</h1>
             <p>
               {isCustomerPortal
-                ? "PulsePay is not connected to a customer backend. Payment history is unavailable until the backend is configured."
-                : "PulsePay is not connected to a merchant backend. Wallet balances, sign-in, collections, and transfers are unavailable until the backend is configured."}
+                ? "PayPulse is not connected to a customer backend. Payment history is unavailable until the backend is configured."
+                : "PayPulse is not connected to a merchant backend. Wallet balances, sign-in, collections, and transfers are unavailable until the backend is configured."}
             </p>
             <div className="inline-error">
               <Lock size={15} />

@@ -50,7 +50,7 @@ export async function createMerchantAgreementPdf({
   contactPerson,
   businessAddress,
   phoneNumber,
-  providerName = "DRPAY",
+  providerName = "PayPulse",
   providerAddress = "",
   providerRegistrationNumber = "",
   collectionFeePercent = 0.5,
@@ -62,7 +62,7 @@ export async function createMerchantAgreementPdf({
   const document = await PDFDocument.create()
   document.setTitle(`${providerName} Merchant Services Agreement`)
   document.setSubject(`Merchant agreement ${agreementId}`)
-  document.setCreator("DRPAY")
+  document.setCreator("PayPulse")
   const regular = await document.embedFont(StandardFonts.TimesRoman)
   const bold = await document.embedFont(StandardFonts.TimesRomanBold)
   const sans = await document.embedFont(StandardFonts.Helvetica)
@@ -124,7 +124,7 @@ export async function createMerchantAgreementPdf({
   ) {
     const lines = wrapText(
       font,
-      String(text).replaceAll("DRPAY", providerName),
+      String(text).replaceAll("PayPulse", providerName),
       size,
       textWidth - indent,
     )
@@ -170,7 +170,7 @@ export async function createMerchantAgreementPdf({
     width: logoWidth,
     height: logoHeight,
   })
-  page.drawText("DRPAY", {
+  page.drawText("PayPulse", {
     x: left + logoWidth + 8,
     y: y + 7,
     size: 13,
@@ -447,7 +447,7 @@ export async function createMerchantAgreementPdf({
   const terms = [
     [
       "1. Services and account approval",
-      "DRPAY will provide the Merchant access to its merchant payment services, including payment collection, payment links, transaction records, and interbank transfer functionality, subject to account approval, technical availability, and this Agreement. The Merchant must provide complete and accurate business and beneficial-owner information and any documents reasonably required for identity, business, and compliance checks. An account invitation or signature does not waive those checks.",
+      "PayPulse will provide the Merchant access to its merchant payment services, including payment collection, payment links, transaction records, and interbank transfer functionality, subject to account approval, technical availability, and this Agreement. The Merchant must provide complete and accurate business and beneficial-owner information and any documents reasonably required for identity, business, and compliance checks. An account invitation or signature does not waive those checks.",
     ],
     [
       "2. Merchant account and responsibilities",
@@ -464,40 +464,40 @@ export async function createMerchantAgreementPdf({
     ],
     [
       "5. Payment processing and settlement",
-      "Payment and transfer instructions are subject to acceptance and processing by the relevant financial institution, payment network, and service provider. Processing and settlement timing may vary by transaction, institution, operating hours, compliance review, and technical availability. DRPAY will make transaction status and wallet records available through the merchant service where supported. The Merchant must promptly review those records and report an apparent error with the relevant transaction reference.",
+      "Payment and transfer instructions are subject to acceptance and processing by the relevant financial institution, payment network, and service provider. Processing and settlement timing may vary by transaction, institution, operating hours, compliance review, and technical availability. PayPulse will make transaction status and wallet records available through the merchant service where supported. The Merchant must promptly review those records and report an apparent error with the relevant transaction reference.",
     ],
     [
       "6. Reversals, disputes, and reserves",
-      "A payment may be reversed, refunded, disputed, or adjusted under applicable law, payment-network rules, or the relevant provider's requirements. The Merchant is responsible for valid refunds and losses attributable to its goods, services, instructions, or breach of this Agreement. DRPAY may delay settlement or restrict funds only to the extent reasonably necessary to investigate a disputed or suspicious transaction, comply with law or a provider requirement, prevent loss, or resolve an amount owed under this Agreement. DRPAY will release any remaining restricted funds when the reason for the restriction has ended, subject to applicable law and provider rules.",
+      "A payment may be reversed, refunded, disputed, or adjusted under applicable law, payment-network rules, or the relevant provider's requirements. The Merchant is responsible for valid refunds and losses attributable to its goods, services, instructions, or breach of this Agreement. PayPulse may delay settlement or restrict funds only to the extent reasonably necessary to investigate a disputed or suspicious transaction, comply with law or a provider requirement, prevent loss, or resolve an amount owed under this Agreement. PayPulse will release any remaining restricted funds when the reason for the restriction has ended, subject to applicable law and provider rules.",
     ],
     [
       "7. STRICT CONFIDENTIALITY, NON-DISCLOSURE, AND DATA PROTECTION",
       "All information disclosed, provided, accessed, observed, or generated in connection with this Agreement or the services is deemed Confidential Information, whether or not it is marked confidential and regardless of its format or means of communication, subject only to the limited exclusions in this Section. This includes the Agreement and its fee schedule; all commercial, financial, operational, technical, security, product, customer, transaction, account, identity-verification, personal, and business information; credentials, keys, records, data, correspondence, and the existence and terms of the parties' relationship.",
-      "The Merchant must hold all Confidential Information in strict confidence, use it solely as necessary to receive the services and perform this Agreement, and must not publish, disclose, transfer, copy, exploit, or make it available to any other person except with DRPAY's prior written consent or as expressly permitted by this Section. Access may be given only to the Merchant's personnel and professional advisers who strictly need it for that purpose and are bound by enforceable confidentiality duties at least as protective as these terms. The Merchant is responsible for their acts and omissions and must apply safeguards no less protective than those used for its own most sensitive information, and never less than reasonable safeguards.",
-      "The Merchant must promptly notify DRPAY upon discovering any actual or suspected loss, unauthorized access, use, disclosure, or compromise of Confidential Information; take immediate steps to contain and mitigate it; preserve relevant evidence; and cooperate with DRPAY's investigation and legally required response. The Merchant must not make any public statement or use DRPAY's name, marks, or relationship for publicity without DRPAY's prior written consent.",
-      "Confidential Information excludes only information the Merchant can demonstrate through contemporaneous written records was lawfully known without restriction before disclosure, becomes public through no breach of this Agreement, is independently developed without use of Confidential Information, or is lawfully received from a third party without a confidentiality duty. If disclosure is required by law or binding order, the Merchant must, to the extent legally permitted, give DRPAY advance written notice, disclose only the minimum legally required, and reasonably assist DRPAY in seeking protective treatment. The Merchant must, upon request or termination, promptly return or securely destroy Confidential Information and certify destruction, except for copies required by law or retained in routine backups that remain protected and inaccessible for ordinary use.",
-      "Each party must comply with applicable privacy and data-protection laws when handling personal data. The Merchant must access and use personal data only for authorized service purposes, limit access to personnel with a legitimate need, implement appropriate technical and organizational safeguards, and promptly notify DRPAY of any actual or suspected personal-data breach involving the services. Confidentiality obligations continue after termination for as long as the information remains non-public, and for personal data for as long as it is protected by applicable law. Nothing in this Section prevents a disclosure required by law or a disclosure to financial institutions and service providers reasonably necessary to provide the services, prevent fraud, or meet legal obligations, provided the disclosure is limited to what is necessary and subject to appropriate confidentiality and data-protection safeguards where available.",
-      "The Merchant acknowledges that unauthorized use or disclosure may cause irreparable harm for which monetary damages may be inadequate. Subject to applicable law, DRPAY may seek injunctive or other equitable relief in addition to any other available remedies. No exception or permitted disclosure waives the confidential status of information not lawfully made public.",
+      "The Merchant must hold all Confidential Information in strict confidence, use it solely as necessary to receive the services and perform this Agreement, and must not publish, disclose, transfer, copy, exploit, or make it available to any other person except with PayPulse's prior written consent or as expressly permitted by this Section. Access may be given only to the Merchant's personnel and professional advisers who strictly need it for that purpose and are bound by enforceable confidentiality duties at least as protective as these terms. The Merchant is responsible for their acts and omissions and must apply safeguards no less protective than those used for its own most sensitive information, and never less than reasonable safeguards.",
+      "The Merchant must promptly notify PayPulse upon discovering any actual or suspected loss, unauthorized access, use, disclosure, or compromise of Confidential Information; take immediate steps to contain and mitigate it; preserve relevant evidence; and cooperate with PayPulse's investigation and legally required response. The Merchant must not make any public statement or use PayPulse's name, marks, or relationship for publicity without PayPulse's prior written consent.",
+      "Confidential Information excludes only information the Merchant can demonstrate through contemporaneous written records was lawfully known without restriction before disclosure, becomes public through no breach of this Agreement, is independently developed without use of Confidential Information, or is lawfully received from a third party without a confidentiality duty. If disclosure is required by law or binding order, the Merchant must, to the extent legally permitted, give PayPulse advance written notice, disclose only the minimum legally required, and reasonably assist PayPulse in seeking protective treatment. The Merchant must, upon request or termination, promptly return or securely destroy Confidential Information and certify destruction, except for copies required by law or retained in routine backups that remain protected and inaccessible for ordinary use.",
+      "Each party must comply with applicable privacy and data-protection laws when handling personal data. The Merchant must access and use personal data only for authorized service purposes, limit access to personnel with a legitimate need, implement appropriate technical and organizational safeguards, and promptly notify PayPulse of any actual or suspected personal-data breach involving the services. Confidentiality obligations continue after termination for as long as the information remains non-public, and for personal data for as long as it is protected by applicable law. Nothing in this Section prevents a disclosure required by law or a disclosure to financial institutions and service providers reasonably necessary to provide the services, prevent fraud, or meet legal obligations, provided the disclosure is limited to what is necessary and subject to appropriate confidentiality and data-protection safeguards where available.",
+      "The Merchant acknowledges that unauthorized use or disclosure may cause irreparable harm for which monetary damages may be inadequate. Subject to applicable law, PayPulse may seek injunctive or other equitable relief in addition to any other available remedies. No exception or permitted disclosure waives the confidential status of information not lawfully made public.",
     ],
     [
       "8. Compliance and information",
-      "Each party will comply with laws and regulations applicable to it and to the services and transactions under this Agreement, including applicable requirements of the Philippines and the Republic of Korea. The Merchant authorizes DRPAY to use and share its account and transaction information as reasonably necessary to provide the services, verify the Merchant, prevent fraud, meet legal or regulatory obligations, and work with financial institutions and payment providers, subject to applicable data-protection law and DRPAY's privacy notice.",
+      "Each party will comply with laws and regulations applicable to it and to the services and transactions under this Agreement, including applicable requirements of the Philippines and the Republic of Korea. The Merchant authorizes PayPulse to use and share its account and transaction information as reasonably necessary to provide the services, verify the Merchant, prevent fraud, meet legal or regulatory obligations, and work with financial institutions and payment providers, subject to applicable data-protection law and PayPulse's privacy notice.",
     ],
     [
       "9. Security, availability, and suspension",
-      "The Merchant must use reasonable security measures to protect its account and promptly notify DRPAY of suspected compromise. DRPAY will use reasonable operational measures to provide the services but does not guarantee uninterrupted or error-free availability. DRPAY may suspend or limit access where reasonably necessary to address a security threat, suspected fraud or unlawful activity, a material breach, a legal or provider requirement, or a risk to users or the payment system. Where legally and practically permitted, DRPAY will notify the Merchant of the reason and the steps required to restore access.",
+      "The Merchant must use reasonable security measures to protect its account and promptly notify PayPulse of suspected compromise. PayPulse will use reasonable operational measures to provide the services but does not guarantee uninterrupted or error-free availability. PayPulse may suspend or limit access where reasonably necessary to address a security threat, suspected fraud or unlawful activity, a material breach, a legal or provider requirement, or a risk to users or the payment system. Where legally and practically permitted, PayPulse will notify the Merchant of the reason and the steps required to restore access.",
     ],
     [
       "10. Term and termination",
-      "This Agreement continues until terminated. Either party may terminate it by giving the other party 30 days' written notice. DRPAY may terminate or suspend access immediately where required by law or a provider, or where a material breach, fraud, or security risk requires immediate action. Termination does not cancel fees, refunds, disputes, or other obligations incurred before termination. The parties will cooperate in completing or resolving pending transactions, subject to applicable law and provider rules.",
+      "This Agreement continues until terminated. Either party may terminate it by giving the other party 30 days' written notice. PayPulse may terminate or suspend access immediately where required by law or a provider, or where a material breach, fraud, or security risk requires immediate action. Termination does not cancel fees, refunds, disputes, or other obligations incurred before termination. The parties will cooperate in completing or resolving pending transactions, subject to applicable law and provider rules.",
     ],
     [
       "11. Liability and indemnity",
-      "Each party remains responsible for its own acts and omissions. To the extent permitted by applicable law, neither party is liable to the other for indirect or consequential loss that was not reasonably foreseeable when this Agreement was made. Nothing in this Agreement excludes liability that cannot lawfully be excluded. The Merchant will indemnify DRPAY for third-party claims and reasonable direct costs to the extent caused by the Merchant's unlawful activity, its products or services, its breach of this Agreement, or its instructions, except to the extent caused by DRPAY's own breach or misconduct.",
+      "Each party remains responsible for its own acts and omissions. To the extent permitted by applicable law, neither party is liable to the other for indirect or consequential loss that was not reasonably foreseeable when this Agreement was made. Nothing in this Agreement excludes liability that cannot lawfully be excluded. The Merchant will indemnify PayPulse for third-party claims and reasonable direct costs to the extent caused by the Merchant's unlawful activity, its products or services, its breach of this Agreement, or its instructions, except to the extent caused by PayPulse's own breach or misconduct.",
     ],
     [
       "12. Notices, changes, and entire agreement",
-      "Notices to the Merchant may be sent to the email address on its account; the Merchant must keep that address current. The Merchant may contact DRPAY at support@denpay.cc. This Agreement and the applicable privacy notice state the agreement between the parties concerning the merchant services and replace prior discussions on that subject. A change to this Agreement is effective only when provided in writing and accepted by both parties, except that DRPAY may make an operational change required by law or a payment provider and will notify the Merchant where required.",
+      "Notices to the Merchant may be sent to the email address on its account; the Merchant must keep that address current. The Merchant may contact PayPulse at support@denpay.cc. This Agreement and the applicable privacy notice state the agreement between the parties concerning the merchant services and replace prior discussions on that subject. A change to this Agreement is effective only when provided in writing and accepted by both parties, except that PayPulse may make an operational change required by law or a payment provider and will notify the Merchant where required.",
     ],
     [
       "13. Applicable law and disputes",
@@ -596,7 +596,7 @@ export async function createMerchantAgreementPdf({
       color: line,
     })
     currentPage.drawText(
-      `DRPAY Merchant Services Agreement  |  ${agreementId}  |  ${
+      `PayPulse Merchant Services Agreement  |  ${agreementId}  |  ${
         templateVersion ? `v${templateVersion}  |  ` : ""
       }Page ${index + 1} of ${pages.length}`,
       { x: left, y: 34, size: 7, font: regular, color: muted },

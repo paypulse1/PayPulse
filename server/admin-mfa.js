@@ -105,7 +105,7 @@ export function decryptTotpSecret(value, key) {
 }
 
 export function totpProvisioningUri(email, secret) {
-  const label = encodeURIComponent(`DRPAY:${email}`)
-  const issuer = encodeURIComponent("DRPAY")
+  const label = encodeURIComponent(`PayPulse:${email}`)
+  const issuer = encodeURIComponent("PayPulse")
   return `otpauth://totp/${label}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=${TOTP_PERIOD_SECONDS}`
 }

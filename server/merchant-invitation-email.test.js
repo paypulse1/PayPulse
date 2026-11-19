@@ -8,7 +8,7 @@ describe("merchant invitation email", () => {
   it("keeps confidential commercial terms in the attached agreement only", () => {
     const email = createMerchantInvitationEmail({
       contactPerson: "Alex Merchant",
-      providerName: "DRPAY",
+      providerName: "PayPulse",
       businessName: "Example Trading Co.",
       invitationUrl: "https://merchant.example.com/",
     })
@@ -48,13 +48,13 @@ describe("merchant invitation email", () => {
   it("escapes untrusted values in the HTML body", () => {
     const email = createMerchantInvitationEmail({
       contactPerson: "<Merchant>",
-      providerName: "DRPAY & Co.",
+      providerName: "PayPulse & Co.",
       businessName: '"Example" <Trading>',
       invitationUrl: "https://merchant.example.com/?name=<merchant>",
     })
 
     expect(email.html).toContain("&lt;Merchant&gt;")
-    expect(email.html).toContain("DRPAY &amp; Co.")
+    expect(email.html).toContain("PayPulse &amp; Co.")
     expect(email.html).toContain("&quot;Example&quot; &lt;Trading&gt;")
     expect(email.html).not.toContain("<Merchant>")
   })
@@ -63,12 +63,12 @@ describe("merchant invitation email", () => {
     let request
     await sendMerchantInvitationEmail({
       to: "merchant@example.com",
-      from: "DRPAY <accounts@example.com>",
+      from: "PayPulse <accounts@example.com>",
       apiKey: "test-key",
       attachments: [{ filename: "agreement.pdf", content: "cGRm" }],
       invitation: {
         contactPerson: "Alex Merchant",
-        providerName: "DRPAY",
+        providerName: "PayPulse",
         businessName: "Example Trading Co.",
         invitationUrl: "https://merchant.example.com/login",
       },
@@ -81,7 +81,7 @@ describe("merchant invitation email", () => {
     expect(request.url).toBe("https://api.resend.com/emails")
     expect(request.options.headers.Authorization).toBe("Bearer test-key")
     expect(request.body.to).toEqual(["merchant@example.com"])
-    expect(request.body.from).toBe("DRPAY <accounts@example.com>")
+    expect(request.body.from).toBe("PayPulse <accounts@example.com>")
     expect(request.body.attachments).toEqual([
       { filename: "agreement.pdf", content: "cGRm" },
     ])
@@ -97,7 +97,7 @@ describe("merchant invitation email", () => {
         attachments: [],
         invitation: {
           contactPerson: "Alex Merchant",
-          providerName: "DRPAY",
+          providerName: "PayPulse",
           businessName: "Example Trading Co.",
           invitationUrl: "https://merchant.example.com/login",
         },

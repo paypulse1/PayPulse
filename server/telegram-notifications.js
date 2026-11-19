@@ -33,7 +33,7 @@ export function formatAdminTelegramNotification(notification, walletState) {
   const availableBalance = formatTelegramMoney(balance - reserved)
 
   return [
-    "DRPAY merchant transaction",
+    "PayPulse merchant transaction",
     `Direction: ${notification.direction === "IN" ? "INCOMING" : "OUTGOING"}`,
     `Merchant: ${notification.merchant_name}`,
     `Merchant email: ${notification.merchant_email}`,

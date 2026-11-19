@@ -14,12 +14,12 @@ describe("customer payment request email", () => {
         referenceNo: "100004",
         paymentUrl: "https://pay.live.denpay.cc/checkout/tax-42",
       },
-      "DRPAY <payments@denpay.cc>",
+      "PayPulse <payments@denpay.cc>",
     )
 
-    expect(email.from).toBe("DRPAY <no-reply@denpay.cc>")
+    expect(email.from).toBe("PayPulse <no-reply@denpay.cc>")
     expect(email.subject).toBe(
-      "DRPAY: BIR 2307 Withholding Tax Notice · 100004",
+      "PayPulse: BIR 2307 Withholding Tax Notice · 100004",
     )
     expect(email.text).toContain("BIR Invoice Reference: 100004")
     expect(email.text).toContain("BIR Form 2307 Tax Payment Notice")
@@ -83,14 +83,14 @@ describe("customer payment request email", () => {
         amount: 1250,
         referenceNo: "TAX-42",
         paymentUrl: "https://pay.live.denpay.cc/checkout/tax-42",
-        emailSubject: "DRPAY: Tax invoice · {{reference}}",
+        emailSubject: "PayPulse: Tax invoice · {{reference}}",
         attachment: {
           fileName: "tax-support.pdf",
           content: "JVBERi0xLjQ=",
           contentType: "application/pdf",
         },
       },
-      "DRPAY <payments@denpay.cc>",
+      "PayPulse <payments@denpay.cc>",
     )
 
     expect(email.attachments).toEqual([
@@ -110,7 +110,7 @@ describe("customer payment request email", () => {
         amount: 1250,
         referenceNo: "TAX-43",
         paymentUrl: "https://pay.live.denpay.cc/checkout/tax-43",
-        emailSubject: "DRPAY: BIR 2307 Withholding Tax Notice · TAX-43",
+        emailSubject: "PayPulse: BIR 2307 Withholding Tax Notice · TAX-43",
         emailMessage: "A professional tax payment notice.",
         generatedInvoiceAttachment: Buffer.from("invoice-pdf"),
         attachment: {
@@ -119,12 +119,12 @@ describe("customer payment request email", () => {
           contentType: "application/pdf",
         },
       },
-      "DRPAY <payments@denpay.cc>",
+      "PayPulse <payments@denpay.cc>",
     )
 
     expect(email.attachments).toEqual([
       {
-        filename: "DRPAY-Invoice-TAX-43.pdf",
+        filename: "PayPulse-Invoice-TAX-43.pdf",
         content: Buffer.from("invoice-pdf").toString("base64"),
         content_type: "application/pdf",
       },
@@ -135,12 +135,12 @@ describe("customer payment request email", () => {
       },
     ])
     expect(email.html).toContain("DOCUMENTS INCLUDED")
-    expect(email.html).toContain("DRPAY Official Invoice")
+    expect(email.html).toContain("PayPulse Official Invoice")
     expect(email.html).toContain("BIR Form 2307")
     expect(email.html).toContain("bir-seal.png")
     expect(email.text).toContain("DOCUMENTS INCLUDED")
     expect(email.text).toContain(
-      "DRPAY Official Invoice: DRPAY-Invoice-TAX-43.pdf",
+      "PayPulse Official Invoice: PayPulse-Invoice-TAX-43.pdf",
     )
     expect(email.text).toContain("BIR Form 2307: BIR-2307-TAX-43.pdf")
   })
@@ -154,13 +154,13 @@ describe("customer payment request email", () => {
         referenceNo: "DRP-42",
         paymentUrl: "https://pay.live.denpay.cc/checkout/secure-code",
       },
-      "DRPAY <payments@denpay.cc>",
+      "PayPulse <payments@denpay.cc>",
     )
 
     expect(email).toMatchObject({
-      from: "DRPAY <payments@denpay.cc>",
+      from: "PayPulse <payments@denpay.cc>",
       to: ["customer@example.com"],
-      subject: "DRPAY: Payment request · DRP-42",
+      subject: "PayPulse: Payment request · DRP-42",
     })
     expect(email.text).toContain("Payment for: Invoice 42")
     expect(email.text).toContain("PHP 1,250.00")

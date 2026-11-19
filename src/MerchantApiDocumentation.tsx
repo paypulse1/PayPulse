@@ -65,7 +65,7 @@ function Endpoints() {
     [
       "GET",
       "/v1/internal-wallet",
-      "read · separate PulsePay-funded floating wallet",
+      "read · separate PayPulse-funded floating wallet",
     ],
     [
       "GET",
@@ -112,11 +112,11 @@ export default function MerchantApiDocumentation({
   return (
     <div className="api-docs">
       <div className="profile-info-intro api-docs-hero">
-        <strong>Integrate your PulsePay wallet and collections</strong>
+        <strong>Integrate your PayPulse wallet and collections</strong>
         <p>
           Read your merchant-specific PHP wallet, create a QR-backed hosted
           payment link from your platform, and confirm payment status. Your
-          customer pays on a PulsePay-hosted checkout page; your server receives
+          customer pays on a PayPulse-hosted checkout page; your server receives
           the link and returns it to your customer.
         </p>
         <p>
@@ -138,7 +138,7 @@ export default function MerchantApiDocumentation({
           to use the complete integration. Keys are environment-specific.
         </p>
         <p>
-          After both activation milestones are complete, PulsePay emails the API
+          After both activation milestones are complete, PayPulse emails the API
           guide and payload PDF separately from your invitation. Then generate
           your own key here; it is shown once and is never included in an email.
           Set the Postman collection&apos;s <code>apiKey</code> to that key and
@@ -182,7 +182,7 @@ DRPAY_API_KEY=your_environment_specific_key`}
           <code>GET /v1/wallet/balance</code> returns this merchant&apos;s
           operational ledger only. <code>balance</code> is the posted ledger
           amount; <code>availableBalance</code> subtracts reservations for
-          transfers still in progress. The PulsePay-funded floating balance is a
+          transfers still in progress. The PayPulse-funded floating balance is a
           separate wallet.
         </p>
         <ApiCodeBlock
@@ -213,14 +213,14 @@ DRPAY_API_KEY=your_environment_specific_key`}
       <DocsSection title="3. Create a collection on your platform">
         <p>
           <code>POST /v1/payment-links</code> creates a fixed PHP QRPH payment
-          and a self-hosted PulsePay checkout page. The response includes{" "}
+          and a self-hosted PayPulse checkout page. The response includes{" "}
           <code>paymentUrl</code> to redirect your customer to,{" "}
           <code>qrCode</code> for rendering a QR in your own experience, and{" "}
           <code>qrImageUrl</code> for the QR image. The <code>currency</code>{" "}
           field only accepts PHP and defaults to PHP when omitted. Optionally
           include <code>customerEmail</code> to email the customer the checkout
           link and a separate payment-confirmed notice after SwiftPay reports{" "}
-          <code>EXECUTED</code> or the PulsePay team independently verifies the
+          <code>EXECUTED</code> or the PayPulse team independently verifies the
           payment. Checkout links use your environment&apos;s branded host:{" "}
           <code>{checkoutHost}</code>.
         </p>
@@ -283,7 +283,7 @@ DRPAY_API_KEY=your_environment_specific_key`}
 
       <DocsSection title="4. Example: create the link from your server">
         <p>
-          Call PulsePay from a trusted backend route, then return only the safe
+          Call PayPulse from a trusted backend route, then return only the safe
           payment URL and reference to your browser or app. This example uses
           Node.js 18+:
         </p>
@@ -419,11 +419,11 @@ export async function createInvoiceCheckout({ amount, invoiceId, customerEmail }
         <ol>
           <li>
             When a payment or disbursement reaches a supported success or
-            failure outcome, PulsePay creates an event if you selected that event
+            failure outcome, PayPulse creates an event if you selected that event
             type.
           </li>
           <li>
-            PulsePay queues the event and sends an HTTPS POST with the JSON event
+            PayPulse queues the event and sends an HTTPS POST with the JSON event
             body to your endpoint. If configured, the callback URL receives
             the same event too.
           </li>
@@ -453,8 +453,8 @@ export async function createInvoiceCheckout({ amount, invoiceId, customerEmail }
 }`}
         />
         <p>
-          Every request includes <code>PulsePay-Event</code> and{" "}
-          <code>PulsePay-Signature</code> headers. The signature is{" "}
+          Every request includes <code>DRPAY-Event</code> and{" "}
+          <code>DRPAY-Signature</code> headers. The signature is{" "}
           <code>sha256=&lt;hex HMAC-SHA256&gt;</code>, calculated over the exact
           raw request-body bytes using the signing secret—not a parsed and
           re-serialized JSON object. Verify it before parsing or acting on the
@@ -512,7 +512,7 @@ function verifyWebhook(rawBody, signatureHeader, secret) {
       <p className="profile-info-note">
         Import the{" "}
         <a
-          href="/postman/PulsePay-Merchant-API.postman_collection.json"
+          href="/postman/DRPAY-Merchant-API.postman_collection.json"
           download
         >
           Postman collection

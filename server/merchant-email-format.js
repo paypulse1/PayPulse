@@ -35,7 +35,7 @@ export function createMerchantEmail({
   links = [],
   documents = [],
   footerNotes = [],
-  signature = "DRPAY",
+  signature = "PayPulse",
 }) {
   const plainText = [
     title,
@@ -104,7 +104,7 @@ export function createMerchantEmail({
       <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">${escapeEmailHtml(preheader)}</div>
       <div style="max-width:600px;margin:0 auto;background:#fff;border:1px solid #dfe7e2;border-radius:10px;overflow:hidden">
         <div style="padding:22px 24px 16px;border-bottom:1px solid #e5ebe7">
-          <div style="color:#163c2a;font-size:11px;font-weight:700;letter-spacing:1.4px">DRPAY MERCHANT SERVICES</div>
+          <div style="color:#163c2a;font-size:11px;font-weight:700;letter-spacing:1.4px">PayPulse MERCHANT SERVICES</div>
           <h1 style="margin:10px 0 0;color:#163c2a;font-size:22px;line-height:1.3">${escapeEmailHtml(title)}</h1>
         </div>
         <div style="padding:22px 24px">

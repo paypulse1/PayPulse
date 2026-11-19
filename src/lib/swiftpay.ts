@@ -771,7 +771,7 @@ export function getSession(): Session | null {
 
 export function saveSession(session: Session) {
   if (!isSession(session)) {
-    throw new Error("Invalid PulsePay session.")
+    throw new Error("Invalid PayPulse session.")
   }
   writeStorageItem("session", SESSION_KEY, JSON.stringify(session))
 }
@@ -854,7 +854,7 @@ async function parseResponse<T>(
   ) {
     throw new ApiError(
       errorMessage ||
-        "PulsePay is temporarily unavailable. Please try again in a few minutes.",
+        "PayPulse is temporarily unavailable. Please try again in a few minutes.",
       response.status,
       body.requestId,
     )
@@ -879,7 +879,7 @@ async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
   }
 
   throw new ApiError(
-    "PulsePay is temporarily unavailable. Check your connection and try again.",
+    "PayPulse is temporarily unavailable. Check your connection and try again.",
     503,
   )
 }
@@ -891,7 +891,7 @@ async function publicRequest<T>(
   const apiBaseUrl = getConfiguredApiBaseUrl()
   if (!apiBaseUrl)
     throw new Error(
-      "Live transactions are disabled because the PulsePay backend is not configured.",
+      "Live transactions are disabled because the PayPulse backend is not configured.",
     )
   const response = await apiFetch(`${apiBaseUrl.replace(/\/$/, "")}${path}`, {
     ...options,
@@ -908,10 +908,10 @@ async function backendRequest<T>(
   const apiBaseUrl = getConfiguredApiBaseUrl()
   if (!apiBaseUrl)
     throw new Error(
-      "Live transactions are disabled because the PulsePay backend is not configured.",
+      "Live transactions are disabled because the PayPulse backend is not configured.",
     )
   const session = getSession()
-  if (!session) throw new ApiError("A verified PulsePay session is required", 401)
+  if (!session) throw new ApiError("A verified PayPulse session is required", 401)
   const response = await apiFetch(`${apiBaseUrl.replace(/\/$/, "")}${path}`, {
     ...options,
     headers: {

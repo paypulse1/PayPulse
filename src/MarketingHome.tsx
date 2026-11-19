@@ -40,7 +40,7 @@ function HeroSection() {
             <ArrowRight size={17} aria-hidden="true" />
           </a>
           <a className="drpay-text-link" href="#capabilities">
-            Explore PulsePay <ArrowDown size={15} aria-hidden="true" />
+            Explore PayPulse <ArrowDown size={15} aria-hidden="true" />
           </a>
         </div>
         <div className="drpay-hero-note">
@@ -59,7 +59,7 @@ function HeroSection() {
           <figure className="drpay-phone-frame drpay-phone-frame-banks">
             <img
               src="/IMG_20261101_183405_701.jpg"
-              alt="PulsePay bank and wallet selection screen"
+              alt="PayPulse bank and wallet selection screen"
               loading="lazy"
             />
             <figcaption>Choose a bank or wallet</figcaption>
@@ -67,7 +67,7 @@ function HeroSection() {
           <figure className="drpay-phone-frame drpay-phone-frame-transfer">
             <img
               src="/IMG_20261101_183405_888.jpg"
-              alt="PulsePay transfer form with recipient and amount fields"
+              alt="PayPulse transfer form with recipient and amount fields"
               fetchPriority="high"
             />
             <figcaption>

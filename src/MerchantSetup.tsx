@@ -161,7 +161,7 @@ export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
       setReviewNotes("")
       setProfileSaved(true)
       setConsent(true)
-      setNotice("Business and owner details saved. Upload the required documents for PulsePay review.")
+      setNotice("Business and owner details saved. Upload the required documents for PayPulse review.")
     } catch (saveError) {
       setError(
         saveError instanceof Error
@@ -276,7 +276,7 @@ export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
                     ? "Application submitted for review"
                     : "Application saved"}
             </strong>
-            <span>PulsePay review · {status.replace("_", " ")}</span>
+            <span>PayPulse review · {status.replace("_", " ")}</span>
             {reviewNotes && <span>{reviewNotes}</span>}
           </div>
         </div>
@@ -424,7 +424,7 @@ export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
             onChange={(event) => setConsent(event.target.checked)}
           />
           <span>
-            I confirm these details are accurate and authorize PulsePay to review
+            I confirm these details are accurate and authorize PayPulse to review
             the business and owner information and documents for KYB. See the{" "}
             <a href={APP_ROUTES.privacy} target="_blank" rel="noreferrer">
               Privacy Policy
@@ -464,7 +464,7 @@ export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
           </span>
         </div>
         <p className="manual-kyb-caption">
-          Accepted formats: PDF, JPEG, or PNG · Maximum 10 MB per file. PulsePay
+          Accepted formats: PDF, JPEG, or PNG · Maximum 10 MB per file. PayPulse
           staff will review your documents securely.
         </p>
         <div className="setup-documents">
@@ -535,7 +535,7 @@ export function KybSetupPanel({ refreshVersion }: { refreshVersion: number }) {
       )}
       {status === "APPROVED" && (
         <p className="profile-info-note">
-          Your business verification has been approved. Contact PulsePay support to
+          Your business verification has been approved. Contact PayPulse support to
           update your verified information.
         </p>
       )}
@@ -709,7 +709,7 @@ export function DeveloperSetupPanel({ refreshVersion }: { refreshVersion: number
         {keys.map((key) => <div className="setup-key-row" key={key.id}><span><strong>{key.name}</strong><small>{key.keyPrefix}… · {key.scopes.join(", ")} · {key.revokedAt ? "revoked" : key.lastUsedAt ? `used ${new Date(key.lastUsedAt).toLocaleDateString()}` : "not used"}</small></span>{!key.revokedAt && <button className="setup-link-button danger" type="button" disabled={busy !== ""} onClick={() => void revokeKey(key.id)}>{busy === key.id ? "Revoking…" : "Revoke"}</button>}</div>)}
       </div>
 
-      <div className="profile-info-intro"><strong>Webhook and callback</strong><p>Only public HTTPS URLs are accepted. Events use HMAC-SHA256 in the PulsePay-Signature header and retry with exponential backoff up to eight attempts.</p></div>
+      <div className="profile-info-intro"><strong>Webhook and callback</strong><p>Only public HTTPS URLs are accepted. Events use HMAC-SHA256 in the DRPAY-Signature header and retry with exponential backoff up to eight attempts.</p></div>
       <form className="setup-form" onSubmit={(event) => void saveWebhook(event)}>
         <label className="setup-form-wide">Webhook endpoint URL<input type="url" value={endpointUrl} onChange={(event) => setEndpointUrl(event.target.value)} placeholder="https://example.com/webhooks/drpay" required /></label>
         <label className="setup-form-wide">Callback URL (optional)<input type="url" value={callbackUrl} onChange={(event) => setCallbackUrl(event.target.value)} placeholder="https://example.com/payment-callback" /></label>
@@ -766,7 +766,7 @@ export function DeveloperSetupPanel({ refreshVersion }: { refreshVersion: number
         <p className="profile-info-note">No webhook events have been queued yet.</p>
       )}
       {signingSecret && <div className="setup-secret"><strong>Copy this signing secret now</strong><code>{signingSecret}</code></div>}
-      <p className="profile-info-note"><a href="/postman/PulsePay-Merchant-API.postman_collection.json" download>Download the Postman collection</a> · API base URL: <code>{getApiBaseUrl()}</code></p>
+      <p className="profile-info-note"><a href="/postman/DRPAY-Merchant-API.postman_collection.json" download>Download the Postman collection</a> · API base URL: <code>{getApiBaseUrl()}</code></p>
     </div>
   );
 }

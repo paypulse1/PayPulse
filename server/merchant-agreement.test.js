@@ -6,7 +6,7 @@ import { createMerchantAgreementPdf } from "./merchant-agreement.js"
 import { createMerchantOnboardingGuidePdf } from "./merchant-onboarding-guide.js"
 
 describe("merchant agreement generation", () => {
-  it("creates a formal DRPAY-merchant addendum with identified-term incorporation safeguards", async () => {
+  it("creates a formal PayPulse-merchant addendum with identified-term incorporation safeguards", async () => {
     const pdfBytes = await createAlipayPlusAgreementPdf({
       agreementId: "alipay-test-123",
       merchantName: "Example Trading Co.",
@@ -14,7 +14,7 @@ describe("merchant agreement generation", () => {
       merchantAddress: "123 Main Street, Manila",
       contactPerson: "Alex Merchant",
       phoneNumber: "+63 900 000 0000",
-      providerName: "DRPAY Services Ltd.",
+      providerName: "PayPulse Services Ltd.",
       providerAddress: "100 Finance Street, Makati City",
       providerRegistrationNumber: "SEC-CS20260001",
       templateVersion: "2026-03-v2-confidentiality",
@@ -52,7 +52,7 @@ describe("merchant agreement generation", () => {
     expect(fullAgreementText).toContain(
       "SERVICE ACCESS & INCORPORATION ADDENDUM",
     )
-    expect(fullAgreementText).toContain("DRPAY-MERCHANT CONTRACT")
+    expect(fullAgreementText).toContain("PayPulse-MERCHANT CONTRACT")
     expect(fullAgreementText).toContain(
       "No third-party terms are incorporated merely by reference",
     )
@@ -97,7 +97,7 @@ describe("merchant agreement generation", () => {
       contactPerson: "Alex Merchant",
       businessAddress: "123 Main Street, Manila",
       phoneNumber: "+63 900 000 0000",
-      providerName: "DRPAY Services Ltd.",
+      providerName: "PayPulse Services Ltd.",
       providerAddress: "100 Finance Street, Makati City",
       providerRegistrationNumber: "SEC-CS20260001",
       collectionFeePercent: 1.25,
@@ -112,7 +112,7 @@ describe("merchant agreement generation", () => {
     const pdf = await PDFDocument.load(pdfBytes)
     expect(pdf.getPageCount()).toBeGreaterThan(1)
     expect(pdf.getTitle()).toBe(
-      "DRPAY Services Ltd. Merchant Services Agreement",
+      "PayPulse Services Ltd. Merchant Services Agreement",
     )
 
     const parsedPdf = await pdfjs.getDocument({
@@ -159,9 +159,9 @@ describe("merchant agreement generation", () => {
   it("creates a branded KRW and USDT guide with an invitation-time rate", async () => {
     const pdfBytes = await createMerchantOnboardingGuidePdf({
       merchantName: "Example Trading Co.",
-      providerName: "DRPAY Services Ltd.",
+      providerName: "PayPulse Services Ltd.",
       rate: 0.02617,
-      rateSource: "DRPAY configured rate",
+      rateSource: "PayPulse configured rate",
       rateUpdatedAt: new Date("2026-10-30T00:00:00.000Z"),
       capturedAt: new Date("2026-10-30T01:00:00.000Z"),
     })
@@ -183,12 +183,12 @@ describe("merchant agreement generation", () => {
     const guideText = pages.join(" ")
 
     expect(pdf.getTitle()).toBe(
-      "DRPAY Services Ltd. Merchant Currency and USDT Guide",
+      "PayPulse Services Ltd. Merchant Currency and USDT Guide",
     )
     expect(pdf.getPageCount()).toBe(2)
     expect(guideText).toContain("Example Trading Co.")
     expect(guideText).toContain("1 KRW = PHP 0.02617")
-    expect(guideText).toContain("DRPAY configured rate")
+    expect(guideText).toContain("PayPulse configured rate")
     expect(guideText).toContain(
       "captured when this guide was prepared on Oct 30, 2026, 1:00 AM UTC",
     )
@@ -199,7 +199,7 @@ describe("merchant agreement generation", () => {
       "The sending wallet or provider sets and displays the network transaction fee",
     )
     expect(guideText).toContain(
-      "DRPAY does not set a fixed USDT network-fee amount",
+      "PayPulse does not set a fixed USDT network-fee amount",
     )
     expect(guideText).toContain("CONFIDENTIAL")
   })
@@ -209,7 +209,7 @@ describe("merchant agreement generation", () => {
       createMerchantOnboardingGuidePdf({
         merchantName: "Example Trading Co.",
         rate: 0,
-        rateSource: "DRPAY configured rate",
+        rateSource: "PayPulse configured rate",
         rateUpdatedAt: new Date("2026-10-30T00:00:00.000Z"),
       }),
     ).rejects.toThrow("A valid KRW/PHP quote is required")

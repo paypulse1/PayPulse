@@ -31,7 +31,7 @@ describe("operations TOTP", () => {
     expect(encrypted).not.toContain(secret)
     expect(decryptTotpSecret(encrypted, key)).toBe(secret)
     expect(totpProvisioningUri("ops@example.com", secret)).toContain(
-      "otpauth://totp/DRPAY%3Aops%40example.com",
+      "otpauth://totp/PayPulse%3Aops%40example.com",
     )
   })
 })

@@ -124,7 +124,7 @@ function getReceiptData(receipt: TransferReceiptData) {
           ? "PESONet"
           : receipt.channel || "—"),
     receiptEmail: receipt.receiptEmail,
-    sentVia: receipt.sentVia || "PulsePay Wallet",
+    sentVia: receipt.sentVia || "PayPulse Wallet",
     amount,
     feeAmount,
     totalAmount,
@@ -152,7 +152,7 @@ async function shareReceiptBlob(blob: Blob, fileName: string) {
       directory: Directory.Cache,
     })
     await Share.share({
-      title: "PulsePay transfer receipt",
+      title: "PayPulse transfer receipt",
       files: [file.uri],
       dialogTitle: "Save or share transfer receipt",
     })
@@ -163,7 +163,7 @@ async function shareReceiptBlob(blob: Blob, fileName: string) {
   if (!navigator.canShare?.({ files: [image] }) || !navigator.share) {
     throw new Error("Image sharing is not supported in this browser.")
   }
-  await navigator.share({ title: "PulsePay transfer receipt", files: [image] })
+  await navigator.share({ title: "PayPulse transfer receipt", files: [image] })
 }
 
 function drawCloseButton(
@@ -243,7 +243,7 @@ function loadReceiptLogo() {
     const logo = new Image()
     logo.onload = () => resolve(logo)
     logo.onerror = () =>
-      reject(new Error("Could not load the PulsePay logo for the receipt."))
+      reject(new Error("Could not load the PayPulse logo for the receipt."))
     logo.src = "/drpay-mark.png"
   })
 }
@@ -271,7 +271,7 @@ function drawReceiptCard(
   context.fillStyle = receiptStyle.white
   context.font = `700 32px ${receiptStyle.font}`
   context.textAlign = "center"
-  context.fillText("PulsePay", logoCenterX, 126)
+  context.fillText("PayPulse", logoCenterX, 126)
   context.fillStyle = receiptStyle.white
   context.font = `600 30px ${receiptStyle.font}`
   context.textAlign = "center"

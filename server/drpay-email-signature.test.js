@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { createCustomerPaymentRequestEmail } from "./customer-payment-email.js"
 import { standardizeDrpayEmail } from "./drpay-email-signature.js"
 
-describe("DRPAY outgoing email layout", () => {
+describe("PayPulse outgoing email layout", () => {
   it("uses a shared branded shell and safety reminder for every email", () => {
     const email = standardizeDrpayEmail(
       {
@@ -11,7 +11,7 @@ describe("DRPAY outgoing email layout", () => {
         html: `
           <div style="background:#f4f7f5">
             <div style="max-width:480px;margin:auto">
-              <div style="padding:0 4px 20px">DRPAY</div>
+              <div style="padding:0 4px 20px">PayPulse</div>
               <div style="padding:32px;background:#ffffff;border:1px solid #e2e9e4">
                 <h1>Example title</h1><p>Message body</p>
               </div>
@@ -24,11 +24,11 @@ describe("DRPAY outgoing email layout", () => {
     )
 
     expect(email.text).toContain("Message body")
-    expect(email.text).toContain("DRPAY")
+    expect(email.text).toContain("PayPulse")
     expect(email.text).toContain("Never share them")
     expect(email.html.match(/<img\b/g)).toHaveLength(1)
     expect(email.html).toContain(
-      '<img src="https://merchant.example.com/drpay-mark.png" alt="DRPAY logo"',
+      '<img src="https://merchant.example.com/drpay-mark.png" alt="PayPulse logo"',
     )
     expect(email.html).toContain("max-width:640px")
     expect(email.html).toContain("background:#edf2f7")
@@ -49,25 +49,25 @@ describe("DRPAY outgoing email layout", () => {
         { text: "Message body", html: "<p>Message body</p>" },
         "http://merchant.example.com/logo.png",
       ),
-    ).toThrow("The DRPAY email logo URL must use HTTPS.")
+    ).toThrow("The PayPulse email logo URL must use HTTPS.")
     expect(() =>
       standardizeDrpayEmail(
         { text: "Message body", html: "<p>Message body</p>" },
         "not a URL",
       ),
-    ).toThrow("A valid DRPAY email logo URL is required.")
+    ).toThrow("A valid PayPulse email logo URL is required.")
   })
 
   it("removes legacy brand headers while preserving each email heading", () => {
     const email = standardizeDrpayEmail(
       {
         subject: "Invitation",
-        text: "DRPAY MERCHANT SERVICES\n\nHello, merchant.",
+        text: "PayPulse MERCHANT SERVICES\n\nHello, merchant.",
         html: `
           <div style="background:#f3f6f4">
             <div style="max-width:600px">
               <div style="border-bottom:1px solid #e5ebe7">
-                <div>DRPAY MERCHANT SERVICES</div>
+                <div>PayPulse MERCHANT SERVICES</div>
                 <h1>Merchant invitation</h1>
               </div>
               <div><p>Review and sign the agreement.</p></div>
@@ -78,8 +78,8 @@ describe("DRPAY outgoing email layout", () => {
       "https://merchant.example.com/drpay-mark.png",
     )
 
-    expect(email.html.match(/DRPAY MERCHANT SERVICES/g)).toHaveLength(1)
-    expect(email.text.match(/DRPAY \| SECURE SERVICE MESSAGE/g)).toHaveLength(1)
+    expect(email.html.match(/PayPulse MERCHANT SERVICES/g)).toHaveLength(1)
+    expect(email.text.match(/PayPulse \| SECURE SERVICE MESSAGE/g)).toHaveLength(1)
     expect(email.html).toContain("<h1>Merchant invitation</h1>")
     expect(email.html).toContain("Review and sign the agreement.")
   })
@@ -93,7 +93,7 @@ describe("DRPAY outgoing email layout", () => {
         referenceNo: "DRP-2026-104",
         paymentUrl: "https://pay.example.com/checkout/104",
       },
-      "DRPAY <payments@example.com>",
+      "PayPulse <payments@example.com>",
     )
     const email = standardizeDrpayEmail(
       source,

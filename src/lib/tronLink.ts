@@ -56,7 +56,7 @@ export async function connectTronLink(expectedAddress: string) {
   const provider = window.tron
   if (!provider?.isTronLink) {
     throw new Error(
-      "TronLink was not found. Open PulsePay in the TronLink DApp browser or a browser with the TronLink extension.",
+      "TronLink was not found. Open PayPulse in the TronLink DApp browser or a browser with the TronLink extension.",
     )
   }
 
@@ -69,7 +69,7 @@ export async function connectTronLink(expectedAddress: string) {
   }
   if (!Array.isArray(accounts) || accounts[0] !== expectedAddress) {
     throw new Error(
-      "The connected TronLink account must match your PulsePay-assigned TRON address.",
+      "The connected TronLink account must match your PayPulse-assigned TRON address.",
     )
   }
 

@@ -19,7 +19,7 @@ function makeMerchantQr(gui: string, options: { amount?: string } = {}): string 
     emv("53", "608"),
     ...(options.amount ? [emv("54", options.amount)] : []),
     emv("58", "PH"),
-    emv("59", "PulsePay TEST MERCHANT"),
+    emv("59", "PayPulse TEST MERCHANT"),
     emv("60", "MANILA"),
     emv("62", additionalData),
   ].join("");
@@ -32,7 +32,7 @@ describe("parseScannedQr QRPH merchant codes", () => {
     expect(result?.type).toBe("p2m");
     if (result?.type !== "p2m") return;
     expect(result.merchant).toMatchObject({
-      merchantName: "PulsePay TEST MERCHANT",
+      merchantName: "PayPulse TEST MERCHANT",
       merchantId: "123456789012345",
       currency: "PHP",
       city: "MANILA",

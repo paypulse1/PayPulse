@@ -12,7 +12,7 @@ describe("merchant OTP emails", () => {
       purpose: "device",
     })
 
-    expect(registration.subject).toContain("Confirm your DRPAY email")
+    expect(registration.subject).toContain("Confirm your PayPulse email")
     expect(registration.text).toContain("merchant registration")
     expect(registration.text).toContain("10 minutes")
     expect(registration.text).toContain("482913")

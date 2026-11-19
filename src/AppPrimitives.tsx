@@ -158,11 +158,11 @@ export function Button({
 
 export function Brand() {
   return (
-    <div className="brand" aria-label="PulsePay">
+    <div className="brand" aria-label="PayPulse">
       <span className="brand-mark" aria-hidden="true">
         <span>P</span>
       </span>
-      <strong>PulsePay</strong>
+      <strong>PayPulse</strong>
     </div>
   )
 }
@@ -174,7 +174,7 @@ export function PoweredByFooter() {
       <span
         className="auth-powered-by-signature"
         role="img"
-        aria-label="PulsePay signature"
+        aria-label="PayPulse signature"
       />
       <ul className="auth-powered-by-partners">
         <li>

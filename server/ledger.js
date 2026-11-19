@@ -283,7 +283,7 @@ export function createLedgerService({
           merchantEmail,
           sourceId,
           formatMinorUnits(-activationFee),
-          "DRPAY-ACTIVATION",
+          "PayPulse-ACTIVATION",
         ],
       )
       await client.query(
@@ -296,7 +296,7 @@ export function createLedgerService({
       await postBalancedJournal(client, {
         sourceType: "ACTIVATION_FEE",
         sourceId,
-        reference: "DRPAY-ACTIVATION",
+        reference: "PayPulse-ACTIVATION",
         lines: [
           {
             accountCode: "MERCHANT_PAYABLE",

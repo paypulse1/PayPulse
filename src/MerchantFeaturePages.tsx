@@ -386,7 +386,7 @@ export function AllAccessView({
         },
         {
           label: "Help center",
-          description: "Contact PulsePay merchant support.",
+          description: "Contact PayPulse merchant support.",
           icon: "support",
           tone: "account",
           action: () => onInfo("Help center"),

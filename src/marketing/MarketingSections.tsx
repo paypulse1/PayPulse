@@ -46,7 +46,7 @@ const capabilities = [
     number: "03",
     title: "Work from your phone",
     description:
-      "Use the PulsePay Android app to stay close to your merchant operations.",
+      "Use the PayPulse Android app to stay close to your merchant operations.",
     icon: Smartphone,
   },
 ]
@@ -68,7 +68,7 @@ const onboardingSteps = [
     number: "03",
     title: "Manage activity",
     description:
-      "Follow payment status and review your merchant activity in PulsePay.",
+      "Follow payment status and review your merchant activity in PayPulse.",
   },
 ]
 
@@ -246,7 +246,7 @@ export function DownloadSection() {
           target="_blank"
           rel="noopener noreferrer"
         >
-          Download PulsePay for Android
+          Download PayPulse for Android
           <ArrowRight size={17} aria-hidden="true" />
         </a>
         <a className="drpay-cta-login" href={APP_ROUTES.merchantSignIn}>
@@ -260,9 +260,9 @@ export function DownloadSection() {
 export function MarketingFooter() {
   return (
     <footer className="drpay-footer">
-      <a className="drpay-brand" href="#top" aria-label="PulsePay home">
+      <a className="drpay-brand" href="#top" aria-label="PayPulse home">
         <span className="drpay-brand-mark pulsepay-brand-mark" aria-hidden="true">P</span>
-        <span>PulsePay</span>
+        <span>PayPulse</span>
       </a>
       <p>Merchant payments, made clearer.</p>
       <a
@@ -270,7 +270,7 @@ export function MarketingFooter() {
         href={APP_ROUTES.androidAppListing}
         target="_blank"
         rel="noopener noreferrer"
-        aria-label="Download the PulsePay Android app"
+        aria-label="Download the PayPulse Android app"
       >
         <span>DOWNLOAD</span>
         <strong>Android app</strong>

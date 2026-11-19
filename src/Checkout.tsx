@@ -241,7 +241,7 @@ export default function Checkout({ code }: { code: string }) {
                 : undefined,
             }}
           >
-            PulsePay
+            PayPulse
           </span>
           <span className="checkout-secure">
             <ShieldCheck size={14} /> Secure checkout

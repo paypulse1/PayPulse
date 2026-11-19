@@ -158,7 +158,7 @@ const defaultCheckoutInstructions =
   "Open your {bank} or supported banking app.\nOpen your {bank} QR scanner and scan the code above.\nConfirm the PHP amount before completing payment."
 const defaultVirtualAccountCheckoutInstructions =
   "Scan this QR with your supported bank app, or use the Virtual Account number and InstaPay bank code below to make a bank transfer.\nConfirm the PHP amount and payment reference before completing payment."
-const defaultPaymentEmailSubject = "DRPAY: Payment request · {{reference}}"
+const defaultPaymentEmailSubject = "PayPulse: Payment request · {{reference}}"
 const defaultPaymentEmailMessage =
   "A payment has been requested. Review the details below to continue."
 const defaultPaymentEmailColor = "#153e2c"
@@ -1058,26 +1058,26 @@ async function sendTransactionEmail(notification) {
   const safeType = escapeEmailHtml(type)
   const safeAmount = escapeEmailHtml(amount)
   const text = [
-    "DRPAY",
+    "PayPulse",
     "",
     type,
     `Amount: ${amount}`,
     `Reference: ${notification.reference_no}`,
     "",
     manualConfirmation
-      ? "The DRPAY team independently verified and manually confirmed this payment."
+      ? "The PayPulse team independently verified and manually confirmed this payment."
       : "This transaction was confirmed as successful by the payment provider.",
   ].join("\n")
   const html = `
       <div style="margin:0;padding:32px 16px;background:#f4f7fc;font-family:Arial,Helvetica,sans-serif;color:#0b1f3a">
         <div style="max-width:480px;margin:0 auto">
-          <div style="padding:0 4px 18px;color:#0b1f3a;font-size:17px;font-weight:700;letter-spacing:1px">DRPAY</div>
+          <div style="padding:0 4px 18px;color:#0b1f3a;font-size:17px;font-weight:700;letter-spacing:1px">PayPulse</div>
           <div style="padding:28px;background:#fff;border:1px solid #d8e1ed;border-radius:16px">
             <div style="margin-bottom:10px;color:#52647c;font-size:10px;font-weight:700;letter-spacing:1.3px">TRANSACTION CONFIRMED</div>
             <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3">${safeType}</h1>
             <p style="margin:0 0 18px;color:#52647c;font-size:13px;line-height:1.6">${
               manualConfirmation
-                ? "The DRPAY team independently verified and manually confirmed this payment."
+                ? "The PayPulse team independently verified and manually confirmed this payment."
                 : "The payment provider confirmed this transaction as successful."
             }</p>
             <div style="padding:16px;background:#f8f9f5;border:1px solid #d8e1ed;border-radius:11px">
@@ -1100,7 +1100,7 @@ async function sendTransactionEmail(notification) {
     body: JSON.stringify({
       from: resendFromEmail,
       to: [notification.merchant_email],
-      subject: `DRPAY: ${type}`,
+      subject: `PayPulse: ${type}`,
       text,
       html,
     }),
@@ -1124,7 +1124,7 @@ async function sendCustomerPaymentEmail(payment) {
       ? "The merchant independently verified and confirmed your payment."
       : "The payment provider confirmed your payment."
   const text = [
-    "DRPAY",
+    "PayPulse",
     "",
     "Payment confirmed",
     `Payment for: ${payment.title}`,
@@ -1139,7 +1139,7 @@ async function sendCustomerPaymentEmail(payment) {
   const html = `
     <div style="margin:0;padding:32px 16px;background:#f4f7fc;font-family:Arial,Helvetica,sans-serif;color:#0b1f3a">
       <div style="max-width:480px;margin:0 auto">
-        <div style="padding:0 4px 18px;color:#0b1f3a;font-size:17px;font-weight:700;letter-spacing:1px">DRPAY</div>
+        <div style="padding:0 4px 18px;color:#0b1f3a;font-size:17px;font-weight:700;letter-spacing:1px">PayPulse</div>
         <div style="padding:28px;background:#fff;border:1px solid #d8e1ed;border-radius:16px">
           <div style="margin-bottom:10px;color:#52647c;font-size:10px;font-weight:700;letter-spacing:1.3px">PAYMENT CONFIRMED</div>
           <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3">Thank you for your payment</h1>
@@ -1166,12 +1166,12 @@ async function sendCustomerPaymentEmail(payment) {
     body: JSON.stringify({
       from: resendFromEmail,
       to: [payment.customer_email],
-      subject: `DRPAY: Payment confirmed · ${payment.reference_no}`,
+      subject: `PayPulse: Payment confirmed · ${payment.reference_no}`,
       text,
       html,
       attachments: [
         {
-          filename: `DRPAY-Receipt-${payment.reference_no}.pdf`,
+          filename: `PayPulse-Receipt-${payment.reference_no}.pdf`,
           content: (
             await createPaymentReceiptPdf({
               amount: payment.amount,
@@ -1745,8 +1745,8 @@ async function dispatchCustomerPaymentRequests() {
         title: notification.title,
         createdAt: notification.created_at,
         isTaxInvoice:
-          notification.email_subject?.startsWith("DRPAY: BIR 2307") ||
-          notification.email_subject?.startsWith("DRPAY: Tax invoice"),
+          notification.email_subject?.startsWith("PayPulse: BIR 2307") ||
+          notification.email_subject?.startsWith("PayPulse: Tax invoice"),
         birPayeeName: notification.bir_payee_name,
         birPayeeTin: notification.bir_payee_tin,
         birPayeeAddress: notification.bir_payee_address,
@@ -2871,7 +2871,7 @@ async function initializeDatabase() {
     CREATE TABLE IF NOT EXISTS merchant_checkout_preferences (
       merchant_email TEXT PRIMARY KEY REFERENCES merchant_accounts(email) ON DELETE CASCADE,
       checkout_instructions TEXT NOT NULL DEFAULT E'Open your {bank} or supported banking app.\\nOpen your {bank} QR scanner and scan the code above.\\nConfirm the PHP amount before completing payment.',
-      email_subject TEXT NOT NULL DEFAULT 'DRPAY: Payment request · {{reference}}',
+      email_subject TEXT NOT NULL DEFAULT 'PayPulse: Payment request · {{reference}}',
       email_message TEXT NOT NULL DEFAULT 'A payment has been requested. Review the details below to continue.',
       email_brand_color TEXT NOT NULL DEFAULT '#153e2c',
       email_logo_url TEXT NOT NULL DEFAULT '',
@@ -2983,7 +2983,7 @@ async function initializeDatabase() {
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS bir_payor_tin TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS bir_payor_address TEXT;
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS checkout_instructions TEXT NOT NULL DEFAULT E'Open your {bank} or supported banking app.\\nOpen your {bank} QR scanner and scan the code above.\\nConfirm the PHP amount before completing payment.';
-    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS email_subject TEXT NOT NULL DEFAULT 'DRPAY: Payment request · {{reference}}';
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS email_subject TEXT NOT NULL DEFAULT 'PayPulse: Payment request · {{reference}}';
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS email_message TEXT NOT NULL DEFAULT 'A payment has been requested. Review the details below to continue.';
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS email_brand_color TEXT NOT NULL DEFAULT '#153e2c';
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS email_logo_url TEXT NOT NULL DEFAULT '';
@@ -4729,7 +4729,7 @@ app.post(
     const webhookSecret = process.env.SUMSUB_WEBHOOK_SECRET
     if (!appToken || !secretKey || !levelName || !webhookSecret) {
       return res.status(503).json({
-        error: "Sumsub verification is not configured. Contact DRPAY support.",
+        error: "Sumsub verification is not configured. Contact PayPulse support.",
       })
     }
 
@@ -4845,7 +4845,7 @@ app.post(
         await client.query("ROLLBACK")
         return res.status(409).json({
           error:
-            "This Sumsub result is final. Contact DRPAY support if you need to appeal.",
+            "This Sumsub result is final. Contact PayPulse support if you need to appeal.",
         })
       }
       if (
@@ -8021,7 +8021,7 @@ async function sendMerchantInvitation(merchant) {
     attachments,
     invitation: {
       contactPerson: merchant.contactPerson,
-      providerName: "DRPAY",
+      providerName: "PayPulse",
       businessName: merchant.businessName,
       invitationUrl,
     },
@@ -8066,7 +8066,7 @@ async function sendMerchantIntegrationGuide(merchant) {
       ...email,
       attachments: [
         {
-          filename: "DRPAY-Merchant-API-Integration-Guide.pdf",
+          filename: "PayPulse-Merchant-API-Integration-Guide.pdf",
           content: guide.toString("base64"),
           content_type: "application/pdf",
         },
@@ -9482,8 +9482,8 @@ app.get(
       statusCheckUnavailable,
       qrCode: row.qr_payload,
       isTaxInvoice:
-        row.email_subject?.startsWith("DRPAY: BIR 2307") ||
-        row.email_subject?.startsWith("DRPAY: Tax invoice"),
+        row.email_subject?.startsWith("PayPulse: BIR 2307") ||
+        row.email_subject?.startsWith("PayPulse: Tax invoice"),
       institutionCode: row.payment_institution_code,
       institutionName: row.payment_institution_name,
       institutionLogoUrl: row.payment_institution_logo_url,
@@ -9682,7 +9682,7 @@ app.post(
       [req.merchantEmail],
     )
     const options = await generateRegistrationOptions({
-      rpName: "DRPAY Merchant",
+      rpName: "PayPulse Merchant",
       rpID: passkeyRpId,
       userName: req.merchantEmail,
       userDisplayName: req.merchantEmail,
@@ -10376,7 +10376,7 @@ app.post("/v1/kyb/sumsub/access-token", sumsubKybLimiter, async (req, res) => {
       await client.query("ROLLBACK")
       return res.status(409).json({
         error:
-          "This Sumsub result is final. Contact DRPAY support if you need to appeal.",
+          "This Sumsub result is final. Contact PayPulse support if you need to appeal.",
       })
     }
     externalUserId = profile.rows[0].externalUserId || randomUUID()
@@ -10459,7 +10459,7 @@ app.put("/v1/kyb", async (req, res) => {
   if (lockedProfile.rows[0]?.status === "APPROVED")
     return res.status(409).json({
       error:
-        "Your verification result is final. Contact DRPAY support to request a review or profile change.",
+        "Your verification result is final. Contact PayPulse support to request a review or profile change.",
     })
   if (req.body?.kybConsent !== true) {
     return res.status(400).json({
@@ -10561,7 +10561,7 @@ app.post("/v1/kyb/documents/presign", async (req, res) => {
     })
   if (profile.rows[0].status === "APPROVED") return res.status(409).json({
       error:
-        "Your KYB profile is approved. Contact DRPAY support to request a verified document change.",
+        "Your KYB profile is approved. Contact PayPulse support to request a verified document change.",
     })
   const objectKey = `kyb/${randomUUID()}`
   const documentId = randomUUID()
@@ -10684,7 +10684,7 @@ app.post("/v1/kyb/documents/complete", async (req, res) => {
       })
     return res.status(409).json({
       error:
-        "Your KYB profile is approved. Contact DRPAY support to request a verified document change.",
+        "Your KYB profile is approved. Contact PayPulse support to request a verified document change.",
     })
   }
   try {
@@ -11010,7 +11010,7 @@ app.put("/v1/floating-balance/payout-account", async (req, res) => {
   if (!result.rowCount) {
     return res.status(409).json({
       error:
-        "A payout account is already saved. Contact the DRPAY team to change it.",
+        "A payout account is already saved. Contact the PayPulse team to change it.",
     })
   }
   return res.set("Cache-Control", "no-store").json(result.rows[0])
@@ -11615,7 +11615,7 @@ app.get("/v1/exchange-rates/krw-php", async (_req, res) => {
       rate,
       date: new Date().toISOString().slice(0, 10),
       updatedAt: new Date().toISOString(),
-      source: "DRPAY configured rate",
+      source: "PayPulse configured rate",
     })
   }
 
@@ -13362,10 +13362,10 @@ async function start() {
     }
   }
   const server = app.listen(port, "0.0.0.0", () => {
-    console.log(`DRPAY API listening on ${port} (${swiftPayEnvironment})`)
+    console.log(`PayPulse API listening on ${port} (${swiftPayEnvironment})`)
   })
   server.on("error", (error) => {
-    console.error("DRPAY API listener failed", error.code || error.message)
+    console.error("PayPulse API listener failed", error.code || error.message)
   })
 }
 

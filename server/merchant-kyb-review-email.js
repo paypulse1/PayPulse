@@ -2,23 +2,23 @@ import { createMerchantEmail } from "./merchant-email-format.js"
 
 const kybReviewCopy = {
   IN_REVIEW: {
-    subject: "We received your DRPAY KYB application",
+    subject: "We received your PayPulse KYB application",
     title: "KYB application under review",
-    preheader: "Your KYB application is being reviewed by DRPAY.",
+    preheader: "Your KYB application is being reviewed by PayPulse.",
     paragraph:
       "We have received your documents and our team is reviewing your application. We will email you when a decision is recorded.",
   },
   APPROVED: {
-    subject: "Your DRPAY KYB review is approved",
+    subject: "Your PayPulse KYB review is approved",
     title: "KYB review approved",
     preheader: "Your business verification review is complete.",
   },
   REJECTED: {
-    subject: "Update needed for your DRPAY KYB application",
+    subject: "Update needed for your PayPulse KYB application",
     title: "KYB application update needed",
     preheader: "Review the notes about your KYB application.",
     paragraph:
-      "Your KYB application has not been approved. Please review the notes below and contact your DRPAY representative through your usual channel for next steps.",
+      "Your KYB application has not been approved. Please review the notes below and contact your PayPulse representative through your usual channel for next steps.",
   },
 }
 
@@ -43,7 +43,7 @@ export function createMerchantKybReviewEmail({
         : "Your KYB review is approved, but merchant sign-in access has not been enabled yet. We will send a separate email when your access is ready.",
     )
     if (accessEnabled) {
-      action = { label: "Sign in to DRPAY", url: portalUrl }
+      action = { label: "Sign in to PayPulse", url: portalUrl }
     }
   }
   if (reviewNotes) {
@@ -56,7 +56,7 @@ export function createMerchantKybReviewEmail({
     paragraphs,
     action,
     footerNotes: [
-      "For your security, DRPAY will never ask you to disclose a sign-in code or password by email.",
+      "For your security, PayPulse will never ask you to disclose a sign-in code or password by email.",
     ],
   })
 }

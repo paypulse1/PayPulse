@@ -150,7 +150,7 @@ export default function PaymentAdminSection({
                       {payment.manualPaidReason}
                       <br />
                       <small>
-                        By {payment.manuallyPaidBy || "PulsePay team"} ·{" "}
+                        By {payment.manuallyPaidBy || "PayPulse team"} ·{" "}
                         {payment.manuallyPaidAt
                           ? new Date(payment.manuallyPaidAt).toLocaleString()
                           : "time unavailable"}

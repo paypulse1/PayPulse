@@ -196,7 +196,7 @@ export default function WalletScreen({
           eyebrow="WALLET"
           title="Unsettled Funds"
           level="h2"
-          description="Track your Alipay+ collection threshold for transferring unsettled funds to your live PulsePay PHP wallet."
+          description="Track your Alipay+ collection threshold for transferring unsettled funds to your live PayPulse PHP wallet."
         />
         {renderUnsettledBalanceCard({ data, balanceVisible, refreshVersion })}
       </section>
