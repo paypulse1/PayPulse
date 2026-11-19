@@ -7,6 +7,7 @@ import {
 } from "lucide-react"
 import "./legal-pages.css"
 import { APP_ROUTES, LEGAL_ROUTE_ALIASES } from "./lib/routes"
+import PayPulseLogo from "./PayPulseLogo"
 
 type LegalPageKind = "privacy" | "terms" | "contact"
 
@@ -16,7 +17,7 @@ const lastUpdated = "October 23, 2026"
 function LegalBrand() {
   return (
     <a className="legal-brand" href={APP_ROUTES.home} aria-label="PayPulse home">
-      <img src="/paypulse-mark.png" alt="" />
+      <PayPulseLogo />
       <strong>PayPulse</strong>
     </a>
   )

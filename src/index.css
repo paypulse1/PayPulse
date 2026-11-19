@@ -529,8 +529,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .settings-list button > span small { margin-top: 3px; color: var(--muted); font-size: 8px; line-height: 1.45; }
 .powered-by { padding: 26px 0 10px; display: grid; justify-items: center; gap: 8px; opacity: .75; }
 .brand { display: flex; align-items: center; gap: 7px; }
-.brand-mark { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 10px 10px 10px 4px; background: linear-gradient(145deg, #2257a5, #10233f); color: white; box-shadow: 0 6px 14px rgb(34 87 165 / 20%); }
-.brand-mark > span { display: block; font-size: 16px; font-weight: 900; line-height: 1; transform: translateY(-1px); }
+.paypulse-logo { display: inline-flex; align-items: center; flex-shrink: 0; gap: 7px; }
+.paypulse-logo-mark { width: 29px; height: 29px; display: block; border-radius: 9px; box-shadow: 0 6px 14px rgb(34 87 165 / 20%); }
 .brand strong { font-size: 14px; font-weight: 850; letter-spacing: -.035em; }
 .powered-by > span { color: var(--muted); font-size: 7px; }
 .sign-out-button { width: 100%; margin-top: 12px; color: var(--danger); }
@@ -1141,8 +1141,9 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .app-loading-screen { min-height: 100vh; min-height: 100dvh; padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom)); display: grid; place-items: center; overflow: hidden; background: radial-gradient(ellipse at 18% 5%, rgb(34 87 165 / 9%), transparent 34%), radial-gradient(ellipse at 92% 94%, rgb(217 184 102 / 12%), transparent 30%), var(--page); color: var(--ink); }
 .app-loading-content { width: min(100%, 360px); padding: 24px; display: grid; justify-items: center; gap: 22px; text-align: center; }
 .app-loading-brand { display: grid; justify-items: center; gap: 11px; color: var(--brand-navy); }
-.app-loading-brand img { width: 52px; height: 52px; padding: 8px; border: 1px solid rgb(220 229 240 / 80%); border-radius: 17px; background: rgb(255 255 255 / 88%); box-shadow: 0 8px 22px rgb(16 35 61 / 8%); object-fit: contain; }
-.app-loading-brand strong { font-size: 14px; letter-spacing: .16em; }
+.app-loading-logo { flex-direction: column; gap: 11px; }
+.app-loading-logo .paypulse-logo-mark { width: 52px; height: 52px; border-radius: 17px; }
+.app-loading-logo strong { font-size: 14px; letter-spacing: .16em; }
 .app-loading-spinner { width: 28px; height: 28px; border: 2px solid var(--line); border-top-color: var(--link); border-radius: 50%; animation: spin var(--motion-spin) linear infinite; }
 .app-loading-copy h1 { margin: 0; font-size: 14px; font-weight: 750; letter-spacing: -.025em; }
 .app-loading-copy p { margin: 7px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
@@ -1521,7 +1522,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .checkout-screen { min-height: 100vh; padding: 32px 16px; display: grid; align-content: center; justify-items: center; gap: 14px; background: radial-gradient(circle at 50% 0%, #eaf3ff 0%, var(--paper) 48%); }
 .checkout-card { width: min(100%, 470px); padding: 24px; border: 1px solid var(--line); border-radius: 24px; background: var(--surface); box-shadow: var(--shadow); }
 .checkout-brand { min-height: 38px; display: flex; align-items: center; gap: 9px; }
-.checkout-brand > img { width: 34px; height: 34px; object-fit: contain; }
+.checkout-brand .paypulse-logo-mark { width: 34px; height: 34px; }
 .checkout-brand > span:nth-child(2) { font-size: 13px; font-weight: 800; letter-spacing: .06em; }
 .checkout-secure { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 8px; font-weight: 700; }
 .checkout-summary { padding: 25px 0 20px; text-align: center; }

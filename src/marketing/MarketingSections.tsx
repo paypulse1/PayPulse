@@ -8,6 +8,7 @@ import {
   Smartphone,
 } from "lucide-react"
 import { APP_ROUTES } from "../lib/routes"
+import PayPulseLogo from "../PayPulseLogo"
 
 const paymentChannels = [
   {
@@ -261,7 +262,7 @@ export function MarketingFooter() {
   return (
     <footer className="drpay-footer">
       <a className="drpay-brand" href="#top" aria-label="PayPulse home">
-        <span className="drpay-brand-mark pulsepay-brand-mark" aria-hidden="true">P</span>
+        <PayPulseLogo className="drpay-brand-mark pulsepay-brand-mark" />
         <span>PayPulse</span>
       </a>
       <p>Merchant payments, made clearer.</p>

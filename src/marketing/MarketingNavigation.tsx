@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { ArrowRight, Menu, X } from "lucide-react"
 import { APP_ROUTES } from "../lib/routes"
+import PayPulseLogo from "../PayPulseLogo"
 
 const navigationLinks = [
   { href: "#capabilities", label: "Platform" },
@@ -46,7 +47,7 @@ function NavigationActions({ onNavigate }: { onNavigate?: () => void }) {
 function BrandLink() {
   return (
     <a className="drpay-brand" href="#top" aria-label="PayPulse home">
-      <span className="drpay-brand-mark pulsepay-brand-mark" aria-hidden="true">P</span>
+      <PayPulseLogo className="drpay-brand-mark pulsepay-brand-mark" />
       <span>PayPulse</span>
     </a>
   )

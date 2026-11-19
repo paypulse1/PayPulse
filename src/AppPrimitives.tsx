@@ -23,6 +23,7 @@ import {
   X,
 } from "lucide-react"
 import { isValidElement, type ReactNode } from "react"
+import PayPulseLogo from "./PayPulseLogo"
 
 type ButtonProps = {
   children: ReactNode
@@ -159,10 +160,7 @@ export function Button({
 export function Brand() {
   return (
     <div className="brand" aria-label="PayPulse">
-      <span className="brand-mark" aria-hidden="true">
-        <span>P</span>
-      </span>
-      <strong>PayPulse</strong>
+      <PayPulseLogo showName nameClassName="brand-name" />
     </div>
   )
 }

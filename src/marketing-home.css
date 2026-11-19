@@ -98,6 +98,12 @@
   font-weight: 900;
   letter-spacing: 0;
 }
+.drpay-brand-mark .paypulse-logo-mark {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  box-shadow: none;
+}
 
 .drpay-nav-links,
 .drpay-nav-actions {

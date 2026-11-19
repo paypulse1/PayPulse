@@ -1,0 +1,32 @@
+type PayPulseLogoProps = {
+  className?: string
+  showName?: boolean
+  nameClassName?: string
+}
+
+export default function PayPulseLogo({
+  className = "",
+  showName = false,
+  nameClassName = "",
+}: PayPulseLogoProps) {
+  return (
+    <span className={`paypulse-logo ${className}`.trim()}>
+      <svg
+        className="paypulse-logo-mark"
+        viewBox="0 0 368 368"
+        role="img"
+        aria-label={showName ? undefined : "PayPulse"}
+        aria-hidden={showName ? true : undefined}
+      >
+        <rect width="368" height="368" rx="92" fill="#2257A5" />
+        <circle cx="184" cy="184" r="132" fill="#10233F" />
+        <path
+          d="M112 252V116h82c54 0 89 24 89 68s-35 68-89 68h-31v-43h31c25 0 40-8 40-25s-15-25-40-25h-32v93z"
+          fill="#FFFFFF"
+        />
+        <circle cx="112" cy="252" r="22" fill="#5F94D5" />
+      </svg>
+      {showName && <strong className={nameClassName}>PayPulse</strong>}
+    </span>
+  )
+}

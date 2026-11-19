@@ -15,6 +15,7 @@ import {
 import { APP_ROUTES } from "./lib/routes"
 import QrPaymentDisplay from "./QrPaymentDisplay"
 import VirtualAccountInformation from "./VirtualAccountInformation"
+import PayPulseLogo from "./PayPulseLogo"
 
 type GoogleSurveyOptInApi = {
   load: (api: string, callback: () => void) => void
@@ -226,14 +227,11 @@ export default function Checkout({ code }: { code: string }) {
     <main className="checkout-screen">
       <section className="checkout-card" aria-labelledby="checkout-title">
         <header className="checkout-brand">
-          <img
-            src={
-              checkout?.logoUrl?.startsWith("https://")
-                ? checkout.logoUrl
-                : "/paypulse-mark.png"
-            }
-            alt=""
-          />
+          {checkout?.logoUrl?.startsWith("https://") ? (
+            <img src={checkout.logoUrl} alt="" />
+          ) : (
+            <PayPulseLogo />
+          )}
           <span
             style={{
               color: /^#[0-9A-Fa-f]{6}$/.test(checkout?.brandColor || "")

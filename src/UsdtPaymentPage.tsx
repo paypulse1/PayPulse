@@ -3,6 +3,7 @@ import QRCode from "qrcode"
 import { CheckCircle2, Copy, ShieldCheck, TriangleAlert } from "lucide-react"
 import { APP_ROUTES } from "./lib/routes"
 import { parseUsdtAmount } from "./lib/tronLink"
+import PayPulseLogo from "./PayPulseLogo"
 
 const TRON_ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 
@@ -61,7 +62,7 @@ export default function UsdtPaymentPage() {
     <main className="checkout-screen">
       <section className="checkout-card" aria-labelledby="usdt-checkout-title">
         <header className="checkout-brand">
-          <img src="/paypulse-mark.png" alt="" />
+          <PayPulseLogo />
           <span>PayPulse</span>
           <span className="checkout-secure">
             <ShieldCheck size={14} /> Payment details
