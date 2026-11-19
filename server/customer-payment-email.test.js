@@ -70,9 +70,7 @@ describe("customer payment request email", () => {
     expect(email.html).not.toContain("not an official BIR Form 2307")
     expect(email.html).toContain("Tax invoice: &lt;Q3 remittances&gt;")
     expect(email.html).not.toContain("<Q3 remittances>")
-    expect(email.html).toContain(
-      'href="https://paypulse.live/checkout/tax-42"',
-    )
+    expect(email.html).toContain('href="https://paypulse.live/checkout/tax-42"')
   })
 
   it("includes an optional invoice attachment in the email payload", () => {
@@ -164,12 +162,14 @@ describe("customer payment request email", () => {
     })
     expect(email.text).toContain("Payment for: Invoice 42")
     expect(email.text).toContain("PHP 1,250.00")
-    expect(email.text).toContain(
-      "https://paypulse.live/checkout/secure-code",
-    )
+    expect(email.text).toContain("https://paypulse.live/checkout/secure-code")
     expect(email.html).toContain(
       'href="https://paypulse.live/checkout/secure-code"',
     )
+    expect(email.html).toContain('Pay<span style="color:#35b9aa">Pulse</span>')
+    expect(email.html).toContain("background:#f1f5fb")
+    expect(email.html).toContain("color:#173c91;font-size:22px;font-weight:700")
+    expect(email.html).toContain("border-radius:16px")
   })
 
   it("escapes merchant-provided content in HTML and rejects insecure links", () => {
@@ -220,6 +220,7 @@ describe("customer payment request email", () => {
     expect(email.subject).toBe("Please pay PHP 25.00 for <Invoice>")
     expect(email.html).toContain("#ab12cd")
     expect(email.html).toContain('src="https://example.com/brand.png"')
+    expect(email.html).toContain("background:#ab12cd")
     expect(email.html).toContain("Hello &lt;Invoice&gt;")
     expect(email.html).toContain("&lt;a&gt;Pay securely&lt;/a&gt;")
     expect(email.html).not.toContain("<a>Pay securely</a>")
@@ -265,9 +266,7 @@ describe("customer payment request email", () => {
     expect(email.html).toContain("<ul")
     expect(email.html).toContain("<ol")
     expect(email.html).toContain("<blockquote")
-    expect(email.html).toContain(
-      'href="https://paypulse.live/checkout/code"',
-    )
+    expect(email.html).toContain('href="https://paypulse.live/checkout/code"')
     expect(email.html).not.toContain('href="javascript:')
     expect(email.html).toContain("&lt;img src=x onerror=alert(1)&gt;")
     expect(email.html).not.toContain("<img src=x")

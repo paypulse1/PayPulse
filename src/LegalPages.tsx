@@ -14,9 +14,12 @@ const lastUpdated = "October 23, 2026"
 
 function LegalBrand() {
   return (
-    <a className="legal-brand" href={APP_ROUTES.home} aria-label="PayPulse home">
-      <PayPulseLogo />
-      <strong>PayPulse</strong>
+    <a
+      className="legal-brand"
+      href={APP_ROUTES.home}
+      aria-label="PayPulse home"
+    >
+      <PayPulseLogo showName nameClassName="legal-wordmark" />
     </a>
   )
 }
@@ -62,10 +65,10 @@ function LegalPage({ page }: { page: LegalPageKind }) {
               <p>
                 This Privacy Policy describes how DRL TECHS. COMPUTER SOFTWARE
                 TRADING (“PayPulse,” “we,” “us,” or “our”) handles personal
-                information in the PayPulse merchant workspace and hosted payment
-                checkout. We process personal information in accordance with
-                applicable Philippine privacy laws, including the Data Privacy
-                Act of 2012.
+                information in the PayPulse merchant workspace and hosted
+                payment checkout. We process personal information in accordance
+                with applicable Philippine privacy laws, including the Data
+                Privacy Act of 2012.
               </p>
 
               <h2>Information we handle</h2>
@@ -124,12 +127,13 @@ function LegalPage({ page }: { page: LegalPageKind }) {
                 wallet, or payment network to provide and confirm that
                 transaction. KYB document files are stored in the configured
                 private Cloudflare R2 bucket and are made available to
-                authorized PayPulse team members for verification. When merchants
-                configure webhook or callback URLs, selected transaction event
-                details are sent to those destinations. We may also disclose
-                information where required by law or necessary to protect users,
-                the service, or our legal rights. Those providers may handle
-                information under their own terms and privacy notices.
+                authorized PayPulse team members for verification. When
+                merchants configure webhook or callback URLs, selected
+                transaction event details are sent to those destinations. We may
+                also disclose information where required by law or necessary to
+                protect users, the service, or our legal rights. Those providers
+                may handle information under their own terms and privacy
+                notices.
               </p>
 
               <h2>Storage, security, and retention</h2>
@@ -169,9 +173,9 @@ function LegalPage({ page }: { page: LegalPageKind }) {
               <p className="legal-updated">Last updated: {lastUpdated}</p>
               <p>
                 These Terms of Service apply to your access to and use of the
-                PayPulse merchant workspace and hosted payment checkout operated by
-                DRL TECHS. COMPUTER SOFTWARE TRADING (“PayPulse,” “we,” “us,” or
-                “our”). By using the service, you agree to these terms and
+                PayPulse merchant workspace and hosted payment checkout operated
+                by DRL TECHS. COMPUTER SOFTWARE TRADING (“PayPulse,” “we,” “us,”
+                or “our”). By using the service, you agree to these terms and
                 applicable Philippine law.
               </p>
 
@@ -273,8 +277,8 @@ function LegalPage({ page }: { page: LegalPageKind }) {
               <h2>Suspected fraud or unauthorized payment</h2>
               <p>
                 Contact your bank or payment provider immediately as well as
-                PayPulse. Keep relevant payment references and messages for their
-                review.
+                PayPulse. Keep relevant payment references and messages for
+                their review.
               </p>
               <p>
                 For information about how we handle personal information, read

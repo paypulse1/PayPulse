@@ -10,15 +10,15 @@
   --surface-soft: #f3f7fb;
   --ink: #10233f;
   --muted: #64748b;
-  --link: #2257a5;
+  --link: #1d4ed8;
   --line: #dde6ef;
-  --accent: #4f86cc;
-  --accent-strong: #2257a5;
-  --accent-soft: #edf4fc;
-  --brand-navy: #10233f;
-  --brand-blue: #2257a5;
-  --brand-gold: #4f86cc;
-  --blue: #edf4fc;
+  --accent: #35cbb8;
+  --accent-strong: #1d4ed8;
+  --accent-soft: #e8f2ff;
+  --brand-navy: #102445;
+  --brand-blue: #1d4ed8;
+  --brand-gold: #35cbb8;
+  --blue: #e8f2ff;
   --peach: #ffe3d4;
   --violet: #e9e0ff;
   --mint: #daf3e8;
@@ -45,7 +45,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 h1, h2, p { margin-top: 0; }
 a { color: var(--link); }
-::selection { background: rgb(34 87 165 / 16%); color: var(--ink); }
+::selection { background: rgb(29 78 216 / 16%); color: var(--ink); }
 
 button, a, input, select, textarea, [tabindex]:not([tabindex="-1"]) {
   -webkit-tap-highlight-color: transparent;
@@ -533,7 +533,9 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .powered-by { padding: 26px 0 10px; display: grid; justify-items: center; gap: 8px; opacity: .75; }
 .brand { display: flex; align-items: center; gap: 7px; }
 .paypulse-logo { display: inline-flex; align-items: center; flex-shrink: 0; gap: 7px; }
-.paypulse-logo-mark { width: 29px; height: 29px; display: block; border-radius: 9px; box-shadow: 0 6px 14px rgb(34 87 165 / 20%); }
+.paypulse-logo-mark { width: 29px; height: 29px; display: block; border-radius: 9px; box-shadow: 0 6px 14px rgb(29 78 216 / 24%); }
+.paypulse-logo-name { display: inline-flex; align-items: baseline; color: var(--ink); font-size: 14px; font-weight: 850; letter-spacing: -.045em; line-height: 1; }
+.paypulse-wordmark-accent { color: var(--brand-blue); }
 .brand strong { font-size: 14px; font-weight: 850; letter-spacing: -.035em; }
 .powered-by > span { color: var(--muted); font-size: 7px; }
 .sign-out-button { width: 100%; margin-top: 12px; color: var(--danger); }
@@ -1141,12 +1143,13 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .page-transition > :where(.balance-card, .quick-actions, .summary-card, .merchant-trend-card, .activity-section):nth-child(3) { animation-delay: calc(var(--motion-stagger-step) + var(--motion-stagger-step)); }
 .page-transition > :where(.balance-card, .quick-actions, .summary-card, .merchant-trend-card, .activity-section):nth-child(4) { animation-delay: calc(var(--motion-stagger-step) + var(--motion-stagger-step) + var(--motion-stagger-step)); }
 .page-transition > :where(.balance-card, .quick-actions, .summary-card, .merchant-trend-card, .activity-section):nth-child(5) { animation-delay: calc(var(--motion-stagger-step) + var(--motion-stagger-step) + var(--motion-stagger-step) + var(--motion-stagger-step)); }
-.app-loading-screen { min-height: 100vh; min-height: 100dvh; padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom)); display: grid; place-items: center; overflow: hidden; background: radial-gradient(ellipse at 18% 5%, rgb(34 87 165 / 9%), transparent 34%), radial-gradient(ellipse at 92% 94%, rgb(217 184 102 / 12%), transparent 30%), var(--page); color: var(--ink); }
+.app-loading-screen { min-height: 100vh; min-height: 100dvh; padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom)); display: grid; place-items: center; overflow: hidden; background: radial-gradient(ellipse at 18% 5%, rgb(29 78 216 / 9%), transparent 34%), radial-gradient(ellipse at 92% 94%, rgb(53 203 184 / 12%), transparent 30%), var(--page); color: var(--ink); }
 .app-loading-content { width: min(100%, 360px); padding: 24px; display: grid; justify-items: center; gap: 22px; text-align: center; }
 .app-loading-brand { display: grid; justify-items: center; gap: 11px; color: var(--brand-navy); }
 .app-loading-logo { flex-direction: column; gap: 11px; }
 .app-loading-logo .paypulse-logo-mark { width: 52px; height: 52px; border-radius: 17px; }
-.app-loading-logo strong { font-size: 14px; letter-spacing: .16em; }
+.app-loading-logo strong { font-size: 14px; letter-spacing: .08em; }
+.app-loading-logo .paypulse-wordmark-accent { color: var(--brand-blue); }
 .app-loading-spinner { width: 28px; height: 28px; border: 2px solid var(--line); border-top-color: var(--link); border-radius: 50%; animation: spin var(--motion-spin) linear infinite; }
 .app-loading-copy h1 { margin: 0; font-size: 14px; font-weight: 750; letter-spacing: -.025em; }
 .app-loading-copy p { margin: 7px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
@@ -2283,4 +2286,268 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   .admin-screen > .admin-content > .admin-nav {
     border-bottom-color: #e8edf4;
   }
+}
+
+.app-stage {
+  background:
+    radial-gradient(ellipse at 14% 6%, rgb(29 78 216 / 8%), transparent 34rem),
+    radial-gradient(ellipse at 89% 92%, rgb(53 203 184 / 11%), transparent 32rem),
+    #eef3fb;
+}
+
+.mobile-app {
+  border-color: rgb(191 207 231 / 82%);
+  background: linear-gradient(180deg, #fff 0%, #fbfcff 100%);
+  box-shadow:
+    0 30px 90px rgb(22 48 94 / 16%),
+    0 4px 14px rgb(22 48 94 / 5%);
+}
+
+.mobile-app .app-header {
+  border-bottom-color: rgb(222 231 244 / 78%);
+  background: rgb(255 255 255 / 90%);
+  backdrop-filter: blur(20px);
+}
+
+.mobile-app .app-scroll {
+  background:
+    radial-gradient(ellipse at 100% 0%, rgb(36 93 231 / 3%), transparent 26rem),
+    linear-gradient(180deg, #fcfdff, #f8faff);
+}
+
+.mobile-app .balance-card {
+  isolation: isolate;
+  min-height: 184px;
+  padding: 22px;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 18%);
+  background:
+    radial-gradient(circle at 88% 18%, rgb(83 217 214 / 23%), transparent 31%),
+    radial-gradient(circle at 12% 110%, rgb(53 111 255 / 28%), transparent 44%),
+    linear-gradient(125deg, #102445 0%, #173c89 55%, #1d4ed8 100%);
+  box-shadow:
+    0 20px 38px rgb(22 57 130 / 22%),
+    inset 0 1px 0 rgb(255 255 255 / 12%);
+}
+
+.mobile-app .balance-card::before,
+.mobile-app .balance-card::after {
+  z-index: -1;
+  border-color: rgb(170 226 255 / 13%);
+  pointer-events: none;
+}
+
+.mobile-app .balance-card::before {
+  position: absolute;
+  top: -99px;
+  right: -24px;
+  width: 214px;
+  height: 214px;
+  border: 1px solid rgb(170 226 255 / 13%);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 24px rgb(170 226 255 / 4%),
+    0 0 0 49px rgb(170 226 255 / 3%);
+  content: "";
+}
+
+.mobile-app .balance-card::after {
+  width: 160px;
+  height: 160px;
+  right: -62px;
+  bottom: -123px;
+  border-width: 25px;
+}
+
+.mobile-app .balance-top > span {
+  color: #dce8ff;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.mobile-app .balance-top button {
+  border-color: rgb(255 255 255 / 17%);
+  background: rgb(255 255 255 / 7%);
+  color: #d7e7ff;
+}
+
+.mobile-app .balance-value {
+  margin: 25px 0 20px;
+  font-size: clamp(32px, 8vw, 38px);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.06em;
+}
+
+.mobile-app .balance-card-footer {
+  border-top-color: rgb(255 255 255 / 18%);
+}
+
+.mobile-app .balance-card-footer-copy {
+  color: #d0def5;
+}
+
+.mobile-app .balance-card-withdraw {
+  border-color: rgb(123 236 220 / 42%);
+  background: rgb(67 213 193 / 14%);
+  color: #9ff4e3;
+}
+
+.mobile-app .balance-card-withdraw:hover {
+  background: rgb(67 213 193 / 24%);
+}
+
+.mobile-app .quick-actions {
+  gap: 10px;
+  margin: 17px 0 19px;
+}
+
+.mobile-app .quick-action {
+  min-height: 86px;
+  padding: 10px 4px 8px;
+  border: 1px solid #e6edf7;
+  border-radius: 17px;
+  background: linear-gradient(155deg, #fff, #f8faff);
+  box-shadow: 0 5px 16px rgb(20 49 98 / 4%);
+  transition:
+    transform var(--motion-control) var(--motion-ease),
+    border-color var(--motion-control) var(--motion-ease),
+    box-shadow var(--motion-control) var(--motion-ease);
+}
+
+.mobile-app .quick-action-icon,
+.mobile-app .quick-action > span {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  box-shadow: none;
+}
+
+.mobile-app .quick-action-icon[data-tone="overview"] {
+  border-color: #d9e6ff;
+  background: linear-gradient(145deg, #edf4ff, #e3edff);
+}
+
+.mobile-app .quick-action-icon[data-tone="payments"] {
+  border-color: #c9efeb;
+  background: linear-gradient(145deg, #e9fbf8, #dff7f2);
+}
+
+.mobile-app .quick-action-icon[data-tone="business"] {
+  border-color: #d4e4ff;
+  background: linear-gradient(145deg, #eef5ff, #e4efff);
+}
+
+.mobile-app .quick-action-icon[data-tone="account"] {
+  border-color: #c9efeb;
+  background: linear-gradient(145deg, #eafbf8, #ddf5f0);
+}
+
+.mobile-app .menu-icon-glyph[data-tone="overview"],
+.mobile-app .menu-icon-glyph[data-tone="business"] {
+  color: #2456c8;
+}
+
+.mobile-app .menu-icon-glyph[data-tone="payments"],
+.mobile-app .menu-icon-glyph[data-tone="account"] {
+  color: #138b83;
+}
+
+.mobile-app .quick-action strong {
+  color: #425570;
+  font-size: 9px;
+  font-weight: 750;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .mobile-app .quick-action:hover {
+    transform: translateY(-3px);
+    border-color: #cbdcf8;
+    box-shadow: 0 10px 22px rgb(20 49 98 / 9%);
+  }
+}
+
+.mobile-app .summary-card,
+.mobile-app .merchant-trend-card,
+.mobile-app .activity-section {
+  border-color: #e3eaf5;
+  border-radius: 20px;
+  box-shadow: 0 8px 24px rgb(25 50 91 / 5%);
+}
+
+.mobile-app .summary-card {
+  background:
+    radial-gradient(ellipse at 100% 0%, rgb(224 237 255 / 54%), transparent 50%),
+    #fff;
+}
+
+.mobile-app .eyebrow {
+  color: #7588a5;
+}
+
+.mobile-app .section-header h2 {
+  color: #132b51;
+}
+
+.mobile-app .summary-grid > div + div {
+  border-left-color: #e5ecf5;
+}
+
+.mobile-app .summary-grid strong {
+  color: #173c83;
+  font-variant-numeric: tabular-nums;
+}
+
+.mobile-app .average-row {
+  border-top-color: #e7edf6;
+}
+
+.mobile-app .merchant-trend-collection-dot,
+.mobile-app .merchant-trend-collection-point {
+  background: #2457d8;
+  fill: #2457d8;
+}
+
+.mobile-app .merchant-trend-collection-line {
+  stroke: #2457d8;
+}
+
+.mobile-app .activity-section {
+  background:
+    radial-gradient(ellipse at 100% 0%, rgb(232 242 255 / 55%), transparent 48%),
+    #fff;
+}
+
+.mobile-app .transaction-row {
+  border-bottom-color: #edf1f7;
+}
+
+.mobile-app .transaction-avatar {
+  border-radius: 14px;
+}
+
+.mobile-app .bottom-nav {
+  border-top-color: rgb(222 231 244 / 85%);
+  background: rgb(255 255 255 / 90%);
+  backdrop-filter: blur(20px);
+}
+
+.mobile-app .bottom-nav button.active:not(.pay-tab) {
+  background: #eef4ff;
+}
+
+.mobile-app .bottom-nav button.active:not(.pay-tab) > .nav-icon {
+  border-color: #d9e6ff;
+  background: #e8f0ff;
+}
+
+.mobile-app .bottom-nav button.active:not(.pay-tab) > .nav-icon[data-tone="payments"] {
+  border-color: #cdece8;
+  background: #e6f8f4;
+}
+
+.mobile-app .bottom-nav .pay-tab > .nav-icon {
+  border-color: #fff;
+  background: linear-gradient(145deg, #1d4ed8, #178caa);
+  color: #fff;
+  box-shadow: 0 8px 18px rgb(29 78 216 / 29%);
 }

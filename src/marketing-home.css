@@ -77,26 +77,29 @@
 .drpay-home .drpay-brand {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
   color: var(--marketing-ink);
-  font-size: 19px;
-  font-weight: 800;
-  letter-spacing: 0.045em;
   text-decoration: none;
 }
 
+.drpay-home .drpay-brand .paypulse-logo {
+  gap: 10px;
+}
+
+.drpay-home .drpay-wordmark {
+  color: var(--marketing-ink);
+  font-size: 19px;
+  letter-spacing: -0.045em;
+}
+
+.drpay-home .paypulse-wordmark-accent {
+  color: var(--marketing-blue);
+}
+
 .drpay-home .drpay-brand-mark {
-  display: grid;
-  place-items: center;
   width: 34px;
   height: 34px;
-  border-radius: 11px 11px 11px 4px;
-  background: linear-gradient(145deg, #397fd3, #102e57);
-  color: #fff;
-  box-shadow: 0 8px 18px rgb(16 46 87 / 18%);
-  font-size: 20px;
-  font-weight: 900;
-  letter-spacing: 0;
+  border-radius: 10px;
+  box-shadow: 0 8px 18px rgb(36 87 235 / 24%);
 }
 .drpay-brand-mark .paypulse-logo-mark {
   width: 100%;

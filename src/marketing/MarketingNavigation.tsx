@@ -47,8 +47,11 @@ function NavigationActions({ onNavigate }: { onNavigate?: () => void }) {
 function BrandLink() {
   return (
     <a className="drpay-brand" href="#top" aria-label="PayPulse home">
-      <PayPulseLogo className="drpay-brand-mark pulsepay-brand-mark" />
-      <span>PayPulse</span>
+      <PayPulseLogo
+        className="drpay-brand-mark pulsepay-brand-mark"
+        showName
+        nameClassName="drpay-wordmark"
+      />
     </a>
   )
 }

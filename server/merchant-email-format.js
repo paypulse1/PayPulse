@@ -28,6 +28,7 @@ export function createMerchantEmail({
   subject,
   title,
   preheader = subject,
+  audience = "MERCHANT SERVICES",
   greeting,
   paragraphs,
   verificationCode,
@@ -67,9 +68,9 @@ export function createMerchantEmail({
     )
     .join("")
   const htmlVerificationCode = verificationCode
-    ? `<div style="margin:22px 0;padding:16px 12px;background:#f4f8f5;border:1px solid #e2e9e4;border-radius:8px;text-align:center">
-        <div style="margin-bottom:6px;color:#52647c;font-size:10px;font-weight:700;letter-spacing:1.2px">VERIFICATION CODE</div>
-        <div style="color:#163c2a;font-family:Arial,Helvetica,sans-serif;font-size:30px;font-weight:700;letter-spacing:8px">${escapeEmailHtml(verificationCode)}</div>
+    ? `<div style="margin:24px 0;padding:20px 14px;background:#f0f5ff;border:1px solid #dce8ff;border-radius:12px;text-align:center">
+        <div style="margin-bottom:8px;color:#536783;font-size:10px;font-weight:700;letter-spacing:1.4px">VERIFICATION CODE</div>
+        <div style="color:#173c91;font-family:Arial,Helvetica,sans-serif;font-size:32px;font-weight:700;letter-spacing:9px">${escapeEmailHtml(verificationCode)}</div>
       </div>`
     : ""
   const htmlDocuments = documents.length
@@ -82,13 +83,13 @@ export function createMerchantEmail({
     : ""
   const safeActionUrl = action ? safeEmailLink(action.url) : null
   const htmlAction = safeActionUrl
-    ? `<p style="margin:20px 0"><a href="${escapeEmailHtml(safeActionUrl)}" style="display:inline-block;padding:12px 18px;background:#163c2a;color:#fff;text-decoration:none;border-radius:6px">${escapeEmailHtml(action.label)}</a></p>`
+    ? `<p style="margin:24px 0"><a href="${escapeEmailHtml(safeActionUrl)}" style="display:inline-block;padding:13px 20px;background:#1d4ed8;color:#fff;text-decoration:none;border-radius:10px;font-size:13px;font-weight:700">${escapeEmailHtml(action.label)}</a></p>`
     : ""
   const htmlLinks = links
     .map((link) => {
       const url = safeEmailLink(link.url)
       return url
-        ? `<p style="margin:0 0 8px;font-size:12px;line-height:1.5"><a href="${escapeEmailHtml(url)}" style="color:#1b4f9c;text-decoration:underline">${escapeEmailHtml(link.label)}</a></p>`
+        ? `<p style="margin:0 0 8px;font-size:12px;line-height:1.5"><a href="${escapeEmailHtml(url)}" style="color:#1d4ed8;text-decoration:underline">${escapeEmailHtml(link.label)}</a></p>`
         : ""
     })
     .join("")
@@ -100,24 +101,31 @@ export function createMerchantEmail({
     .join("")
 
   const html = `
-    <div style="margin:0;background:#f3f6f4;padding:24px 12px;font-family:Arial,Helvetica,sans-serif;color:#17231d">
+    <div style="margin:0;background:#f1f5fb;padding:32px 14px;font-family:Arial,Helvetica,sans-serif;color:#172b45">
       <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">${escapeEmailHtml(preheader)}</div>
-      <div style="max-width:600px;margin:0 auto;background:#fff;border:1px solid #dfe7e2;border-radius:10px;overflow:hidden">
-        <div style="padding:22px 24px 16px;border-bottom:1px solid #e5ebe7">
-          <div style="color:#163c2a;font-size:11px;font-weight:700;letter-spacing:1.4px">PayPulse MERCHANT SERVICES</div>
-          <h1 style="margin:10px 0 0;color:#163c2a;font-size:22px;line-height:1.3">${escapeEmailHtml(title)}</h1>
+      <div style="max-width:600px;margin:0 auto;background:#fff;border:1px solid #dce6f3;border-radius:16px;overflow:hidden">
+        <div style="padding:20px 26px;background:#102445">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse">
+            <tr>
+              <td valign="middle"><span style="display:inline-block;padding:7px 8px;border-radius:9px;background:#1d4ed8;color:#fff;font-size:13px;font-weight:800;line-height:1">P</span><span style="padding-left:10px;color:#fff;font-size:17px;font-weight:800;letter-spacing:-.4px">Pay<span style="color:#72e4d4">Pulse</span></span></td>
+              <td align="right" valign="middle" style="color:#b6c8e5;font-size:9px;font-weight:700;letter-spacing:1.2px">${escapeEmailHtml(audience)}</td>
+            </tr>
+          </table>
         </div>
-        <div style="padding:22px 24px">
-          <p style="margin:0 0 14px;color:#17231d;font-size:14px;line-height:1.6">Hello ${escapeEmailHtml(greeting)},</p>
+        <div style="height:4px;background:#35cbb8"></div>
+        <div style="padding:28px 30px 30px">
+          <h1 style="margin:0 0 20px;color:#102445;font-size:24px;line-height:1.3;letter-spacing:-.4px">${escapeEmailHtml(title)}</h1>
+          <p style="margin:0 0 16px;color:#263a56;font-size:14px;line-height:1.65">Hello ${escapeEmailHtml(greeting)},</p>
           ${htmlParagraphs}
           ${htmlVerificationCode}
           ${htmlDocuments}
           ${htmlAction}
           ${htmlLinks}
           ${htmlFooter}
-          <p style="margin:18px 0 0;color:#163c2a;font-size:13px;font-weight:700">${escapeEmailHtml(signature)}</p>
+          <p style="margin:24px 0 0;padding-top:16px;border-top:1px solid #e6edf6;color:#173c91;font-size:13px;font-weight:700">${escapeEmailHtml(signature)}</p>
         </div>
       </div>
+      <div style="max-width:600px;margin:14px auto 0;color:#71819a;font-size:10px;line-height:1.6;text-align:center">PayPulse · Secure payments</div>
     </div>
   `
 

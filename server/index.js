@@ -1064,25 +1064,25 @@ async function sendTransactionEmail(notification) {
       : "This transaction was confirmed as successful by the payment provider.",
   ].join("\n")
   const html = `
-      <div style="margin:0;padding:32px 16px;background:#f4f7fc;font-family:Arial,Helvetica,sans-serif;color:#0b1f3a">
+      <div style="margin:0;padding:32px 16px;background:#f1f5fb;font-family:Arial,Helvetica,sans-serif;color:#102445">
         <div style="max-width:480px;margin:0 auto">
-          <div style="padding:0 4px 18px;color:#0b1f3a;font-size:17px;font-weight:700;letter-spacing:1px">PayPulse</div>
-          <div style="padding:28px;background:#fff;border:1px solid #d8e1ed;border-radius:16px">
-            <div style="margin-bottom:10px;color:#52647c;font-size:10px;font-weight:700;letter-spacing:1.3px">TRANSACTION CONFIRMED</div>
-            <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3">${safeType}</h1>
-            <p style="margin:0 0 18px;color:#52647c;font-size:13px;line-height:1.6">${
+          <div style="padding:0 4px 18px;color:#102445;font-size:19px;font-weight:800;letter-spacing:-.4px">Pay<span style="color:#35b9aa">Pulse</span></div>
+          <div style="padding:28px;background:#fff;border:1px solid #dce6f3;border-radius:16px;box-shadow:0 12px 32px rgba(16,36,69,0.06)">
+            <div style="margin-bottom:10px;color:#536783;font-size:10px;font-weight:700;letter-spacing:1.3px">TRANSACTION CONFIRMED</div>
+            <h1 style="margin:0 0 12px;color:#102445;font-size:22px;line-height:1.3;letter-spacing:-.4px">${safeType}</h1>
+            <p style="margin:0 0 18px;color:#536783;font-size:13px;line-height:1.65">${
               manualConfirmation
                 ? "The PayPulse team independently verified and manually confirmed this payment."
                 : "The payment provider confirmed this transaction as successful."
             }</p>
-            <div style="padding:16px;background:#f8f9f5;border:1px solid #d8e1ed;border-radius:11px">
-              <div style="color:#52647c;font-size:11px">Amount</div>
-              <div style="margin-top:4px;font-size:20px;font-weight:700">${safeAmount}</div>
-              <div style="margin-top:14px;color:#52647c;font-size:11px">Reference</div>
-              <div style="margin-top:4px;font-size:12px;font-weight:700;overflow-wrap:anywhere">${reference}</div>
+            <div style="padding:16px;background:#f7f9fd;border:1px solid #e3eaf5;border-radius:12px">
+              <div style="color:#536783;font-size:11px">Amount</div>
+              <div style="margin-top:4px;color:#173c91;font-size:22px;font-weight:700">${safeAmount}</div>
+              <div style="margin-top:14px;color:#536783;font-size:11px">Reference</div>
+              <div style="margin-top:4px;color:#102445;font-size:12px;font-weight:700;overflow-wrap:anywhere">${reference}</div>
             </div>
           </div>
-          <p style="margin:14px 4px 0;color:#52647c;font-size:11px">This is an automated transaction notification. Never share your password or MPIN.</p>
+          <p style="margin:14px 4px 0;color:#71819a;font-size:11px;line-height:1.6">This is an automated transaction notification. PayPulse will never ask for your password or MPIN by email.</p>
         </div>
       </div>
     `
@@ -1132,22 +1132,22 @@ async function sendCustomerPaymentEmail(payment) {
     "Keep this receipt for your records.",
   ].join("\n")
   const html = `
-    <div style="margin:0;padding:32px 16px;background:#f4f7fc;font-family:Arial,Helvetica,sans-serif;color:#0b1f3a">
+    <div style="margin:0;padding:32px 16px;background:#f1f5fb;font-family:Arial,Helvetica,sans-serif;color:#102445">
       <div style="max-width:480px;margin:0 auto">
-        <div style="padding:0 4px 18px;color:#0b1f3a;font-size:17px;font-weight:700;letter-spacing:1px">PayPulse</div>
-        <div style="padding:28px;background:#fff;border:1px solid #d8e1ed;border-radius:16px">
-          <div style="margin-bottom:10px;color:#52647c;font-size:10px;font-weight:700;letter-spacing:1.3px">PAYMENT CONFIRMED</div>
-          <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3">Thank you for your payment</h1>
-          <p style="margin:0 0 18px;color:#52647c;font-size:13px;line-height:1.6">${escapeEmailHtml(confirmationSource)}</p>
-          <div style="padding:16px;background:#f8f9f5;border:1px solid #d8e1ed;border-radius:11px">
-            <div style="color:#52647c;font-size:11px">Payment for</div>
-            <div style="margin-top:4px;font-size:14px;font-weight:700">${title}</div>
-            <div style="margin-top:14px;color:#52647c;font-size:11px">Amount</div>
-            <div style="margin-top:4px;font-size:20px;font-weight:700">${safeAmount}</div>
-            <div style="margin-top:14px;color:#52647c;font-size:11px">Reference</div>
-            <div style="margin-top:4px;font-size:12px;font-weight:700;overflow-wrap:anywhere">${reference}</div>
+        <div style="padding:0 4px 18px;color:#102445;font-size:19px;font-weight:800;letter-spacing:-.4px">Pay<span style="color:#35b9aa">Pulse</span></div>
+        <div style="padding:28px;background:#fff;border:1px solid #dce6f3;border-radius:16px;box-shadow:0 12px 32px rgba(16,36,69,0.06)">
+          <div style="margin-bottom:10px;color:#536783;font-size:10px;font-weight:700;letter-spacing:1.3px">PAYMENT CONFIRMED</div>
+          <h1 style="margin:0 0 12px;color:#102445;font-size:22px;line-height:1.3;letter-spacing:-.4px">Thank you for your payment</h1>
+          <p style="margin:0 0 18px;color:#536783;font-size:13px;line-height:1.65">${escapeEmailHtml(confirmationSource)}</p>
+          <div style="padding:16px;background:#f7f9fd;border:1px solid #e3eaf5;border-radius:12px">
+            <div style="color:#536783;font-size:11px">Payment for</div>
+            <div style="margin-top:4px;color:#102445;font-size:14px;font-weight:700">${title}</div>
+            <div style="margin-top:14px;color:#536783;font-size:11px">Amount</div>
+            <div style="margin-top:4px;color:#173c91;font-size:22px;font-weight:700">${safeAmount}</div>
+            <div style="margin-top:14px;color:#536783;font-size:11px">Reference</div>
+            <div style="margin-top:4px;color:#102445;font-size:12px;font-weight:700;overflow-wrap:anywhere">${reference}</div>
           </div>
-          <p style="margin:16px 0 0;color:#52647c;font-size:12px;line-height:1.6">Your official PDF payment receipt is attached to this email. Keep it for your records.</p>
+          <p style="margin:16px 0 0;color:#536783;font-size:12px;line-height:1.6">Your official PDF payment receipt is attached to this email. Keep it for your records.</p>
         </div>
       </div>
     </div>

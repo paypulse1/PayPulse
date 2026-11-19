@@ -262,8 +262,11 @@ export function MarketingFooter() {
   return (
     <footer className="drpay-footer">
       <a className="drpay-brand" href="#top" aria-label="PayPulse home">
-        <PayPulseLogo className="drpay-brand-mark pulsepay-brand-mark" />
-        <span>PayPulse</span>
+        <PayPulseLogo
+          className="drpay-brand-mark pulsepay-brand-mark"
+          showName
+          nameClassName="drpay-wordmark"
+        />
       </a>
       <p>Merchant payments, made clearer.</p>
       <a

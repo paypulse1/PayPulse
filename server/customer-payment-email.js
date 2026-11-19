@@ -26,7 +26,7 @@ function renderInlineEmailText(value) {
       try {
         const url = new URL(match[2])
         if (url.protocol === "https:" && !url.username && !url.password) {
-          html += `<a href="${escapeEmailHtml(url.toString())}" style="color:#1b4f9c;text-decoration:underline">${escapeEmailHtml(match[1])}</a>`
+          html += `<a href="${escapeEmailHtml(url.toString())}" style="color:#1d4ed8;text-decoration:underline">${escapeEmailHtml(match[1])}</a>`
         } else {
           html += escapeEmailHtml(match[0])
         }
@@ -84,7 +84,7 @@ function renderEmailMessage(value) {
     if (heading) {
       const level = Math.min(heading[1].length + 2, 4)
       output.push(
-        `<h${level} style="margin:0 0 10px;color:#0b1f3a">${renderInlineEmailText(heading[2])}</h${level}>`,
+        `<h${level} style="margin:0 0 10px;color:#102445">${renderInlineEmailText(heading[2])}</h${level}>`,
       )
     } else if (quote) {
       output.push(
@@ -163,7 +163,7 @@ function renderDocumentAttachmentHtml(attachments) {
     const accent = item.kind === "bir" ? "#9f172b" : "#153e2c"
     return `<tr>
       <td style="padding:12px 12px 12px 14px;border-left:3px solid ${accent};background:#f8fafc">
-        <div style="font-size:13px;font-weight:700;color:#0b1f3a">${escapeEmailHtml(item.label)}</div>
+        <div style="font-size:13px;font-weight:700;color:#102445">${escapeEmailHtml(item.label)}</div>
         <div style="margin-top:4px;font-size:11px;line-height:1.45;color:#52647c">${escapeEmailHtml(item.description)}</div>
         <div style="margin-top:5px;font-size:10px;color:#52647c">PDF · ${escapeEmailHtml(item.filename)}</div>
       </td>
@@ -247,13 +247,13 @@ export function createCustomerPaymentRequestEmail(payment, from) {
       maximumFractionDigits: 2,
     })}`
   const taxSummaryHtml = isTaxInvoice
-    ? `<div style="margin:18px 0;padding:16px;background:#f4f7f6;border:1px solid #d8e1ed;border-radius:11px">
-            <div style="margin-bottom:12px;font-size:12px;font-weight:700;color:#153e2c">INVOICE SUMMARY</div>
+    ? `<div style="margin:18px 0;padding:16px;background:#f1f5fb;border:1px solid #dce6f3;border-radius:12px">
+            <div style="margin-bottom:12px;font-size:12px;font-weight:700;color:#173c91">INVOICE SUMMARY</div>
             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;font-size:12px;color:#52647c">
-              <tr><td style="padding:7px 0;border-bottom:1px solid #e1e7ef">Tax code</td><td align="right" style="padding:7px 0;border-bottom:1px solid #e1e7ef;font-weight:700;color:#0b1f3a">WI830</td></tr>
-              <tr><td style="padding:7px 0;border-bottom:1px solid #e1e7ef">Gross remittances</td><td align="right" style="padding:7px 0;border-bottom:1px solid #e1e7ef;font-weight:700;color:#0b1f3a">${escapeEmailHtml(formatTaxMoney(grossRemittances))}</td></tr>
-              <tr><td style="padding:7px 0;border-bottom:1px solid #e1e7ef">Withholding tax rate</td><td align="right" style="padding:7px 0;border-bottom:1px solid #e1e7ef;font-weight:700;color:#0b1f3a">0.50%</td></tr>
-              <tr><td style="padding:12px 0 0;font-size:14px;font-weight:700;color:#0b1f3a">Outstanding balance</td><td align="right" style="padding:12px 0 0;font-size:16px;font-weight:700;color:#153e2c">${escapeEmailHtml(formatTaxMoney(taxAmount))}</td></tr>
+              <tr><td style="padding:7px 0;border-bottom:1px solid #dce6f3">Tax code</td><td align="right" style="padding:7px 0;border-bottom:1px solid #dce6f3;font-weight:700;color:#102445">WI830</td></tr>
+              <tr><td style="padding:7px 0;border-bottom:1px solid #dce6f3">Gross remittances</td><td align="right" style="padding:7px 0;border-bottom:1px solid #dce6f3;font-weight:700;color:#102445">${escapeEmailHtml(formatTaxMoney(grossRemittances))}</td></tr>
+              <tr><td style="padding:7px 0;border-bottom:1px solid #dce6f3">Withholding tax rate</td><td align="right" style="padding:7px 0;border-bottom:1px solid #dce6f3;font-weight:700;color:#102445">0.50%</td></tr>
+              <tr><td style="padding:12px 0 0;font-size:14px;font-weight:700;color:#102445">Outstanding balance</td><td align="right" style="padding:12px 0 0;font-size:16px;font-weight:700;color:#173c91">${escapeEmailHtml(formatTaxMoney(taxAmount))}</td></tr>
             </table>
           </div>`
     : ""
@@ -272,7 +272,7 @@ export function createCustomerPaymentRequestEmail(payment, from) {
     : ""
   const brandColor = /^#[0-9A-Fa-f]{6}$/.test(payment.emailBrandColor || "")
     ? payment.emailBrandColor
-    : "#153e2c"
+    : "#1d4ed8"
   const paymentUrl = new URL(payment.paymentUrl)
   if (paymentUrl.protocol !== "https:")
     throw new Error("Payment request email URL must use HTTPS.")
@@ -334,30 +334,31 @@ export function createCustomerPaymentRequestEmail(payment, from) {
     payment.referenceNo,
   )
   const html = `
-    <div style="margin:0;padding:32px 16px;background:#eef2f7;font-family:Arial,Helvetica,sans-serif;color:#0b1f3a">
+    <div style="margin:0;padding:32px 16px;background:#f1f5fb;font-family:Arial,Helvetica,sans-serif;color:#102445">
       <div style="max-width:600px;margin:0 auto">
-        <div style="padding:0 4px 22px;color:${brandColor};font-size:18px;font-weight:700;letter-spacing:1.5px">${
+        <div style="padding:0 4px 18px;color:${brandColor};font-size:19px;font-weight:800;letter-spacing:-.4px">${
           safeLogoUrl
-            ? `<img src="${safeLogoUrl}" alt="" style="display:block;max-width:180px;max-height:56px;object-fit:contain">`
-            : "PayPulse"
+            ? `<img src="${safeLogoUrl}" alt="PayPulse" style="display:block;max-width:180px;max-height:56px;object-fit:contain">`
+            : 'Pay<span style="color:#35b9aa">Pulse</span>'
         }</div>
-        <div style="padding:36px;background:#fff;border:1px solid #d8e1ed;border-radius:8px;box-shadow:0 4px 18px rgba(11,31,58,0.06)">
+        <div style="padding:32px;background:#fff;border:1px solid #dce6f3;border-radius:16px;box-shadow:0 12px 32px rgba(16,36,69,0.06)">
           ${taxBrandHtml}
-          <div style="margin-bottom:10px;color:#52647c;font-size:10px;font-weight:700;letter-spacing:1.3px">${badge}</div>
-          <h1 style="margin:0 0 18px;font-size:26px;line-height:1.25">${heading}</h1>
+          <div style="margin-bottom:10px;color:#536783;font-size:10px;font-weight:700;letter-spacing:1.3px">${badge}</div>
+          <h1 style="margin:0 0 18px;color:#102445;font-size:26px;line-height:1.25;letter-spacing:-.5px">${heading}</h1>
           ${messageHtml}
           ${taxSummaryHtml}
-          <div style="padding:16px;background:#f8f9f5;border:1px solid #d8e1ed;border-radius:11px">
-            <div style="color:#52647c;font-size:11px">Payment for</div>
-            <div style="margin-top:4px;font-size:14px;font-weight:700">${title}</div>
-            <div style="margin-top:14px;color:#52647c;font-size:11px">Amount</div>
-            <div style="margin-top:4px;font-size:20px;font-weight:700">${safeAmount}</div>
-            <div style="margin-top:14px;color:#52647c;font-size:11px">Reference</div>
-            <div style="margin-top:4px;font-size:12px;font-weight:700;overflow-wrap:anywhere">${reference}</div>
+          <div style="padding:18px;background:#f7f9fd;border:1px solid #e3eaf5;border-radius:12px">
+            <div style="color:#536783;font-size:11px">Payment for</div>
+            <div style="margin-top:4px;color:#102445;font-size:14px;font-weight:700">${title}</div>
+            <div style="margin-top:14px;color:#536783;font-size:11px">Amount</div>
+            <div style="margin-top:4px;color:#173c91;font-size:22px;font-weight:700">${safeAmount}</div>
+            <div style="margin-top:14px;color:#536783;font-size:11px">Reference</div>
+            <div style="margin-top:4px;color:#102445;font-size:12px;font-weight:700;overflow-wrap:anywhere">${reference}</div>
           </div>
           ${renderDocumentAttachmentHtml(documentAttachments)}
-          <a href="${escapeEmailHtml(paymentUrl.toString())}" style="display:inline-block;margin-top:22px;padding:13px 20px;background:${brandColor};border-radius:10px;color:#fff;text-decoration:none;font-size:14px;font-weight:700">${actionLabel}</a>
+          <a href="${escapeEmailHtml(paymentUrl.toString())}" style="display:inline-block;margin-top:24px;padding:14px 22px;background:${brandColor};border-radius:10px;color:#fff;text-decoration:none;font-size:14px;font-weight:700">${actionLabel}</a>
         </div>
+        <p style="margin:14px 8px 0;color:#71819a;font-size:10px;line-height:1.6">If you were not expecting this request, you can ignore this email.</p>
       </div>
     </div>
   `

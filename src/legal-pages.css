@@ -1,7 +1,7 @@
 .legal-page {
   --legal-ink: #10233f;
   --legal-muted: #617087;
-  --legal-blue: #1d58a8;
+  --legal-blue: #1d4ed8;
   --legal-line: #dce4ee;
   --legal-paper: #f7f9fc;
   min-height: 100vh;
@@ -39,12 +39,22 @@
 .legal-brand {
   display: inline-flex;
   align-items: center;
+  color: var(--legal-ink);
+  text-decoration: none;
+}
+
+.legal-brand .paypulse-logo {
   gap: 10px;
+}
+
+.legal-brand .legal-wordmark {
   color: var(--legal-ink);
   font-size: 17px;
-  font-weight: 800;
-  letter-spacing: 0.045em;
-  text-decoration: none;
+  letter-spacing: -0.045em;
+}
+
+.legal-brand .paypulse-wordmark-accent {
+  color: var(--legal-blue);
 }
 
 .legal-brand .paypulse-logo-mark {
@@ -52,6 +62,7 @@
   width: 34px;
   height: 34px;
   object-fit: contain;
+  border-radius: 10px;
 }
 
 .legal-sign-in {
