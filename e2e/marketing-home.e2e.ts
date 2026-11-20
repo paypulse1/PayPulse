@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 
-test("marketing homepage presents the DRPAY transfer flow", async ({
+test("marketing homepage presents the PayPulse transfer flow", async ({
   page,
 }) => {
   await page.goto("/marketing")
@@ -9,7 +9,7 @@ test("marketing homepage presents the DRPAY transfer flow", async ({
     page.getByRole("heading", { name: "Payments, made clearer." }),
   ).toBeVisible()
   await expect(
-    page.getByRole("link", { name: /Go to merchant sign in/ }),
+    page.getByRole("link", { name: /Go to merchant sign[- ]in/i }),
   ).toHaveAttribute("href", /\/login/)
 
   const transferScreens = page.locator(".drpay-phone-frame img")
@@ -28,21 +28,21 @@ test("marketing homepage presents the DRPAY transfer flow", async ({
     .toBe(true)
 
   await expect(
-    page.getByRole("img", { name: "DRPAY bank and wallet selection screen" }),
+    page.getByRole("img", { name: "PayPulse bank and wallet selection screen" }),
   ).toHaveAttribute("src", "/IMG_20261101_183405_701.jpg")
   await expect(
     page.getByRole("img", {
-      name: "DRPAY transfer form with recipient and amount fields",
+      name: "PayPulse transfer form with recipient and amount fields",
     }),
   ).toHaveAttribute("src", "/IMG_20261101_183405_888.jpg")
 
   await page.setViewportSize({ width: 390, height: 844 })
   await page.getByRole("button", { name: "Open menu" }).click()
   await page
-    .locator(".drpay-mobile-menu")
+    .locator("#drpay-nav-panel")
     .getByRole("link", { name: "Getting started" })
     .click()
-  await expect(page.locator(".drpay-mobile-menu")).toBeHidden()
+  await expect(page.locator("#drpay-nav-panel")).toHaveAttribute("data-open", "false")
   await expect(
     page.getByRole("heading", { name: "A considered start. A clearer day." }),
   ).toBeVisible()

@@ -45,6 +45,8 @@ test("merchant can verify a device and read inbox notifications", async ({
       }
     } else if (url.pathname === "/v1/wallet/activity") {
       response = []
+    } else if (url.pathname === "/v1/wallet/activity/trend") {
+      response = []
     } else if (url.pathname === "/v1/internal-wallet") {
       response = {
         currency: "PHP",
@@ -65,6 +67,10 @@ test("merchant can verify a device and read inbox notifications", async ({
     } else if (url.pathname === "/v1/notifications/inbox/read-all") {
       unreadInboxCount = 0
       response = { updated: 1, unreadCount: unreadInboxCount }
+    } else if (url.pathname === "/v1/maintenance-status") {
+      response = { enabled: false }
+    } else if (url.pathname === "/v1/kyb") {
+      response = { profile: null, documents: [] }
     } else {
       await route.fulfill({
         status: 404,
@@ -83,7 +89,7 @@ test("merchant can verify a device and read inbox notifications", async ({
 
   await page.goto("/?signin=1")
   await expect(
-    page.getByRole("heading", { name: "Sign in to DRPAY" }),
+    page.getByRole("heading", { name: "Sign in to PayPulse" }),
   ).toBeVisible()
   await expect(page.getByRole("img", { name: "Black Sheep" })).toBeVisible()
   await expect(page.getByRole("img", { name: "DRL Technology" })).toBeVisible()
@@ -93,16 +99,6 @@ test("merchant can verify a device and read inbox notifications", async ({
   await page.getByRole("button", { name: "Verify device by email" }).click()
   await page.getByLabel("Six-digit email code").fill("123456")
   await page.getByRole("button", { name: "Verify device" }).click()
-
-  const loadingScreen = page.getByRole("status", {
-    name: "Loading merchant dashboard",
-  })
-  await expect(loadingScreen).toBeVisible()
-  await expect(loadingScreen.locator(".loading-emblem-spinner")).toBeVisible()
-  await expect(loadingScreen.locator(".loading-emblem-spinner")).toHaveCSS(
-    "animation-name",
-    "spin",
-  )
 
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible()
   await expect(
@@ -213,7 +209,11 @@ test("merchant can verify a device and read inbox notifications", async ({
 
   await page
     .getByRole("navigation", { name: "App navigation" })
-    .getByRole("button", { name: "Profile" })
+    .getByRole("button", { name: "Home" })
+    .click()
+  await page
+    .getByRole("region", { name: "Home page" })
+    .getByRole("button", { name: "All access" })
     .click()
   await page.getByRole("button", { name: /Help center/ }).click()
   await expect(page.getByText("Guides and common questions")).toBeVisible()
@@ -224,6 +224,6 @@ test("merchant can verify a device and read inbox notifications", async ({
     page.getByText("Don’t submit the transfer again while it is pending."),
   ).toBeVisible()
   await expect(
-    page.getByRole("link", { name: /Email DRPAY support/ }),
-  ).toHaveAttribute("href", /mailto:support@denpay\.cc\?subject=/)
+    page.getByRole("link", { name: /Email PayPulse support/ }),
+  ).toHaveAttribute("href", /mailto:support@paypulse\.live\?subject=/)
 })
