@@ -41,7 +41,7 @@ test("uses the Render production API when no live API URL is configured", async 
   const { getApiBaseUrl } = await import("./swiftpay.ts")
   assert.equal(
     getApiBaseUrl(),
-    "https://drpay-live-api.onrender.com",
+    "https://api.paypulse.live",
   )
 })
 

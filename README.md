@@ -46,8 +46,9 @@ Set these secrets directly in Render when prompted:
 - `DRPAY_EMAIL_LOGO_URL` (optional): public HTTPS URL for the PayPulse logo shown in all outgoing email templates. Defaults to `https://paypulse.live/paypulse-mark.png`.
 - `FCM_PROJECT_ID`, `FCM_SERVICE_ACCOUNT_EMAIL`, and `FCM_SERVICE_ACCOUNT_PRIVATE_KEY`: Firebase Cloud Messaging server credentials for the organization-restricted Android app. Store the private key as a Render secret; convert escaped `\n` sequences to newlines at runtime.
 - `FCM_PUBLIC_PROJECT_ID` (defaults to `drpay-merchant`), `FCM_PUBLIC_SERVICE_ACCOUNT_EMAIL` (defaults to `firebase-adminsdk-fbsvc@drpay-merchant.iam.gserviceaccount.com`), and `FCM_PUBLIC_SERVICE_ACCOUNT_PRIVATE_KEY`: Firebase Cloud Messaging credentials for the public Android app. Add the private key directly as a Render secret; never paste it into chat or commit it.
+- `SUMSUB_APP_TOKEN`, `SUMSUB_SECRET_KEY`, `SUMSUB_KYB_LEVEL_NAME`, and `SUMSUB_WEBHOOK_SECRET`: Sumsub KYB credentials for applicant verification and the `/v1/webhooks/sumsub` endpoint. Configure the matching environment's credentials on each API service and register that endpoint with Sumsub.
 - `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`: Telegram bot credentials and the super-admin chat destination for confirmed merchant payments, transfers, USDT deposits/withdrawals, and completed floating-balance payouts.
-- `SWIFTPAY_ACCESS_KEY` and `SWIFTPAY_SECRET_KEY`: credentials for the selected SwiftPay environment.
+- `SWIFTPAY_ACCESS_KEY` and `SWIFTPAY_SECRET_KEY`: credentials for the selected SwiftPay environment. Both are required on sandbox and live APIs; keep each environment's credentials separate.
 - `TATUM_API_KEY`: server-only Tatum RPC credential. Configure only on `drpay-live-api`; never add it to any `VITE_*` variable.
 - `TRONGRID_API_KEY`: optional TRON Grid API key for mainnet wallet/deposit requests on `drpay-live-api`; leave unset if not using a key.
 - `TRON_USDT_NETWORK`: set to `mainnet` on `drpay-live-api`; the sandbox API blueprint sets it to `disabled`.

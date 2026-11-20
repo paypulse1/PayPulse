@@ -108,6 +108,7 @@ import { createMerchantApiIntegrationGuidePdf } from "./merchant-api-integration
 import { createAlipayPlusAgreementPdf } from "./alipay-plus-agreement.js"
 import { createMerchantAgreementPdf } from "./merchant-agreement.js"
 import { sendMerchantInvitationEmail } from "./merchant-invitation-email.js"
+import { getMissingSwiftPayCredentials } from "./swiftpay-config.js"
 import {
   isSupportedPaymentLinkCurrency,
   isValidEstimatedDeliveryDate,
@@ -201,8 +202,6 @@ app.use(
           "https://oauth.telegram.org",
           "https://api.paypulse.live",
           "https://api.sandbox.paypulse.live",
-          "https://drpay-live-api.onrender.com",
-          "https://drpay-api.onrender.com",
           "https://*.r2.cloudflarestorage.com",
         ],
       },
@@ -701,10 +700,9 @@ function requiredEnvironment() {
   if (!resendApiKey) missing.push("RESEND_API_KEY")
   if (!resendFromEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(resendFromEmail))
     missing.push("RESEND_FROM_EMAIL (verified sender address)")
-  if (swiftPayEnvironment === "production") {
-    if (!swiftPayAccessKey) missing.push("SWIFTPAY_ACCESS_KEY")
-    if (!swiftPaySecretKey) missing.push("SWIFTPAY_SECRET_KEY")
-  }
+  missing.push(
+    ...getMissingSwiftPayCredentials(swiftPayAccessKey, swiftPaySecretKey),
+  )
   if (!frontendOrigin) missing.push("DRPAY_FRONTEND_ORIGIN")
   if (!checkoutOrigin)
     missing.push(

@@ -5360,7 +5360,7 @@ export default function App({ route }: { route: AppViewRoute }) {
         const appInfo = await CapacitorApp.getInfo()
         if (appInfo.id !== "com.paypulse.merchant") return
         const response = await fetch(
-          "https://api.github.com/repos/drltechgroup202/drpay-merchant/releases?per_page=100",
+          "https://api.github.com/repos/paypulse1/PayPulse/releases?per_page=100",
           {
             headers: { Accept: "application/vnd.github+json" },
             cache: "no-store",

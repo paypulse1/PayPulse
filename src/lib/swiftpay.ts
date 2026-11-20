@@ -694,7 +694,7 @@ function cacheCollectionInstitution(
 const defaultApiBaseUrl = import.meta.env.VITE_DRPAY_BACKEND_URL || ""
 const liveApiBaseUrl =
   import.meta.env.VITE_DRPAY_LIVE_BACKEND_URL ||
-  "https://drpay-live-api.onrender.com"
+  "https://api.paypulse.live"
 const configuredLiveApiBaseUrl = import.meta.env.VITE_DRPAY_LIVE_BACKEND_URL || ""
 const configuredSandboxApiBaseUrl =
   import.meta.env.VITE_DRPAY_SANDBOX_BACKEND_URL || ""

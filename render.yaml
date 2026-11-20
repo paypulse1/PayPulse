@@ -1,7 +1,7 @@
 services:
   - type: web
     name: drpay-api
-    repo: https://github.com/drltechgroup202/drpay-merchant
+    repo: https://github.com/paypulse1/PayPulse
     branch: main
     runtime: node
     plan: starter
@@ -58,6 +58,20 @@ services:
         sync: false
       - key: FCM_SERVICE_ACCOUNT_PRIVATE_KEY
         sync: false
+      - key: FCM_PUBLIC_PROJECT_ID
+        value: drpay-merchant
+      - key: FCM_PUBLIC_SERVICE_ACCOUNT_EMAIL
+        value: firebase-adminsdk-fbsvc@drpay-merchant.iam.gserviceaccount.com
+      - key: FCM_PUBLIC_SERVICE_ACCOUNT_PRIVATE_KEY
+        sync: false
+      - key: SUMSUB_APP_TOKEN
+        sync: false
+      - key: SUMSUB_SECRET_KEY
+        sync: false
+      - key: SUMSUB_KYB_LEVEL_NAME
+        sync: false
+      - key: SUMSUB_WEBHOOK_SECRET
+        sync: false
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_CHAT_ID
@@ -82,6 +96,7 @@ services:
         value: disabled
   - type: web
     name: drpay-live-api
+    repo: https://github.com/paypulse1/PayPulse
     branch: production
     runtime: node
     plan: starter
@@ -138,6 +153,20 @@ services:
         sync: false
       - key: FCM_SERVICE_ACCOUNT_PRIVATE_KEY
         sync: false
+      - key: FCM_PUBLIC_PROJECT_ID
+        value: drpay-merchant
+      - key: FCM_PUBLIC_SERVICE_ACCOUNT_EMAIL
+        value: firebase-adminsdk-fbsvc@drpay-merchant.iam.gserviceaccount.com
+      - key: FCM_PUBLIC_SERVICE_ACCOUNT_PRIVATE_KEY
+        sync: false
+      - key: SUMSUB_APP_TOKEN
+        sync: false
+      - key: SUMSUB_SECRET_KEY
+        sync: false
+      - key: SUMSUB_KYB_LEVEL_NAME
+        sync: false
+      - key: SUMSUB_WEBHOOK_SECRET
+        sync: false
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_CHAT_ID
@@ -169,6 +198,7 @@ services:
   # Existing Render service ID: srv-dbv0r9t6e07s73acimn0
   - type: web
     name: drpay-web
+    repo: https://github.com/paypulse1/PayPulse
     branch: production
     runtime: static
     buildCommand: node scripts/download-latest-apk.mjs && corepack enable && corepack prepare pnpm@10.34.3 --activate && pnpm install --frozen-lockfile && pnpm typecheck && pnpm build
@@ -182,7 +212,7 @@ services:
       - key: DRPAY_GITHUB_RELEASE_TOKEN
         sync: false
       - key: DRPAY_GITHUB_RELEASE_REPOSITORY
-        value: drltechgroup202/drpay-merchant
+        value: paypulse1/PayPulse
       - key: VITE_DRPAY_BACKEND_URL
         value: https://api.paypulse.live
       - key: VITE_DRPAY_MERCHANT_SIGNIN_URL
@@ -230,7 +260,7 @@ services:
         destination: /index.html
   - type: web
     name: drpay-sandbox-web
-    repo: https://github.com/drltechgroup202/drpay-merchant
+    repo: https://github.com/paypulse1/PayPulse
     branch: main
     runtime: static
     buildCommand: corepack enable && corepack prepare pnpm@10.34.3 --activate && pnpm install --frozen-lockfile && pnpm typecheck && pnpm build

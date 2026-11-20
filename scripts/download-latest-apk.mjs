@@ -7,7 +7,7 @@ import { pipeline } from "node:stream/promises"
 
 const repository =
   process.env.DRPAY_GITHUB_RELEASE_REPOSITORY?.trim() ||
-  "drltechgroup202/drpay-merchant"
+  "paypulse1/PayPulse"
 const destination = process.argv[2] || "public/drpay.apk"
 const temporaryPath = `${destination}.download`
 const token = process.env.DRPAY_GITHUB_RELEASE_TOKEN
