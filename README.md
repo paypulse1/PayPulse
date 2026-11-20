@@ -4,7 +4,7 @@ Vite marketing site and merchant workspace, with a server-side SwiftPay adapter.
 
 ## Render deployment
 
-Render is the deployment platform for both production and sandbox. Review `render.yaml` and create or sync its Blueprint in Render. It defines separate static sites, Node APIs, and isolated PostgreSQL databases. Production services deploy from `Production`; sandbox services deploy from `main` in the official repository, with their own API configuration and database. The APIs and databases use paid plans; review Render's current pricing before provisioning. Each site publishes `dist` and rewrites application routes to the client app. API health checks use `/readyz` and remain unavailable until the database is initialized.
+Render is the deployment platform for both production and sandbox. Review `render.yaml` and create or sync its Blueprint in Render. It defines separate static sites, Node APIs, and isolated PostgreSQL databases. Production services deploy from the `production` branch; sandbox services deploy from `main` in the official repository, with their own API configuration and database. The APIs and databases use paid plans; review Render's current pricing before provisioning. Each site publishes `dist` and rewrites application routes to the client app. API health checks use `/readyz` and remain unavailable until the database is initialized.
 
 The public host layout is:
 

@@ -82,7 +82,7 @@ services:
         value: disabled
   - type: web
     name: drpay-live-api
-    branch: Production
+    branch: production
     runtime: node
     plan: starter
     region: oregon
@@ -169,7 +169,7 @@ services:
   # Existing Render service ID: srv-dbv0r9t6e07s73acimn0
   - type: web
     name: drpay-web
-    branch: Production
+    branch: production
     runtime: static
     buildCommand: node scripts/download-latest-apk.mjs && corepack enable && corepack prepare pnpm@10.34.3 --activate && pnpm install --frozen-lockfile && pnpm typecheck && pnpm build
     staticPublishPath: dist
