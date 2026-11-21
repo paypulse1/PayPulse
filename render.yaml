@@ -218,7 +218,14 @@ services:
     repo: https://github.com/paypulse1/PayPulse
     branch: production
     runtime: static
-    buildCommand: node scripts/download-latest-apk.mjs && corepack enable && corepack prepare pnpm@10.34.3 --activate && pnpm install --frozen-lockfile && pnpm typecheck && pnpm build
+    buildCommand: >-
+      node scripts/download-latest-apk.mjs &&
+      node scripts/download-latest-apk.mjs public/drpay-live.apk &&
+      corepack enable &&
+      corepack prepare pnpm@10.34.3 --activate &&
+      pnpm install --frozen-lockfile &&
+      pnpm typecheck &&
+      pnpm build
     staticPublishPath: dist
     domains:
       - paypulse.live

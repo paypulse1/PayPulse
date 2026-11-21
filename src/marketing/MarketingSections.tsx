@@ -244,12 +244,19 @@ export function DownloadSection() {
       <div className="drpay-cta-actions">
         <a
           className="drpay-button drpay-button-light"
+          href={APP_ROUTES.androidLiveApk}
+          download
+        >
+          Download PayPulse Live APK
+          <ArrowRight size={17} aria-hidden="true" />
+        </a>
+        <a
+          className="drpay-cta-login"
           href={APP_ROUTES.androidAppListing}
           target="_blank"
           rel="noopener noreferrer"
         >
-          Download PayPulse for Android
-          <ArrowRight size={17} aria-hidden="true" />
+          Also available on Google Play
         </a>
         <a className="drpay-cta-login" href={APP_ROUTES.merchantSignIn}>
           Already have an account? Sign in

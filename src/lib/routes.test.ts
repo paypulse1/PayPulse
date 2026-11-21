@@ -23,6 +23,7 @@ test("marketing Android app links use the public Google Play listing", () => {
     APP_ROUTES.androidAppListing,
     "https://play.google.com/store/apps/details?id=ph.drpays.merchant.public&pcampaignid=web_share",
   )
+  assert.equal(APP_ROUTES.androidLiveApk, "/drpay-live.apk")
 })
 
 test("USDT payment links use the public checkout host for each environment", () => {

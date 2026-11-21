@@ -14,6 +14,7 @@ export const APP_ROUTES = {
     "https://paypulse.live/login",
   androidAppListing:
     "https://play.google.com/store/apps/details?id=ph.drpays.merchant.public&pcampaignid=web_share",
+  androidLiveApk: "/drpay-live.apk",
   capabilities: "#capabilities",
   workflow: "#workflow",
   security: "#security",

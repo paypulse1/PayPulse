@@ -6,9 +6,14 @@ import { Readable } from "node:stream"
 import { pipeline } from "node:stream/promises"
 
 const repository =
-  process.env.DRPAY_GITHUB_RELEASE_REPOSITORY?.trim() ||
-  "paypulse1/PayPulse"
+  process.env.DRPAY_GITHUB_RELEASE_REPOSITORY?.trim() || "paypulse1/PayPulse"
 const destination = process.argv[2] || "public/drpay.apk"
+const isLiveApk = destination.endsWith("drpay-live.apk")
+const assetName = isLiveApk ? "drpay-live.apk" : "drpay.apk"
+const releaseTagPattern = isLiveApk
+  ? /^android-live-v\d+\.\d+\.\d+$/
+  : /^android-v\d+\.\d+\.\d+$/
+const appName = isLiveApk ? "live" : "private"
 const temporaryPath = `${destination}.download`
 const token = process.env.DRPAY_GITHUB_RELEASE_TOKEN
 
@@ -67,19 +72,19 @@ try {
     ({ tag_name: tag, draft, prerelease, assets }) =>
       !draft &&
       !prerelease &&
-      /^android-v\d+\.\d+\.\d+$/.test(tag || "") &&
-      assets?.some(({ name }) => name === "drpay.apk"),
+      releaseTagPattern.test(tag || "") &&
+      assets?.some(({ name }) => name === assetName),
   )
-  const asset = release?.assets?.find(({ name }) => name === "drpay.apk")
+  const asset = release?.assets?.find(({ name }) => name === assetName)
   if (!asset?.url || !Number.isSafeInteger(asset.size)) {
     if (await hasValidApk(destination)) {
       console.warn(
-        "No published private APK release was found; retaining the checked-in APK.",
+        `No published ${appName} APK release was found; retaining the existing APK.`,
       )
       process.exit(0)
     }
     throw new Error(
-      "No private APK release was found and public/drpay.apk is invalid.",
+      `No ${appName} APK release was found and ${destination} is invalid.`,
     )
   }
 
