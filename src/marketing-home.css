@@ -1484,8 +1484,8 @@
 
 .drpay-home .drpay-brand-mark {
   border-radius: 12px;
-  background: linear-gradient(145deg, #3375ff, #1741bf 66%, #21bdb9);
-  box-shadow: 0 8px 20px rgb(36 87 235 / 24%);
+  background: linear-gradient(145deg, #3d7dff, #2459d8 58%, #20b6b3);
+  box-shadow: 0 8px 20px rgb(36 87 235 / 22%);
 }
 
 .drpay-nav-links a,
@@ -1502,13 +1502,13 @@
 .drpay-button {
   border-color: transparent;
   border-radius: 14px;
-  background: linear-gradient(115deg, #2c67f6, #214bce);
-  box-shadow: 0 10px 24px rgb(36 87 235 / 20%);
+  background: linear-gradient(115deg, #3977f6, #2457d5 72%, #1d69bb);
+  box-shadow: 0 10px 24px rgb(36 87 235 / 18%);
 }
 
 .drpay-button:hover {
-  background: linear-gradient(115deg, #2259e8, #173cae);
-  box-shadow: 0 14px 30px rgb(36 87 235 / 28%);
+  background: linear-gradient(115deg, #2d67ed, #1c48b9 72%, #155caa);
+  box-shadow: 0 14px 30px rgb(36 87 235 / 26%);
 }
 
 .drpay-hero {
@@ -1543,7 +1543,7 @@
 .drpay-section-heading h2 span,
 .drpay-process h2 span,
 .drpay-security h2 span {
-  background: linear-gradient(100deg, #2457eb 8%, #178fce 58%, #19aa9d 100%);
+  background: linear-gradient(100deg, #315fe9 8%, #247ed3 58%, #1aa9a1 100%);
   background-clip: text;
   color: transparent;
 }
@@ -1554,9 +1554,9 @@
   border: 1px solid rgb(255 255 255 / 82%);
   border-radius: 34px;
   background:
-    radial-gradient(ellipse at 50% 100%, rgb(92 112 255 / 20%), transparent 53%),
-    radial-gradient(ellipse at 85% 12%, rgb(40 203 189 / 19%), transparent 45%),
-    linear-gradient(145deg, #eaf8ff, #e9efff 56%, #f5f0ff);
+    radial-gradient(ellipse at 50% 100%, rgb(77 119 238 / 18%), transparent 53%),
+    radial-gradient(ellipse at 85% 12%, rgb(44 194 180 / 16%), transparent 45%),
+    linear-gradient(145deg, #edf7ff, #edf2ff 56%, #f3f7ff);
   box-shadow:
     0 30px 75px rgb(46 83 152 / 11%),
     inset 0 1px 0 rgb(255 255 255 / 90%);
@@ -1621,8 +1621,8 @@
   padding-top: 80px;
   padding-bottom: 88px;
   background:
-    radial-gradient(ellipse at 5% 100%, rgb(43 201 189 / 12%), transparent 36rem),
-    linear-gradient(135deg, #eef7ff, #f3f5ff 58%, #f5fbff);
+    radial-gradient(ellipse at 5% 100%, rgb(43 201 189 / 10%), transparent 36rem),
+    linear-gradient(135deg, #edf6ff, #f1f4ff 58%, #f3fbff);
 }
 
 .drpay-channel-intro h2 {
@@ -1679,7 +1679,7 @@
   right: 0;
   left: 0;
   height: 3px;
-  background: linear-gradient(90deg, #2457eb, #26c9b8 72%, transparent);
+  background: linear-gradient(90deg, #315fe9, #24bfb2 72%, transparent);
 }
 
 .drpay-capability-card:hover {
@@ -1692,9 +1692,9 @@
   position: relative;
   overflow: hidden;
   background:
-    radial-gradient(ellipse at 90% 4%, rgb(50 130 255 / 26%), transparent 34rem),
-    radial-gradient(ellipse at 10% 95%, rgb(31 184 177 / 17%), transparent 30rem),
-    linear-gradient(120deg, #102750, #102e65 58%, #172e73);
+    radial-gradient(ellipse at 90% 4%, rgb(64 139 255 / 24%), transparent 34rem),
+    radial-gradient(ellipse at 10% 95%, rgb(39 193 180 / 16%), transparent 30rem),
+    linear-gradient(120deg, #0d2548, #12366a 58%, #163878);
   color: #fff;
 }
 
@@ -1769,8 +1769,8 @@
 
 .drpay-security-icon {
   border-color: #d6f1f0;
-  background: linear-gradient(145deg, #e7fbf8, #eaf1ff);
-  color: #2161df;
+  background: linear-gradient(145deg, #e5faf6, #eaf2ff);
+  color: #245fd6;
 }
 
 .drpay-security-copy {
@@ -1779,8 +1779,9 @@
 
 .drpay-cta {
   background:
-    radial-gradient(ellipse at 85% 10%, rgb(103 198 255 / 24%), transparent 34rem),
-    linear-gradient(115deg, #1645bf, #245fe8 56%, #167abf);
+    radial-gradient(ellipse at 85% 10%, rgb(93 181 242 / 22%), transparent 34rem),
+    radial-gradient(ellipse at 12% 100%, rgb(42 191 177 / 14%), transparent 28rem),
+    linear-gradient(115deg, #123d9a, #245ed1 56%, #1679b3);
 }
 
 .drpay-cta .drpay-eyebrow {

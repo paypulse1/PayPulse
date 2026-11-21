@@ -176,13 +176,10 @@ export function PoweredByFooter() {
       />
       <ul className="auth-powered-by-partners">
         <li>
-          <img src="/powered-by/black-sheep.png" alt="Black Sheep" />
-        </li>
-        <li>
-          <img src="/powered-by/drl-technology.png" alt="DRL Technology" />
-        </li>
-        <li>
           <img src="/powered-by/netbank.png" alt="Netbank" />
+        </li>
+        <li>
+          <img src="/bank-logos/alipay-plus.svg" alt="Alipay+" />
         </li>
       </ul>
     </footer>

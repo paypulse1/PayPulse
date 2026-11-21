@@ -99,7 +99,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .pull-refresh-indicator > small { padding: 5px 8px; border: 1px solid var(--line); border-radius: 999px; background: white; color: var(--muted); box-shadow: 0 4px 12px rgb(11 31 58 / 8%); font-size: 9px; font-weight: 700; }
 .admin-pull-refresh, .checkout-pull-refresh { position: fixed; z-index: 20; top: 12px; left: 50%; transform: translateX(-50%); padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: white; color: var(--muted); box-shadow: 0 4px 12px rgb(11 31 58 / 10%); font-size: 10px; font-weight: 700; pointer-events: none; }
 
-.balance-card { position: relative; overflow: hidden; min-height: 172px; padding: 21px; border: 1px solid rgb(255 255 255 / 10%); border-radius: 24px; background: radial-gradient(circle at 88% 12%, rgb(103 151 225 / 24%), transparent 34%), linear-gradient(135deg, #091a31 0%, var(--brand-navy) 52%, #285caa 100%); color: white; box-shadow: 0 18px 38px rgb(12 34 65 / 23%); }
+.balance-card { position: relative; overflow: hidden; min-height: 172px; padding: 21px; border: 1px solid rgb(255 255 255 / 10%); border-radius: 24px; background: radial-gradient(circle at 88% 12%, rgb(83 196 195 / 22%), transparent 34%), radial-gradient(circle at 12% 110%, rgb(65 119 224 / 22%), transparent 42%), linear-gradient(135deg, #091a31 0%, #12305a 52%, #245ba6 100%); color: white; box-shadow: 0 18px 38px rgb(12 34 65 / 23%); }
 .balance-card-wallet { margin-bottom: 11px; }
 .balance-card::after { content: ""; position: absolute; width: 190px; height: 190px; right: -84px; bottom: -128px; border: 34px solid rgba(139,183,232,.18); border-radius: 50%; }
 .balance-top, .balance-bottom { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; }
@@ -318,7 +318,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .crypto-wallet-badge.testnet, .crypto-wallet-badge.pending, .crypto-wallet-withdrawal-status, .crypto-usdt-status-pending { background: var(--warning-soft); color: var(--warning); }
 .crypto-usdt-status-rejected { background: var(--danger-soft); color: var(--danger); }
 .crypto-wallet-badge.unavailable { background: var(--danger-soft); color: var(--danger); }
-.crypto-wallet-balance { position: relative; margin: 18px 0 12px; padding: 22px; overflow: hidden; border: 1px solid rgb(255 255 255 / 12%); border-radius: 20px; background: radial-gradient(circle at 92% 8%, rgb(91 139 208 / 28%), transparent 36%), linear-gradient(135deg, #091a31, #102d54 58%, #2257a5); color: #fff; box-shadow: 0 15px 32px rgb(12 34 65 / 18%); }
+.crypto-wallet-balance { position: relative; margin: 18px 0 12px; padding: 22px; overflow: hidden; border: 1px solid rgb(255 255 255 / 12%); border-radius: 20px; background: radial-gradient(circle at 92% 8%, rgb(82 190 184 / 24%), transparent 36%), radial-gradient(circle at 12% 110%, rgb(65 119 224 / 20%), transparent 44%), linear-gradient(135deg, #091a31, #103158 58%, #245ba2); color: #fff; box-shadow: 0 15px 32px rgb(12 34 65 / 18%); }
 .crypto-wallet-balance::after { position: absolute; z-index: 0; right: -52px; bottom: -96px; width: 164px; height: 164px; border: 24px solid rgb(255 255 255 / 7%); border-radius: 50%; content: ""; pointer-events: none; }
 .crypto-wallet-balance > * { position: relative; z-index: 1; }
 .crypto-wallet-token { display: flex; align-items: center; gap: 9px; }
@@ -561,7 +561,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .button { min-height: 44px; padding: 0 17px; border: 1px solid transparent; border-radius: var(--radius-control); display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-size: 10px; font-weight: 750; line-height: 1.2; transition: background-color var(--motion-fast) var(--motion-ease), border-color var(--motion-fast) var(--motion-ease), box-shadow var(--motion-fast) var(--motion-ease), transform var(--motion-fast) var(--motion-ease), opacity var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease); }
 .button-size-sm { min-height: 34px; padding: 0 12px; font-size: 9px; }
 .button-size-lg { min-height: 48px; padding: 0 19px; font-size: 11px; }
-.button-primary { background: linear-gradient(135deg, var(--brand-navy), #153c70); color: white; box-shadow: 0 5px 12px rgb(11 31 58 / 14%); }
+.button-primary { background: linear-gradient(135deg, #0d294f, #174a86 82%, #1d70a4); color: white; box-shadow: 0 5px 12px rgb(11 31 58 / 14%); }
 .button-secondary { background: var(--surface); border-color: var(--line); color: var(--brand-navy); }
 .button-secondary:not(:disabled):hover { border-color: #bdcbe0; background: #f8fafd; }
 .button-quiet { background: transparent; color: var(--brand-blue); }
@@ -1174,7 +1174,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .auth-powered-by > span:first-child::before, .auth-powered-by > span:first-child::after { width: 34px; height: 1px; content: ""; background: linear-gradient(90deg, transparent, #bd9143); }
 .auth-powered-by > span:first-child::after { transform: rotate(180deg); }
 .auth-powered-by > .auth-powered-by-signature { display: block; width: min(290px, 88%); height: 47px; background: linear-gradient(105deg, #66420a 0%, #a97417 13%, #e4bd58 25%, #fff0a5 34%, #b47b17 47%, #f2d170 59%, #fff5c2 68%, #80520b 82%, #d8ad45 100%); filter: drop-shadow(0 1px 1px rgb(72 45 5 / 58%)) drop-shadow(0 2px 3px rgb(98 67 12 / 35%)) drop-shadow(0 0 7px rgb(198 151 47 / 38%)); -webkit-mask: url("/drpay-signature.png") center / contain no-repeat; mask: url("/drpay-signature.png") center / contain no-repeat; }
-.auth-powered-by-partners { width: 100%; margin: 0; padding: 10px 0 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: center; gap: 10px; border: 0; border-top: 1px solid rgb(185 139 46 / 16%); list-style: none; }
+.auth-powered-by-partners { width: 100%; margin: 0; padding: 10px 0 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: 10px; border: 0; border-top: 1px solid rgb(185 139 46 / 16%); list-style: none; }
 .auth-powered-by-partners li { min-width: 0; height: 46px; display: grid; place-items: center; }
 .auth-powered-by-partners img { display: block; max-width: 100%; max-height: 40px; object-fit: contain; }
 .auth-powered-by-partners li:first-child img { max-height: 46px; }
@@ -1205,7 +1205,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .auth-login-screen::before { top: -180px; right: -90px; box-shadow: 0 0 0 34px rgb(27 79 156 / 2%), 0 0 0 68px rgb(27 79 156 / 2%); }
 .auth-login-screen::after { bottom: -220px; left: -140px; width: 420px; border-color: rgb(185 139 46 / 8%); box-shadow: 0 0 0 40px rgb(185 139 46 / 2%); }
 .auth-login-layout { width: min(100%, 1060px); min-height: 650px; display: grid; grid-template-columns: minmax(0, .96fr) minmax(0, 1.04fr); overflow: hidden; border: 1px solid rgb(216 225 237 / 90%); border-radius: 30px; background: var(--surface); box-shadow: 0 32px 90px rgb(11 31 58 / 13%), 0 4px 16px rgb(11 31 58 / 4%); animation: workspace-enter var(--motion-enter-duration) var(--motion-enter) both; }
-.auth-login-aside { position: relative; isolation: isolate; overflow: hidden; padding: 48px clamp(30px, 5vw, 60px); display: flex; flex-direction: column; color: white; background: radial-gradient(ellipse at 92% 82%, rgb(27 79 156 / 52%), transparent 47%), linear-gradient(152deg, #071429 0%, #0b1f3a 54%, #153e75 100%); }
+.auth-login-aside { position: relative; isolation: isolate; overflow: hidden; padding: 48px clamp(30px, 5vw, 60px); display: flex; flex-direction: column; color: white; background: radial-gradient(ellipse at 92% 82%, rgb(37 150 166 / 38%), transparent 47%), radial-gradient(ellipse at 12% 8%, rgb(58 112 205 / 24%), transparent 38%), linear-gradient(152deg, #071429 0%, #0d2948 54%, #174b7e 100%); }
 .auth-login-aside::before { position: absolute; z-index: -1; width: 380px; height: 380px; right: -205px; bottom: 12%; content: ""; border: 1px solid rgb(228 196 120 / 22%); border-radius: 50%; box-shadow: 0 0 0 28px rgb(228 196 120 / 4%), 0 0 0 60px rgb(228 196 120 / 3%); }
 .auth-login-kicker { display: inline-flex; align-items: center; gap: 9px; color: #d7e3f3; font-size: 10px; font-weight: 800; letter-spacing: .13em; }
 .auth-login-kicker svg { color: #e4c478; }
@@ -2322,9 +2322,9 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   overflow: hidden;
   border: 1px solid rgb(255 255 255 / 18%);
   background:
-    radial-gradient(circle at 88% 18%, rgb(83 217 214 / 23%), transparent 31%),
-    radial-gradient(circle at 12% 110%, rgb(53 111 255 / 28%), transparent 44%),
-    linear-gradient(125deg, #102445 0%, #173c89 55%, #1d4ed8 100%);
+    radial-gradient(circle at 88% 18%, rgb(80 205 194 / 22%), transparent 31%),
+    radial-gradient(circle at 12% 110%, rgb(61 126 220 / 26%), transparent 44%),
+    linear-gradient(125deg, #102445 0%, #173c75 55%, #245ba6 100%);
   box-shadow:
     0 20px 38px rgb(22 57 130 / 22%),
     inset 0 1px 0 rgb(255 255 255 / 12%);
