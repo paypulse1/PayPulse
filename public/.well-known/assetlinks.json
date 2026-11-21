@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.paypulse.live",
+      "sha256_cert_fingerprints": [
+        "3D:86:9F:82:60:C7:03:AF:1A:B4:05:3F:E4:D2:21:F5:C3:CD:E5:05:6E:08:6E:2D:8F:6D:7C:CD:89:C0:C3:7A"
+      ]
+    }
+  }
+]

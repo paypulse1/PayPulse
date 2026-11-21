@@ -1,10 +1,15 @@
 apply plugin: 'com.android.application'
 
+def androidApplicationId = System.getenv("ANDROID_APPLICATION_ID") ?: "com.paypulse.merchant"
+def appLinksPathPrefix =
+    androidApplicationId == "com.paypulse.live" ? "/" : "/__app_links_disabled__"
+
 android {
     namespace = "com.paypulse.merchant"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId System.getenv("ANDROID_APPLICATION_ID") ?: "com.paypulse.merchant"
+        applicationId androidApplicationId
+        manifestPlaceholders = [appLinksPathPrefix: appLinksPathPrefix]
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode = Integer.parseInt(System.getenv("ANDROID_VERSION_CODE") ?: "1")

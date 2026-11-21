@@ -171,6 +171,25 @@ export function resolveAppRoute(
   return resolveAppContentRoute(location, isNativePlatform)
 }
 
+export function resolveAppLinkRoute(url: string): AppRoute | null {
+  let link: URL
+  try {
+    link = new URL(url)
+  } catch {
+    return null
+  }
+
+  if (
+    link.protocol !== "https:" ||
+    link.hostname.toLowerCase() !== "paypulse.live" ||
+    link.port !== ""
+  ) {
+    return null
+  }
+
+  return resolveAppRoute(link, true)
+}
+
 export function resolveAppContentRoute(
   location: RouteLocation,
   isNativePlatform = false,

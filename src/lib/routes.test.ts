@@ -4,6 +4,7 @@ import {
   APP_ROUTES,
   getPublicCheckoutOrigin,
   getLegalPage,
+  resolveAppLinkRoute,
   resolveAppRoute,
   shouldGateMerchantMaintenance,
   shouldShowMarketingHome,
@@ -152,6 +153,26 @@ test("application routes resolve to the expected page", () => {
       `${hostname}${pathname}${search}`,
     )
   }
+})
+
+test("verified app links resolve supported PayPulse URLs and reject other origins", () => {
+  assert.equal(
+    resolveAppLinkRoute(`https://paypulse.live/checkout/${"A".repeat(40)}`)
+      ?.type,
+    "checkout",
+  )
+  assert.equal(
+    resolveAppLinkRoute("https://paypulse.live/login")?.type,
+    "merchant-entry",
+  )
+  assert.equal(resolveAppLinkRoute("http://paypulse.live/login"), null)
+  assert.equal(resolveAppLinkRoute("https://paypulse.live:8443/login"), null)
+  assert.equal(resolveAppLinkRoute("https://sandbox.paypulse.live/login"), null)
+  assert.equal(
+    resolveAppLinkRoute("https://paypulse.live.evil.example/login"),
+    null,
+  )
+  assert.equal(resolveAppLinkRoute("not a url"), null)
 })
 
 test("invalid checkout codes preserve the root dashboard route", () => {
