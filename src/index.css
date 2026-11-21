@@ -4,34 +4,34 @@
 
 :root {
   --font-family: "Manrope", sans-serif;
-  --page: #f1f5f9;
-  --paper: #f8fafc;
+  --page: #eef3f8;
+  --paper: #f8faff;
   --surface: #ffffff;
-  --surface-soft: #f3f7fb;
-  --ink: #10233f;
-  --muted: #64748b;
-  --link: #1d4ed8;
-  --line: #dde6ef;
-  --accent: #35cbb8;
-  --accent-strong: #1d4ed8;
-  --accent-soft: #e8f2ff;
-  --brand-navy: #102445;
-  --brand-blue: #1d4ed8;
-  --brand-gold: #35cbb8;
-  --blue: #e8f2ff;
+  --surface-soft: #f3f7fc;
+  --ink: #10243f;
+  --muted: #60728a;
+  --link: #1b5bbb;
+  --line: #dce5f0;
+  --accent: #20b9a7;
+  --accent-strong: #1b5bbb;
+  --accent-soft: #e6f7f3;
+  --brand-navy: #0c2344;
+  --brand-blue: #1b5bbb;
+  --brand-gold: #20b9a7;
+  --blue: #e8f1ff;
   --peach: #ffe3d4;
   --violet: #e9e0ff;
-  --mint: #daf3e8;
-  --danger: #bd4b3b;
+  --mint: #def4ee;
+  --danger: #b9433a;
   --danger-soft: #fff0ed;
   --warning: #997017;
   --warning-soft: #fff7da;
   --success: #16724a;
   --success-soft: #e8f5ee;
-  --shadow: 0 24px 72px rgb(16 35 61 / 13%);
-  --shadow-card: 0 8px 24px rgb(16 35 61 / 5%);
-  --radius-card: 18px;
-  --radius-control: 12px;
+  --shadow: 0 28px 80px rgb(16 35 61 / 15%);
+  --shadow-card: 0 10px 28px rgb(16 35 61 / 6%);
+  --radius-card: 20px;
+  --radius-control: 13px;
   font-family: var(--font-family);
   font-synthesis: none;
   color: var(--ink);
@@ -2550,4 +2550,73 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   background: linear-gradient(145deg, #1d4ed8, #178caa);
   color: #fff;
   box-shadow: 0 8px 18px rgb(29 78 216 / 29%);
+}
+
+.app-stage {
+  background:
+    radial-gradient(ellipse at 10% 12%, rgb(32 185 167 / 10%), transparent 34%),
+    radial-gradient(ellipse at 90% 88%, rgb(27 91 187 / 8%), transparent 32%),
+    var(--page);
+}
+
+.mobile-app {
+  border-color: rgb(191 205 223 / 76%);
+  box-shadow:
+    0 32px 88px rgb(16 35 61 / 16%),
+    0 3px 12px rgb(16 35 61 / 5%);
+}
+
+.auth-screen,
+.checkout-screen {
+  background:
+    radial-gradient(ellipse at 10% 8%, rgb(32 185 167 / 9%), transparent 38%),
+    radial-gradient(ellipse at 92% 90%, rgb(27 91 187 / 7%), transparent 38%),
+    var(--paper);
+}
+
+.admin-screen {
+  background:
+    radial-gradient(ellipse at 100% 0%, rgb(27 91 187 / 5%), transparent 34rem),
+    var(--paper);
+}
+
+.environment-switch {
+  min-height: 40px;
+  padding-inline: 12px;
+  border-radius: 999px;
+  box-shadow: 0 2px 6px rgb(16 35 61 / 5%);
+}
+
+.environment-switch[data-environment="sandbox"] {
+  border-color: #bfe9df;
+  background: #eaf8f5;
+  color: #126e64;
+}
+
+.environment-switch[data-environment="production"] {
+  border-color: #eed9b7;
+  background: #fff7e9;
+  color: #855008;
+}
+
+.button-primary {
+  background: linear-gradient(135deg, #102b50, #1b5bbb);
+  box-shadow: 0 7px 18px rgb(17 57 112 / 18%);
+}
+
+.button-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #0c2344, #174f9f);
+  box-shadow: 0 10px 24px rgb(17 57 112 / 23%);
+}
+
+.admin-card,
+.checkout-card,
+.auth-login-card,
+.summary-card,
+.activity-section,
+.merchant-trend-card,
+.profile-card,
+.settings-list,
+.full-list {
+  border-color: var(--line);
 }
