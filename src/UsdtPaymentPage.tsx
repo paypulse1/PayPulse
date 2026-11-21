@@ -4,6 +4,7 @@ import { CheckCircle2, Copy, ShieldCheck, TriangleAlert } from "lucide-react"
 import { APP_ROUTES } from "./lib/routes"
 import { parseUsdtAmount } from "./lib/tronLink"
 import PayPulseLogo from "./PayPulseLogo"
+import SupportedByLogos from "./SupportedByLogos"
 
 const TRON_ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/
 
@@ -177,6 +178,7 @@ export default function UsdtPaymentPage() {
         )}
       </section>
       <footer className="checkout-footer">
+        <SupportedByLogos />
         <nav aria-label="Legal and support">
           <a href={APP_ROUTES.privacy}>Privacy</a>
           <a href={APP_ROUTES.terms}>Terms</a>

@@ -853,6 +853,10 @@
   margin: 0 auto 0 0;
 }
 
+.drpay-footer .supported-by {
+  justify-items: start;
+}
+
 .drpay-footer-play {
   display: grid;
   grid-template-columns: auto auto;
@@ -1435,6 +1439,12 @@
   .drpay-footer {
     padding: 22px 0 25px;
     gap: 14px;
+  }
+
+  .drpay-footer .supported-by {
+    order: 1;
+    flex-basis: 100%;
+    justify-items: center;
   }
 
   .drpay-footer p {

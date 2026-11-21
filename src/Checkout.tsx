@@ -16,6 +16,7 @@ import { APP_ROUTES } from "./lib/routes"
 import QrPaymentDisplay from "./QrPaymentDisplay"
 import VirtualAccountInformation from "./VirtualAccountInformation"
 import PayPulseLogo from "./PayPulseLogo"
+import SupportedByLogos from "./SupportedByLogos"
 
 type GoogleSurveyOptInApi = {
   load: (api: string, callback: () => void) => void
@@ -418,6 +419,7 @@ export default function Checkout({ code }: { code: string }) {
           />
         </div>
         <span>Payments are processed through SwiftPay QRPH.</span>
+        <SupportedByLogos />
         <nav aria-label="Customer, legal and support">
           <a href={APP_ROUTES.customer}>Customer history</a>
           <a href={APP_ROUTES.privacy}>Privacy</a>

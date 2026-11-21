@@ -9,6 +9,7 @@ import {
 } from "lucide-react"
 import { APP_ROUTES } from "../lib/routes"
 import PayPulseLogo from "../PayPulseLogo"
+import SupportedByLogos from "../SupportedByLogos"
 
 const paymentChannels = [
   {
@@ -269,6 +270,7 @@ export function MarketingFooter() {
         />
       </a>
       <p>Merchant payments, made clearer.</p>
+      <SupportedByLogos />
       <a
         className="drpay-footer-play"
         href={APP_ROUTES.androidAppListing}

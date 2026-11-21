@@ -8,6 +8,7 @@ import {
 import "./legal-pages.css"
 import { APP_ROUTES, type LegalPageKind } from "./lib/routes"
 import PayPulseLogo from "./PayPulseLogo"
+import SupportedByLogos from "./SupportedByLogos"
 
 export const supportEmail = "support@paypulse.live"
 const lastUpdated = "October 23, 2026"
@@ -298,6 +299,7 @@ function LegalPage({ page }: { page: LegalPageKind }) {
           <a href={APP_ROUTES.terms}>Terms of Service</a>
           <a href={APP_ROUTES.contact}>Contact Us</a>
         </nav>
+        <SupportedByLogos />
         <span>
           © {new Date().getFullYear()} DRL TECHS. COMPUTER SOFTWARE TRADING
         </span>

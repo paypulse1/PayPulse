@@ -538,6 +538,11 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .paypulse-wordmark-accent { color: var(--brand-blue); }
 .brand strong { font-size: 14px; font-weight: 850; letter-spacing: -.035em; }
 .powered-by > span { color: var(--muted); font-size: 7px; }
+.supported-by { display: grid; flex: none; gap: 6px; justify-items: center; color: var(--muted); }
+.supported-by > span { font-size: 8px; font-weight: 650; }
+.supported-by-logos { display: flex; align-items: center; gap: 12px; }
+.supported-by-logos img { display: block; width: auto; height: 21px; object-fit: contain; }
+.supported-by-logos img:first-child { height: 17px; }
 .sign-out-button { width: 100%; margin-top: 12px; color: var(--danger); }
 .empty-page { min-height: 540px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 .empty-icon { width: 58px; height: 58px; margin-bottom: 17px; display: grid; place-items: center; border-radius: 19px; background: #e6eef8; color: #1b4f9c; }
