@@ -28,6 +28,31 @@ export type AdminPage = "overview" | "payments" | "merchants" | "kyb" | "ledger"
 
 export type MerchantFilter = "all" | "pending" | "active" | "disabled"
 
+export function isSameAdminIdentity(
+  firstEmail: string | null | undefined,
+  secondEmail: string | null | undefined,
+) {
+  const normalize = (email: string | null | undefined) =>
+    typeof email === "string" ? email.trim().toLowerCase() : ""
+  const first = normalize(firstEmail)
+  return first.length > 0 && first === normalize(secondEmail)
+}
+
+export function getAdminRoleLabel(role: Session["role"] | undefined) {
+  switch (role) {
+    case "super_admin":
+      return "Super admin"
+    case "finance":
+      return "Finance"
+    case "compliance":
+      return "Compliance"
+    case "auditor":
+      return "Auditor"
+    default:
+      return "Operations"
+  }
+}
+
 export const ADMIN_PAGE_METADATA: Record<AdminPage, {
   title: string
   description: string

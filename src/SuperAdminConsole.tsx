@@ -90,6 +90,8 @@ import KybApplicationCard, {
 import MerchantAccountRow from "./super-admin/MerchantAccountRow"
 import {
   canActivateMerchant,
+  getAdminRoleLabel,
+  isSameAdminIdentity,
   updateMerchantKybStatus,
   useAdminConsoleViewModel,
   type AdminPage,
@@ -319,7 +321,7 @@ export function SuperAdminConsole({
     request: AdminApprovalRequest,
     decision: "approve" | "reject",
   ) {
-    if (request.requestedBy === session.email) {
+    if (isSameAdminIdentity(request.requestedBy, session.email)) {
       setError("You cannot review your own approval request.")
       return
     }
@@ -1600,7 +1602,7 @@ export function SuperAdminConsole({
       <header className="admin-header">
         <Brand />
         <div>
-          <span>SUPER ADMIN</span>
+          <span>{getAdminRoleLabel(session.role).toUpperCase()}</span>
           <strong>{session.email}</strong>
         </div>
         <Button
@@ -1613,7 +1615,7 @@ export function SuperAdminConsole({
       </header>
       <div className="admin-content">
         <div className="page-title">
-          <span className="eyebrow">SUPER ADMINISTRATION</span>
+          <span className="eyebrow">OPERATIONS CONSOLE</span>
           <div className="admin-page-heading">
             <ScreenTitle
               title={activePageMetadata.title}
@@ -1621,7 +1623,7 @@ export function SuperAdminConsole({
               description={activePageMetadata.description}
             />
             <div className="admin-header-actions">
-              {activePage !== "merchants" && (
+              {session.role === "super_admin" && activePage !== "merchants" && (
                 <Button
                   icon={<UserPlus size={15} />}
                   onClick={() => {
@@ -1647,7 +1649,7 @@ export function SuperAdminConsole({
         </div>
         <nav
           className="admin-nav"
-          aria-label="Super admin dashboard navigation"
+          aria-label="Operations console navigation"
         >
           {adminNavigationGroups.map((group) => (
             <div className="admin-nav-group" key={group.label}>
@@ -2874,7 +2876,7 @@ export function SuperAdminConsole({
                             {new Date(request.requestedAt).toLocaleString()}
                           </small>
                           <small>Target: {request.targetKey}</small>
-                          {request.requestedBy === session.email && (
+                          {isSameAdminIdentity(request.requestedBy, session.email) && (
                             <small>
                               You submitted this request. Another staff member
                               must approve or reject it.
@@ -2895,7 +2897,7 @@ export function SuperAdminConsole({
                             type="button"
                             disabled={
                               session.role === "auditor" ||
-                              request.requestedBy === session.email ||
+                              isSameAdminIdentity(request.requestedBy, session.email) ||
                               reviewingRequestId === request.id
                             }
                             onClick={() =>
@@ -2909,7 +2911,7 @@ export function SuperAdminConsole({
                             variant="secondary"
                             disabled={
                               session.role === "auditor" ||
-                              request.requestedBy === session.email ||
+                              isSameAdminIdentity(request.requestedBy, session.email) ||
                               reviewingRequestId === request.id
                             }
                             onClick={() =>

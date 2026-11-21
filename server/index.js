@@ -63,7 +63,11 @@ import {
   normalizeCustomerEmail,
 } from "./customer-auth.js"
 import { createCustomerOtpEmail } from "./customer-otp-email.js"
-import { canAdminAccess } from "./admin-access.js"
+import {
+  canAdminAccess,
+  isSameAdminIdentity,
+  normalizeAdminEmail,
+} from "./admin-access.js"
 import { createAdminInvitationEmail } from "./admin-invitation-email.js"
 import { postBalancedJournal } from "./accounting.js"
 import { parseBankCsv } from "./bank-csv.js"
@@ -413,7 +417,8 @@ const liveFcmConfig = {
 const googleSignInEnabled =
   process.env.DRPAY_GOOGLE_SIGN_IN_ENABLED?.trim().toLowerCase() !== "false"
 const googleClientId = googleSignInEnabled
-  ? process.env.DRPAY_GOOGLE_CLIENT_ID?.trim() || ""
+  ? process.env.DRPAY_GOOGLE_CLIENT_ID?.trim() ||
+    "607717944905-p6b78u6vmsmsm2b150t58tecrhpsih2j.apps.googleusercontent.com"
   : ""
 const googleAuthClient = googleClientId
   ? new OAuth2Client(googleClientId)
@@ -3886,10 +3891,11 @@ async function requireAdminSession(req, res, next) {
       rejectionReason = "invalid_claims"
       throw new Error("Invalid session")
     }
+    const normalizedAdminEmail = normalizeAdminEmail(payload.sub)
     const staff = await pool.query(
       `SELECT role, totp_enabled FROM admin_staff
        WHERE email = $1 AND role = $2 AND status = 'active'`,
-      [payload.sub, payload.role],
+      [normalizedAdminEmail, payload.role],
     )
     if (
       !staff.rowCount ||
@@ -3899,7 +3905,7 @@ async function requireAdminSession(req, res, next) {
       rejectionReason = "inactive_staff_or_totp_disabled"
       throw new Error("Inactive operations session")
     }
-    req.adminEmail = payload.sub
+    req.adminEmail = normalizedAdminEmail
     req.adminRole = staff.rows[0].role
     return next()
   } catch (error) {
@@ -4033,8 +4039,11 @@ async function prepareAdminApproval({
   const existing = await pool.query(
     `SELECT id FROM admin_approval_requests
      WHERE id = $1 AND action_key = $2 AND target_key = $3
-       AND payload = $4::jsonb AND requested_by = $5
-       AND status = 'approved' AND approved_by <> $5`,
+       AND payload = $4::jsonb
+       AND LOWER(BTRIM(requested_by)) = LOWER(BTRIM($5))
+       AND status = 'approved'
+       AND LOWER(BTRIM(COALESCE(approved_by, ''))) <>
+           LOWER(BTRIM($5))`,
     [
       approvalRequestId,
       actionKey,
@@ -4062,7 +4071,10 @@ async function consumeAdminApproval(
     `UPDATE admin_approval_requests
      SET status = 'consumed', consumed_at = NOW()
      WHERE id = $1 AND action_key = $2 AND target_key = $3
-       AND payload = $4::jsonb AND approved_by <> $5 AND status = 'approved'
+       AND payload = $4::jsonb
+       AND LOWER(BTRIM(COALESCE(approved_by, ''))) <>
+           LOWER(BTRIM($5))
+       AND status = 'approved'
      RETURNING id`,
     [requestId, actionKey, targetKey, JSON.stringify(payload), actor],
   )
@@ -6323,19 +6335,31 @@ app.post(
           error: "This approval request is no longer pending.",
         })
       }
-      if (request.rows[0].requested_by === req.adminEmail) {
+      if (
+        isSameAdminIdentity(
+          request.rows[0].requested_by,
+          req.adminEmail,
+        )
+      ) {
         await client.query("ROLLBACK")
         return res.status(403).json({
           error: "The requester cannot approve or reject their own action.",
         })
       }
       const nextStatus = decision === "approve" ? "approved" : "rejected"
-      await client.query(
+      const review = await client.query(
         `UPDATE admin_approval_requests
          SET status = $2, approved_by = $3, reviewed_at = NOW()
-         WHERE id = $1`,
+         WHERE id = $1
+           AND LOWER(BTRIM(requested_by)) <> LOWER(BTRIM($3))`,
         [id, nextStatus, req.adminEmail],
       )
+      if (!review.rowCount) {
+        await client.query("ROLLBACK")
+        return res.status(403).json({
+          error: "The requester cannot approve or reject their own action.",
+        })
+      }
       await recordAdminAuditEvent(client, {
         eventKey: `admin-approval:${id}:${decision}`,
         category: "Operations approval",

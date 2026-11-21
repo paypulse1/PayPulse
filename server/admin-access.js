@@ -19,6 +19,17 @@ const complianceReadOnlyData = [
   /^\/v1\/admin\/sumsub(?:\/|$)/,
 ]
 
+export function normalizeAdminEmail(email) {
+  return typeof email === "string" ? email.trim().toLowerCase() : ""
+}
+
+export function isSameAdminIdentity(firstEmail, secondEmail) {
+  return (
+    normalizeAdminEmail(firstEmail).length > 0 &&
+    normalizeAdminEmail(firstEmail) === normalizeAdminEmail(secondEmail)
+  )
+}
+
 export function canAdminAccess(role, method, path) {
   if (role === "super_admin") return true
   if (path.startsWith("/v1/admin/staff")) return false

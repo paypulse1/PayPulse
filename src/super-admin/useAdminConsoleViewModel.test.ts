@@ -4,6 +4,8 @@ import type { AdminMerchantAccount } from "../lib/swiftpay"
 import {
   canActivateMerchant,
   canManuallyApproveKyb,
+  getAdminRoleLabel,
+  isSameAdminIdentity,
   updateMerchantKybStatus,
 } from "./useAdminConsoleViewModel"
 
@@ -24,6 +26,24 @@ const merchant = (overrides: Partial<AdminMerchantAccount> = {}) =>
     updatedAt: "",
     ...overrides,
   }) satisfies AdminMerchantAccount
+
+test("operations roles render human-readable console labels", () => {
+  assert.equal(getAdminRoleLabel("super_admin"), "Super admin")
+  assert.equal(getAdminRoleLabel("finance"), "Finance")
+  assert.equal(getAdminRoleLabel("compliance"), "Compliance")
+  assert.equal(getAdminRoleLabel("auditor"), "Auditor")
+})
+
+test("approval self-review matching ignores email case and whitespace", () => {
+  assert.equal(
+    isSameAdminIdentity("Admin@Example.com", " admin@example.com "),
+    true,
+  )
+  assert.equal(
+    isSameAdminIdentity("admin@example.com", "other@example.com"),
+    false,
+  )
+})
 
 test("pending registration activation requires approved KYB", () => {
   assert.equal(canActivateMerchant(merchant({ kybStatus: "PENDING" })), false)

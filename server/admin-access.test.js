@@ -1,7 +1,21 @@
 import { describe, expect, it } from "vitest"
-import { canAdminAccess } from "./admin-access.js"
+import {
+  canAdminAccess,
+  isSameAdminIdentity,
+  normalizeAdminEmail,
+} from "./admin-access.js"
 
 describe("operations staff access", () => {
+  it("matches approval identities case-insensitively and without whitespace", () => {
+    expect(normalizeAdminEmail("  Admin@Example.com ")).toBe(
+      "admin@example.com",
+    )
+    expect(
+      isSameAdminIdentity("Admin@Example.com", " admin@example.com "),
+    ).toBe(true)
+    expect(isSameAdminIdentity("", "admin@example.com")).toBe(false)
+  })
+
   it("keeps the super admin unrestricted and auditors read-only", () => {
     expect(canAdminAccess("super_admin", "DELETE", "/v1/admin/staff/1")).toBe(
       true,
