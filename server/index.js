@@ -410,7 +410,11 @@ const liveFcmConfig = {
   serviceAccountPrivateKey:
     process.env.FCM_LIVE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, "\n"),
 }
-const googleClientId = process.env.DRPAY_GOOGLE_CLIENT_ID?.trim() || ""
+const googleSignInEnabled =
+  process.env.DRPAY_GOOGLE_SIGN_IN_ENABLED?.trim().toLowerCase() === "true"
+const googleClientId = googleSignInEnabled
+  ? process.env.DRPAY_GOOGLE_CLIENT_ID?.trim() || ""
+  : ""
 const googleAuthClient = googleClientId
   ? new OAuth2Client(googleClientId)
   : null
