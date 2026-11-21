@@ -1,7 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="368" height="368" viewBox="0 0 368 368">
   <title>PayPulse</title>
-  <rect width="368" height="368" rx="104" fill="#1D4ED8"/>
-  <circle cx="292" cy="76" r="58" fill="#39D3C3" opacity=".18"/>
+  <defs>
+    <linearGradient id="paypulse-mark-gradient" x1="30" y1="30" x2="338" y2="338" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#153B78"/>
+      <stop offset=".58" stop-color="#2457EB"/>
+      <stop offset="1" stop-color="#167E9E"/>
+    </linearGradient>
+  </defs>
+  <rect width="368" height="368" rx="104" fill="url(#paypulse-mark-gradient)"/>
+  <circle cx="292" cy="76" r="58" fill="#5AE1D2" opacity=".2"/>
   <path d="M66 190h61l28-55 43 102 37-77 24 30h43" fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round" stroke-width="23"/>
   <circle cx="302" cy="190" r="13" fill="#72F0D8"/>
 </svg>
