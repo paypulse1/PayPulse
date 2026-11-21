@@ -821,6 +821,10 @@ export function getApiBaseUrl() {
   return getConfiguredApiBaseUrl().replace(/\/$/, "")
 }
 const SESSION_KEY = "drpay_session"
+function getEnvironmentSessionKey() {
+  return `${SESSION_KEY}_${getPaymentEnvironment()}`
+}
+
 export const SESSION_EXPIRED_EVENT = "drpay:session-expired"
 const PAYMENT_LINK_KEY = "drpay_pending_payment_link_key"
 const COLLECTION_INSTITUTION_CACHE_KEY = "drpay_collection_institutions"
@@ -852,21 +856,31 @@ function isSession(value: unknown): value is Session {
 }
 
 export function getSession(): Session | null {
-  const stored = readStorageItem("session", SESSION_KEY)
+  const environmentSessionKey = getEnvironmentSessionKey()
+  let storageKey = environmentSessionKey
+  let stored = readStorageItem("session", storageKey)
+  if (!stored) {
+    storageKey = SESSION_KEY
+    stored = readStorageItem("session", storageKey)
+  }
   if (!stored) return null
   try {
     const parsed = JSON.parse(stored) as unknown
     if (!isSession(parsed)) {
-      removeStorageItem("session", SESSION_KEY)
+      removeStorageItem("session", storageKey)
       return null
     }
     if (parsed.expiresAt <= Date.now()) {
-      removeStorageItem("session", SESSION_KEY)
+      removeStorageItem("session", storageKey)
       return null
+    }
+    if (storageKey !== environmentSessionKey) {
+      writeStorageItem("session", environmentSessionKey, stored)
+      removeStorageItem("session", storageKey)
     }
     return parsed
   } catch {
-    removeStorageItem("session", SESSION_KEY)
+    removeStorageItem("session", storageKey)
     return null
   }
 }
@@ -875,10 +889,15 @@ export function saveSession(session: Session) {
   if (!isSession(session)) {
     throw new Error("Invalid PayPulse session.")
   }
-  writeStorageItem("session", SESSION_KEY, JSON.stringify(session))
+  writeStorageItem(
+    "session",
+    getEnvironmentSessionKey(),
+    JSON.stringify(session),
+  )
 }
 
 export function clearSession() {
+  removeStorageItem("session", getEnvironmentSessionKey())
   removeStorageItem("session", SESSION_KEY)
 }
 

@@ -5835,13 +5835,12 @@ export default function App({ route }: { route: AppViewRoute }) {
         : ""
     if (
       !window.confirm(
-        `Switch to ${nextLabel}? You’ll be signed out and must sign in again.${liveWarning}`,
+        `Switch to ${nextLabel}? Your current session will be kept for when you switch back.${liveWarning}`,
       )
     )
       return
     setSwitchingEnvironment(true)
     try {
-      await signOut()
       setPaymentEnvironment(nextEnvironment)
       window.location.reload()
     } catch (switchError) {

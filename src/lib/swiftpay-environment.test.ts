@@ -101,6 +101,59 @@ test("persists an explicit environment choice and routes to its API", async () =
   assert.equal(getApiBaseUrl(), "https://api.live.example.test")
 })
 
+test("keeps separate sessions when switching between environments", async () => {
+  vi.stubEnv("VITE_DRPAY_BACKEND_URL", "https://api.live.example.test")
+  vi.stubEnv("VITE_DRPAY_LIVE_BACKEND_URL", "https://api.live.example.test")
+  vi.stubEnv(
+    "VITE_DRPAY_SANDBOX_BACKEND_URL",
+    "https://api.sandbox.example.test",
+  )
+  vi.stubGlobal("window", {
+    location: {
+      hostname: "paypulse.live",
+      origin: "https://paypulse.live",
+    },
+  })
+  const localStorage = new Map<string, string>()
+  const sessionStorage = new Map<string, string>()
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => localStorage.get(key) ?? null,
+    setItem: (key: string, value: string) => localStorage.set(key, value),
+    removeItem: (key: string) => localStorage.delete(key),
+  })
+  vi.stubGlobal("sessionStorage", {
+    getItem: (key: string) => sessionStorage.get(key) ?? null,
+    setItem: (key: string, value: string) => sessionStorage.set(key, value),
+    removeItem: (key: string) => sessionStorage.delete(key),
+  })
+
+  const { clearSession, getSession, saveSession, setPaymentEnvironment } =
+    await import("./swiftpay.ts")
+  const productionSession = {
+    accessToken: "production-token",
+    expiresAt: Date.now() + 60_000,
+    email: "merchant@example.com",
+    role: "merchant" as const,
+  }
+  const sandboxSession = {
+    ...productionSession,
+    accessToken: "sandbox-token",
+  }
+
+  saveSession(productionSession)
+  setPaymentEnvironment("sandbox")
+  assert.equal(getSession(), null)
+  saveSession(sandboxSession)
+
+  setPaymentEnvironment("production")
+  assert.deepEqual(getSession(), productionSession)
+  setPaymentEnvironment("sandbox")
+  assert.deepEqual(getSession(), sandboxSession)
+  clearSession()
+  setPaymentEnvironment("production")
+  assert.deepEqual(getSession(), productionSession)
+})
+
 test("refuses to select sandbox when its API is not configured", async () => {
   vi.stubEnv("VITE_DRPAY_BACKEND_URL", "https://api.live.example.test")
   vi.stubEnv("VITE_DRPAY_LIVE_BACKEND_URL", "https://api.live.example.test")
