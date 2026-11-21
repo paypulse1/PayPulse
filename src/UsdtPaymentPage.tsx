@@ -53,6 +53,7 @@ export default function UsdtPaymentPage() {
     try {
       await navigator.clipboard.writeText(address)
       setCopyMessage("Address copied.")
+      window.setTimeout(() => setCopyMessage(""), 1800)
     } catch {
       setCopyMessage("Could not copy the address. Select and copy it manually.")
     }
@@ -60,7 +61,10 @@ export default function UsdtPaymentPage() {
 
   return (
     <main className="checkout-screen">
-      <section className="checkout-card" aria-labelledby="usdt-checkout-title">
+      <section
+        className="checkout-card checkout-card-usdt"
+        aria-labelledby="usdt-checkout-title"
+      >
         <header className="checkout-brand">
           <PayPulseLogo />
           <span>PayPulse</span>
@@ -83,64 +87,91 @@ export default function UsdtPaymentPage() {
             <div className="checkout-summary">
               <span className="checkout-label">USDT PAYMENT REQUEST</span>
               <h1 id="usdt-checkout-title">{reference}</h1>
-              <strong className="checkout-amount">{amount} USDT</strong>
-              <span className="checkout-currency-note">
-                TRON mainnet · TRC20 only
-              </span>
-            </div>
-
-            {qrError ? (
-              <p className="checkout-qr-error" role="alert">
-                {qrError}
-              </p>
-            ) : qrImage ? (
-              <div className="checkout-qr-frame">
-                <img
-                  src={qrImage}
-                  alt="QR code for the merchant's TRON mainnet address"
-                />
+              <div className="checkout-total">
+                <strong className="checkout-amount">{amount} USDT</strong>
+                <span className="checkout-currency-note">
+                  TRON mainnet · TRC20 only
+                </span>
               </div>
-            ) : (
-              <p className="checkout-loading" role="status">
-                Preparing address QR…
-              </p>
-            )}
-
-            <div className="checkout-instructions">
-              <strong>How to pay</strong>
-              <ol>
-                <li>Send exactly {amount} USDT using TRON (TRC20).</li>
-                <li>Check the network and address carefully before sending.</li>
-                <li>Ask the merchant to confirm the deposit after it arrives.</li>
-              </ol>
-              <p>
-                Do not send USDT using another network. Transfers are
-                irreversible and this request is not confirmed automatically.
-              </p>
             </div>
 
-            <div className="checkout-reference">
-              <span>Merchant TRON mainnet address</span>
-              <button type="button" onClick={() => void copyAddress()}>
-                <code>{address}</code>
-                {copyMessage === "Address copied." ? (
-                  <CheckCircle2 size={15} />
+            <div className="checkout-payment-layout">
+              <div className="checkout-payment-primary">
+                <h2 className="checkout-section-title">Send USDT</h2>
+                {qrError ? (
+                  <p className="checkout-qr-error" role="alert">
+                    {qrError}
+                  </p>
+                ) : qrImage ? (
+                  <div className="checkout-qr-frame">
+                    <img
+                      src={qrImage}
+                      alt="QR code for the merchant's TRON mainnet address"
+                    />
+                  </div>
                 ) : (
-                  <Copy size={15} />
+                  <p className="checkout-loading" role="status">
+                    Preparing address QR…
+                  </p>
                 )}
-              </button>
-              {copyMessage && (
-                <p
-                  className={
-                    copyMessage === "Address copied."
-                      ? "usdt-copy-message"
-                      : "checkout-inline-error"
-                  }
-                  role="status"
-                >
-                  {copyMessage}
-                </p>
-              )}
+              </div>
+
+              <aside className="checkout-payment-details">
+                <div className="checkout-instructions">
+                  <h2 className="checkout-section-title">Before you send</h2>
+                  <ol>
+                    <li>
+                      <span>
+                        Send exactly {amount} USDT using TRON (TRC20).
+                      </span>
+                    </li>
+                    <li>
+                      <span>
+                        Check the network and address carefully before sending.
+                      </span>
+                    </li>
+                    <li>
+                      <span>
+                        Ask the merchant to confirm the deposit after it
+                        arrives.
+                      </span>
+                    </li>
+                  </ol>
+                  <p>
+                    Do not send USDT using another network. Transfers are
+                    irreversible and this request is not confirmed
+                    automatically.
+                  </p>
+                </div>
+
+                <div className="checkout-reference">
+                  <span>Merchant TRON mainnet address</span>
+                  <button
+                    type="button"
+                    onClick={() => void copyAddress()}
+                    aria-label="Copy merchant TRON mainnet address"
+                  >
+                    <code>{address}</code>
+                    {copyMessage === "Address copied." ? (
+                      <CheckCircle2 size={15} />
+                    ) : (
+                      <Copy size={15} />
+                    )}
+                  </button>
+                  {copyMessage && (
+                    <p
+                      className={
+                        copyMessage === "Address copied."
+                          ? "usdt-copy-message"
+                          : "checkout-inline-error"
+                      }
+                      role="status"
+                    >
+                      {copyMessage}
+                    </p>
+                  )}
+                </div>
+              </aside>
             </div>
           </>
         )}

@@ -269,16 +269,18 @@ export default function Checkout({ code }: { code: string }) {
             <div className="checkout-summary">
               <span className="checkout-label">PAYMENT REQUEST</span>
               <h1 id="checkout-title">{checkout.title}</h1>
-              <strong className="checkout-amount">
-                {checkout.currency}{" "}
-                {checkout.amount.toLocaleString("en-PH", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </strong>
-              <span className="checkout-currency-note">
-                Pay the exact amount shown in PHP.
-              </span>
+              <div className="checkout-total">
+                <strong className="checkout-amount">
+                  {checkout.currency}{" "}
+                  {checkout.amount.toLocaleString("en-PH", {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                </strong>
+                <span className="checkout-currency-note">
+                  Pay the exact amount shown in PHP.
+                </span>
+              </div>
             </div>
 
             <div
@@ -295,87 +297,101 @@ export default function Checkout({ code }: { code: string }) {
               </p>
             )}
 
-            {checkout.status === "EXECUTED" ||
-            checkout.status === "MANUALLY_PAID" ? (
-              <div className="checkout-complete">
-                <CheckCircle2 size={42} />
-                <strong>
-                  {checkout.status === "MANUALLY_PAID"
-                    ? "The merchant has verified and confirmed your payment."
-                    : "Thank you. Your payment is confirmed."}
-                </strong>
-                <span>You may close this page.</span>
-              </div>
-            ) : checkout.status === "EXPIRED" ? (
-              <div className="checkout-expired">
-                Ask the merchant for a new payment request.
-              </div>
-            ) : checkout.status === "CANCELED" ||
-              checkout.status === "REJECTED" ? (
-              <div className="checkout-expired">
-                This payment request is no longer active. Ask the merchant for
-                help.
-              </div>
-            ) : (
-              <>
-                <QrPaymentDisplay
-                  value={checkout.qrCode}
-                  showBirLogo={checkout.isTaxInvoice}
-                  institution={
-                    checkout.institutionCode && checkout.institutionName
-                      ? {
-                          code: checkout.institutionCode,
-                          name: checkout.institutionName,
-                          logoUrl: checkout.institutionLogoUrl || undefined,
-                          deepLink: checkout.institutionDeepLink || undefined,
+            <div className="checkout-payment-layout">
+              <div className="checkout-payment-primary">
+                {checkout.status === "EXECUTED" ||
+                checkout.status === "MANUALLY_PAID" ? (
+                  <div className="checkout-complete">
+                    <CheckCircle2 size={42} />
+                    <strong>
+                      {checkout.status === "MANUALLY_PAID"
+                        ? "The merchant has verified and confirmed your payment."
+                        : "Thank you. Your payment is confirmed."}
+                    </strong>
+                    <span>You may close this page.</span>
+                  </div>
+                ) : checkout.status === "EXPIRED" ? (
+                  <div className="checkout-expired">
+                    Ask the merchant for a new payment request.
+                  </div>
+                ) : checkout.status === "CANCELED" ||
+                  checkout.status === "REJECTED" ? (
+                  <div className="checkout-expired">
+                    This payment request is no longer active. Ask the merchant
+                    for help.
+                  </div>
+                ) : (
+                  <>
+                    <h2 className="checkout-section-title">Scan to pay</h2>
+                    <QrPaymentDisplay
+                      value={checkout.qrCode}
+                      showBirLogo={checkout.isTaxInvoice}
+                      institution={
+                        checkout.institutionCode && checkout.institutionName
+                          ? {
+                              code: checkout.institutionCode,
+                              name: checkout.institutionName,
+                              logoUrl: checkout.institutionLogoUrl || undefined,
+                              deepLink:
+                                checkout.institutionDeepLink || undefined,
+                            }
+                          : undefined
+                      }
+                    />
+                    {checkout.institutionCode ===
+                      VIRTUAL_ACCOUNT_INSTITUTION_CODE && (
+                      <VirtualAccountInformation
+                        information={checkout.virtualAccountInfo}
+                        showReference={
+                          Boolean(checkout.virtualAccountInfo?.referenceNo) &&
+                          checkout.virtualAccountInfo?.referenceNo !==
+                            checkout.referenceNo
                         }
-                      : undefined
-                  }
-                />
-                {checkout.institutionCode ===
-                  VIRTUAL_ACCOUNT_INSTITUTION_CODE && (
-                  <VirtualAccountInformation
-                    information={checkout.virtualAccountInfo}
-                    showReference={
-                      Boolean(checkout.virtualAccountInfo?.referenceNo) &&
-                      checkout.virtualAccountInfo?.referenceNo !==
-                        checkout.referenceNo
-                    }
-                  />
+                      />
+                    )}
+                  </>
                 )}
-              </>
-            )}
-
-            {!terminal && (
-              <div className="checkout-instructions">
-                <strong>How to pay</strong>
-                <ol>
-                  {(
-                    checkout.checkoutInstructions ||
-                    `Open your ${checkout.institutionName || "bank"} or supported banking app.\nOpen your ${checkout.institutionName || "bank"} QR scanner and scan the code above.\nConfirm the PHP amount before completing payment.`
-                  )
-                    .split(/\r?\n/)
-                    .map((instruction, index) => (
-                      <li key={`${index}-${instruction}`}>{instruction}</li>
-                    ))}
-                </ol>
               </div>
-            )}
 
-            <div className="checkout-reference">
-              <span>Payment reference</span>
-              <button
-                type="button"
-                onClick={() => void copyReference()}
-                aria-label="Copy payment reference"
-              >
-                <code>{checkout.referenceNo}</code>
-                {referenceCopied ? "Copied" : <Copy size={15} />}
-              </button>
+              <aside className="checkout-payment-details">
+                {!terminal && (
+                  <div className="checkout-instructions">
+                    <h2 className="checkout-section-title">How to pay</h2>
+                    <ol>
+                      {(
+                        checkout.checkoutInstructions ||
+                        `Open your ${checkout.institutionName || "bank"} or supported banking app.\nOpen your ${checkout.institutionName || "bank"} QR scanner and scan the code above.\nConfirm the PHP amount before completing payment.`
+                      )
+                        .split(/\r?\n/)
+                        .map((instruction, index) => (
+                          <li key={`${index}-${instruction}`}>
+                            <span>{instruction}</span>
+                          </li>
+                        ))}
+                    </ol>
+                    <p>
+                      Confirm the recipient and amount in your banking app
+                      before authorizing the payment.
+                    </p>
+                  </div>
+                )}
+
+                <div className="checkout-reference">
+                  <span>Payment reference</span>
+                  <button
+                    type="button"
+                    onClick={() => void copyReference()}
+                    aria-label="Copy payment reference"
+                  >
+                    <code>{checkout.referenceNo}</code>
+                    {referenceCopied ? "Copied" : <Copy size={15} />}
+                  </button>
+                </div>
+                {error && checkout && (
+                  <p className="checkout-inline-error">{error}</p>
+                )}
+              </aside>
             </div>
-            {error && checkout && (
-              <p className="checkout-inline-error">{error}</p>
-            )}
           </>
         )}
       </section>
