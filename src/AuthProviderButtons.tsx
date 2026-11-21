@@ -302,7 +302,12 @@ export function TelegramIdentityButton({
         (response) => {
           if (response.error || !response.id_token) {
             setBusy(false)
-            onError("Telegram sign-in was not completed. Try again.")
+            const providerError = response.error?.trim()
+            onError(
+              providerError
+                ? `Telegram sign-in was not completed: ${providerError}.`
+                : "Telegram sign-in was not completed. Try again.",
+            )
             return
           }
           void onToken(challenge.challengeId, response.id_token)

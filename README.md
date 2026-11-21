@@ -38,8 +38,8 @@ Set these secrets directly in Render when prompted:
 - Financial transaction, ledger, journal, reconciliation, and suspense records are protected against deletion; correct mistakes with compensating entries. No scheduled financial-record purge is configured. Compliance must set jurisdiction-specific retention periods before production, and sensitive identity data must follow a separately approved retention/deletion policy.
 - Customer-wallet design remains gated on jurisdiction and rails decisions. See [CUSTOMER_WALLET_ARCHITECTURE.md](./CUSTOMER_WALLET_ARCHITECTURE.md); no customer funds are held or moved by that specification.
 - `DRPAY_JWT_SECRET`: random signing secret with at least 32 characters.
-- `DRPAY_GOOGLE_SIGN_IN_ENABLED`: Set to `true` to enable Google sign-in and account linking. It defaults to disabled.
-- `DRPAY_GOOGLE_CLIENT_ID`: Google OAuth Web client ID used only when `DRPAY_GOOGLE_SIGN_IN_ENABLED=true`. Configure its authorized JavaScript origins for the matching merchant web portal; the API verifies Google ID tokens against this audience.
+- `DRPAY_GOOGLE_SIGN_IN_ENABLED`: Set to `false` to disable Google sign-in and account linking. It defaults to enabled when a client ID is configured.
+- `DRPAY_GOOGLE_CLIENT_ID`: Google OAuth Web client ID. Configure its authorized JavaScript origins for the matching merchant web portal; the API verifies Google ID tokens against this audience.
 - `DRPAY_TELEGRAM_LOGIN_CLIENT_ID`: Telegram Login client ID from BotFather. Register the matching merchant portal origin in BotFather. This is separate from the super-admin notification bot token.
 - `DRPAY_PASSKEY_RP_ID`: the merchant portal's hostname without scheme or path (`paypulse.live` for production; `sandbox.paypulse.live` for sandbox). Passkey registration and login are web-only and require HTTPS (localhost is allowed for development).
 - `RESEND_API_KEY`: API key for sending first-device verification codes, customer payment requests, and payment confirmations through Resend.

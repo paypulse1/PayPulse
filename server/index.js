@@ -411,7 +411,7 @@ const liveFcmConfig = {
     process.env.FCM_LIVE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, "\n"),
 }
 const googleSignInEnabled =
-  process.env.DRPAY_GOOGLE_SIGN_IN_ENABLED?.trim().toLowerCase() === "true"
+  process.env.DRPAY_GOOGLE_SIGN_IN_ENABLED?.trim().toLowerCase() !== "false"
 const googleClientId = googleSignInEnabled
   ? process.env.DRPAY_GOOGLE_CLIENT_ID?.trim() || ""
   : ""

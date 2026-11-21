@@ -44,6 +44,8 @@ services:
         sync: false
       - key: DRPAY_GOOGLE_CLIENT_ID
         sync: false
+      - key: DRPAY_GOOGLE_SIGN_IN_ENABLED
+        value: "true"
       - key: DRPAY_TELEGRAM_LOGIN_CLIENT_ID
         sync: false
       - key: DRPAY_PASSKEY_RP_ID
@@ -146,6 +148,8 @@ services:
         sync: false
       - key: DRPAY_GOOGLE_CLIENT_ID
         sync: false
+      - key: DRPAY_GOOGLE_SIGN_IN_ENABLED
+        value: "true"
       - key: DRPAY_TELEGRAM_LOGIN_CLIENT_ID
         sync: false
       - key: DRPAY_PASSKEY_RP_ID
