@@ -164,24 +164,3 @@ export function Brand() {
     </div>
   )
 }
-
-export function PoweredByFooter() {
-  return (
-    <footer className="auth-powered-by" aria-label="Supported by our partners">
-      <span>Supported By</span>
-      <span
-        className="auth-powered-by-signature"
-        role="img"
-        aria-label="PayPulse signature"
-      />
-      <ul className="auth-powered-by-partners">
-        <li>
-          <img src="/powered-by/netbank.png" alt="Netbank" />
-        </li>
-        <li>
-          <img src="/bank-logos/alipay-plus.svg" alt="Alipay+" />
-        </li>
-      </ul>
-    </footer>
-  )
-}

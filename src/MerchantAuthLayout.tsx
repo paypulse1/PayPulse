@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { Brand, PoweredByFooter } from "./AppPrimitives"
+import { Brand } from "./AppPrimitives"
 
 type MerchantAuthLayoutProps = {
   kicker: string
@@ -67,7 +67,6 @@ export default function MerchantAuthLayout({
             <span className="eyebrow">{eyebrow}</span>
             {children}
           </section>
-          <PoweredByFooter />
         </div>
       </div>
     </main>

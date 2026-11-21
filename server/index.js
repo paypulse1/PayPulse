@@ -402,6 +402,14 @@ const publicFcmConfig = {
   serviceAccountPrivateKey:
     process.env.FCM_PUBLIC_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, "\n"),
 }
+const liveFcmConfig = {
+  projectId: process.env.FCM_LIVE_PROJECT_ID || "pulsepay-b2e95",
+  serviceAccountEmail:
+    process.env.FCM_LIVE_SERVICE_ACCOUNT_EMAIL ||
+    "firebase-adminsdk-fbsvc@pulsepay-b2e95.iam.gserviceaccount.com",
+  serviceAccountPrivateKey:
+    process.env.FCM_LIVE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+}
 const googleClientId = process.env.DRPAY_GOOGLE_CLIENT_ID?.trim() || ""
 const googleAuthClient = googleClientId
   ? new OAuth2Client(googleClientId)
@@ -1189,9 +1197,9 @@ async function sendCustomerPaymentEmail(payment) {
 }
 
 function getFcmConfig(appId) {
-  return appId === "ph.drpays.merchant.public"
-    ? publicFcmConfig
-    : privateFcmConfig
+  if (appId === "ph.drpays.merchant.public") return publicFcmConfig
+  if (appId === "com.paypulse.live") return liveFcmConfig
+  return privateFcmConfig
 }
 
 function fcmConfigIsComplete(config) {
@@ -1205,7 +1213,8 @@ function fcmConfigIsComplete(config) {
 function fcmConfigured() {
   return (
     fcmConfigIsComplete(privateFcmConfig) ||
-    fcmConfigIsComplete(publicFcmConfig)
+    fcmConfigIsComplete(publicFcmConfig) ||
+    fcmConfigIsComplete(liveFcmConfig)
   )
 }
 
@@ -2833,7 +2842,7 @@ async function initializeDatabase() {
       token TEXT PRIMARY KEY,
       merchant_email TEXT NOT NULL REFERENCES merchant_accounts(email) ON DELETE CASCADE,
       app_id TEXT NOT NULL DEFAULT 'com.paypulse.merchant'
-        CHECK (app_id IN ('com.paypulse.merchant', 'ph.drpays.merchant.public')),
+        CHECK (app_id IN ('com.paypulse.merchant', 'ph.drpays.merchant.public', 'com.paypulse.live')),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -2848,7 +2857,7 @@ async function initializeDatabase() {
         WHERE app_id = 'ph.drpays.merchant';
       ALTER TABLE merchant_push_devices
         ADD CONSTRAINT merchant_push_devices_app_id_check
-        CHECK (app_id IN ('com.paypulse.merchant', 'ph.drpays.merchant.public'));
+        CHECK (app_id IN ('com.paypulse.merchant', 'ph.drpays.merchant.public', 'com.paypulse.live'));
     END
     $migration$;
     CREATE TABLE IF NOT EXISTS merchant_notification_preferences (
@@ -11081,7 +11090,13 @@ app.post("/v1/notifications/push-token", async (req, res) => {
     return res.status(400).json({ error: "A valid push token is required." })
   const appId =
     typeof req.body?.appId === "string" ? req.body.appId : "com.paypulse.merchant"
-  if (!["com.paypulse.merchant", "ph.drpays.merchant.public"].includes(appId))
+  if (
+    ![
+      "com.paypulse.merchant",
+      "ph.drpays.merchant.public",
+      "com.paypulse.live",
+    ].includes(appId)
+  )
     return res.status(400).json({ error: "A valid app ID is required." })
   await pool.query(
     `INSERT INTO merchant_push_devices (token, merchant_email, app_id)
@@ -12011,6 +12026,11 @@ function startNotificationWorker() {
   if (!fcmConfigIsComplete(publicFcmConfig)) {
     console.warn(
       "Public Android push delivery is disabled until FCM_PUBLIC_SERVICE_ACCOUNT_PRIVATE_KEY is configured.",
+    )
+  }
+  if (!fcmConfigIsComplete(liveFcmConfig)) {
+    console.warn(
+      "Live Android app push delivery is disabled until FCM_LIVE_SERVICE_ACCOUNT_PRIVATE_KEY is configured.",
     )
   }
   if (!telegramBotToken || !telegramChatId) {

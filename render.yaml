@@ -64,6 +64,12 @@ services:
         value: firebase-adminsdk-fbsvc@drpay-merchant.iam.gserviceaccount.com
       - key: FCM_PUBLIC_SERVICE_ACCOUNT_PRIVATE_KEY
         sync: false
+      - key: FCM_LIVE_PROJECT_ID
+        value: pulsepay-b2e95
+      - key: FCM_LIVE_SERVICE_ACCOUNT_EMAIL
+        value: firebase-adminsdk-fbsvc@pulsepay-b2e95.iam.gserviceaccount.com
+      - key: FCM_LIVE_SERVICE_ACCOUNT_PRIVATE_KEY
+        sync: false
       - key: SUMSUB_APP_TOKEN
         sync: false
       - key: SUMSUB_SECRET_KEY
@@ -159,6 +165,12 @@ services:
       - key: FCM_PUBLIC_SERVICE_ACCOUNT_EMAIL
         value: firebase-adminsdk-fbsvc@drpay-merchant.iam.gserviceaccount.com
       - key: FCM_PUBLIC_SERVICE_ACCOUNT_PRIVATE_KEY
+        sync: false
+      - key: FCM_LIVE_PROJECT_ID
+        value: pulsepay-b2e95
+      - key: FCM_LIVE_SERVICE_ACCOUNT_EMAIL
+        value: firebase-adminsdk-fbsvc@pulsepay-b2e95.iam.gserviceaccount.com
+      - key: FCM_LIVE_SERVICE_ACCOUNT_PRIVATE_KEY
         sync: false
       - key: SUMSUB_APP_TOKEN
         sync: false

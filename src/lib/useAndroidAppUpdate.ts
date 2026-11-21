@@ -40,7 +40,15 @@ export function useAndroidAppUpdate() {
       requestController = new AbortController()
       try {
         const appInfo = await CapacitorApp.getInfo()
-        if (appInfo.id !== "com.paypulse.merchant") return
+        const isLiveApp = appInfo.id === "com.paypulse.live"
+        if (appInfo.id !== "com.paypulse.merchant" && !isLiveApp) return
+        const tagPattern = isLiveApp
+          ? /^android-live-v\d+\.\d+\.\d+$/
+          : /^android-v\d+\.\d+\.\d+$/
+        const tagVersionPattern = isLiveApp
+          ? /^android-live-v(\d+\.\d+\.\d+)$/
+          : /^android-v(\d+\.\d+\.\d+)$/
+        const assetName = isLiveApp ? "drpay-live.apk" : "drpay.apk"
         const response = await fetch(
           "https://api.github.com/repos/paypulse1/PayPulse/releases?per_page=100",
           {
@@ -64,13 +72,11 @@ export function useAndroidAppUpdate() {
           (candidate) =>
             !candidate.draft &&
             !candidate.prerelease &&
-            /^android-v\d+\.\d+\.\d+$/.test(candidate.tag_name || "") &&
-            candidate.assets?.some((asset) => asset.name === "drpay.apk"),
+            tagPattern.test(candidate.tag_name || "") &&
+            candidate.assets?.some((asset) => asset.name === assetName),
         )
-        const versionMatch = /^android-v(\d+\.\d+\.\d+)$/.exec(
-          release?.tag_name || "",
-        )
-        const apk = release?.assets?.find((asset) => asset.name === "drpay.apk")
+        const versionMatch = tagVersionPattern.exec(release?.tag_name || "")
+        const apk = release?.assets?.find((asset) => asset.name === assetName)
         if (!active || !versionMatch || !apk?.browser_download_url) return
         const downloadUrl = new URL(apk.browser_download_url)
         if (

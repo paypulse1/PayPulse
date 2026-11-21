@@ -15,7 +15,7 @@ import {
   type AdminLoginChallenge,
   type Session,
 } from "./lib/swiftpay"
-import { Brand, Button, PoweredByFooter } from "./AppPrimitives"
+import { Brand, Button } from "./AppPrimitives"
 
 type Stage = "credentials" | "invitation" | "setup" | "verify"
 
@@ -246,7 +246,6 @@ export default function OperationsSignIn({
           </span>
         </div>
       </section>
-      <PoweredByFooter />
     </main>
   )
 }

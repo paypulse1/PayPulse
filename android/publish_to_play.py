@@ -12,6 +12,7 @@ from google.oauth2.service_account import Credentials
 PACKAGE_NAME = os.environ.get("ANDROID_APPLICATION_ID", "com.paypulse.merchant")
 SUPPORTED_PACKAGE_NAMES = {
     "com.paypulse.merchant",
+    "com.paypulse.live",
     "ph.drpays.merchant.public",
 }
 TRACK = "internal"
@@ -236,15 +237,16 @@ def main() -> None:
     if checking_production or updating_listing or publishing_closed_test:
         version_name = ""
     elif promoting_existing_release:
-        version_prefix = (
-            "android-public-prod-v"
-            if PACKAGE_NAME == "ph.drpays.merchant.public"
-            else "android-prod-v"
-        )
+        if PACKAGE_NAME == "ph.drpays.merchant.public":
+            version_prefix = "android-public-prod-v"
+        elif PACKAGE_NAME == "com.paypulse.live":
+            version_prefix = "android-live-prod-v"
+        else:
+            version_prefix = "android-prod-v"
         version_name, version_code = parse_version(sys.argv[2], version_prefix)
     else:
         version_name = os.environ.get("ANDROID_VERSION_NAME", "")
-        for prefix in ("android-public-v", "android-v"):
+        for prefix in ("android-public-v", "android-live-v", "android-v"):
             if version_name.startswith(prefix):
                 version_name = version_name.removeprefix(prefix)
                 break

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "73559811826",
+    "project_id": "pulsepay-b2e95",
+    "storage_bucket": "pulsepay-b2e95.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:73559811826:android:0c754334653c8c91afd26b",
+        "android_client_info": {
+          "package_name": "com.paypulse.live"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAuRND8EvUPAI_atSIZNooAS3Zh-SX6yBg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
