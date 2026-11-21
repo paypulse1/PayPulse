@@ -2853,8 +2853,9 @@ export function SuperAdminConsole({
                   <div>
                     <h2>Pending sensitive actions</h2>
                     <p>
-                      Review the exact request and payload. The requester must
-                      retry the action after approval.
+                      Approval authorizes but does not execute the action. The
+                      requester must retry the exact action after approval; a
+                      different staff member must review it.
                     </p>
                   </div>
                 </div>
@@ -2873,6 +2874,12 @@ export function SuperAdminConsole({
                             {new Date(request.requestedAt).toLocaleString()}
                           </small>
                           <small>Target: {request.targetKey}</small>
+                          {request.requestedBy === session.email && (
+                            <small>
+                              You submitted this request. Another staff member
+                              must approve or reject it.
+                            </small>
+                          )}
                           <pre
                             className="admin-approval-payload"
                             style={{
