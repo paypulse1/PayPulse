@@ -1,23 +1,23 @@
 import {
-  ArrowLeftRight,
+  ArrowRightLeft,
   BadgeCheck,
-  BellRing,
-  Braces,
-  Building2,
-  ChartNoAxesColumnIncreasing,
-  CircleDollarSign,
-  Clock3,
+  BellDot,
+  ChartColumnIncreasing,
+  CodeXml,
   Coins,
-  Fingerprint,
-  Grid2X2,
-  Headset,
+  HandCoins,
+  Hourglass,
   Landmark,
-  Link,
+  LayoutDashboard,
+  LayoutGrid,
+  LifeBuoy,
   Link2,
-  PanelsTopLeft,
-  Paintbrush,
-  QrCode,
-  Wallet,
+  Network,
+  Palette,
+  ScanLine,
+  ShieldCheck,
+  Store,
+  WalletMinimal,
   type LucideIcon,
 } from "lucide-react"
 
@@ -26,25 +26,25 @@ export type MenuIconKind = "dashboard" | "wallet" | "activity" | "collect" | "tr
 export type MenuIconTone = "overview" | "payments" | "business" | "account"
 
 const menuIcons: Record<MenuIconKind, LucideIcon> = {
-  dashboard: PanelsTopLeft,
-  wallet: Wallet,
-  activity: ChartNoAxesColumnIncreasing,
-  collect: CircleDollarSign,
-  transfer: ArrowLeftRight,
+  dashboard: LayoutDashboard,
+  wallet: WalletMinimal,
+  activity: ChartColumnIncreasing,
+  collect: HandCoins,
+  transfer: ArrowRightLeft,
   bank: Landmark,
-  building: Building2,
+  building: Store,
   verified: BadgeCheck,
-  network: Link2,
-  branding: Paintbrush,
-  notification: BellRing,
-  link: Link,
-  security: Fingerprint,
-  developer: Braces,
-  support: Headset,
-  scan: QrCode,
+  network: Network,
+  branding: Palette,
+  notification: BellDot,
+  link: Link2,
+  security: ShieldCheck,
+  developer: CodeXml,
+  support: LifeBuoy,
+  scan: ScanLine,
   crypto: Coins,
-  pending: Clock3,
-  allAccess: Grid2X2,
+  pending: Hourglass,
+  allAccess: LayoutGrid,
 }
 
 export default function MenuIcon({
@@ -63,7 +63,8 @@ export default function MenuIcon({
       className="menu-icon-glyph"
       data-tone={tone}
       size={size}
-      strokeWidth={1.9}
+      strokeWidth={1.75}
+      absoluteStrokeWidth
       aria-hidden="true"
     />
   )

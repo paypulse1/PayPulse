@@ -3071,3 +3071,152 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
     min-height: 220px;
   }
 }
+
+/* ---------- Refined menu & icon system ---------- */
+[data-tone="overview"] { --tone-fg: #2457eb; --tone-bg: #eef3ff; --tone-bg-2: #e2eaff; --tone-ring: #d6e1ff; }
+[data-tone="payments"] { --tone-fg: #0f8a7c; --tone-bg: #eafaf6; --tone-bg-2: #d9f4ed; --tone-ring: #c6ece3; }
+[data-tone="business"] { --tone-fg: #6b4fd8; --tone-bg: #f3f0ff; --tone-bg-2: #e8e2ff; --tone-ring: #ddd5ff; }
+[data-tone="account"] { --tone-fg: #b5701a; --tone-bg: #fff6e9; --tone-bg-2: #fdecd2; --tone-ring: #f6dfbd; }
+
+.menu-icon-glyph[data-tone],
+.mobile-app .menu-icon-glyph[data-tone] { color: var(--tone-fg); transition: color var(--motion-fast) var(--motion-ease); }
+
+/* Icon tiles: quick actions + all-access */
+.quick-action-icon[data-tone],
+.mobile-app .quick-action-icon[data-tone],
+.all-access-item-icon[data-tone] {
+  position: relative;
+  border: 1px solid var(--tone-ring);
+  background: linear-gradient(160deg, var(--tone-bg) 0%, var(--tone-bg-2) 100%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 85%), 0 4px 12px -6px rgb(16 35 61 / 18%);
+  color: var(--tone-fg);
+}
+.mobile-app .quick-action-icon[data-tone] { width: 48px; height: 48px; border-radius: 15px; }
+.all-access-item-icon[data-tone] { width: 38px; height: 38px; border-radius: 12px; }
+.mobile-app .quick-action strong { color: var(--ink); font-size: 9px; font-weight: 700; letter-spacing: -.01em; }
+@media (hover: hover) and (pointer: fine) {
+  .quick-action:hover .quick-action-icon[data-tone] { border-color: var(--tone-fg); }
+  .all-access-list > .all-access-item:hover .all-access-item-icon[data-tone] { background: var(--tone-fg); border-color: var(--tone-fg); }
+  .all-access-list > .all-access-item:hover .menu-icon-glyph[data-tone] { color: #fff; }
+}
+.all-access-list > .all-access-item,
+.all-access-list > .all-access-item:last-child { border-radius: 16px; }
+
+/* Bottom navigation: floating pill bar */
+.mobile-app .bottom-nav,
+.bottom-nav {
+  inset: auto 10px calc(10px + env(safe-area-inset-bottom)) 10px;
+  height: 66px;
+  padding: 6px 8px;
+  gap: 2px;
+  border: 1px solid rgb(220 229 240 / 90%);
+  border-radius: 22px;
+  background: rgb(255 255 255 / 92%);
+  backdrop-filter: blur(20px) saturate(1.4);
+  box-shadow: 0 12px 32px -10px rgb(16 35 61 / 22%), 0 2px 6px rgb(16 35 61 / 5%);
+}
+.mobile-app .bottom-nav button,
+.bottom-nav button { min-height: 52px; border-radius: 16px; color: #6a7a90; gap: 3px; }
+.mobile-app .bottom-nav button.active:not(.pay-tab),
+.bottom-nav button.active:not(.pay-tab) { background: transparent; color: var(--ink); }
+.mobile-app .bottom-nav button > .nav-icon[data-tone],
+.bottom-nav button > .nav-icon[data-tone] { width: 46px; height: 30px; border: 1px solid transparent; border-radius: 999px; background: transparent; }
+.bottom-nav button:not(.pay-tab) .menu-icon-glyph[data-tone] { color: #7a889c; }
+.mobile-app .bottom-nav button.active:not(.pay-tab) > .nav-icon[data-tone],
+.bottom-nav button.active:not(.pay-tab) > .nav-icon[data-tone] {
+  border-color: var(--tone-ring);
+  background: linear-gradient(160deg, var(--tone-bg), var(--tone-bg-2));
+}
+.bottom-nav button.active:not(.pay-tab) .menu-icon-glyph[data-tone] { color: var(--tone-fg); }
+.mobile-app .bottom-nav small,
+.bottom-nav small { font-size: 9px; font-weight: 600; letter-spacing: -.005em; }
+.bottom-nav button.active:not(.pay-tab) small { font-weight: 800; }
+@media (hover: hover) and (pointer: fine) {
+  .bottom-nav button:not(.pay-tab):not(.active):hover > .nav-icon { background: var(--surface-soft); }
+  .bottom-nav button:not(.pay-tab):hover .menu-icon-glyph[data-tone] { color: var(--ink); }
+}
+
+/* Featured Collect action */
+.mobile-app .bottom-nav .pay-tab,
+.bottom-nav .pay-tab { transform: translateY(-14px); color: var(--ink); }
+.mobile-app .bottom-nav .pay-tab > .nav-icon[data-tone],
+.bottom-nav .pay-tab > .nav-icon[data-tone] {
+  width: 54px; height: 54px;
+  border: 4px solid #fff;
+  border-radius: 18px;
+  background: linear-gradient(150deg, var(--brand-blue) 0%, #1a3fb8 55%, var(--brand-navy) 100%);
+  box-shadow: 0 10px 22px -6px rgb(36 87 235 / 55%), inset 0 1px 0 rgb(255 255 255 / 25%);
+}
+.bottom-nav .pay-tab .menu-icon-glyph[data-tone],
+.mobile-app .bottom-nav .pay-tab .menu-icon-glyph[data-tone] { color: #fff; }
+.bottom-nav .pay-tab small { margin-top: 1px; font-weight: 800; }
+.bottom-nav .pay-tab:active > .nav-icon { transform: scale(.94); }
+
+/* ---------- Menu interaction states (hover / pressed / focus-visible / selected) ---------- */
+:root { --focus-ring: #2457eb; --focus-halo: #ffffff; --press-surface: #e6edf8; }
+
+/* Focus-visible: 3px brand-blue ring (>=3:1 on white) with a white halo, never removed */
+.bottom-nav button:focus-visible,
+.mobile-app .bottom-nav button:focus-visible,
+.quick-action:focus-visible,
+.all-access-list > .all-access-item:focus-visible,
+.settings-list > button:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--focus-halo);
+}
+.quick-action { border-radius: 16px; padding: 4px 2px; }
+.settings-list > button:focus-visible { border-radius: 12px; }
+.bottom-nav .pay-tab:focus-visible { outline-offset: 0; }
+
+/* Bottom navigation */
+.bottom-nav button { position: relative; }
+.bottom-nav button:not(.pay-tab):active > .nav-icon[data-tone],
+.mobile-app .bottom-nav button:not(.pay-tab):active > .nav-icon[data-tone] { background: var(--press-surface); transform: scale(.92); }
+.bottom-nav button.active:not(.pay-tab)::after {
+  content: "";
+  position: absolute;
+  bottom: 1px;
+  left: 50%;
+  width: 18px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--brand-blue);
+  transform: translateX(-50%);
+}
+.bottom-nav .pay-tab:active > .nav-icon[data-tone] { filter: brightness(.9); }
+@media (hover: hover) and (pointer: fine) {
+  .bottom-nav button:not(.pay-tab):not(.active):hover { color: var(--ink); }
+  .bottom-nav button:not(.pay-tab):not(.active):hover > .nav-icon[data-tone] { border-color: var(--line); background: var(--surface-soft); }
+  .bottom-nav .pay-tab:hover > .nav-icon[data-tone] { filter: brightness(1.08); box-shadow: 0 12px 26px -6px rgb(36 87 235 / 65%), inset 0 1px 0 rgb(255 255 255 / 25%); }
+}
+
+/* Quick actions */
+@media (hover: hover) and (pointer: fine) {
+  .quick-action:hover .quick-action-icon[data-tone] { transform: none; border-color: var(--tone-fg); box-shadow: inset 0 1px 0 rgb(255 255 255 / 85%), 0 6px 14px -6px rgb(16 35 61 / 24%); }
+  .quick-action:hover strong { color: var(--brand-blue); }
+}
+.quick-action:active .quick-action-icon[data-tone] { transform: scale(.94); filter: brightness(.95); box-shadow: inset 0 2px 4px rgb(16 35 61 / 10%); }
+
+/* All-access tiles */
+@media (hover: hover) and (pointer: fine) {
+  .all-access-list > .all-access-item:hover { border-color: #b7c6dc; }
+  .all-access-list > .all-access-item:hover .all-access-item-chevron { color: var(--brand-blue); transform: translateX(2px); }
+}
+.all-access-item-chevron { transition: color var(--motion-fast) var(--motion-ease), transform var(--motion-fast) var(--motion-ease); }
+.all-access-list > .all-access-item:active { transform: scale(.98); border-color: var(--brand-blue); background: var(--press-surface); box-shadow: none; }
+
+/* Settings / profile menu rows */
+.settings-list > button:active { background: var(--press-surface); }
+.settings-list > button[aria-current="page"], .settings-list > button[aria-pressed="true"] { background: #eef3ff; box-shadow: inset 3px 0 0 var(--brand-blue); }
+
+@media (prefers-reduced-motion: reduce) {
+  .bottom-nav button, .bottom-nav .nav-icon, .quick-action-icon, .all-access-list > .all-access-item, .all-access-item-chevron, .settings-list > button { transition: none !important; animation: none !important; }
+  .bottom-nav button:active > .nav-icon[data-tone], .quick-action:active .quick-action-icon[data-tone], .all-access-list > .all-access-item:active, .all-access-list > .all-access-item:hover, .all-access-list > .all-access-item:hover .all-access-item-chevron { transform: none !important; }
+}
+@media (forced-colors: active) {
+  .bottom-nav button:focus-visible, .quick-action:focus-visible, .all-access-list > .all-access-item:focus-visible, .settings-list > button:focus-visible { outline-color: Highlight; }
+  .bottom-nav button.active:not(.pay-tab)::after { background: Highlight; }
+}
