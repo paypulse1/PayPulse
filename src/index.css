@@ -2239,6 +2239,274 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   background: #f5f7fb;
 }
 
+/* Modern fintech dashboard refresh */
+.app-stage {
+  background:
+    radial-gradient(circle at 12% 8%, rgb(66 112 224 / 10%), transparent 26%),
+    radial-gradient(circle at 88% 92%, rgb(44 187 166 / 8%), transparent 24%),
+    #eef2f7;
+}
+
+.mobile-app {
+  width: min(100%, 480px);
+  border-color: rgb(211 221 234 / 88%);
+  background: #f7f9fc;
+  box-shadow: 0 34px 100px rgb(20 39 76 / 16%);
+}
+
+.mobile-app .app-header {
+  height: 88px;
+  padding-inline: 18px;
+  border-bottom: 1px solid #edf1f6;
+  background: rgb(255 255 255 / 92%);
+}
+
+.mobile-app .app-header-title {
+  font-size: 17px;
+  letter-spacing: -.035em;
+}
+
+.mobile-app .app-scroll {
+  inset: 88px 0 82px;
+  padding: 18px 18px 34px;
+  background:
+    linear-gradient(180deg, rgb(247 249 252 / 0%), #f7f9fc 180px);
+}
+
+.mobile-app .balance-card {
+  min-height: 184px;
+  padding: 22px;
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 88% 18%, rgb(92 166 255 / 26%), transparent 30%),
+    radial-gradient(circle at 8% 110%, rgb(44 203 176 / 20%), transparent 38%),
+    linear-gradient(145deg, #0b1f3a 0%, #16385f 58%, #2466a8 100%);
+  box-shadow: 0 20px 42px rgb(12 42 80 / 22%);
+}
+
+.mobile-app .balance-value {
+  margin: 24px 0 18px;
+  font-size: 38px;
+  letter-spacing: -.06em;
+}
+
+.mobile-app .balance-card-footer {
+  padding-top: 14px;
+}
+
+.mobile-app .balance-card-withdraw {
+  min-height: 38px;
+  border-radius: 10px;
+  background: rgb(255 255 255 / 10%);
+  color: #e8f1ff;
+  border-color: rgb(255 255 255 / 18%);
+}
+
+.mobile-app .quick-actions {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px 7px;
+  margin: 20px 0 18px;
+  padding: 0 2px;
+}
+
+.mobile-app .quick-action {
+  gap: 7px;
+}
+
+.mobile-app .quick-action > span {
+  width: 54px;
+  height: 54px;
+  border-radius: 16px;
+  box-shadow: 0 7px 16px rgb(19 48 88 / 7%);
+}
+
+.mobile-app .quick-action strong {
+  max-width: 68px;
+  overflow: hidden;
+  color: #52627a;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-app .quick-action-icon[data-tone="payments"] {
+  border-color: #cce9e4;
+  background: linear-gradient(145deg, #effaf7, #dff4ef);
+}
+
+.mobile-app .quick-action-icon[data-tone="overview"] {
+  border-color: #d7e4f7;
+  background: linear-gradient(145deg, #f5f8ff, #e8effa);
+}
+
+.mobile-app .quick-action-icon[data-tone="business"] {
+  border-color: #dddaf4;
+  background: linear-gradient(145deg, #f7f6ff, #eeecfb);
+}
+
+.mobile-app .summary-card,
+.mobile-app .merchant-trend-card,
+.mobile-app .activity-section {
+  border-color: #e7ecf3;
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgb(24 49 85 / 5%);
+}
+
+.mobile-app .summary-card {
+  padding: 20px;
+}
+
+.mobile-app .summary-card .section-header,
+.mobile-app .merchant-trend-card .section-header,
+.mobile-app .activity-section .section-header {
+  align-items: flex-start;
+}
+
+.mobile-app .summary-card .eyebrow,
+.mobile-app .merchant-trend-card .eyebrow,
+.mobile-app .activity-section .eyebrow {
+  color: #8795a8;
+}
+
+.mobile-app .summary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0 14px;
+}
+
+.mobile-app .summary-grid > div {
+  min-height: 82px;
+  padding: 13px;
+  border: 1px solid #edf1f6;
+  border-radius: 16px;
+  background: #fafbfd;
+}
+
+.mobile-app .summary-grid > div + div {
+  padding-left: 13px;
+  border-left: 1px solid #edf1f6;
+}
+
+.mobile-app .summary-grid strong {
+  margin: 8px 0 0;
+  font-size: 18px;
+}
+
+.mobile-app .average-row {
+  margin-top: 12px;
+  padding-top: 14px;
+}
+
+.mobile-app .merchant-trend-card {
+  margin-top: 14px;
+  padding: 20px 16px 12px;
+}
+
+.mobile-app .merchant-trend-live {
+  border-radius: 999px;
+  padding: 6px 8px;
+  background: #eff7f4;
+  color: #507063;
+}
+
+.mobile-app .activity-section {
+  margin-top: 14px;
+  padding: 20px 16px 6px;
+}
+
+.mobile-app .transaction-row {
+  grid-template-columns: 42px 1fr auto 14px;
+  padding: 12px 2px;
+  border-bottom-color: #edf1f6;
+}
+
+.mobile-app .transaction-avatar,
+.mobile-app .transaction-institution-logo {
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+}
+
+.mobile-app .transaction-copy strong,
+.mobile-app .transaction-value strong {
+  font-size: 10px;
+}
+
+.mobile-app .transaction-copy small {
+  color: #8390a2;
+  font-size: 8px;
+}
+
+.mobile-app .status {
+  font-size: 7px;
+}
+
+.mobile-app .bottom-nav {
+  height: 82px;
+  padding: 8px 10px calc(10px + env(safe-area-inset-bottom));
+  border-top-color: #edf1f6;
+  background: rgb(255 255 255 / 96%);
+  box-shadow: 0 -10px 28px rgb(24 49 85 / 5%);
+}
+
+.mobile-app .bottom-nav button {
+  min-height: 52px;
+  border-radius: 16px;
+  color: #7d8ba0;
+}
+
+.mobile-app .bottom-nav button > .nav-icon {
+  width: 38px;
+  height: 34px;
+  border-radius: 12px;
+}
+
+.mobile-app .bottom-nav button.active:not(.pay-tab) {
+  background: transparent;
+  color: #1d5da8;
+}
+
+.mobile-app .bottom-nav button.active:not(.pay-tab) > .nav-icon {
+  background: #edf4fd;
+  border: 0;
+  box-shadow: inset 0 0 0 1px #ddeafa;
+}
+
+.mobile-app .bottom-nav .pay-tab {
+  transform: translateY(-7px);
+}
+
+.mobile-app .bottom-nav .pay-tab > .nav-icon {
+  width: 54px;
+  height: 54px;
+  border: 6px solid #fff;
+  border-radius: 18px;
+  background: linear-gradient(145deg, #10243f, #286bad);
+  box-shadow: 0 10px 24px rgb(22 66 115 / 24%);
+}
+
+.mobile-app .bottom-nav .pay-tab small {
+  margin-top: -1px;
+  color: #4d5d73;
+}
+
+@media (max-width: 380px) {
+  .mobile-app .app-scroll {
+    padding-inline: 14px;
+  }
+
+  .mobile-app .quick-action > span {
+    width: 50px;
+    height: 50px;
+  }
+
+  .mobile-app .balance-value {
+    font-size: 34px;
+  }
+}
+
 .admin-screen :where(*) {
   text-transform: none;
 }
