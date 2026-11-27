@@ -7,13 +7,13 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   build-release:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
       ANDROID_APPLICATION_ID: com.paypulse.live
     steps:
       - name: Check out source
@@ -131,8 +131,19 @@ jobs:
       - name: Verify app bundle signature
         run: jarsigner -verify android/app/build/outputs/bundle/release/app-release.aab
 
+      - name: Authenticate to Google Cloud with Workload Identity Federation
+        if: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && vars.GCP_SERVICE_ACCOUNT != '' }}
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Warn when Google Play publishing is not configured
+        if: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER == '' || vars.GCP_SERVICE_ACCOUNT == '' }}
+        run: echo "::warning::Google Play upload skipped; configure GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_SERVICE_ACCOUNT repository variables."
+
       - name: Publish live app bundle to Google Play internal testing
-        if: ${{ env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON != '' }}
+        if: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && vars.GCP_SERVICE_ACCOUNT != '' }}
         env:
           ANDROID_APPLICATION_ID: com.paypulse.live
           ANDROID_VERSION_NAME: ${{ github.ref_name }}

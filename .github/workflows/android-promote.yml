@@ -35,6 +35,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   promote-release:
@@ -51,10 +52,15 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Authenticate to Google Cloud with Workload Identity Federation
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
       - name: Promote existing release to Google Play production
         if: github.event_name == 'push' || inputs.action == 'promote'
         env:
-          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           ANDROID_APPLICATION_ID: ${{ (github.event_name == 'workflow_dispatch' && inputs.application == 'public' || startsWith(github.ref_name, 'android-public-prod-v')) && 'ph.drpays.merchant.public' || (github.event_name == 'workflow_dispatch' && inputs.application == 'live' || startsWith(github.ref_name, 'android-live-prod-v')) && 'com.paypulse.live' || 'com.paypulse.merchant' }}
           ANDROID_RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
@@ -68,7 +74,6 @@ jobs:
       - name: Inspect Google Play production track and store listings
         if: github.event_name == 'workflow_dispatch' && inputs.action == 'inspect'
         env:
-          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           ANDROID_APPLICATION_ID: ${{ inputs.application == 'public' && 'ph.drpays.merchant.public' || inputs.application == 'live' && 'com.paypulse.live' || 'com.paypulse.merchant' }}
         run: |
           python3 -m pip install --disable-pip-version-check "google-auth[requests]>=2,<3"
@@ -77,7 +82,6 @@ jobs:
       - name: Update Google Play store listing
         if: github.event_name == 'workflow_dispatch' && inputs.action == 'update-listing'
         env:
-          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           ANDROID_APPLICATION_ID: ${{ inputs.application == 'public' && 'ph.drpays.merchant.public' || inputs.application == 'live' && 'com.paypulse.live' || 'com.paypulse.merchant' }}
         run: |
           python3 -m pip install --disable-pip-version-check "google-auth[requests]>=2,<3"
@@ -86,7 +90,6 @@ jobs:
       - name: Publish app to closed testing
         if: github.event_name == 'workflow_dispatch' && inputs.action == 'publish-closed-test'
         env:
-          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           ANDROID_APPLICATION_ID: ${{ inputs.application == 'public' && 'ph.drpays.merchant.public' || inputs.application == 'live' && 'com.paypulse.live' || 'com.paypulse.merchant' }}
         run: |
           python3 -m pip install --disable-pip-version-check "google-auth[requests]>=2,<3"

@@ -5,8 +5,8 @@ import sys
 from pathlib import Path
 from urllib.parse import quote
 
+import google.auth
 from google.auth.transport.requests import AuthorizedSession
-from google.oauth2.service_account import Credentials
 
 
 PACKAGE_NAME = os.environ.get("ANDROID_APPLICATION_ID", "com.paypulse.merchant")
@@ -230,10 +230,6 @@ def main() -> None:
     if updating_listing:
         localized_listings = load_store_listings()
 
-    service_account_json = os.environ.get("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON")
-    if not service_account_json:
-        raise RuntimeError("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON is not configured")
-
     if checking_production or updating_listing or publishing_closed_test:
         version_name = ""
     elif promoting_existing_release:
@@ -253,8 +249,7 @@ def main() -> None:
         if not version_name:
             raise RuntimeError("ANDROID_VERSION_NAME must contain the release version")
 
-    credentials = Credentials.from_service_account_info(
-        json.loads(service_account_json),
+    credentials, _ = google.auth.default(
         scopes=["https://www.googleapis.com/auth/androidpublisher"],
     )
     session = AuthorizedSession(credentials)
