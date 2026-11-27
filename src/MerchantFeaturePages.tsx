@@ -10,7 +10,6 @@ import {
   type KybProfile,
   type Session,
 } from "./lib/swiftpay"
-import useBalanceVisibility from "./useBalanceVisibility"
 import ScreenTitle from "./ScreenTitle"
 import type { AppTab } from "./AppNavigation"
 
@@ -27,7 +26,13 @@ type AccessMenuSection = {
   items: AccessMenuItem[]
 }
 
-function AccessMenuButton({ item }: { item: AccessMenuItem }) {
+function AccessMenuButton({
+  item,
+  showDescription = false,
+}: {
+  item: AccessMenuItem
+  showDescription?: boolean
+}) {
   return (
     <button
       type="button"
@@ -44,6 +49,7 @@ function AccessMenuButton({ item }: { item: AccessMenuItem }) {
       </span>
       <span className="all-access-item-copy">
         <strong>{item.label}</strong>
+        {showDescription && <small>{item.description}</small>}
       </span>
       <ChevronRight
         className="all-access-item-chevron"
@@ -56,29 +62,96 @@ function AccessMenuButton({ item }: { item: AccessMenuItem }) {
 
 export function MerchantProfileView({
   session,
-  data,
-  refreshVersion,
+  onInfo,
+  onAllAccess,
+  onSignOut,
 }: {
   session: Session
-  data: DashboardData
-  refreshVersion: number
+  onInfo: (title: string) => void
+  onAllAccess: () => void
+  onSignOut: () => void
 }) {
-  const { balanceVisible } = useBalanceVisibility()
+  const profileItems: AccessMenuItem[] = [
+    {
+      label: "Business details",
+      description: "Business and owner information.",
+      icon: "building",
+      tone: "business",
+      action: () => onInfo("Merchant profile"),
+    },
+    {
+      label: "Statements",
+      description: "Download your payment history.",
+      icon: "activity",
+      tone: "overview",
+      action: () => onInfo("Statements"),
+    },
+    {
+      label: "Security",
+      description: "MPIN, devices and sign-in methods.",
+      icon: "security",
+      tone: "account",
+      action: () => onInfo("Security"),
+    },
+    {
+      label: "Notifications",
+      description: "Email and payment alerts.",
+      icon: "notification",
+      tone: "account",
+      action: () => onInfo("Notifications"),
+    },
+    {
+      label: "Developer hub",
+      description: "API access and integration guide.",
+      icon: "developer",
+      tone: "account",
+      action: () => onInfo("Developer hub"),
+    },
+    {
+      label: "All access",
+      description: "Services and merchant network.",
+      icon: "allAccess",
+      tone: "business",
+      action: onAllAccess,
+    },
+    {
+      label: "Help center",
+      description: "Guided checks and support.",
+      icon: "support",
+      tone: "account",
+      action: () => onInfo("Help center"),
+    },
+  ]
 
   return (
     <section className="merchant-profile-page" aria-label="Merchant profile">
-      <ScreenTitle
-        className="profile-menu-heading"
-        title="Merchant profile"
-        level="h2"
-        description="Your merchant account information."
-      />
-      <MerchantProfileDetails
-        session={session}
-        data={data}
-        balanceVisible={balanceVisible}
-        refreshVersion={refreshVersion}
-      />
+      <div className="profile-detail-hero profile-summary-card">
+        <span className="profile-avatar">
+          <Store size={20} aria-hidden="true" />
+        </span>
+        <div>
+          <strong>{session.email}</strong>
+          <span className="profile-account-badge">
+            <Store size={12} aria-hidden="true" /> Merchant account
+          </span>
+        </div>
+      </div>
+      <nav
+        className="settings-list profile-shortcuts"
+        aria-label="Profile settings"
+      >
+        {profileItems.map((item) => (
+          <AccessMenuButton key={item.label} item={item} showDescription />
+        ))}
+      </nav>
+      <Button
+        variant="secondary"
+        className="profile-sign-out"
+        icon={<LogOut size={17} />}
+        onClick={onSignOut}
+      >
+        Sign out
+      </Button>
     </section>
   )
 }

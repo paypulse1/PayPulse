@@ -21,9 +21,6 @@ export default function MerchantHomeDashboard({
   onTransfer,
   onScan,
   onActivity,
-  onCrypto,
-  onPendings,
-  onAllAccess,
   onTransaction,
 }: {
   data: DashboardData
@@ -32,9 +29,6 @@ export default function MerchantHomeDashboard({
   onTransfer: () => void
   onScan: () => void
   onActivity: () => void
-  onCrypto: () => void
-  onPendings: () => void
-  onAllAccess: () => void
   onTransaction: (transaction: Transaction) => void
 }) {
   const { balanceVisible, toggleBalanceVisibility } = useBalanceVisibility()
@@ -71,24 +65,6 @@ export default function MerchantHomeDashboard({
           tone="overview"
           label="Activity"
           onClick={onActivity}
-        />
-        <QuickAction
-          icon="crypto"
-          tone="account"
-          label="Crypto"
-          onClick={onCrypto}
-        />
-        <QuickAction
-          icon="pending"
-          tone="overview"
-          label="Pendings"
-          onClick={onPendings}
-        />
-        <QuickAction
-          icon="allAccess"
-          tone="business"
-          label="All access"
-          onClick={onAllAccess}
         />
       </section>
 

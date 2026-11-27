@@ -5723,15 +5723,17 @@ export default function App({ route }: { route: AppViewRoute }) {
       <main className="mobile-app">
         <header className="app-header">
           <Brand />
-          <ScreenTitle
-            title={getMerchantScreenTitle({
-              profileSection,
-              allAccessPage,
-              activeTab,
-              walletSubscreen,
-            })}
-            className="app-header-title"
-          />
+          {profileSection && (
+            <ScreenTitle
+              title={getMerchantScreenTitle({
+                profileSection,
+                allAccessPage,
+                activeTab,
+                walletSubscreen,
+              })}
+              className="app-header-title"
+            />
+          )}
           <div className="header-actions">
             {session.role === "merchant" && (
               <button
@@ -5793,6 +5795,20 @@ export default function App({ route }: { route: AppViewRoute }) {
             distance={pullDistance}
             refreshing={pullRefreshing}
           />
+          {!profileSection &&
+            !allAccessPage &&
+            walletSubscreen === "overview" && (
+              <header className="workspace-page-heading">
+                <span className="eyebrow">
+                  {data.paymentEnvironment === "production"
+                    ? "LIVE WORKSPACE"
+                    : "DEMO WORKSPACE"}
+                </span>
+                <ScreenTitle
+                  title={activeTab === "Profile" ? "Your profile" : activeTab}
+                />
+              </header>
+            )}
           {error && (
             <div className="data-warning">
               <AlertCircle size={15} />
@@ -5822,18 +5838,6 @@ export default function App({ route }: { route: AppViewRoute }) {
                 onActivity={() => {
                   setWalletSubscreen("overview")
                   setActiveTab("Wallet")
-                }}
-                onCrypto={() => {
-                  setWalletSubscreen("usdt")
-                  setActiveTab("Wallet")
-                }}
-                onPendings={() => {
-                  setWalletSubscreen("unsettled-balance")
-                  setActiveTab("Wallet")
-                }}
-                onAllAccess={() => {
-                  setProfileSection("")
-                  setAllAccessPage(true)
                 }}
                 onTransaction={setSelectedTransaction}
               />
@@ -5912,8 +5916,12 @@ export default function App({ route }: { route: AppViewRoute }) {
               ) : (
                 <MerchantProfileView
                   session={session}
-                  data={data}
-                  refreshVersion={refreshVersion}
+                  onInfo={setProfileSection}
+                  onAllAccess={() => {
+                    setProfileSection("")
+                    setAllAccessPage(true)
+                  }}
+                  onSignOut={signOut}
                 />
               ))}
           </div>
