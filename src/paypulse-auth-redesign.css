@@ -1,0 +1,413 @@
+/* Merchant sign-in. Registration, checkout, marketing and admin keep their own layout. */
+.auth-login-screen {
+  background: #f3f7fc;
+  color: #10243f;
+  font-family: var(--font-family), sans-serif;
+}
+
+.auth-login-screen::before,
+.auth-login-screen::after {
+  display: none;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) {
+  width: min(100%, 1000px);
+  border: 1px solid #dce5f0;
+  border-radius: 24px;
+  background: white;
+  box-shadow: 0 16px 56px rgb(16 36 63 / 7%);
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-aside {
+  background: #10243f;
+  padding: 40px;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-aside::before,
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-glow {
+  display: none;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-kicker {
+  color: #dce7fb;
+  font-size: 12px;
+  letter-spacing: .08em;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-kicker svg,
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-aside-copy h2 span,
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-benefit-icon {
+  color: #96e0d1;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-aside-copy h2 {
+  font-size: 40px;
+  line-height: 1.15;
+  letter-spacing: -.04em;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-aside-copy p,
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-benefits strong {
+  font-size: 14px !important;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-benefits small {
+  font-size: 12px !important;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-panel {
+  padding: 32px 24px;
+  justify-content: flex-start;
+  background: white;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-brand {
+  margin-bottom: 28px;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-card {
+  width: min(100%, 392px);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-card::before {
+  display: none;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-card > .eyebrow {
+  margin-bottom: 12px;
+  color: #60728a;
+  font-size: 12px;
+  letter-spacing: .08em;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-card h1 {
+  margin-bottom: 8px;
+  color: #10243f;
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -.04em;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-card > p {
+  margin-bottom: 24px;
+  color: #60728a;
+  font-size: 14px !important;
+  line-height: 1.6;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-assurance {
+  padding: 14px 16px;
+  border: 0;
+  border-radius: 12px;
+  color: #167663;
+  background: #e6f7f3;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-assurance > svg {
+  color: #167663;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-assurance strong {
+  font-size: 12px;
+}
+
+.auth-login-card:has(.auth-pin-stage) > .auth-login-assurance {
+  display: none;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-card form {
+  gap: 16px;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-card label > span {
+  margin-bottom: 8px;
+  color: #10243f;
+  font-size: 14px;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-card input {
+  height: 52px;
+  border: 1px solid #dce5f0;
+  border-radius: 12px;
+  background: white;
+  color: #10243f;
+  font-size: 16px !important;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-card input:focus {
+  border-color: #2457eb;
+  box-shadow: 0 0 0 3px rgb(36 87 235 / 15%);
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-card .button {
+  min-height: 52px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 14px !important;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-card .button-primary {
+  min-height: 52px;
+  border-color: #2457eb;
+  background: #2457eb;
+  color: white;
+  box-shadow: none;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-card .button-primary:hover:not(:disabled) {
+  border-color: #1944c7;
+  background: #1944c7;
+  box-shadow: none;
+  transform: none;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-card .button-secondary {
+  border: 1px solid #dce5f0;
+  background: white;
+  color: #2457eb;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-card .auth-mpin-recovery {
+  min-height: 44px;
+  padding-block: 8px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-login-card .button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .authorization-back {
+  min-height: 44px;
+  padding: 10px 8px;
+  color: #60728a;
+  font-size: 14px !important;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-social-divider {
+  font-size: 12px;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-social-signin {
+  margin-top: 16px;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-trust {
+  justify-content: center;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-color: #dce5f0;
+  color: #60728a;
+  font-size: 12px;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-registration-link,
+.auth-login-layout:not(.merchant-registration-layout) .auth-registration-note,
+.auth-login-layout:not(.merchant-registration-layout) .profile-info-note {
+  font-size: 12px !important;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .inline-error {
+  padding: 12px;
+  align-items: flex-start;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.auth-pin-stage .auth-device-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #dce5f0;
+  border-radius: 20px;
+  background: white;
+}
+
+.auth-pin-stage .auth-device-status-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  place-items: center;
+  border-radius: 12px;
+  background: #eaf0ff;
+  color: #2457eb;
+}
+
+.auth-pin-stage .auth-device-status strong,
+.auth-pin-stage .auth-device-status small {
+  display: block;
+}
+
+.auth-pin-stage .auth-device-status strong {
+  color: #10243f;
+  font-size: 14px;
+}
+
+.auth-pin-stage .auth-device-status small {
+  margin-top: 4px;
+  color: #60728a;
+  font-size: 12px !important;
+}
+
+.auth-pin-stage .auth-mpin-label {
+  margin-top: 4px;
+}
+
+.auth-pin-stage .auth-mpin-entry {
+  display: block;
+  position: relative;
+  height: 56px;
+  border-radius: 12px;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) .auth-mpin-entry input.auth-mpin-input {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: text;
+}
+
+.auth-pin-stage .auth-mpin-slots {
+  display: grid;
+  height: 100%;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  pointer-events: none;
+}
+
+.auth-pin-stage .auth-mpin-slots > span {
+  display: grid;
+  min-width: 0;
+  place-items: center;
+  border: 1px solid #dce5f0;
+  border-radius: 12px;
+  background: white;
+  color: #10243f;
+  font-size: 20px;
+}
+
+.auth-pin-stage .auth-mpin-slots > .is-filled {
+  border-color: #2457eb;
+  background: #eaf0ff;
+}
+
+.auth-pin-stage .auth-mpin-entry:focus-within .auth-mpin-slots > span {
+  border-color: #2457eb;
+  box-shadow: 0 0 0 2px rgb(36 87 235 / 12%);
+}
+
+.auth-pin-stage .auth-mpin-entry:has([aria-invalid="true"]) .auth-mpin-slots > span {
+  border-color: #ba3648;
+}
+
+.auth-pin-stage .auth-mpin-help {
+  margin: -6px 0 0;
+  color: #60728a;
+  font-size: 12px !important;
+  line-height: 1.5;
+}
+
+.auth-pin-stage .auth-mpin-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+
+.auth-login-screen .auth-pin-stage .auth-mpin-key {
+  display: grid;
+  height: 52px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid #dce5f0;
+  border-radius: 12px;
+  background: white;
+  color: #10243f;
+  font-family: inherit;
+  font-size: 22px !important;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.auth-login-screen .auth-pin-stage .auth-mpin-key:hover:not(:disabled) {
+  border-color: #b6c8f7;
+  background: #eaf0ff;
+}
+
+.auth-login-screen .auth-pin-stage .auth-mpin-key:active:not(:disabled) {
+  background: #dce7ff;
+}
+
+.auth-login-screen .auth-pin-stage .auth-mpin-key:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+.auth-login-layout:not(.merchant-registration-layout) :is(button, a):focus-visible {
+  outline: 3px solid #2457eb;
+  outline-offset: 3px;
+}
+
+@media (max-width: 760px) {
+  .auth-login-screen {
+    justify-content: flex-start;
+    padding: max(24px, env(safe-area-inset-top)) 0 max(24px, env(safe-area-inset-bottom));
+  }
+
+  .auth-login-layout:not(.merchant-registration-layout) {
+    width: min(100%, 440px);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .auth-login-layout:not(.merchant-registration-layout) .auth-login-panel {
+    padding: 0 24px;
+    background: transparent;
+  }
+
+  .auth-login-layout:not(.merchant-registration-layout) .auth-brand {
+    margin-bottom: 32px;
+  }
+
+  .auth-login-layout:not(.merchant-registration-layout) .auth-login-card h1 {
+    font-size: 26px;
+  }
+
+  .auth-login-layout:not(.merchant-registration-layout) .auth-login-card .button-secondary {
+    background: transparent;
+  }
+}
+
+@media (max-width: 340px) {
+  .auth-pin-stage .auth-mpin-slots {
+    gap: 8px;
+  }
+
+  .auth-login-layout:not(.merchant-registration-layout) .auth-login-panel {
+    padding-inline: 20px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-login-layout:not(.merchant-registration-layout),
+  .auth-login-layout:not(.merchant-registration-layout) * {
+    animation: none;
+    transition: none;
+  }
+}

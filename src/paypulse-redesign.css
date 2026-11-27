@@ -1,0 +1,532 @@
+/*
+ * PayPulse merchant workspace.
+ * Loaded after the existing application stylesheet; deliberately scoped so
+ * public checkout, marketing, operations, and sign-in keep their own styling.
+ */
+.app-stage {
+  --page: #f3f7fc;
+  --paper: #f3f7fc;
+  --surface: #fff;
+  --surface-soft: #f3f7fc;
+  --ink: #10243f;
+  --muted: #60728a;
+  --link: #2457eb;
+  --line: #dce5f0;
+  --brand-navy: #10243f;
+  --brand-blue: #2457eb;
+  --accent-strong: #2457eb;
+  --accent-soft: #e6f7f3;
+  --success-soft: #e6f7f3;
+  --radius-card: 20px;
+  --radius-control: 12px;
+  --shadow-card: 0 4px 16px rgb(16 36 63 / 3%);
+  min-height: 100dvh;
+  padding: 24px;
+  background: #f3f7fc;
+  color: var(--ink);
+  font-family: "Manrope", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.app-stage .mobile-app {
+  width: min(100%, 440px);
+  height: min(960px, calc(100dvh - 48px));
+  min-height: min(680px, calc(100dvh - 48px));
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background: var(--page);
+  box-shadow: 0 16px 56px rgb(16 36 63 / 9%);
+}
+
+.app-stage .app-header {
+  height: 88px;
+  padding: 20px 24px;
+  gap: 12px;
+  background: #f3f7fc;
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: none;
+}
+
+.app-stage .app-header-title {
+  font-size: 18px;
+  line-height: 1.3;
+  letter-spacing: -.035em;
+}
+
+.app-stage .header-actions { gap: 8px; flex-shrink: 0; }
+.app-stage .environment-switch {
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 12px;
+  font-size: 12px;
+}
+.app-stage .environment-switch[data-environment="production"] {
+  color: #116b59;
+  background: #e6f7f3;
+  border-color: #c4e8df;
+}
+.app-stage .icon-button { width: 44px; height: 44px; border-radius: 12px; }
+.app-stage .notification-count {
+  min-width: 18px;
+  width: auto;
+  height: 18px;
+  top: -3px;
+  right: -3px;
+  padding: 0 4px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  line-height: 1;
+}
+.app-stage .app-scroll {
+  inset: 88px 0 88px;
+  padding: 24px 24px 32px;
+  overscroll-behavior-y: contain;
+  scroll-padding-block: 16px;
+  background: #f3f7fc;
+}
+.app-stage .page-transition { min-width: 0; }
+.app-stage :is(h1, h2, h3) { font-weight: 800; }
+.app-stage .mobile-app :is(p, li) { font-size: 14px; line-height: 1.6; }
+.app-stage .mobile-app small { font-size: 12px; line-height: 1.5; }
+.app-stage .eyebrow {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: .07em;
+}
+.app-stage .section-header { gap: 12px; align-items: flex-start; }
+.app-stage :is(.section-header h2, .wallet-activity-heading h2, .transfer-methods-card h2) {
+  font-size: 18px;
+  line-height: 1.35;
+  letter-spacing: -.035em;
+}
+.app-stage :is(.button, .sheet-submit) {
+  min-height: 52px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.4;
+  white-space: normal;
+}
+.app-stage .button-primary { border-color: var(--link); background: var(--link); color: #fff; }
+.app-stage .button-secondary { border-color: var(--line); background: #fff; color: var(--ink); }
+.app-stage .button-quiet { color: var(--link); }
+.app-stage :is(.text-button, .period-button) {
+  min-height: 44px;
+  padding: 8px;
+  color: var(--link);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.app-stage .period-button { border-radius: 10px; color: var(--muted); flex-shrink: 0; }
+
+/* Balance, quick actions, and activity retain live values and existing actions. */
+.app-stage .balance-card {
+  min-height: 184px;
+  padding: 24px;
+  border: 0;
+  border-radius: 20px;
+  background: #10243f;
+  box-shadow: none;
+}
+.app-stage .balance-top { align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+.app-stage .balance-top > span { color: #dce7f7; font-size: 14px; }
+.app-stage .balance-top-actions { gap: 8px; flex-wrap: wrap; }
+.app-stage .balance-bank-brand { width: 72px; height: 28px; border-radius: 8px; }
+.app-stage .balance-top button {
+  min-height: 32px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 12px;
+}
+.app-stage .balance-value {
+  margin: 20px 0 16px;
+  font-size: 32px;
+  line-height: 1.2;
+  letter-spacing: -.04em;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.app-stage .balance-card-wallet { margin-bottom: 16px; }
+.app-stage .balance-card-footer { gap: 12px; flex-wrap: wrap; padding-top: 16px; }
+.app-stage .balance-card-footer-copy,
+.app-stage .balance-card-footer-copy small { color: #dce7f7; font-size: 12px; }
+.app-stage .balance-card-withdraw,
+.app-stage .wallet-page .balance-card-withdraw {
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid rgb(255 255 255 / 25%);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 12px;
+}
+.app-stage .quick-actions {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px 8px;
+  margin: 24px 0;
+}
+.app-stage .quick-action { min-height: 84px; padding: 0; border: 0; background: transparent; box-shadow: none; gap: 8px; }
+.app-stage .quick-action-icon { width: 48px; height: 44px; border-radius: 12px; box-shadow: none; }
+.app-stage .quick-action strong { color: var(--ink); font-size: 12px; line-height: 1.35; }
+.app-stage .quick-action-icon[data-tone="overview"],
+.app-stage .quick-action-icon[data-tone="business"] { border-color: transparent; background: #fff; }
+.app-stage .quick-action-icon[data-tone="payments"],
+.app-stage .quick-action-icon[data-tone="account"] { border-color: transparent; background: #fff; }
+.app-stage .quick-action .menu-icon-glyph[data-tone] { color: var(--link); }
+.app-stage .summary-card,
+.app-stage .merchant-trend-card,
+.app-stage .activity-section { margin-top: 16px; padding: 20px; border-radius: 20px; }
+.app-stage .summary-grid { gap: 16px; margin: 20px 0 16px; grid-template-columns: 1fr 1fr; }
+.app-stage .summary-grid > div { min-width: 0; }
+.app-stage .summary-grid > div + div { padding-left: 16px; }
+.app-stage .summary-grid span { font-size: 12px; }
+.app-stage .summary-grid strong { margin-top: 8px; font-size: 22px; line-height: 1.3; overflow-wrap: anywhere; }
+.app-stage .average-row { align-items: flex-start; gap: 16px; padding-top: 16px; }
+.app-stage .average-row span { font-size: 12px; }
+.app-stage .average-row strong { font-size: 14px; text-align: right; }
+.app-stage .merchant-trend-card .section-header { flex-wrap: wrap; }
+.app-stage .merchant-trend-card .section-header h2 { font-size: 18px; }
+.app-stage :is(.merchant-trend-live, .merchant-trend-legend, .merchant-trend-updated, .merchant-trend-empty) {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.app-stage .merchant-trend-legend { margin: 16px 0 8px; flex-wrap: wrap; }
+.app-stage .merchant-trend-axis { fill: var(--muted); font-size: 12px; }
+.app-stage .merchant-trend-message { font-size: 14px; }
+.app-stage .merchant-trend-updated { margin-top: 12px; }
+.app-stage .transaction-list { margin-top: 8px; }
+.app-stage .transaction-row {
+  min-height: 84px;
+  padding: 16px 0;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  gap: 12px;
+}
+.app-stage .transaction-row > svg:last-child { display: none; }
+.app-stage :is(.transaction-avatar, .transaction-institution-logo) { width: 40px; height: 40px; font-size: 14px; }
+.app-stage .transaction-copy strong { font-size: 14px; line-height: 1.4; }
+.app-stage .transaction-copy small { margin-top: 4px; font-size: 12px; }
+.app-stage .transaction-value { max-width: 132px; }
+.app-stage .transaction-value strong { font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
+.app-stage .status { gap: 5px; font-size: 12px; line-height: 1.4; }
+.app-stage .status i { width: 5px; height: 5px; }
+.app-stage .full-list { padding: 0 16px; border-radius: 20px; }
+
+/* Wallet and transfer overview. */
+.app-stage :is(.wallet-page, .transfers-page) { padding-top: 0; }
+.app-stage .wallet-card-grid { gap: 16px; }
+.app-stage .wallet-card { padding: 16px; gap: 12px; border-radius: 20px; }
+.app-stage .wallet-card-heading { flex-wrap: wrap; }
+.app-stage .wallet-card-heading > strong { font-size: 14px; }
+.app-stage .wallet-card > p { font-size: 12px; }
+.app-stage .wallet-card-action { min-height: 44px; padding: 8px 10px; font-size: 12px; border-radius: 12px; }
+.app-stage .wallet-activity-heading { margin: 24px 0 16px; flex-wrap: wrap; }
+.app-stage .wallet-activity-heading > span { color: var(--muted); font-size: 12px; margin-left: auto; }
+.app-stage .wallet-activity-heading .text-button { padding-inline: 0; text-align: left; }
+.app-stage .activity-search { min-height: 48px; margin-bottom: 16px; padding: 0 14px; border-radius: 12px; }
+.app-stage .activity-search input { min-width: 0; height: 46px; font-size: 14px; }
+.app-stage .wallet-date-filters { gap: 12px; margin-bottom: 16px; }
+.app-stage .wallet-date-filters label { gap: 8px; font-size: 12px; }
+.app-stage .wallet-date-filters input { width: 100%; min-width: 0; min-height: 44px; font-size: 12px; border-radius: 12px; }
+.app-stage .filter-row { gap: 8px; margin-bottom: 16px; padding-bottom: 4px; }
+.app-stage .filter-row button { min-height: 44px; padding: 9px 14px; border-radius: 12px; font-size: 12px; }
+.app-stage .filter-row button.active { border-color: var(--link); background: var(--link); color: #fff; }
+.app-stage .wallet-empty-state { padding: 28px 16px; gap: 12px; }
+.app-stage .wallet-empty-state strong { font-size: 18px; }
+.app-stage .wallet-empty-state p { font-size: 14px; }
+.app-stage .transfers-page { display: grid; gap: 16px; }
+.app-stage .transfer-balance-panel { margin: 0; padding: 20px; border-radius: 20px; gap: 16px; flex-wrap: wrap; }
+.app-stage .transfer-balance-panel span { font-size: 14px; }
+.app-stage .transfer-balance-panel strong { font-size: 32px; line-height: 1.2; overflow-wrap: anywhere; }
+.app-stage .transfer-methods-card,
+.app-stage .transfer-activity-section { margin: 0; padding: 20px; border-radius: 20px; }
+.app-stage .transfer-method-row { gap: 12px; padding-block: 16px; }
+.app-stage .transfer-method-row strong { font-size: 14px; }
+.app-stage .transfer-method-row p { margin-bottom: 0; font-size: 12px; }
+.app-stage .transfer-security-note { margin: 0; padding: 16px; border-radius: 16px; background: #eaf0ff; color: var(--ink); }
+.app-stage .transfer-security-note p { font-size: 12px; }
+
+/* Profile and supplementary merchant pages. */
+.app-stage .profile-menu-heading h2 { font-size: 24px; line-height: 1.3; letter-spacing: -.04em; }
+.app-stage .profile-menu-heading h3 { font-size: 18px; }
+.app-stage .profile-detail-hero { margin-bottom: 16px; padding: 20px; gap: 16px; border-radius: 20px; background: #fff; border: 1px solid var(--line); }
+.app-stage .profile-detail-hero .profile-avatar { width: 56px; height: 56px; flex: 0 0 56px; border-radius: 16px; background: #eaf0ff; color: var(--link); }
+.app-stage .profile-detail-hero > div { min-width: 0; }
+.app-stage .profile-detail-hero strong { font-size: 16px; overflow-wrap: anywhere; }
+.app-stage .profile-account-badge { margin-top: 8px; color: #116b59; background: #e6f7f3; font-size: 12px; }
+.app-stage .profile-kyb-summary { margin-top: 16px; padding: 20px; border-radius: 20px; }
+.app-stage .profile-info-intro strong { font-size: 18px; }
+.app-stage :is(.profile-info-intro p, .profile-info-note, .profile-sheet-state) { color: var(--muted); font-size: 14px; line-height: 1.6; }
+.app-stage .profile-info-page { display: grid; gap: 16px; }
+.app-stage :is(.profile-back-button, .profile-inline-action, .profile-support-link) { min-height: 44px; font-size: 14px; }
+.app-stage .profile-notification-option { padding: 16px 0; gap: 12px; }
+.app-stage .profile-notification-option > div { min-width: 0; }
+.app-stage .profile-notification-option strong { font-size: 14px; }
+.app-stage .profile-notification-option small { font-size: 12px; overflow-wrap: anywhere; }
+.app-stage .profile-notification-state { min-width: 44px; min-height: 44px; font-size: 12px; }
+.app-stage .profile-bank-row { min-height: 68px; padding: 12px; }
+.app-stage .profile-bank-row strong { font-size: 14px; }
+.app-stage .profile-rails small { font-size: 12px; }
+.app-stage .settings-list { border-radius: 20px; }
+.app-stage .settings-list > button { min-height: 64px; font-size: 14px; }
+.app-stage .settings-list strong { font-size: 14px; }
+.app-stage .settings-list small { font-size: 12px; }
+.app-stage .all-access-header h2 { font-size: 24px; }
+.app-stage .all-access-list { gap: 16px; }
+.app-stage .all-access-list > .all-access-item { min-height: 116px; padding: 16px; border-radius: 20px; gap: 12px; }
+.app-stage .all-access-list .all-access-item-copy strong { font-size: 14px; }
+.app-stage .all-access-list > .all-access-item:hover { padding: 16px; }
+.app-stage .sign-out-button { min-height: 52px; font-size: 14px; border-radius: 12px; }
+.app-stage .app-legal-links { font-size: 12px; flex-wrap: wrap; }
+
+/* Modal flows share the same readable form and receipt language. */
+.app-stage .sheet-backdrop { padding: 24px 0 0; background: rgb(16 36 63 / 42%); }
+.app-stage .payment-sheet {
+  width: min(100%, 440px);
+  max-height: calc(100dvh - 24px);
+  padding: 12px 24px calc(24px + env(safe-area-inset-bottom));
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: 24px 24px 0 0;
+  background: #fff;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.5;
+  overscroll-behavior-y: contain;
+  scroll-padding-block: 16px;
+}
+.app-stage .sheet-handle { width: 40px; margin-bottom: 24px; }
+.app-stage .sheet-header { align-items: flex-start; gap: 16px; margin-bottom: 24px; }
+.app-stage .sheet-header > div { min-width: 0; }
+.app-stage .sheet-header .icon-button { flex-shrink: 0; }
+.app-stage .sheet-header h2 { font-size: 24px; line-height: 1.3; letter-spacing: -.04em; overflow-wrap: anywhere; }
+.app-stage .payment-sheet form { gap: 16px; }
+.app-stage .payment-sheet label { min-width: 0; }
+.app-stage .payment-sheet label > span,
+.app-stage .bank-picker-label { margin-bottom: 8px; color: var(--ink); font-size: 14px; line-height: 1.5; font-weight: 700; }
+.app-stage .payment-sheet label > span small { color: var(--muted); font-size: 12px; font-weight: 500; }
+.app-stage .payment-sheet :is(input, select, textarea) {
+  min-width: 0;
+  min-height: 48px;
+  padding-inline: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f3f7fc;
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.5;
+}
+.app-stage .payment-sheet textarea { padding-block: 12px; }
+.app-stage .payment-sheet input::placeholder { color: var(--muted); opacity: 1; }
+.app-stage .payment-sheet .amount-field { min-height: 68px; padding-inline: 16px; border-radius: 12px; }
+.app-stage .payment-sheet .amount-field > span { font-size: 24px; }
+.app-stage .payment-sheet .amount-field input { height: 66px; min-width: 0; padding: 0 8px; border: 0; background: transparent; font-size: 32px; }
+.app-stage .payment-sheet .amount-field small { font-size: 12px; }
+.app-stage .payment-sheet form > .button { min-height: 52px; }
+.app-stage .payment-sheet :is(.collection-currencies button, .rail-selector button) { min-height: 48px; border-radius: 12px; font-size: 14px; }
+.app-stage .collection-currencies { gap: 8px; }
+.app-stage .collection-currencies button.active { border-color: var(--link); background: #eaf0ff; color: var(--link); }
+.app-stage .currency-quote { margin-top: 0; padding: 16px; border-radius: 12px; }
+.app-stage .currency-quote strong { font-size: 14px; }
+.app-stage .currency-quote span { font-size: 12px; line-height: 1.6; }
+.app-stage .bank-picker-trigger { min-height: 60px; padding: 12px; border-radius: 12px; }
+.app-stage .bank-picker-name { font-size: 14px; overflow-wrap: anywhere; }
+.app-stage .bank-picker-trigger-action { font-size: 12px; color: var(--link); }
+.app-stage .transfer-step-heading { gap: 8px; }
+.app-stage .transfer-step-heading > span { color: var(--link); font-size: 12px; }
+.app-stage .transfer-step-heading > strong { font-size: 18px; line-height: 1.4; }
+.app-stage .transfer-step-heading > small { color: var(--muted); font-size: 14px; line-height: 1.6; }
+.app-stage .rail-selector { gap: 12px; }
+.app-stage .payment-sheet .rail-selector button { min-height: 80px; padding: 12px; }
+.app-stage .rail-selector button.active { border-color: var(--link); background: #eaf0ff; color: var(--ink); }
+.app-stage .rail-selector button small { font-size: 12px; opacity: 1; }
+.app-stage .transfer-recipient-fields { gap: 16px; }
+.app-stage .transfer-amount-label > span { flex-wrap: wrap; }
+.app-stage .transfer-amount-label > span small,
+.app-stage .transfer-fee-note { color: var(--muted); font-size: 12px; }
+.app-stage .bank-selection { gap: 16px; }
+.app-stage :is(.bank-selection-note, .institution-selection-note, .bank-selection-footnote) { margin-top: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.app-stage :is(.institution-back, .authorization-back) { min-height: 44px; font-size: 14px; color: var(--link); }
+.app-stage .payment-sheet :is(.bank-picker-search, .institution-search) { height: 48px; border-radius: 12px; }
+.app-stage .payment-sheet :is(.bank-picker-search, .institution-search) input { min-height: 44px; padding: 0; border: 0; background: transparent; font-size: 16px; }
+.app-stage .bank-selection-list { max-height: 48dvh; border-radius: 16px; }
+.app-stage .bank-selection-option { min-height: 76px; padding: 12px; gap: 12px; }
+.app-stage .institution-option-copy { min-width: 0; }
+.app-stage .institution-option-copy strong,
+.app-stage .bank-selection-option .institution-option-copy strong { font-size: 14px; }
+.app-stage .institution-option-copy small,
+.app-stage .bank-selection-option .institution-option-copy small { font-size: 12px; }
+.app-stage :is(.institution-selection h3, .review-total > span) { font-size: 18px; }
+.app-stage .transfer-review { display: grid; gap: 16px; }
+.app-stage .review-total { margin: 0; padding: 24px 20px; border-radius: 20px; background: #eaf0ff; }
+.app-stage .review-total strong { font-size: 32px; line-height: 1.25; overflow-wrap: anywhere; }
+.app-stage .detail-list { width: 100%; margin: 0; padding: 4px 16px; border: 1px solid var(--line); border-radius: 20px; background: #fff; }
+.app-stage .detail-list > div { gap: 16px; padding: 16px 0; align-items: flex-start; }
+.app-stage .detail-list dt { flex: 0 0 40%; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.app-stage .detail-list dd { min-width: 0; margin: 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.app-stage .detail-list dd button { min-height: 44px; max-width: 100%; font-size: 12px; overflow-wrap: anywhere; }
+.app-stage .detail-list dd button svg { flex-shrink: 0; }
+.app-stage .transfer-authorization { display: grid; gap: 16px; }
+.app-stage .transfer-authorization p { margin: 0; font-size: 14px; }
+.app-stage .transaction-detail-hero { margin-block: 0 24px; padding: 24px 16px; border-radius: 20px; background: #f3f7fc; }
+.app-stage .detail-amount { font-size: 32px; line-height: 1.3; overflow-wrap: anywhere; }
+.app-stage .detail-note { margin: 16px 0; color: var(--muted); font-size: 12px; }
+.app-stage .link-result { gap: 16px; }
+.app-stage .link-result > strong { font-size: 24px; line-height: 1.3; letter-spacing: -.035em; }
+.app-stage .link-result > p { margin-bottom: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.app-stage .result-icon { width: 64px; height: 64px; border-radius: 20px; background: #e6f7f3; color: #116b59; }
+.app-stage .result-icon.result-error { color: var(--danger); background: var(--danger-soft); }
+.app-stage .payment-state { max-width: 100%; padding: 8px 12px; border-radius: 10px; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.app-stage .qr-preview-frame { max-width: 100%; padding: 16px; border-radius: 20px; background: #fff; border: 1px solid var(--line); }
+.app-stage .qr-preview { max-width: 100%; height: auto; }
+.app-stage :is(.usdt-collection-address, .accepted-channels) { font-size: 14px; }
+.app-stage .usdt-collection-address strong { font-size: 12px; overflow-wrap: anywhere; }
+.app-stage .payment-sheet :is(.qr-brand-label, .qr-brand-note, .accepted-channels, .virtual-account-info dt, .virtual-account-info dd, .virtual-account-info-warning, .payment-link-share > a, .payment-link-share-message, .payment-link-share-error, .usdt-collection-address > span, .usdt-collection-address > small) {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.app-stage .payment-link-share { padding: 16px; border-radius: 16px; }
+.app-stage .payment-link-share-actions { flex-wrap: wrap; gap: 12px; }
+.app-stage .payment-link-share-actions > * { flex: 1 1 120px; }
+.app-stage .transaction-receipt-actions { gap: 12px; }
+.app-stage .transaction-receipt-actions .button { min-height: 52px; padding: 12px; font-size: 14px; }
+.app-stage .refund-confirmation > strong { font-size: 14px; }
+.app-stage .result-actions { gap: 12px; flex-wrap: wrap; }
+.app-stage .result-actions > .button { flex: 1 1 140px; }
+.app-stage .receipt-action-buttons { gap: 12px; flex-wrap: wrap; }
+.app-stage :is(.refund-status, .refund-confirmation, .inline-error, .data-warning, .bank-load-error) { padding: 16px; border-radius: 12px; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.app-stage .refund-confirmation { margin-block: 16px; }
+.app-stage .refund-confirmation p { font-size: 14px; }
+
+/* Notifications: no clipped descriptions or tiny receipt metadata. */
+.app-stage .notification-inbox-toolbar { gap: 12px; margin-bottom: 16px; }
+.app-stage .notification-inbox-toolbar p { margin: 0; color: var(--muted); font-size: 14px; }
+.app-stage :is(.notification-mark-all, .notification-load-more) { min-height: 44px; padding: 8px 12px; border-radius: 12px; font-size: 12px; color: var(--link); }
+.app-stage .notification-inbox-filters { gap: 4px; margin-bottom: 16px; padding: 4px; border-radius: 14px; background: #eaf0ff; }
+.app-stage .notification-inbox-filters button { min-height: 44px; padding: 8px; border-radius: 10px; font-size: 14px; }
+.app-stage .notification-inbox-filters button.active { color: var(--link); border-color: var(--line); background: #fff; }
+.app-stage .notification-inbox-list { max-height: none; margin: 0 0 16px; padding: 0; overflow: visible; }
+.app-stage .notification-inbox-item { grid-template-columns: 40px minmax(0, 1fr) 36px; padding: 16px 12px; gap: 12px; border-radius: 16px; }
+.app-stage .notification-inbox-item.is-unread { border-radius: 16px; background: #eaf0ff; }
+.app-stage .notification-icon { width: 40px; height: 40px; border-radius: 12px; color: #116b59; background: #e6f7f3; }
+.app-stage .notification-inbox-heading { flex-wrap: wrap; gap: 8px; }
+.app-stage .notification-inbox-heading > strong { font-size: 14px; line-height: 1.4; }
+.app-stage .notification-new { font-size: 11px; }
+.app-stage .notification-inbox-content > p { margin: 8px 0; overflow: visible; white-space: normal; color: var(--muted); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.app-stage .notification-inbox-content .notification-amount { font-size: 16px; }
+.app-stage .notification-inbox-content > small { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.app-stage .notification-read-button { width: 36px; height: 44px; border-radius: 10px; }
+.app-stage .notification-inbox-state { min-height: 240px; padding: 32px 16px; gap: 16px; }
+.app-stage .notification-inbox-state > strong { font-size: 18px; }
+.app-stage .notification-inbox-state > p { font-size: 14px; }
+
+.app-stage .bottom-nav {
+  inset: auto 0 0;
+  height: 88px;
+  padding: 8px 16px 12px;
+  gap: 4px;
+  background: #fff;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.app-stage .bottom-nav button { min-height: 56px; gap: 4px; border-radius: 12px; color: var(--muted); }
+.app-stage .bottom-nav button > .nav-icon { width: 40px; height: 30px; border: 0; background: transparent; }
+.app-stage .bottom-nav small { font-size: 12px; font-weight: 700; line-height: 1.3; }
+.app-stage .bottom-nav button.active:not(.pay-tab) { background: #eaf0ff; color: var(--link); }
+.app-stage .bottom-nav button.active:not(.pay-tab) > .nav-icon { border: 0; background: transparent; }
+.app-stage .bottom-nav .pay-tab { transform: none; }
+.app-stage .bottom-nav .pay-tab > .nav-icon { width: 40px; height: 30px; border: 0; border-radius: 12px; background: transparent; color: var(--muted); box-shadow: none; }
+.app-stage .bottom-nav .pay-tab .menu-icon-glyph { color: var(--muted); }
+.app-stage .mobile-app .bottom-nav button > .nav-icon[data-tone] {
+  width: 40px;
+  height: 30px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+}
+.app-stage .mobile-app .bottom-nav button.active:not(.pay-tab) > .nav-icon[data-tone] {
+  border: 0;
+  background: transparent;
+}
+.app-stage .mobile-app .bottom-nav .pay-tab > .nav-icon[data-tone] {
+  width: 40px;
+  height: 30px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  box-shadow: none;
+}
+.app-stage .bottom-nav button.active:not(.pay-tab) .menu-icon-glyph[data-tone] { color: var(--link); }
+.app-stage .mobile-app .bottom-nav .pay-tab .menu-icon-glyph[data-tone] { color: var(--muted); }
+.app-stage .bottom-nav button.active:not(.pay-tab)::after { display: none; }
+
+/* Consistent interaction states, including controls inherited from older views. */
+.app-stage :is(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid #2457eb;
+  outline-offset: 3px;
+}
+.app-stage .payment-sheet :is(input, select, textarea):focus-visible {
+  border-color: #2457eb;
+  box-shadow: 0 0 0 3px rgb(36 87 235 / 12%);
+}
+.app-stage :is(button, input, select, textarea):disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+.app-stage :is(.button-primary, .sheet-submit):disabled { background: #2457eb; color: #fff; }
+@media (hover: hover) and (pointer: fine) {
+  .app-stage .button-primary:hover:not(:disabled) { background: #1844c7; border-color: #1844c7; box-shadow: none; }
+  .app-stage .balance-card-withdraw:hover:not(:disabled) { background: #eaf0ff; }
+  .app-stage .transaction-row:hover { padding-inline: 0; background: #f3f7fc; }
+}
+
+/* Mobile uses the entire native viewport; desktop retains a 440px workspace. */
+@media (max-width: 600px) {
+  .app-stage { min-height: 100dvh; padding: 0; }
+  .app-stage .mobile-app { width: 100%; height: 100dvh; min-height: 100dvh; border: 0; border-radius: 0; box-shadow: none; }
+  .app-stage .app-header { height: calc(88px + env(safe-area-inset-top)); padding-top: calc(20px + env(safe-area-inset-top)); }
+  .app-stage .app-scroll { top: calc(88px + env(safe-area-inset-top)); bottom: calc(88px + env(safe-area-inset-bottom)); }
+  .app-stage .bottom-nav { height: calc(88px + env(safe-area-inset-bottom)); padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+}
+@media (max-width: 380px) {
+  .app-stage .app-header { padding-inline: 16px; gap: 8px; }
+  .app-stage .app-header-title { font-size: 16px; }
+  .app-stage .header-actions { gap: 6px; }
+  .app-stage .environment-switch { padding-inline: 8px; }
+  .app-stage .app-scroll { padding-inline: 16px; }
+  .app-stage .payment-sheet { padding-inline: 16px; }
+  .app-stage .balance-card { padding: 20px; }
+  .app-stage .balance-value { font-size: 30px; }
+  .app-stage .wallet-card-grid { grid-template-columns: minmax(0, 1fr); }
+  .app-stage .summary-grid { gap: 12px; }
+  .app-stage .summary-grid > div + div { padding-left: 12px; }
+  .app-stage .transaction-row { grid-template-columns: 36px minmax(0, 1fr); gap: 8px 12px; }
+  .app-stage .transaction-value { grid-column: 2; max-width: none; text-align: left; }
+  .app-stage .transaction-value strong { display: inline; margin-right: 8px; }
+  .app-stage .notification-inbox-item { grid-template-columns: 36px minmax(0, 1fr); gap: 12px; }
+  .app-stage .notification-read-button { grid-column: 2; width: 44px; }
+  .app-stage .notification-icon { width: 36px; height: 36px; }
+  .app-stage .detail-list { padding-inline: 12px; }
+  .app-stage .detail-list > div { gap: 12px; }
+  .app-stage .bottom-nav { padding-inline: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-stage *,
+  .app-stage *::before,
+  .app-stage *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
