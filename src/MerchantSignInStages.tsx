@@ -2,6 +2,7 @@ import type { FormEvent } from "react"
 import { Capacitor } from "@capacitor/core"
 import {
   AlertCircle,
+  Delete,
   Fingerprint,
   KeyRound,
   LoaderCircle,
@@ -219,38 +220,113 @@ export function PinSignInStage({
   providerVerified: boolean
   emailReadOnly: boolean
 }) {
+  const deviceVerified =
+    providerVerified || hasTrustedDevice(email.trim().toLowerCase())
+
   return (
     <div className="auth-pin-stage">
-      <form onSubmit={onSubmit}>
-        <label>
+      <form className="auth-mpin-form" onSubmit={onSubmit} aria-busy={busy}>
+        <div className="auth-device-status">
+          <span className="auth-device-status-icon" aria-hidden="true">
+            <ShieldCheck size={20} />
+          </span>
+          <span>
+            <strong>
+              {providerVerified
+                ? "Identity verified"
+                : deviceVerified
+                  ? "Remembered device"
+                  : "Secure sign-in"}
+            </strong>
+            <small>
+              {deviceVerified
+                ? "Continue securely with your MPIN"
+                : "Enter the MPIN for your merchant account"}
+            </small>
+          </span>
+        </div>
+        <label className="auth-mpin-email">
           <span>Merchant email</span>
           <input
             type="email"
             value={email}
             onChange={(event) => onEmailChange(event.target.value)}
             readOnly={emailReadOnly}
+            disabled={busy}
             required
             autoComplete="username"
           />
         </label>
-        <label>
+        <label className="auth-mpin-label">
           <span>Four-digit MPIN</span>
-          <input
-            type="password"
-            inputMode="numeric"
-            pattern="[0-9]{4}"
-            maxLength={4}
-            autoComplete="one-time-code"
-            value={pin}
-            onChange={(event) =>
-              onPinChange(event.target.value.replace(/\D/g, "").slice(0, 4))
-            }
-            required
-            autoFocus
-            aria-describedby={error ? "signin-error" : undefined}
-          />
+          <span className="auth-mpin-entry">
+            <input
+              className="auth-mpin-input"
+              type="password"
+              inputMode="none"
+              pattern="[0-9]{4}"
+              maxLength={4}
+              autoComplete="one-time-code"
+              value={pin}
+              onChange={(event) =>
+                onPinChange(event.target.value.replace(/\D/g, "").slice(0, 4))
+              }
+              disabled={busy}
+              required
+              aria-invalid={Boolean(error)}
+              aria-describedby={`signin-pin-help${
+                error ? " signin-error" : ""
+              }`}
+            />
+            <span className="auth-mpin-slots" aria-hidden="true">
+              {[0, 1, 2, 3].map((index) => (
+                <span
+                  key={index}
+                  className={index < pin.length ? "is-filled" : ""}
+                >
+                  {index < pin.length ? "●" : ""}
+                </span>
+              ))}
+            </span>
+          </span>
         </label>
+        <p className="auth-mpin-help" id="signin-pin-help">
+          Use the keypad below. Keyboard and paste entry are also supported.
+        </p>
         {error && <InlineError id="signin-error" message={error} />}
+        <div className="auth-mpin-keypad" role="group" aria-label="MPIN keypad">
+          {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
+            <button
+              type="button"
+              className="auth-mpin-key"
+              key={digit}
+              aria-label={`Enter ${digit}`}
+              disabled={busy || pin.length === 4}
+              onClick={() => onPinChange(`${pin}${digit}`.slice(0, 4))}
+            >
+              {digit}
+            </button>
+          ))}
+          <span aria-hidden="true" />
+          <button
+            type="button"
+            className="auth-mpin-key"
+            aria-label="Enter 0"
+            disabled={busy || pin.length === 4}
+            onClick={() => onPinChange(`${pin}0`.slice(0, 4))}
+          >
+            0
+          </button>
+          <button
+            type="button"
+            className="auth-mpin-key auth-mpin-delete"
+            aria-label="Delete last MPIN digit"
+            disabled={busy || !pin}
+            onClick={() => onPinChange(pin.slice(0, -1))}
+          >
+            <Delete size={22} aria-hidden="true" />
+          </button>
+        </div>
         <Button
           type="submit"
           disabled={busy || pin.length !== 4}
@@ -278,10 +354,11 @@ export function PinSignInStage({
         <Button
           type="button"
           variant="secondary"
+          className="auth-mpin-recovery"
           disabled={busy}
           onClick={onForgotPin}
         >
-          Forgot MPIN? Verify with email code
+          Forgot MPIN? Verify by email
         </Button>
         <button
           type="button"
@@ -289,7 +366,9 @@ export function PinSignInStage({
           disabled={busy}
           onClick={onUseDifferentEmail}
         >
-          {providerVerified ? "Use a different sign-in method" : "Use a different email"}
+          {providerVerified
+            ? "Use a different sign-in method"
+            : "Use a different email"}
         </button>
       </form>
       {!providerVerified && (

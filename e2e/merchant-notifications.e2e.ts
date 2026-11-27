@@ -91,9 +91,7 @@ test("merchant can verify a device and read inbox notifications", async ({
   await expect(
     page.getByRole("heading", { name: "Sign in to PayPulse" }),
   ).toBeVisible()
-  await expect(page.getByRole("img", { name: "Black Sheep" })).toBeVisible()
-  await expect(page.getByRole("img", { name: "DRL Technology" })).toBeVisible()
-  await expect(page.getByRole("img", { name: "Netbank" })).toBeVisible()
+  await expect(page.locator(".auth-brand")).toContainText("PayPulse")
 
   await page.getByLabel("Merchant email").fill("merchant@example.com")
   await page.getByRole("button", { name: "Verify device by email" }).click()

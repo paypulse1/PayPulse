@@ -51,6 +51,16 @@ async function expectDecorativeIcons(container: Locator) {
 }
 
 async function expectAxeClean(page: Page, selector: string) {
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter(
+          (animation) => animation.effect?.getTiming().iterations !== Infinity,
+        )
+        .map((animation) => animation.finished.catch(() => undefined)),
+    ),
+  )
   const results = await new AxeBuilder({ page })
     .include(selector)
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
@@ -82,16 +92,17 @@ test.describe("menu accessibility", () => {
   test("menus expose correct roles and accessible names", async ({ page }) => {
     const nav = appNavigation(page)
     await expect(nav).toBeVisible()
-    await expect(page.getByRole("navigation", { name: "App navigation" })).toHaveCount(1)
+    await expect(
+      page.getByRole("navigation", { name: "App navigation" }),
+    ).toHaveCount(1)
 
     const navButtons = nav.getByRole("button")
     await expect(navButtons).toHaveCount(NAV_LABELS.length)
     expect(await accessibleNames(navButtons)).toEqual(NAV_LABELS)
     for (const label of NAV_LABELS) {
-      await expect(nav.getByRole("button", { name: label, exact: true })).toHaveAttribute(
-        "type",
-        "button",
-      )
+      await expect(
+        nav.getByRole("button", { name: label, exact: true }),
+      ).toHaveAttribute("type", "button")
     }
     await expectDecorativeIcons(nav)
 
@@ -108,7 +119,10 @@ test.describe("menu accessibility", () => {
     const navNames: string[] = []
     for (const toolNav of await toolNavs.all()) {
       const navName = (await toolNav.getAttribute("aria-label"))?.trim() ?? ""
-      expect(navName, "every All access menu needs an accessible name").not.toBe("")
+      expect(
+        navName,
+        "every All access menu needs an accessible name",
+      ).not.toBe("")
       navNames.push(navName)
       const names = await accessibleNames(toolNav.getByRole("button"))
       expect(names.length).toBeGreaterThan(0)
@@ -116,7 +130,9 @@ test.describe("menu accessibility", () => {
       expect(new Set(names).size).toBe(names.length)
       await expectDecorativeIcons(toolNav)
     }
-    expect(new Set(navNames).size, "All access menu names must be unique").toBe(navNames.length)
+    expect(new Set(navNames).size, "All access menu names must be unique").toBe(
+      navNames.length,
+    )
   })
 
   test("selected tab is announced with aria-current on exactly one tab", async ({
@@ -131,15 +147,13 @@ test.describe("menu accessibility", () => {
       await expect(current).toHaveCount(1)
       await expect(current).toHaveAccessibleName(tab)
       await expect(collect).not.toHaveAttribute("aria-current", /.+/)
-      await expect(nav.getByRole("button", { name: tab, exact: true })).toHaveAttribute(
-        "aria-current",
-        "page",
-      )
+      await expect(
+        nav.getByRole("button", { name: tab, exact: true }),
+      ).toHaveAttribute("aria-current", "page")
       for (const other of NAV_TABS.filter((name) => name !== tab)) {
-        await expect(nav.getByRole("button", { name: other, exact: true })).not.toHaveAttribute(
-          "aria-current",
-          /.+/,
-        )
+        await expect(
+          nav.getByRole("button", { name: other, exact: true }),
+        ).not.toHaveAttribute("aria-current", /.+/)
       }
     }
   })
@@ -148,7 +162,8 @@ test.describe("menu accessibility", () => {
     page,
   }) => {
     const nav = appNavigation(page)
-    const button = (label: string) => nav.getByRole("button", { name: label, exact: true })
+    const button = (label: string) =>
+      nav.getByRole("button", { name: label, exact: true })
 
     await page.keyboard.press("Shift")
     await button("Home").focus()
@@ -179,7 +194,9 @@ test.describe("menu accessibility", () => {
     await page.keyboard.press("Enter")
     await expect(button("Home")).toHaveAttribute("aria-current", "page")
 
-    const quickButtons = page.getByRole("region", { name: "Quick actions" }).getByRole("button")
+    const quickButtons = page
+      .getByRole("region", { name: "Quick actions" })
+      .getByRole("button")
     await quickButtons.first().focus()
     await expectVisibleFocus(quickButtons.first())
     for (let index = 1; index < QUICK_ACTION_LABELS.length; index += 1) {
@@ -191,7 +208,11 @@ test.describe("menu accessibility", () => {
     await expectVisibleFocus(quickButtons.nth(QUICK_ACTION_LABELS.length - 2))
     await quickButtons.last().focus()
     await page.keyboard.press("Enter")
-    const firstTool = page.locator("nav.all-access-list").first().getByRole("button").first()
+    const firstTool = page
+      .locator("nav.all-access-list")
+      .first()
+      .getByRole("button")
+      .first()
     await firstTool.focus()
     await expectVisibleFocus(firstTool)
     await page.keyboard.press("Tab")
@@ -202,7 +223,10 @@ test.describe("menu accessibility", () => {
   test("menus have no axe WCAG A/AA violations", async ({ page }) => {
     await expectAxeClean(page, ".bottom-nav")
     await expectAxeClean(page, ".quick-actions")
-    await page.getByRole("region", { name: "Quick actions" }).getByRole("button", { name: "All access" }).click()
+    await page
+      .getByRole("region", { name: "Quick actions" })
+      .getByRole("button", { name: "All access" })
+      .click()
     await expect(page.locator(".all-access-page")).toBeVisible()
     await expectAxeClean(page, ".all-access-page")
   })
