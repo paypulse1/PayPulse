@@ -3,6 +3,9 @@ import ReactDOM from "react-dom/client"
 import { Capacitor } from "@capacitor/core"
 import { App as CapacitorApp } from "@capacitor/app"
 import "./index.css"
+import "./paypulse-redesign.css"
+import "./paypulse-auth-redesign.css"
+import "./paypulse-notifications.css"
 import AppLoadingScreen from "./AppLoadingScreen"
 import {
   resolveAppLinkRoute,

@@ -5,6 +5,7 @@ import {
   ArrowUpRight,
   Check,
   CheckCheck,
+  ChevronRight,
   Inbox,
   LoaderCircle,
   RefreshCw,
@@ -15,25 +16,15 @@ import {
   markMerchantNotificationRead,
   type MerchantNotification,
 } from "./lib/swiftpay"
+import {
+  filterNotifications,
+  formatNotificationDate,
+  formatNotificationMoney,
+  groupNotifications,
+  type NotificationFilter,
+} from "./lib/notificationPresentation"
 import PullToRefreshIndicator from "./PullToRefreshIndicator"
-
-function formatNotificationAmount(notification: MerchantNotification) {
-  const amount = new Intl.NumberFormat("en-PH", {
-    style: "currency",
-    currency: "PHP",
-    minimumFractionDigits: 2,
-  }).format(notification.amount)
-  return notification.type === "PAYMENT" ? `+${amount}` : `−${amount}`
-}
-
-function formatNotificationDate(value: string) {
-  const date = new Date(value)
-  if (!Number.isFinite(date.getTime())) return "Date unavailable"
-  return new Intl.DateTimeFormat("en-PH", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date)
-}
+import MerchantNotificationDetails from "./MerchantNotificationDetails"
 
 export default function MerchantNotificationInbox({
   onUnreadCountChange,
@@ -46,10 +37,9 @@ export default function MerchantNotificationInbox({
   pullDistance: number
   pullRefreshing: boolean
 }) {
-  const [filter, setFilter] = useState<"All" | "Payments" | "Transfers">(
-    "All",
-  )
+  const [filter, setFilter] = useState<NotificationFilter>("All")
   const [notifications, setNotifications] = useState<MerchantNotification[]>([])
+  const [selected, setSelected] = useState<MerchantNotification | null>(null)
   const [unreadCount, setUnreadCount] = useState(0)
   const [nextOffset, setNextOffset] = useState(0)
   const [hasMore, setHasMore] = useState(false)
@@ -57,254 +47,370 @@ export default function MerchantNotificationInbox({
   const [updatingId, setUpdatingId] = useState("")
   const [markingAllRead, setMarkingAllRead] = useState(false)
   const [error, setError] = useState("")
-  const activeRef = useRef(true)
+  const activeRef = useRef(false)
+  const generationRef = useRef(0)
+  const queueRef = useRef(Promise.resolve())
+  const mutationRef = useRef(false)
+  const unreadRef = useRef(0)
+  const callbackRef = useRef(onUnreadCountChange)
+  const returnFocusRef = useRef<HTMLButtonElement | null>(null)
+  const inboxRef = useRef<HTMLDivElement>(null)
+  callbackRef.current = onUnreadCountChange
 
-  async function loadInbox(offset = 0, append = false) {
+  function publishUnread(count: number) {
+    unreadRef.current = count
+    setUnreadCount(count)
+    callbackRef.current(count)
+  }
+
+  // Serialize reads and writes so an older page cannot undo a successful read
+  // mutation. The generation also rejects responses from a previous refresh.
+  function enqueue(operation: () => Promise<void>) {
+    queueRef.current = queueRef.current.then(operation, operation)
+    return queueRef.current
+  }
+
+  function loadInbox(
+    offset = 0,
+    append = false,
+    generation = generationRef.current,
+  ) {
     setLoading(true)
     setError("")
-    try {
-      const page = await getMerchantNotificationInbox({ limit: 20, offset })
-      if (!activeRef.current) return
-      setNotifications((current) =>
-        append
-          ? [
-              ...new Map(
-                [...current, ...page.notifications].map((notification) => [
-                  notification.id,
-                  notification,
-                ] as const),
-              ).values(),
-            ]
-          : page.notifications,
-      )
-      setUnreadCount(page.unreadCount)
-      onUnreadCountChange(page.unreadCount)
-      setHasMore(page.hasMore)
-      setNextOffset(offset + page.notifications.length)
-    } catch (requestError) {
-      if (!activeRef.current) return
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Could not load your notifications.",
-      )
-    } finally {
-      if (activeRef.current) setLoading(false)
-    }
+    return enqueue(async () => {
+      if (!activeRef.current || generation !== generationRef.current) return
+      try {
+        const page = await getMerchantNotificationInbox({ limit: 20, offset })
+        if (!activeRef.current || generation !== generationRef.current) return
+        setNotifications((current) =>
+          append
+            ? [
+                ...new Map(
+                  [...current, ...page.notifications].map((item) => [
+                    item.id,
+                    item,
+                  ]),
+                ).values(),
+              ]
+            : page.notifications,
+        )
+        publishUnread(page.unreadCount)
+        setHasMore(page.hasMore)
+        setNextOffset(offset + page.notifications.length)
+      } catch (requestError) {
+        if (!activeRef.current || generation !== generationRef.current) return
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Could not load your notifications.",
+        )
+      } finally {
+        if (activeRef.current && generation === generationRef.current)
+          setLoading(false)
+      }
+    })
   }
 
   useEffect(() => {
     activeRef.current = true
-    void loadInbox()
+    const generation = ++generationRef.current
+    void loadInbox(0, false, generation)
     return () => {
       activeRef.current = false
+      ++generationRef.current
     }
   }, [refreshVersion])
 
-  async function markRead(notification: MerchantNotification) {
-    if (notification.readAt || updatingId || markingAllRead) return
+  function markRead(notification: MerchantNotification) {
+    if (notification.readAt || mutationRef.current) return
+    mutationRef.current = true
     setUpdatingId(notification.id)
     setError("")
-    try {
-      const response = await markMerchantNotificationRead(notification.id)
-      if (!activeRef.current) return
-      setNotifications((current) =>
-        current.map((item) =>
-          item.id === notification.id
-            ? { ...item, readAt: response.readAt }
-            : item,
-        ),
-      )
-      const nextCount = Math.max(0, unreadCount - 1)
-      setUnreadCount(nextCount)
-      onUnreadCountChange(nextCount)
-    } catch (requestError) {
-      if (!activeRef.current) return
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Could not update this notification.",
-      )
-    } finally {
-      if (activeRef.current) setUpdatingId("")
-    }
+    return enqueue(async () => {
+      if (!activeRef.current) {
+        mutationRef.current = false
+        return
+      }
+      try {
+        const response = await markMerchantNotificationRead(notification.id)
+        if (!activeRef.current) return
+        setNotifications((current) =>
+          current.map((item) =>
+            item.id === notification.id
+              ? { ...item, readAt: response.readAt }
+              : item,
+          ),
+        )
+        publishUnread(Math.max(0, unreadRef.current - 1))
+      } catch (requestError) {
+        if (activeRef.current) {
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Could not update this notification.",
+          )
+        }
+      } finally {
+        mutationRef.current = false
+        if (activeRef.current) setUpdatingId("")
+      }
+    })
   }
 
-  async function markAllRead() {
-    if (!unreadCount || markingAllRead || updatingId) return
+  function markAllRead() {
+    if (!unreadRef.current || mutationRef.current) return
+    mutationRef.current = true
     setMarkingAllRead(true)
     setError("")
-    try {
-      const response = await markAllMerchantNotificationsRead()
-      if (!activeRef.current) return
-      const readAt = new Date().toISOString()
-      setNotifications((current) =>
-        current.map((item) => (item.readAt ? item : { ...item, readAt })),
-      )
-      setUnreadCount(response.unreadCount)
-      onUnreadCountChange(response.unreadCount)
-    } catch (requestError) {
-      if (!activeRef.current) return
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Could not mark notifications as read.",
-      )
-    } finally {
-      if (activeRef.current) setMarkingAllRead(false)
-    }
+    return enqueue(async () => {
+      if (!activeRef.current) {
+        mutationRef.current = false
+        return
+      }
+      try {
+        const response = await markAllMerchantNotificationsRead()
+        if (!activeRef.current) return
+        const readAt = new Date().toISOString()
+        setNotifications((current) =>
+          current.map((item) => (item.readAt ? item : { ...item, readAt })),
+        )
+        publishUnread(response.unreadCount)
+      } catch (requestError) {
+        if (activeRef.current) {
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Could not mark notifications as read.",
+          )
+        }
+      } finally {
+        mutationRef.current = false
+        if (activeRef.current) setMarkingAllRead(false)
+      }
+    })
   }
 
-  const filteredNotifications = notifications.filter((notification) => {
-    if (filter === "Payments") return notification.type === "PAYMENT"
-    if (filter === "Transfers") return notification.type === "DISBURSEMENT"
-    return true
-  })
-  const emptyTitle =
-    filter === "All"
-      ? "No notifications yet"
-      : `No ${filter.toLowerCase()} notifications`
-  const emptyDescription =
-    filter === "All"
-      ? "Payment and transfer updates will appear here."
-      : hasMore
-        ? "Load older notifications to check for more updates."
-        : `New ${filter.toLowerCase()} updates will appear here.`
+  function backToInbox() {
+    setSelected(null)
+    requestAnimationFrame(() => {
+      if (returnFocusRef.current?.isConnected) returnFocusRef.current.focus()
+      inboxRef.current
+        ?.querySelector<HTMLButtonElement>(
+          ".notification-inbox-filters button.active",
+        )
+        ?.focus()
+    })
+  }
+
+  const filteredNotifications = filterNotifications(notifications, filter)
+  const groups = groupNotifications(filteredNotifications)
+  const busy = loading || markingAllRead || Boolean(updatingId)
 
   return (
-    <div className="notification-inbox">
+    <div className="notification-inbox" ref={inboxRef}>
       <PullToRefreshIndicator
         distance={pullDistance}
         refreshing={pullRefreshing}
       />
-      <div className="notification-inbox-toolbar">
-        <p>
-          {unreadCount === 0
-            ? "You’re all caught up."
-            : `${unreadCount} unread notification${
-                unreadCount === 1 ? "" : "s"
-              }`}
-        </p>
-        <div className="notification-inbox-actions">
-          <button
-            type="button"
-            className="notification-mark-all"
-            disabled={!unreadCount || markingAllRead || Boolean(updatingId)}
-            onClick={() => void markAllRead()}
-          >
-            {markingAllRead ? (
-              <LoaderCircle className="spin" size={14} />
-            ) : (
-              <CheckCheck size={14} />
-            )}
-            Mark all read
-          </button>
-        </div>
-      </div>
-      <div
-        className="notification-inbox-filters"
-        aria-label="Filter notifications"
-      >
-        {(["All", "Payments", "Transfers"] as const).map((item) => (
-          <button
-            key={item}
-            type="button"
-            aria-pressed={filter === item}
-            className={filter === item ? "active" : ""}
-            onClick={() => setFilter(item)}
-          >
-            {item}
-          </button>
-        ))}
-      </div>
       {error && (
         <div className="inline-error notification-inbox-error" role="alert">
-          <AlertCircle size={15} />
+          <AlertCircle size={16} />
           <span>{error}</span>
-          <small>Pull down to try again.</small>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void loadInbox()}
+          >
+            Refresh inbox
+          </button>
         </div>
       )}
-      {loading && notifications.length === 0 ? (
-        <div className="notification-inbox-state" role="status">
-          <LoaderCircle className="spin" size={19} />
-          Loading notifications…
-        </div>
-      ) : filteredNotifications.length === 0 ? (
-        <div className="notification-inbox-state" role="status">
-          <span className="notification-empty-icon">
-            <Inbox size={22} />
-          </span>
-          <strong>{emptyTitle}</strong>
-          <p>{emptyDescription}</p>
-        </div>
+      {selected ? (
+        <MerchantNotificationDetails
+          notification={selected}
+          onBack={backToInbox}
+          refreshVersion={refreshVersion}
+        />
       ) : (
-        <div className="notification-inbox-list">
-          {filteredNotifications.map((notification) => {
-            const unread = !notification.readAt
-            const updating = updatingId === notification.id
-            return (
-              <article
-                className={`notification-inbox-item${
-                  unread ? " is-unread" : ""
-                }`}
-                key={notification.id}
-              >
-                <span className="notification-icon">
-                  {notification.type === "PAYMENT" ? (
-                    <ArrowDownLeft size={18} />
-                  ) : (
-                    <ArrowUpRight size={18} />
-                  )}
-                </span>
-                <div className="notification-inbox-content">
-                  <div className="notification-inbox-heading">
-                    <strong>{notification.title}</strong>
-                    {unread && <span className="notification-new">New</span>}
-                  </div>
-                  <p>{notification.description}</p>
-                  <strong className="notification-amount">
-                    {formatNotificationAmount(notification)}
-                  </strong>
-                  <small>
-                    Ref {notification.reference} ·{" "}
-                    {formatNotificationDate(notification.createdAt)}
-                  </small>
-                </div>
-                {unread && (
-                  <button
-                    type="button"
-                    className="notification-read-button"
-                    aria-label={`Mark ${notification.title.toLowerCase()} as read`}
-                    title="Mark as read"
-                    disabled={Boolean(updatingId) || markingAllRead}
-                    onClick={() => void markRead(notification)}
-                  >
-                    {updating ? (
-                      <LoaderCircle className="spin" size={15} />
-                    ) : (
-                      <Check size={15} />
-                    )}
-                  </button>
-                )}
-              </article>
-            )
-          })}
-        </div>
-      )}
-      {hasMore && (
-        <button
-          type="button"
-          className="notification-load-more"
-          disabled={loading}
-          onClick={() => void loadInbox(nextOffset, true)}
-        >
-          {loading ? (
-            <LoaderCircle className="spin" size={15} />
+        <>
+          <div className="notification-inbox-toolbar">
+            <p aria-live="polite">
+              {loading && notifications.length === 0
+                ? "Checking for updates…"
+                : error && notifications.length === 0
+                  ? "Updates are temporarily unavailable."
+                  : unreadCount === 0
+                    ? "You’re all caught up."
+                    : `${unreadCount} unread notification${
+                        unreadCount === 1 ? "" : "s"
+                      }`}
+            </p>
+            <button
+              type="button"
+              className="notification-mark-all"
+              disabled={!unreadCount || busy}
+              onClick={() => void markAllRead()}
+            >
+              {markingAllRead ? (
+                <LoaderCircle className="spin" size={16} />
+              ) : (
+                <CheckCheck size={16} />
+              )}
+              Mark all read
+            </button>
+          </div>
+          <div
+            className="notification-inbox-filters"
+            aria-label="Filter notifications"
+          >
+            {(["All", "Unread", "Payments", "Transfers"] as const).map(
+              (item) => (
+                <button
+                  key={item}
+                  type="button"
+                  aria-pressed={filter === item}
+                  className={filter === item ? "active" : ""}
+                  onClick={() => setFilter(item)}
+                >
+                  {item}
+                </button>
+              ),
+            )}
+          </div>
+          {loading && notifications.length === 0 ? (
+            <div className="notification-inbox-state" role="status">
+              <LoaderCircle className="spin" size={20} />
+              Loading notifications…
+            </div>
+          ) : filteredNotifications.length === 0 ? (
+            <div className="notification-inbox-state" role="status">
+              <span className="notification-empty-icon">
+                <Inbox size={24} />
+              </span>
+              <strong>
+                {error
+                  ? "Notifications unavailable"
+                  : filter === "Unread"
+                    ? unreadCount === 0
+                      ? "You’re all caught up"
+                      : "No unread updates loaded"
+                    : filter === "All"
+                      ? "No notifications yet"
+                      : `No ${filter.toLowerCase()} notifications`}
+              </strong>
+              <p>
+                {error
+                  ? "Use Refresh inbox to try again."
+                  : hasMore
+                    ? "Load older notifications to check for more updates."
+                    : filter === "Unread"
+                      ? "Your unread updates will appear here."
+                      : "Payment and transfer updates will appear here."}
+              </p>
+            </div>
           ) : (
-            <RefreshCw size={14} />
+            <div className="notification-inbox-list">
+              {groups.map((group) => (
+                <section
+                  className="notification-inbox-group"
+                  key={group.label}
+                  aria-label={group.label}
+                >
+                  <h3>{group.label}</h3>
+                  {group.notifications.map((notification) => (
+                    <article
+                      className={`notification-inbox-item${
+                        !notification.readAt ? " is-unread" : ""
+                      }`}
+                      key={notification.id}
+                    >
+                      <button
+                        type="button"
+                        className="notification-open"
+                        disabled={busy}
+                        onClick={(event) => {
+                          returnFocusRef.current = event.currentTarget
+                          setSelected(notification)
+                          void markRead(notification)
+                        }}
+                        aria-label={`View details: ${notification.title}, ${formatNotificationMoney(notification.amount)}, reference ${notification.reference}${
+                          !notification.readAt ? ", unread" : ""
+                        }`}
+                      >
+                        <span
+                          className={`notification-icon${
+                            notification.type === "PAYMENT" ? " is-payment" : ""
+                          }`}
+                        >
+                          {notification.type === "PAYMENT" ? (
+                            <ArrowDownLeft size={20} />
+                          ) : (
+                            <ArrowUpRight size={20} />
+                          )}
+                        </span>
+                        <span className="notification-inbox-content">
+                          <span className="notification-inbox-heading">
+                            <strong>{notification.title}</strong>
+                            {!notification.readAt && (
+                              <span className="notification-new">New</span>
+                            )}
+                          </span>
+                          <span className="notification-description">
+                            {notification.description}
+                          </span>
+                          <strong className="notification-amount">
+                            {formatNotificationMoney(notification.amount)}
+                          </strong>
+                          <small>
+                            <span>Ref </span>
+                            <span>{notification.reference}</span> ·{" "}
+                            {formatNotificationDate(notification.createdAt)}
+                          </small>
+                        </span>
+                        <ChevronRight
+                          className="notification-chevron"
+                          size={17}
+                          aria-hidden="true"
+                        />
+                      </button>
+                      {!notification.readAt && (
+                        <button
+                          type="button"
+                          className="notification-read-button"
+                          aria-label={`Mark ${notification.title.toLowerCase()} as read`}
+                          title="Mark as read"
+                          disabled={busy}
+                          onClick={() => void markRead(notification)}
+                        >
+                          {updatingId === notification.id ? (
+                            <LoaderCircle className="spin" size={17} />
+                          ) : (
+                            <Check size={17} />
+                          )}
+                        </button>
+                      )}
+                    </article>
+                  ))}
+                </section>
+              ))}
+            </div>
           )}
-          Load older notifications
-        </button>
+          {hasMore && (
+            <button
+              type="button"
+              className="notification-load-more"
+              disabled={busy}
+              onClick={() => void loadInbox(nextOffset, true)}
+            >
+              {loading ? (
+                <LoaderCircle className="spin" size={16} />
+              ) : (
+                <RefreshCw size={16} />
+              )}
+              Load older notifications
+            </button>
+          )}
+        </>
       )}
     </div>
   )

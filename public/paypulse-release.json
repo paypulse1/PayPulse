@@ -1,0 +1,17 @@
+{
+  "release": "merchant-redesign-v1",
+  "product": "PayPulse",
+  "surfaces": [
+    "home",
+    "wallet",
+    "collect",
+    "transfer",
+    "sign-in",
+    "profile",
+    "payment-qr",
+    "transfer-review",
+    "transfer-status",
+    "notifications",
+    "payment-details"
+  ]
+}
