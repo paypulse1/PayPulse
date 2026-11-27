@@ -5802,7 +5802,7 @@ export default function App({ route }: { route: AppViewRoute }) {
                 <span className="eyebrow">
                   {data.paymentEnvironment === "production"
                     ? "LIVE WORKSPACE"
-                    : "DEMO WORKSPACE"}
+                    : "SANDBOX WORKSPACE"}
                 </span>
                 <ScreenTitle
                   title={activeTab === "Profile" ? "Your profile" : activeTab}

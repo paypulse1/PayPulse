@@ -530,3 +530,24 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Figma workspace headings and profile shortcuts. */
+.app-stage .workspace-page-heading { margin: 0 3px 16px; }
+.app-stage .workspace-page-heading .eyebrow { margin-bottom: 4px; font-size: 10px; }
+.app-stage .workspace-page-heading h1 { margin: 0; font-size: 22px; line-height: 1.3; letter-spacing: -.035em; }
+.app-stage .merchant-profile-page { display: grid; gap: 12px; padding-top: 0; }
+.app-stage .profile-summary-card { min-height: 82px; margin: 0; padding: 16px; border: 0; border-radius: 18px; background: #10243f; color: #fff; box-shadow: none; }
+.app-stage .profile-summary-card .profile-avatar { width: 44px; height: 44px; flex: 0 0 44px; border-radius: 13px; background: rgb(255 255 255 / 11%); color: #7de1d6; }
+.app-stage .profile-summary-card strong { color: #fff; font-size: 14px; }
+.app-stage .profile-summary-card .profile-account-badge { margin-top: 5px; padding: 0; background: transparent; color: #c6d3e2; font-size: 12px; }
+.app-stage .profile-shortcuts { margin: 0; padding: 4px 16px; overflow: hidden; }
+.app-stage .profile-shortcuts > .all-access-item { min-height: 72px; padding: 10px 0; grid-template-columns: 42px minmax(0, 1fr) 20px; grid-template-rows: auto; gap: 12px; border: 0; border-bottom: 1px solid #e8edf4; border-radius: 0; background: transparent; box-shadow: none; }
+.app-stage .profile-shortcuts > .all-access-item:last-child { border-bottom: 0; }
+.app-stage .profile-shortcuts .all-access-item-icon { grid-column: 1; grid-row: 1; }
+.app-stage .profile-shortcuts .all-access-item-copy { min-width: 0; grid-column: 2; grid-row: 1; align-self: center; }
+.app-stage .profile-shortcuts .all-access-item-copy strong { font-size: 14px; }
+.app-stage .profile-shortcuts .all-access-item-copy small { margin-top: 3px; color: #74839a; font-size: 11px; line-height: 1.4; }
+.app-stage .profile-shortcuts .all-access-item-chevron { grid-column: 3; grid-row: 1; align-self: center; margin: 0; }
+.app-stage .profile-shortcuts > .all-access-item:hover { padding-inline: 5px; border-color: #e8edf4; background: #f8faff; box-shadow: none; transform: none; }
+.app-stage .profile-shortcuts > .all-access-item:active { background: #eef3ff; }
+.app-stage .profile-sign-out { width: 100%; }
